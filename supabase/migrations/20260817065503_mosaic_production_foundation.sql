@@ -897,8 +897,7 @@ declare
   v_slug_base text;
   v_slug text;
   v_creation_request app.organization_creation_requests%rowtype;
-  v_organization app.organizations%rowtype;
-  v_role text;
+  v_replay record;
 begin
   if v_user_id is null then
     raise exception using errcode = '42501', message = 'authentication required';
@@ -939,8 +938,8 @@ begin
       raise exception using errcode = '22023', message = 'p_request_id was already used for a different organization name';
     end if;
 
-    select organization, membership.role
-    into v_organization, v_role
+    select organization.*, membership.role as membership_role
+    into v_replay
     from app.organizations as organization
     join app.organization_memberships as membership
       on membership.organization_id = organization.id
@@ -954,12 +953,12 @@ begin
 
     return jsonb_build_object(
       'organization', jsonb_build_object(
-        'id', v_organization.id,
-        'name', v_organization.name,
-        'slug', v_organization.slug,
-        'role', v_role,
-        'workspaceRevision', v_organization.workspace_revision,
-        'accessRevision', v_organization.access_revision
+        'id', v_replay.id,
+        'name', v_replay.name,
+        'slug', v_replay.slug,
+        'role', v_replay.membership_role,
+        'workspaceRevision', v_replay.workspace_revision,
+        'accessRevision', v_replay.access_revision
       ),
       'requestId', p_request_id,
       'replayed', true

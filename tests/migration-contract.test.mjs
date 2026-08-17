@@ -53,6 +53,8 @@ test("makes tenant creation and invitation revocation retry-safe without direct 
   assert.match(sql, /create table app\.organization_creation_requests/i);
   assert.match(sql, /create or replace function public\.create_organization\([\s\S]+p_request_id uuid/i);
   assert.match(sql, /p_request_id was already used for a different organization name/i);
+  assert.match(sql, /select organization\.\*, membership\.role as membership_role\s+into v_replay/i);
+  assert.doesNotMatch(sql, /into v_organization\s*,\s*v_role/i);
   assert.doesNotMatch(sql, /create or replace function public\.create_organization\(p_name text\)/i);
   assert.doesNotMatch(sql, /grant execute on function public\.create_organization\(text\) to authenticated/i);
   assert.match(sql, /create or replace function public\.list_organization_invitations/i);
