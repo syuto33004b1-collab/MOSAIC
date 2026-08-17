@@ -17,6 +17,7 @@ import {
 import {
   addDays,
   getWeekStart,
+  memberDailyLoads,
   memberLoad,
   projectMembers,
   type Project,
@@ -28,6 +29,7 @@ type ProjectsViewProps = {
   weekOffset: number;
   onOpen: (projectId: string) => void;
   onCreate: () => void;
+  canEdit?: boolean;
 };
 
 type MembersViewProps = {
@@ -36,12 +38,15 @@ type MembersViewProps = {
   onOpen: (memberId: string) => void;
   onAdd: () => void;
   onAssign: (memberId: string) => void;
+  canEdit?: boolean;
+  canManageMembers?: boolean;
 };
 
 type ReportsViewProps = {
   state: WorkspaceState;
   onOpenWeek: (offset: number) => void;
-  onResolveNeed: () => void;
+  onResolveNeed: (needId: string) => void;
+  canEdit?: boolean;
 };
 
 const statusClass: Record<Project["status"], string> = {
@@ -49,14 +54,17 @@ const statusClass: Record<Project["status"], string> = {
   "要注意": "risk",
   "準備中": "ready",
   "完了間近": "closing",
+  "完了": "closing",
 };
 
-function formatMonthDay(iso: string) {
+function formatMonthDay(iso?: string | null) {
+  if (!iso) return "未設定";
   const [, month, day] = iso.split("-").map(Number);
+  if (!month || !day) return "未設定";
   return month + "/" + day;
 }
 
-export function ProjectsView({ state, weekOffset, onOpen, onCreate }: ProjectsViewProps) {
+export function ProjectsView({ state, weekOffset, onOpen, onCreate, canEdit = true }: ProjectsViewProps) {
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("すべて");
   const weekStart = getWeekStart(weekOffset);
@@ -77,7 +85,7 @@ export function ProjectsView({ state, weekOffset, onOpen, onCreate }: ProjectsVi
           <span className="ribbon-icon"><Layers3 size={18} /></span>
           <div><small>PORTFOLIO PULSE</small><strong>8つの案件を横断して配員を確認</strong></div>
         </div>
-        <div className="ribbon-stat"><strong>{state.projects.length}</strong><span>進行中の案件</span></div>
+        <div className="ribbon-stat"><strong>{state.projects.length}</strong><span>登録案件</span></div>
         <div className="ribbon-divider" />
         <div className="ribbon-stat risk"><strong>{portfolioRisks}</strong><span>要注意</span></div>
         <div className="ribbon-divider" />
@@ -88,10 +96,10 @@ export function ProjectsView({ state, weekOffset, onOpen, onCreate }: ProjectsVi
       <div className="view-toolbar">
         <div className="inline-search"><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="案件名・責任者を検索" aria-label="案件を検索" /></div>
         <label className="view-filter"><Filter size={14} /><select value={status} onChange={(event) => setStatus(event.target.value)} aria-label="プロジェクト状態で絞り込み">
-          {["すべて", "進行中", "要注意", "準備中", "完了間近", "欠員あり"].map((option) => <option key={option}>{option}</option>)}
+          {["すべて", "進行中", "要注意", "準備中", "完了間近", "完了", "欠員あり"].map((option) => <option key={option}>{option}</option>)}
         </select></label>
         <span className="toolbar-result">{filtered.length}件を表示</span>
-        <button className="view-add-button" onClick={onCreate}><Plus size={15} />プロジェクトを追加</button>
+        {canEdit && <button className="view-add-button" onClick={onCreate}><Plus size={15} />プロジェクトを追加</button>}
       </div>
 
       <div className="portfolio-table-wrap">
@@ -115,9 +123,9 @@ export function ProjectsView({ state, weekOffset, onOpen, onCreate }: ProjectsVi
                   <td><span className={"status-pill " + statusClass[project.status]}><i />{project.status}</span>{need && <small className={"need-note " + (need.status === "planned" ? "planned" : "")}>{need.status === "planned" ? "解消予定" : need.role + " 不足"}</small>}</td>
                   <td>
                     <div className="four-week-rail" aria-label={project.name + "の4週間の充足人数"}>
-                      {weeks.map((count, index) => <i key={index} title={(index + 1) + "週目: " + count + "/" + project.demand + "名"}><b className={count < project.demand ? "short" : ""} style={{ width: Math.min(100, count / project.demand * 100) + "%" }} /></i>)}
+                      {weeks.map((count, index) => <i key={index} title={project.demand === 0 ? (index + 1) + "週目: 必要人数未設定" : (index + 1) + "週目: " + count + "/" + project.demand + "名"}><b className={project.demand > 0 && count < project.demand ? "short" : ""} style={{ width: (project.demand === 0 ? 100 : Math.min(100, count / project.demand * 100)) + "%" }} /></i>)}
                     </div>
-                    <span className="staffed-label">{currentMembers}/{project.demand}名</span>
+                    <span className="staffed-label">{project.demand === 0 ? "必要人数未設定" : `${currentMembers}/${project.demand}名`}</span>
                   </td>
                   <td><div className="progress-cell"><span><b style={{ width: project.progress + "%" }} /></span><strong>{project.progress}%</strong></div></td>
                   <td><span className="milestone-cell"><strong>{project.nextMilestone}</strong><small>{formatMonthDay(project.nextMilestoneDate)}</small></span></td>
@@ -134,7 +142,7 @@ export function ProjectsView({ state, weekOffset, onOpen, onCreate }: ProjectsVi
   );
 }
 
-export function MembersView({ state, weekOffset, onOpen, onAdd, onAssign }: MembersViewProps) {
+export function MembersView({ state, weekOffset, onOpen, onAdd, onAssign, canEdit = true, canManageMembers = true }: MembersViewProps) {
   const [query, setQuery] = useState("");
   const [role, setRole] = useState("すべて");
   const weekStart = getWeekStart(weekOffset);
@@ -142,9 +150,13 @@ export function MembersView({ state, weekOffset, onOpen, onAdd, onAssign }: Memb
   const filtered = state.members.filter((member) => {
     const textMatch = (member.name + " " + member.role + " " + member.skills.join(" ")).toLowerCase().includes(query.toLowerCase());
     return textMatch && (role === "すべて" || member.role === role);
-  }).sort((a, b) => memberLoad(state, a.id, weekStart) - memberLoad(state, b.id, weekStart));
+  }).sort((a, b) => {
+    const aUtilization = a.capacity > 0 ? memberLoad(state, a.id, weekStart) / a.capacity : Number.POSITIVE_INFINITY;
+    const bUtilization = b.capacity > 0 ? memberLoad(state, b.id, weekStart) / b.capacity : Number.POSITIVE_INFINITY;
+    return aUtilization - bUtilization;
+  });
 
-  const available = state.members.filter((member) => memberLoad(state, member.id, weekStart) <= 60).length;
+  const available = state.members.filter((member) => member.capacity > 0 && memberLoad(state, member.id, weekStart) <= member.capacity * .6).length;
   const overloaded = state.members.filter((member) => memberLoad(state, member.id, weekStart) > member.capacity).length;
 
   return (
@@ -163,7 +175,7 @@ export function MembersView({ state, weekOffset, onOpen, onAdd, onAssign }: Memb
         <div className="inline-search"><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="名前・スキルを検索" aria-label="メンバーを検索" /></div>
         <label className="view-filter"><Filter size={14} /><select value={role} onChange={(event) => setRole(event.target.value)} aria-label="職種で絞り込み">{roles.map((option) => <option key={option}>{option}</option>)}</select></label>
         <span className="toolbar-result">空き率の高い順</span>
-        <button className="view-add-button" onClick={onAdd}><Plus size={15} />メンバーを追加</button>
+        {canManageMembers && <button className="view-add-button" onClick={onAdd}><Plus size={15} />メンバーを追加</button>}
       </div>
 
       <div className="member-table-wrap">
@@ -173,15 +185,16 @@ export function MembersView({ state, weekOffset, onOpen, onAdd, onAssign }: Memb
             {filtered.map((member) => {
               const load = memberLoad(state, member.id, weekStart);
               const weeklyLoads = [0, 1, 2, 3].map((offset) => memberLoad(state, member.id, addDays(weekStart, offset * 7)));
-              const nextOpen = weeklyLoads.findIndex((value) => value <= 60);
+              const nextOpen = member.capacity > 0 ? weeklyLoads.findIndex((value) => value <= member.capacity * .6) : -1;
+              const loadRatio = member.capacity > 0 ? load / member.capacity * 100 : load > 0 ? 100 : 0;
               return (
                 <tr key={member.id}>
                   <td><button className="member-name-cell" onClick={() => onOpen(member.id)}><span className={"avatar " + member.avatarTone}>{member.initials}</span><span><strong>{member.name}</strong><small>{member.role} · {member.department}</small></span></button></td>
                   <td><div className="member-skills">{member.skills.slice(0, 3).map((skill) => <span key={skill}>{skill}</span>)}</div></td>
-                  <td><span className={"load-ring " + (load > member.capacity ? "over" : load <= 60 ? "open" : "")} style={{ "--load": Math.min(100, load) } as React.CSSProperties}><strong>{load}%</strong></span></td>
-                  <td><div className="member-week-rail">{weeklyLoads.map((value, index) => <i className={value > 100 ? "over" : value <= 60 ? "open" : ""} key={index}><b style={{ height: Math.max(12, Math.min(100, value)) + "%" }} /><small>{value}%</small></i>)}</div></td>
-                  <td><span className="next-open">{nextOpen === -1 ? "4週先まで満員" : nextOpen === 0 ? "今週 " + Math.max(0, 100 - load) + "%空き" : (nextOpen + 1) + "週目から"}<small>{member.location}</small></span></td>
-                  <td><button className="quick-assign" onClick={() => onAssign(member.id)}><UserRoundPlus size={14} />アサイン</button></td>
+                  <td><span className={"load-ring " + (load > member.capacity ? "over" : member.capacity > 0 && load <= member.capacity * .6 ? "open" : "")} style={{ "--load": Math.min(100, loadRatio) } as React.CSSProperties}><strong>{load}%</strong></span><small className="capacity-limit">上限 {member.capacity}%</small></td>
+                  <td><div className="member-week-rail">{weeklyLoads.map((value, index) => { const ratio = member.capacity > 0 ? value / member.capacity * 100 : value > 0 ? 100 : 0; return <i className={value > member.capacity ? "over" : member.capacity > 0 && value <= member.capacity * .6 ? "open" : ""} key={index}><b style={{ height: Math.max(12, Math.min(100, ratio)) + "%" }} /><small>{value}%</small></i>; })}</div></td>
+                  <td><span className="next-open">{member.capacity === 0 ? "稼働不可 · 上限0%" : nextOpen === -1 ? "4週先まで満員" : nextOpen === 0 ? "今週 " + Math.max(0, member.capacity - load) + "%空き" : (nextOpen + 1) + "週目から"}<small>{member.location}</small></span></td>
+                  <td>{canEdit ? <button className="quick-assign" onClick={() => onAssign(member.id)}><UserRoundPlus size={14} />アサイン</button> : <span className="read-only-label">閲覧のみ</span>}</td>
                 </tr>
               );
             })}
@@ -192,20 +205,23 @@ export function MembersView({ state, weekOffset, onOpen, onAdd, onAssign }: Memb
   );
 }
 
-export function ReportsView({ state, onOpenWeek, onResolveNeed }: ReportsViewProps) {
+export function ReportsView({ state, onOpenWeek, onResolveNeed, canEdit = true }: ReportsViewProps) {
   const [range, setRange] = useState(8);
   const weekOffsets = useMemo(() => Array.from({ length: range }, (_, index) => index), [range]);
   const horizon = weekOffsets.map((offset) => {
     const weekStart = getWeekStart(offset);
-    const loads = state.members.map((member) => memberLoad(state, member.id, weekStart));
+    const capacity = state.members.reduce((sum, member) => sum + member.capacity, 0) * 5;
+    const load = state.members.reduce((sum, member) => sum + memberDailyLoads(state, member.id, weekStart, addDays(weekStart, 4)).reduce((dailySum, day) => dailySum + day.load, 0), 0);
     const confirmed = state.assignments.filter((assignment) => assignment.status === "confirmed" && assignment.startDate <= addDays(weekStart, 4) && assignment.endDate >= weekStart).length;
     const draft = state.assignments.filter((assignment) => assignment.status === "draft" && assignment.startDate <= addDays(weekStart, 4) && assignment.endDate >= weekStart).length;
-    return { offset, weekStart, average: Math.round(loads.reduce((sum, value) => sum + value, 0) / loads.length), confirmed, draft };
+    return { offset, weekStart, average: capacity > 0 ? Math.round(load / capacity * 100) : 0, confirmed, draft };
   });
   const departments = Array.from(new Set(state.members.map((member) => member.department))).map((department) => {
     const people = state.members.filter((member) => member.department === department);
-    const loads = people.map((member) => memberLoad(state, member.id, getWeekStart(0)));
-    return { department, count: people.length, average: Math.round(loads.reduce((sum, value) => sum + value, 0) / loads.length) };
+    const weekStart = getWeekStart(0);
+    const capacity = people.reduce((sum, member) => sum + member.capacity, 0) * 5;
+    const load = people.reduce((sum, member) => sum + memberDailyLoads(state, member.id, weekStart, addDays(weekStart, 4)).reduce((dailySum, day) => dailySum + day.load, 0), 0);
+    return { department, count: people.length, average: capacity > 0 ? Math.round(load / capacity * 100) : 0 };
   }).sort((a, b) => b.average - a.average);
   const currentOverloads = state.members.filter((member) => memberLoad(state, member.id, getWeekStart(0)) > member.capacity);
   const activeNeeds = state.needs.filter((need) => need.status !== "filled");
@@ -242,12 +258,12 @@ export function ReportsView({ state, onOpenWeek, onResolveNeed }: ReportsViewPro
           <div className="card-heading"><div><small>EXCEPTIONS</small><h3>判断が必要な項目</h3></div><span>{currentOverloads.length + activeNeeds.length}</span></div>
           <div className="exception-list">
             {currentOverloads.map((member) => <button onClick={() => onOpenWeek(0)} key={member.id}><span className="exception-icon risk"><CircleAlert size={14} /></span><span><strong>{member.name}さんが{memberLoad(state, member.id, getWeekStart(0))}%</strong><small>今週の稼働を調整してください</small></span><ChevronRight size={15} /></button>)}
-            {activeNeeds.map((need) => <button onClick={onResolveNeed} key={need.id}><span className={"exception-icon " + (need.status === "planned" ? "planned" : "open")}><CalendarClock size={14} /></span><span><strong>{state.projects.find((project) => project.id === need.projectId)?.name}</strong><small>{need.role} {need.allocation}% · {need.status === "planned" ? "解消予定" : "担当未定"}</small></span><ChevronRight size={15} /></button>)}
+            {activeNeeds.map((need) => <button onClick={() => onResolveNeed(need.id)} key={need.id}><span className={"exception-icon " + (need.status === "planned" ? "planned" : "open")}><CalendarClock size={14} /></span><span><strong>{state.projects.find((project) => project.id === need.projectId)?.name}</strong><small>{need.role} {need.allocation}% · {need.status === "planned" ? "解消予定" : "担当未定"}</small></span><ChevronRight size={15} /></button>)}
           </div>
         </section>
       </div>
 
-      <div className="report-insight"><span><Sparkles size={17} /></span><div><strong>今週の示唆</strong><p>品質保証には翌週60%の余力があります。モバイル会員証のQAを仮置きすると、翌週の不足を解消できます。</p></div><button onClick={onResolveNeed}>候補を見る <ArrowRight size={13} /></button></div>
+      <div className="report-insight"><span><Sparkles size={17} /></span><div><strong>今週の示唆</strong><p>未充足ロールとメンバーの空き状況を照合し、候補を確認できます。</p></div>{activeNeeds[0] && <button onClick={() => onResolveNeed(activeNeeds[0].id)}>{canEdit ? "候補を見る" : "候補を確認"} <ArrowRight size={13} /></button>}</div>
     </section>
   );
 }

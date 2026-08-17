@@ -11,15 +11,20 @@
 - 日付範囲と配分率を持つアサインボード
 - プロジェクト、メンバー、4〜12週間レポートの連動表示
 - 欠員への候補者仮置きと、過負荷の推奨調整
+- メンバー、プロジェクト、不足要員、アサインの登録・編集・取消・アーカイブ
 - 保存前の変更確認と、保存済み状態を守る取り消し
 - 検索、絞り込み、詳細ドロワー、レスポンシブ表示
+- Supabase Authによる招待制ログインと、組織ごとの共有ワークスペース
+- `owner` / `admin` / `planner` / `viewer`の権限分離
+- 組織招待の登録・取消、利用者の権限変更・利用停止、変更前後を追える監査ログ
+- revision比較による競合防止、冪等保存、Realtime更新通知
 
-デモデータと変更内容は各ブラウザの `localStorage` に保存されます。共有DB、認証、権限管理は含まれていません。
+Supabase接続値が未設定の環境では、画面上に`DEMO`と表示し、サンプルデータだけをブラウザの`localStorage`へ保存します。接続済み環境でDB読込に失敗した場合はデモへ切り替えず、エラーとして停止します。
 
 ## ローカル実行
 
 ```bash
-npm install
+npm ci
 npm run dev
 ```
 
@@ -28,8 +33,25 @@ npm run dev
 ```bash
 npm run lint
 npm test
+npm run typecheck
 ```
+
+## 共有運用のセットアップ
+
+業務データは非公開の`app` schemaに置き、ブラウザは認証済みRPCだけを利用します。migration、Auth URL、GitHub Repository Variables、role別検証は[Supabaseセットアップ](docs/SUPABASE_SETUP.md)を参照してください。リリース、バックアップ、障害対応は[運用手順](docs/OPERATIONS.md)、認可とsecretの境界は[セキュリティ方針](docs/SECURITY.md)に記載しています。
+
+`.env.local`には公開可能な接続値だけを設定します。
+
+```dotenv
+VITE_SUPABASE_URL=https://PROJECT_REF.supabase.co
+VITE_SUPABASE_PUBLISHABLE_KEY=sb_publishable_REPLACE_ME
+VITE_REQUIRE_SHARED_MODE=false
+```
+
+本番切替後は`VITE_REQUIRE_SHARED_MODE=true`を設定します。これにより接続値が消えたデプロイをデモとして公開せず、設定エラーで停止します。
 
 ## 公開方法
 
-`main` ブランチへのpushを契機に、GitHub Actionsが静的ビルドを作成し、GitHub Pagesへ自動公開します。
+Pull Requestではlint、unit/static test、build、dependency review、dependency auditに加え、隔離Postgresへmigrationを適用してrole/RLSを検証します。`main`への反映後、GitHub Actionsが静的ビルドを作成し、GitHub Pagesへ自動公開します。
+
+リリースごとの変更点は[CHANGELOG](CHANGELOG.md)を参照してください。
