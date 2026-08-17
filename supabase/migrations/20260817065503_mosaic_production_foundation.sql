@@ -1918,7 +1918,7 @@ $comment$;
 create or replace function private.payload_array(p_payload jsonb, p_path text[])
 returns jsonb
 language plpgsql
-immutable
+stable
 security invoker
 set search_path = ''
 as $function$

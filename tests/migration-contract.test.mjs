@@ -67,6 +67,9 @@ test("makes tenant creation and invitation revocation retry-safe without direct 
 
 test("audits skill links and rejects dangling workspace references", async () => {
   const sql = await productionMigration();
+  const payloadArrayFunction = sql.match(/create or replace function private\.payload_array[\s\S]*?\$function\$;/i)?.[0] ?? "";
+  assert.match(payloadArrayFunction, /language plpgsql\s+stable/i);
+  assert.doesNotMatch(payloadArrayFunction, /language plpgsql\s+immutable/i);
   assert.match(sql, /entity_key jsonb not null/i);
   assert.match(sql, /create trigger skills_audit/i);
   assert.match(sql, /create trigger person_skills_audit/i);
