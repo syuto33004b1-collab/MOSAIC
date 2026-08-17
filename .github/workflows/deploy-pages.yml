@@ -5,10 +5,7 @@ on:
     branches: [main]
   workflow_dispatch:
 
-permissions:
-  contents: read
-  pages: write
-  id-token: write
+permissions: {}
 
 concurrency:
   group: pages
@@ -17,24 +14,63 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      pages: read
+    env:
+      VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+      VITE_SUPABASE_PUBLISHABLE_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}
+      VITE_REQUIRE_SHARED_MODE: ${{ vars.VITE_REQUIRE_SHARED_MODE }}
+      VITE_APP_ENV: production
+      VITE_RELEASE: ${{ github.sha }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - name: Set up Node
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: 22
           cache: npm
       - name: Install dependencies
         run: npm ci
+      - name: Validate runtime configuration
+        shell: bash
+        run: |
+          if [[ -n "$VITE_REQUIRE_SHARED_MODE" && "$VITE_REQUIRE_SHARED_MODE" != "true" && "$VITE_REQUIRE_SHARED_MODE" != "false" ]]; then
+            echo "::error::VITE_REQUIRE_SHARED_MODE must be true or false."
+            exit 1
+          fi
+          if [[ -z "$VITE_SUPABASE_URL" && -z "$VITE_SUPABASE_PUBLISHABLE_KEY" ]]; then
+            if [[ "$VITE_REQUIRE_SHARED_MODE" == "true" ]]; then
+              echo "::error::Shared mode is required, but the Supabase runtime variables are missing."
+              exit 1
+            fi
+            echo "Supabase is not configured; building the demo fallback."
+            exit 0
+          fi
+          if [[ -z "$VITE_SUPABASE_URL" || -z "$VITE_SUPABASE_PUBLISHABLE_KEY" ]]; then
+            echo "::error::Set both VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY, or leave both empty."
+            exit 1
+          fi
+          if [[ "$VITE_SUPABASE_URL" != https://* ]]; then
+            echo "::error::VITE_SUPABASE_URL must use HTTPS."
+            exit 1
+          fi
+          if [[ "$VITE_SUPABASE_PUBLISHABLE_KEY" != sb_publishable_* ]]; then
+            echo "::error::Use a modern Supabase publishable key; secret and service-role keys are forbidden."
+            exit 1
+          fi
       - name: Lint
         run: npm run lint
+      - name: Audit dependencies
+        run: npm audit --audit-level=high
       - name: Test and build
         run: npm test
       - name: Configure Pages
-        uses: actions/configure-pages@v6
+        uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6
       - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v5
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5
         with:
           path: ./dist
 
@@ -44,7 +80,17 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
     needs: build
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v5
+        uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5
+      - name: Verify deployed entry point
+        shell: bash
+        run: >-
+          curl --fail --silent --show-error --location
+          --retry 5 --retry-delay 5 --retry-all-errors
+          "${{ steps.deployment.outputs.page_url }}" --output /dev/null

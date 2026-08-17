@@ -1,6 +1,6 @@
 {
   "name": "mosaic-assignment-planner",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "type": "module",
   "engines": {
@@ -9,28 +9,39 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "build": "tsc --noEmit && vite build",
+    "typecheck": "tsc --noEmit",
     "preview": "vite preview --host 127.0.0.1",
     "lint": "eslint . --ignore-pattern dist",
-    "test": "npm run build && node --test tests/static-build.test.mjs"
+    "test": "npm run test:unit && npm run test:static",
+    "test:unit": "vitest run",
+    "test:static": "npm run build && node --test tests/*.test.mjs"
   },
   "dependencies": {
+    "@supabase/supabase-js": "2.112.3",
     "lucide-react": "^1.31.0",
     "react": "19.2.6",
     "react-dom": "19.2.6"
   },
   "devDependencies": {
     "@eslint/js": "9.39.4",
+    "@testing-library/jest-dom": "7.0.1",
+    "@testing-library/react": "16.3.2",
+    "@testing-library/user-event": "14.6.4",
     "@types/node": "22.19.19",
     "@types/react": "19.2.14",
     "@types/react-dom": "19.2.3",
     "@vitejs/plugin-react": "6.0.2",
+    "axe-core": "4.13.0",
     "eslint": "9.39.4",
     "eslint-plugin-jsx-a11y": "6.10.2",
     "eslint-plugin-react": "7.37.5",
     "eslint-plugin-react-hooks": "7.1.1",
     "globals": "16.4.0",
+    "jsdom": "29.0.1",
+    "supabase": "2.114.0",
     "typescript": "5.9.3",
     "typescript-eslint": "8.59.3",
-    "vite": "8.2.1"
+    "vite": "8.2.1",
+    "vitest": "4.1.10"
   }
 }

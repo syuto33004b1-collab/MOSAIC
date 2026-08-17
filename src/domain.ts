@@ -2,7 +2,7 @@ export type Tone = "blue" | "mint" | "orange" | "plum" | "sky";
 export type AvatarTone = "lavender" | "peach" | "sky" | "mint" | "sand" | "rose";
 export type AssignmentStatus = "confirmed" | "draft";
 export type NeedStatus = "open" | "planned" | "filled";
-export type ProjectStatus = "進行中" | "要注意" | "準備中" | "完了間近";
+export type ProjectStatus = "進行中" | "要注意" | "準備中" | "完了間近" | "完了";
 
 export type Member = {
   id: string;
@@ -23,12 +23,13 @@ export type Project = {
   summary: string;
   status: ProjectStatus;
   tone: Tone;
-  ownerName: string;
-  ownerInitials: string;
+  ownerPersonId?: string;
+  ownerName?: string | null;
+  ownerInitials?: string | null;
   startDate: string;
   endDate: string;
   nextMilestone: string;
-  nextMilestoneDate: string;
+  nextMilestoneDate?: string | null;
   progress: number;
   demand: number;
 };
@@ -42,6 +43,8 @@ export type Assignment = {
   allocation: number;
   status: AssignmentStatus;
   label?: string;
+  staffingNeedId?: string | null;
+  clientRequestId?: string | null;
 };
 
 export type StaffingNeed = {
@@ -53,7 +56,7 @@ export type StaffingNeed = {
   endDate: string;
   allocation: number;
   status: NeedStatus;
-  draftPersonId?: string;
+  draftPersonId?: string | null;
 };
 
 export type WorkspaceState = {
@@ -80,7 +83,6 @@ export const projectTone: Record<string, Tone> = {
   nimbus: "plum",
   orion: "orange",
   pulse: "mint",
-  leave: "plum",
 };
 
 const members: Member[] = [
@@ -116,7 +118,6 @@ const assignments: Assignment[] = [
   { id: "a7", personId: "hayashi", projectId: "recruit", startDate: "2026-08-18", endDate: "2026-09-04", allocation: 60, status: "confirmed" },
   { id: "a8", personId: "matsumoto", projectId: "atlas", startDate: "2026-08-17", endDate: "2026-08-28", allocation: 40, status: "confirmed", label: "Atlas QA" },
   { id: "a9", personId: "ito", projectId: "kite", startDate: "2026-08-17", endDate: "2026-09-18", allocation: 70, status: "confirmed" },
-  { id: "a10", personId: "ito", projectId: "leave", startDate: "2026-08-21", endDate: "2026-08-21", allocation: 0, status: "confirmed", label: "休暇" },
   { id: "a11", personId: "morita", projectId: "orion", startDate: "2026-08-17", endDate: "2026-09-18", allocation: 60, status: "confirmed" },
   { id: "a12", personId: "morita", projectId: "atlas", startDate: "2026-08-17", endDate: "2026-08-28", allocation: 20, status: "confirmed" },
   { id: "a13", personId: "takahashi", projectId: "nimbus", startDate: "2026-08-17", endDate: "2026-08-21", allocation: 30, status: "confirmed" },
@@ -136,14 +137,35 @@ function isoDate(date: Date) {
   return date.toISOString().slice(0, 10);
 }
 
+function localIsoDate(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+export function getCurrentWeekStart(now = new Date()) {
+  const monday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const daysSinceMonday = (monday.getDay() + 6) % 7;
+  monday.setDate(monday.getDate() - daysSinceMonday);
+  return localIsoDate(monday);
+}
+
+export function getWeekStartForDate(iso: string) {
+  const date = new Date(iso + "T00:00:00Z");
+  const daysSinceMonday = (date.getUTCDay() + 6) % 7;
+  date.setUTCDate(date.getUTCDate() - daysSinceMonday);
+  return isoDate(date);
+}
+
 export function addDays(iso: string, amount: number) {
   const date = new Date(iso + "T00:00:00Z");
   date.setUTCDate(date.getUTCDate() + amount);
   return isoDate(date);
 }
 
-export function getWeekStart(offset: number) {
-  return addDays("2026-08-17", offset * 7);
+export function getWeekStart(offset: number, anchor = getCurrentWeekStart()) {
+  return addDays(anchor, offset * 7);
 }
 
 export function getWeekDays(offset: number): WeekDay[] {
@@ -178,11 +200,72 @@ export function assignmentGrid(assignment: Assignment, weekStart: string) {
   return { start: startIndex + 1, span: endIndex - startIndex + 1 };
 }
 
+export type DailyLoad = { date: string; load: number };
+
+const millisecondsPerDay = 86_400_000;
+
+function isoDayNumber(value: string) {
+  const milliseconds = Date.parse(value + "T00:00:00Z");
+  return Number.isFinite(milliseconds) ? Math.floor(milliseconds / millisecondsPerDay) : null;
+}
+
+function intervalContainsBusinessDay(startDay: number, endDay: number) {
+  if (endDay < startDay) return false;
+  if (endDay - startDay >= 6) return true;
+  for (let day = startDay; day <= endDay; day += 1) {
+    const weekday = new Date(day * millisecondsPerDay).getUTCDay();
+    if (weekday !== 0 && weekday !== 6) return true;
+  }
+  return false;
+}
+
+export function memberDailyLoads(state: WorkspaceState, memberId: string, startDate: string, endDate: string): DailyLoad[] {
+  const days: DailyLoad[] = [];
+  for (let date = startDate; date <= endDate; date = addDays(date, 1)) {
+    const day = new Date(date + "T00:00:00Z").getUTCDay();
+    if (day === 0 || day === 6) continue;
+    const load = state.assignments
+      .filter((assignment) => assignment.personId === memberId && assignment.startDate <= date && assignment.endDate >= date)
+      .reduce((sum, assignment) => sum + assignment.allocation, 0);
+    days.push({ date, load });
+  }
+  return days;
+}
+
+export function memberPeakLoad(state: WorkspaceState, memberId: string, startDate: string, endDate: string) {
+  const rangeStart = isoDayNumber(startDate);
+  const rangeEnd = isoDayNumber(endDate);
+  if (rangeStart === null || rangeEnd === null || rangeEnd < rangeStart) return 0;
+
+  const events = new Map<number, number>();
+  state.assignments.forEach((assignment) => {
+    if (assignment.personId !== memberId) return;
+    const assignmentStart = isoDayNumber(assignment.startDate);
+    const assignmentEnd = isoDayNumber(assignment.endDate);
+    if (assignmentStart === null || assignmentEnd === null) return;
+    const clippedStart = Math.max(rangeStart, assignmentStart);
+    const clippedEnd = Math.min(rangeEnd, assignmentEnd);
+    if (clippedEnd < clippedStart) return;
+    events.set(clippedStart, (events.get(clippedStart) ?? 0) + assignment.allocation);
+    events.set(clippedEnd + 1, (events.get(clippedEnd + 1) ?? 0) - assignment.allocation);
+  });
+
+  const eventDays = [...events.keys()].sort((left, right) => left - right);
+  let load = 0;
+  let peak = 0;
+  eventDays.forEach((eventDay, index) => {
+    load += events.get(eventDay) ?? 0;
+    if (eventDay > rangeEnd) return;
+    const nextEventDay = eventDays[index + 1] ?? rangeEnd + 1;
+    if (intervalContainsBusinessDay(eventDay, Math.min(rangeEnd, nextEventDay - 1))) {
+      peak = Math.max(peak, load);
+    }
+  });
+  return peak;
+}
+
 export function memberLoad(state: WorkspaceState, memberId: string, weekStart: string) {
-  const end = weekEnd(weekStart);
-  return state.assignments
-    .filter((assignment) => assignment.personId === memberId && assignment.projectId !== "leave" && overlaps(assignment.startDate, assignment.endDate, weekStart, end))
-    .reduce((sum, assignment) => sum + assignment.allocation, 0);
+  return memberPeakLoad(state, memberId, weekStart, weekEnd(weekStart));
 }
 
 export function projectMembers(state: WorkspaceState, projectId: string, weekStart: string) {
@@ -205,7 +288,21 @@ export function formatDate(iso: string) {
   return year + "年" + month + "月" + day + "日";
 }
 
+export function getIsoWeekNumber(iso: string) {
+  const date = new Date(iso + "T00:00:00Z");
+  const day = date.getUTCDay() || 7;
+  date.setUTCDate(date.getUTCDate() + 4 - day);
+  const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
+  return Math.ceil((((date.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
+}
+
 export function makeInitials(name: string) {
   const compact = name.replace(/\s/g, "");
   return (compact[0] || "N") + (compact[compact.length - 1] || "M");
+}
+
+export function createProjectCode(name: string, id: string) {
+  const prefix = name.replace(/[^A-Za-z0-9]/g, "").slice(0, 8).toUpperCase() || "PJ";
+  const suffix = id.replaceAll("-", "").slice(0, 11).toUpperCase();
+  return `${prefix}-${suffix}`;
 }

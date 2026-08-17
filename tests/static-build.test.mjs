@@ -13,6 +13,10 @@ test("builds a GitHub Pages entry point under the MOSAIC base path", async () =>
   assert.match(html, /\/MOSAIC\/assets\//);
   assert.match(html, /https:\/\/syuto33004b1-collab\.github\.io\/MOSAIC\/og\.png/);
   assert.match(html, /\/MOSAIC\/favicon\.svg/);
+  assert.doesNotMatch(html, /__MOSAIC_CONNECT_SRC__/);
+  assert.doesNotMatch(html, /__MOSAIC_UPGRADE_INSECURE_REQUESTS__/);
+  assert.match(html, /upgrade-insecure-requests/);
+  assert.doesNotMatch(html, /https:\/\/\*\.supabase\.co/);
 });
 
 test("ships the interactive assignment workspace and social image", async () => {
@@ -27,7 +31,8 @@ test("ships the interactive assignment workspace and social image", async () => 
   assert.match(bundle, /mosaic-local-workspace-v3/);
   assert.match(bundle, /プロジェクト・ポートフォリオ/);
   assert.match(bundle, /キャパシティ予測/);
-  assert.match(bundle, /この端末に保存/);
+  assert.match(bundle, /チームへ保存/);
+  assert.match(bundle, /get_my_context/);
 
   const og = await stat(path.join(dist, "og.png"));
   assert.ok(og.size > 1_000_000, "expected the full MOSAIC social image");
