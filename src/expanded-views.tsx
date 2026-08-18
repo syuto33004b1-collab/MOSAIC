@@ -230,9 +230,8 @@ export function ReportsView({ state, onOpenWeek, onResolveNeed, canEdit = true }
 
   return (
     <section className="section-view reports-view" aria-labelledby="reports-heading">
-      <h2 id="reports-heading" className="sr-only">需給バランスの見通し</h2>
       <div className="report-toolbar">
-        <div><small>CAPACITY HORIZON</small><h2>需給バランスの見通し</h2><p>確定・仮置き・空きを同じ時間軸で確認します。</p></div>
+        <div><small>CAPACITY HORIZON</small><h2 id="reports-heading">需給バランスの見通し</h2><p>確定・仮置き・空きを同じ時間軸で確認します。</p></div>
         <div className="range-tabs" aria-label="表示期間">{[4, 8, 12].map((weeks) => <button className={range === weeks ? "selected" : ""} aria-pressed={range === weeks} onClick={() => setRange(weeks)} key={weeks}>{weeks}週間</button>)}</div>
       </div>
 
