@@ -1,10 +1,16 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getSupabaseRuntimeConfiguration } from "./supabase";
 
 function legacyKey(role: string) {
   const encode = (value: object) => btoa(JSON.stringify(value)).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
   return `${encode({ alg: "HS256", typ: "JWT" })}.${encode({ role })}.signature`;
 }
+
+beforeEach(() => {
+  vi.stubEnv("VITE_SUPABASE_URL", "");
+  vi.stubEnv("VITE_SUPABASE_PUBLISHABLE_KEY", "");
+  vi.stubEnv("VITE_REQUIRE_SHARED_MODE", "false");
+});
 
 afterEach(() => vi.unstubAllEnvs());
 
