@@ -1370,7 +1370,10 @@ export default function Home({ mode = "demo", organizationName = "MOSAIC デモ"
   return (
     <main className="app-shell">
       <aside className="sidebar" inert={drawer ? true : undefined}>
-        <div className="brand"><span className="brand-mark" aria-hidden="true"><i /><i /><i /><i /></span><span>MOSAIC</span></div>
+        <div className="brand">
+          <span className="brand-mark" aria-hidden="true"><i /><i /><i /><i /></span>
+          <span className="brand-copy"><strong>MOSAIC</strong><small>Resource orchestration</small></span>
+        </div>
         <div className={"workspace-mode " + (mode === "shared" ? "shared" : "demo")}><span>{mode === "shared" ? "SHARED" : "DEMO"}</span><small>{organizationName}</small></div>
 
         <nav className="primary-nav" aria-label="メインナビゲーション">

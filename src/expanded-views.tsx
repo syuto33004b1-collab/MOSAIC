@@ -80,6 +80,7 @@ export function ProjectsView({ state, weekOffset, onOpen, onCreate, canEdit = tr
 
   return (
     <section className="section-view projects-view" aria-labelledby="projects-heading">
+      <h2 id="projects-heading" className="sr-only">プロジェクト一覧</h2>
       <div className="portfolio-ribbon">
         <div className="ribbon-lead">
           <span className="ribbon-icon"><Layers3 size={18} /></span>
@@ -161,6 +162,7 @@ export function MembersView({ state, weekOffset, onOpen, onAdd, onAssign, canEdi
 
   return (
     <section className="section-view members-view" aria-labelledby="members-heading">
+      <h2 id="members-heading" className="sr-only">メンバー一覧</h2>
       <div className="member-ribbon">
         <div className="ribbon-lead"><span className="ribbon-icon mint"><UsersRound size={18} /></span><div><small>TEAM AVAILABILITY</small><strong>空きが大きい順にメンバーを表示</strong></div></div>
         <div className="ribbon-stat"><strong>{state.members.length}</strong><span>登録メンバー</span></div>
@@ -229,7 +231,7 @@ export function ReportsView({ state, onOpenWeek, onResolveNeed, canEdit = true }
   return (
     <section className="section-view reports-view" aria-labelledby="reports-heading">
       <div className="report-toolbar">
-        <div><small>CAPACITY HORIZON</small><h2>需給バランスの見通し</h2><p>確定・仮置き・空きを同じ時間軸で確認します。</p></div>
+        <div><small>CAPACITY HORIZON</small><h2 id="reports-heading">需給バランスの見通し</h2><p>確定・仮置き・空きを同じ時間軸で確認します。</p></div>
         <div className="range-tabs" aria-label="表示期間">{[4, 8, 12].map((weeks) => <button className={range === weeks ? "selected" : ""} aria-pressed={range === weeks} onClick={() => setRange(weeks)} key={weeks}>{weeks}週間</button>)}</div>
       </div>
 

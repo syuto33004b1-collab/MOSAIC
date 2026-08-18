@@ -23,7 +23,7 @@ export function ProductionFrame({
       <aside className="sidebar production-sidebar">
         <div className="brand">
           <span className="brand-mark" aria-hidden="true"><i /><i /><i /><i /></span>
-          <span>MOSAIC</span>
+          <span className="brand-copy"><strong>MOSAIC</strong><small>Resource orchestration</small></span>
         </div>
         <div className="workspace-mode"><span>{sidebarLabel}</span><small>{sidebarDescription}</small></div>
         <div className="sidebar-spacer" />
