@@ -15,6 +15,7 @@
 - 保存前の変更確認と、保存済み状態を守る取り消し
 - 検索、絞り込み、詳細ドロワー、レスポンシブ表示
 - Supabase Authによる招待制ログインと、組織ごとの共有ワークスペース
+- Geminiをserver側から呼び出す、認証済み利用者向けAIチャット
 - `owner` / `admin` / `planner` / `viewer`の権限分離
 - 組織招待の登録・取消、利用者の権限変更・利用停止、変更前後を追える監査ログ
 - revision比較による競合防止、冪等保存、Realtime更新通知
@@ -38,7 +39,7 @@ npm run typecheck
 
 ## 共有運用のセットアップ
 
-業務データは非公開の`app` schemaに置き、ブラウザは認証済みRPCだけを利用します。migration、Auth URL、GitHub Repository Variables、role別検証は[Supabaseセットアップ](docs/SUPABASE_SETUP.md)を参照してください。リリース、バックアップ、障害対応は[運用手順](docs/OPERATIONS.md)、認可とsecretの境界は[セキュリティ方針](docs/SECURITY.md)に記載しています。
+業務データは非公開の`app` schemaに置き、ブラウザは認証済みRPCだけを利用します。migration、Auth URL、GitHub Repository Variables、role別検証は[Supabaseセットアップ](docs/SUPABASE_SETUP.md)を参照してください。AIチャットのserver-side APIキー、ローカル実行、Functionデプロイは[AIチャット設定](docs/AI_CHAT.md)に記載しています。リリース、バックアップ、障害対応は[運用手順](docs/OPERATIONS.md)、認可とsecretの境界は[セキュリティ方針](docs/SECURITY.md)に記載しています。
 
 `.env.local`には公開可能な接続値だけを設定します。
 
