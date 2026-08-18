@@ -464,6 +464,96 @@ test("treats skill order and casing as a set and preserves custom initials on a 
   assert.equal(updated.department, "基盤開発");
 });
 
+test("lists every update field as a Japanese-labelled before and after value", async () => {
+  const asMap = (plan) => new Map(plan.preview.details.map((detail) => [detail.label, detail.value]));
+
+  const memberPlan = await planWorkspaceAction(plannerOptions("update_member", {
+    memberId: ids.alice,
+    patch: {
+      name: "Alicia A",
+      role: "Platform Engineer",
+      department: "基盤開発",
+      location: "リモート",
+      skills: ["Go", "Kubernetes"],
+      capacity: 90.5,
+      initials: "AL",
+      avatarTone: "peach",
+    },
+  }, { role: "admin" }));
+  const memberDetails = asMap(memberPlan);
+  assert.equal(memberDetails.size, 8);
+  assert.equal(memberDetails.get("氏名"), "Alice A → Alicia A");
+  assert.equal(memberDetails.get("スキル"), "API, AWS → Go, Kubernetes");
+  assert.equal(memberDetails.get("稼働上限"), "100% → 90.5%");
+
+  const projectPlan = await planWorkspaceAction(plannerOptions("update_project", {
+    projectId: ids.project,
+    patch: {
+      code: "ATX",
+      name: "Atlas Next",
+      summary: "",
+      status: "要注意",
+      tone: "mint",
+      ownerPersonId: ids.alice,
+      startDate: "2026-08-02",
+      endDate: "2026-09-30",
+      nextMilestone: "",
+      nextMilestoneDate: null,
+      progress: 55.5,
+      demand: 4,
+    },
+  }));
+  const projectDetails = asMap(projectPlan);
+  assert.equal(projectDetails.size, 12);
+  assert.equal(projectDetails.get("責任者"), "Carol C → Alice A");
+  assert.equal(projectDetails.get("概要"), "基幹システム刷新 → 未設定");
+  assert.equal(projectDetails.get("マイルストーン日"), "2026-08-28 → 未設定");
+  assert.equal(projectDetails.get("必要人数"), "3名 → 4名");
+
+  const reassignmentSnapshot = snapshot();
+  reassignmentSnapshot.members = reassignmentSnapshot.members.map((member) => member.id === ids.bob ? {
+    ...member,
+    role: "Backend Engineer",
+    skills: ["API", "AWS"],
+    capacity: 100,
+  } : member);
+  const assignmentPlan = await planWorkspaceAction(plannerOptions("update_assignment", {
+    assignmentId: ids.assignment,
+    patch: {
+      personId: ids.bob,
+      projectId: ids.secondProject,
+      startDate: "2026-08-05",
+      endDate: "2026-08-28",
+      allocation: 60,
+      label: null,
+    },
+  }, { snapshot: reassignmentSnapshot }));
+  const assignmentDetails = asMap(assignmentPlan);
+  assert.equal(assignmentDetails.size, 7);
+  assert.equal(assignmentDetails.get("メンバー"), "Alice A → Bob B");
+  assert.equal(assignmentDetails.get("プロジェクト"), "Atlas → Nimbus");
+  assert.equal(assignmentDetails.get("ラベル"), "Backend → 未設定");
+  assert.equal(assignmentDetails.get("要員要件との紐づけ"), "Atlas / Backend Engineer → 未設定");
+
+  const needPlan = await planWorkspaceAction(plannerOptions("update_staffing_need", {
+    staffingNeedId: ids.need,
+    patch: {
+      projectId: ids.secondProject,
+      role: "QA Engineer",
+      skills: ["QA", "Mobile"],
+      startDate: "2026-09-01",
+      endDate: "2026-09-10",
+      allocation: 30,
+    },
+  }));
+  const needDetails = asMap(needPlan);
+  assert.equal(needDetails.size, 8);
+  assert.equal(needDetails.get("プロジェクト"), "Atlas → Nimbus");
+  assert.equal(needDetails.get("必要スキル"), "API → QA, Mobile");
+  assert.equal(needDetails.get("状態"), "充足済み → 未充足");
+  assert.equal(needDetails.get("担当候補"), "Alice A → 未設定");
+});
+
 test("rejects no-op updates instead of incrementing the workspace revision", async () => {
   await assert.rejects(
     () => planWorkspaceAction(plannerOptions("update_member", { memberId: ids.alice, patch: { name: "Alice A" } }, { role: "admin" })),
