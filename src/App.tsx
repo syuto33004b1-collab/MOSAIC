@@ -26,6 +26,8 @@ import {
   X,
 } from "lucide-react";
 import { MembersView, ProjectsView, ReportsView } from "./expanded-views";
+import { AiChat } from "./components/ai-chat/AiChat";
+import type { ChatTransport } from "./lib/ai/chatClient";
 import {
   addDays,
   assignmentGrid,
@@ -73,6 +75,7 @@ export type AppProps = {
   onSignOut?: () => void;
   onOpenOperations?: () => void;
   onAccessInvalidated?: () => void;
+  aiChatTransport?: ChatTransport;
 };
 
 type Drawer = "add" | "assignment" | "overload" | "openRole" | "project" | "member" | "newProject" | "newMember" | "editProject" | "editMember" | "needForm" | null;
@@ -212,7 +215,7 @@ function newId() {
   return crypto.randomUUID();
 }
 
-export default function Home({ mode = "demo", organizationName = "MOSAIC デモ", identity, shared, onSignOut, onOpenOperations, onAccessInvalidated }: AppProps) {
+export default function Home({ mode = "demo", organizationName = "MOSAIC デモ", identity, shared, onSignOut, onOpenOperations, onAccessInvalidated, aiChatTransport }: AppProps) {
   const startingWorkspace = shared?.initialState ?? initialWorkspace;
   const [workspace, setWorkspace] = useState<WorkspaceState>(() => cloneState(startingWorkspace));
   const [committedWorkspace, setCommittedWorkspace] = useState<WorkspaceState>(() => cloneState(startingWorkspace));
@@ -1695,6 +1698,12 @@ export default function Home({ mode = "demo", organizationName = "MOSAIC デモ"
         </div>
       )}
 
+      <AiChat
+        transport={aiChatTransport}
+        suspended={Boolean(drawer)}
+        elevated={unsavedChanges > 0}
+        unavailableReason={mode === "demo" ? "AIチャットは、共有モードでログインすると利用できます。" : undefined}
+      />
       <div className={"toast " + (toast ? "show" : "")} role="status" aria-live="polite"><Check size={14} />{toast}</div>
       {!hydrated && <span className="sr-only">保存データを読み込み中</span>}
     </main>

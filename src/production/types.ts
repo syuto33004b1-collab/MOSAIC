@@ -1,4 +1,5 @@
 import type { WorkspaceState } from "../domain";
+import type { ChatTransport } from "../lib/ai/chatClient";
 
 export type OrganizationRole = "owner" | "admin" | "planner" | "viewer";
 
@@ -59,6 +60,7 @@ export type ProductionAppProps = {
   onSignOut?: () => void;
   onOpenOperations?: () => void;
   onAccessInvalidated?: () => void;
+  aiChatTransport?: ChatTransport;
 };
 
 export type OrganizationMember = {

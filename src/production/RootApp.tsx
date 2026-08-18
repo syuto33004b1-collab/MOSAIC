@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import type { User } from "@supabase/supabase-js";
 import App from "../App";
 import { getSupabaseClient, getSupabaseRuntimeConfiguration } from "../lib/supabase";
+import { createSupabaseChatTransport, type ChatTransport } from "../lib/ai/chatClient";
 import { AuthScreen } from "./AuthScreen";
 import { OperationsPanel } from "./OperationsPanel";
 import { OrganizationSetup } from "./OrganizationSetup";
@@ -51,6 +52,7 @@ type SharedWorkspaceRouteProps = {
   onSelectOrganization: (organization: OrganizationSummary) => void;
   onSignOut: () => void;
   onAccessInvalidated: () => void;
+  aiChatTransport: ChatTransport;
 };
 
 type SharedWorkspaceRepository = Pick<ProductionRepository, "getWorkspace" | "saveWorkspace" | "subscribeToWorkspace">;
@@ -107,6 +109,7 @@ function SharedWorkspaceRoute({
   onSelectOrganization,
   onSignOut,
   onAccessInvalidated,
+  aiChatTransport,
 }: SharedWorkspaceRouteProps) {
   const [workspace, setWorkspace] = useState<WorkspaceEnvelope | null>(null);
   const [loading, setLoading] = useState(true);
@@ -188,6 +191,7 @@ function SharedWorkspaceRoute({
           onSignOut={onSignOut}
           onOpenOperations={() => setOperationsOpen(true)}
           onAccessInvalidated={onAccessInvalidated}
+          aiChatTransport={aiChatTransport}
         />
       </div>
       {operationsOpen && (
@@ -210,6 +214,7 @@ function SharedWorkspaceRoute({
 export function ProductionGate() {
   const client = useMemo(() => getSupabaseClient(), []);
   const repository = useMemo(() => new ProductionRepository(client), [client]);
+  const aiChatTransport = useMemo(() => createSupabaseChatTransport(client), [client]);
   const [auth, setAuth] = useState<AuthState>({ status: "checking", user: null, error: "" });
   const [context, setContext] = useState<MyContext | null>(null);
   const [contextLoading, setContextLoading] = useState(false);
@@ -454,6 +459,7 @@ export function ProductionGate() {
         onSelectOrganization={selectOrganization}
         onSignOut={() => void signOut()}
         onAccessInvalidated={refreshAccessNow}
+        aiChatTransport={aiChatTransport}
       />
     </>
   );
