@@ -4,6 +4,7 @@ import axe from "axe-core";
 import { describe, expect, it, vi } from "vitest";
 import App, { type SharedWorkspaceAdapter } from "./App";
 import { addDays, getWeekStart, initialWorkspace, memberDailyLoads, type WorkspaceState } from "./domain";
+import type { ChatTransport } from "./lib/ai/chatClient";
 
 function sharedAdapter(): SharedWorkspaceAdapter {
   return {
@@ -65,6 +66,109 @@ describe("role-aware workspace", () => {
     await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: "メンバー" }));
     expect(screen.getByRole("button", { name: "メンバーを追加" })).toBeDisabled();
     expect(screen.getAllByText("閲覧のみ").length).toBeGreaterThan(0);
+  });
+
+  it("scopes AI actions to the active organization and refreshes their saved revision", async () => {
+    const user = userEvent.setup();
+    const adapter = sharedAdapter();
+    let resolveReload: (value: { state: typeof initialWorkspace; revision: number }) => void = () => undefined;
+    const reload = vi.fn(() => new Promise<{ state: typeof initialWorkspace; revision: number }>((resolve) => {
+      resolveReload = resolve;
+    }));
+    adapter.reload = reload;
+    const onOpenOperations = vi.fn();
+    const onSignOut = vi.fn();
+    const proposal = {
+      token: "signed-action-token",
+      type: "assignment.create",
+      title: "アサインを追加",
+      summary: "中村 美咲さんをAtlasへ追加します。",
+      details: [{ label: "稼働配分", value: "40%" }],
+      impacts: ["最大稼働率は90%になります。"],
+      confirmLabel: "この内容で保存",
+      destructive: false,
+      expectedRevision: 7,
+      expiresAt: "2099-08-18T12:00:00.000Z",
+    };
+    const aiChatTransport = vi.fn<ChatTransport>()
+      .mockResolvedValueOnce({ reply: "変更案を確認してください。", interactionId: "interaction-1", proposal })
+      .mockResolvedValueOnce({ reply: "アサインを保存しました。", interactionId: "interaction-2", workspaceRevision: 8 });
+
+    render(
+      <App
+        mode="shared"
+        organizationId="organization-1"
+        organizationName="Example Inc."
+        identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }}
+        shared={adapter}
+        aiChatTransport={aiChatTransport}
+        onOpenOperations={onOpenOperations}
+        onSignOut={onSignOut}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "AIアシスタントを開く" }));
+    const composer = screen.getByLabelText("AIへのメッセージ");
+    await user.type(composer, "中村さんをAtlasへ追加して");
+    await user.keyboard("{Enter}");
+    const card = await screen.findByRole("group", { name: "アサインを追加" });
+
+    expect(aiChatTransport).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      kind: "message",
+      organizationId: "organization-1",
+      hasLocalChanges: false,
+    }));
+    await user.click(within(card).getByRole("button", { name: "この内容で保存" }));
+
+    await waitFor(() => expect(reload).toHaveBeenCalledOnce());
+    expect(within(card).queryByRole("status")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "組織と監査ログを管理" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "ログアウト" })).toBeDisabled();
+    await act(async () => resolveReload({ state: initialWorkspace, revision: 8 }));
+    expect(await within(card).findByRole("status")).toHaveTextContent("アサインを保存しました。");
+    expect(screen.getByRole("button", { name: "組織と監査ログを管理" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "ログアウト" })).toBeEnabled();
+  });
+
+  it("reports an AI save as committed but not refreshed when the workspace reload fails", async () => {
+    const user = userEvent.setup();
+    const adapter = sharedAdapter();
+    adapter.reload = vi.fn().mockRejectedValue(new Error("最新データを読み込めません"));
+    const proposal = {
+      token: "signed-action-token",
+      type: "assignment.create",
+      title: "アサインを追加",
+      summary: "中村 美咲さんをAtlasへ追加します。",
+      details: [{ label: "稼働配分", value: "40%" }],
+      impacts: [],
+      confirmLabel: "この内容で保存",
+      destructive: false,
+      expectedRevision: 7,
+      expiresAt: "2099-08-18T12:00:00.000Z",
+    };
+    const aiChatTransport = vi.fn<ChatTransport>()
+      .mockResolvedValueOnce({ reply: "変更案を確認してください。", interactionId: "interaction-1", proposal })
+      .mockResolvedValueOnce({ reply: "アサインを保存しました。", interactionId: "interaction-2", workspaceRevision: 8 });
+
+    render(
+      <App
+        mode="shared"
+        organizationId="organization-1"
+        organizationName="Example Inc."
+        identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }}
+        shared={adapter}
+        aiChatTransport={aiChatTransport}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "AIアシスタントを開く" }));
+    await user.type(screen.getByLabelText("AIへのメッセージ"), "中村さんをAtlasへ追加して");
+    await user.keyboard("{Enter}");
+    const card = await screen.findByRole("group", { name: "アサインを追加" });
+    await user.click(within(card).getByRole("button", { name: "この内容で保存" }));
+
+    expect(await within(card).findByRole("status")).toHaveTextContent("変更は保存されましたが、画面を更新できませんでした");
+    expect(await screen.findByText("共有データに接続できません")).toBeInTheDocument();
   });
 
   it("has no serious automatic accessibility violations", async () => {

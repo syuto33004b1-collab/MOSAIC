@@ -54,6 +54,7 @@ export type SharedWorkspaceAdapter = {
 
 export type ProductionAppProps = {
   mode?: "demo" | "shared";
+  organizationId?: string;
   organizationName?: string;
   identity?: ProductionIdentity;
   shared?: SharedWorkspaceAdapter;

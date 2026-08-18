@@ -185,6 +185,7 @@ function SharedWorkspaceRoute({
         <SharedApp
           key={currentOrganization.id}
           mode="shared"
+          organizationId={currentOrganization.id}
           organizationName={currentOrganization.name}
           identity={{ email: context.email, name: context.name, role: currentOrganization.role }}
           shared={shared}

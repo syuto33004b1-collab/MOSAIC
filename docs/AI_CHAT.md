@@ -1,6 +1,6 @@
 # MOSAIC AIチャット
 
-MOSAICのAIチャットは、認証済み利用者が画面の機能や操作方法を自然言語で確認するための機能です。ブラウザからGemini APIを直接呼ばず、Supabase Edge Functionを境界にしてAPIキー、入力検証、エラー処理をserver側へ閉じ込めます。
+MOSAICのAIチャットは、認証済み利用者が画面の機能や操作方法を自然言語で確認し、現在の共有データを参照・更新できるAI秘書です。ブラウザからGemini APIを直接呼ばず、Supabase Edge Functionを境界にしてAPIキー、権限確認、入力検証、確認付き操作、エラー処理をserver側へ閉じ込めます。
 
 ## 構成
 
@@ -17,7 +17,7 @@ GitHub Pages上のMOSAIC
 
 Geminiとの通信には、新規開発向けにGoogleが推奨している[Interactions API](https://ai.google.dev/gemini-api/docs/interactions-overview)を利用します。モデルは既定で安定版の[`gemini-3.7-flash`](https://ai.google.dev/gemini-api/docs/models/gemini-3.7-flash)を使い、応答と会話継続用のInteraction IDだけをブラウザへ返します。
 
-Phase 1の責務は次のfileへ分けています。
+責務は次のfileへ分けています。
 
 | File | 責務 |
 | --- | --- |
@@ -26,11 +26,35 @@ Phase 1の責務は次のfileへ分けています。
 | `supabase/functions/chat/index.ts` | HTTP・Auth境界と処理の組立て |
 | `supabase/functions/chat/contract.mjs` | request/responseの検証と公開契約 |
 | `supabase/functions/chat/continuation.mjs` | 会話継続IDを利用者へ結び付ける署名・検証 |
+| `supabase/functions/chat/action-token.mjs` | 確認内容、有効期限、利用者、組織を結び付ける署名・検証 |
 | `supabase/functions/chat/gemini.mjs` | Gemini Interactions APIとの通信 |
 | `supabase/functions/chat/prompt.mjs` | MOSAIC専用System Instruction |
 | `supabase/functions/chat/rate-limit.mjs` | 利用者単位の送信制限 |
+| `supabase/functions/chat/workspace-tools.mjs` | Geminiの許可済みtool、参照、変更計画、保存payloadの生成 |
 
-現在のrequestは`message`、画面上の最低限の`history`、任意の`previousInteractionId`を受け取ります。成功responseは`{ "reply": "...", "interactionId": "..." }`です。Gemini固有のstepsやエラー本文をブラウザ向け契約へ漏らしません。
+通常メッセージは`kind: "message"`（省略可）、`organizationId`、`message`、画面上の最低限の`history`、任意の`previousInteractionId`と`hasLocalChanges`を受け取ります。確認操作は`kind: "action"`、`organizationId`、`actionToken`、`decision: "confirm" | "cancel"`を受け取ります。
+
+成功responseは`reply`と`interactionId`を常に含みます。変更候補では`proposal`、保存成功時は`workspaceRevision`も返します。Gemini固有のsteps、生のInteraction ID、内部の保存payload、上流のエラー本文はブラウザ向け契約へ漏らしません。
+
+## AI秘書が扱える操作
+
+- 最新のメンバー、プロジェクト、アサイン、要員要件、稼働余力、過負荷を参照する。
+- メンバー、プロジェクト、アサイン、要員要件を登録・編集する。
+- メンバーとプロジェクトをアーカイブし、アサインと要員要件を取り消す。
+- 要員要件へ条件を満たすメンバーを割り当て、確定アサインを作成する。
+
+参照toolはEdge Functionが`get_workspace`で取得した同一時点のsnapshotだけを読みます。書込toolはその場で保存せず、1回につき1件の変更案を作ります。利用者が確認cardで実行を選んだ後だけ、既存の`save_workspace` RPCへ保存します。招待、ログインユーザー作成、権限変更、組織設定はtool対象外です。
+
+### 確認と保存の境界
+
+AIの確認cardは、通常画面の「チームへ保存」に相当する最終保存確認です。確認後は画面上の一時draftへ追加するのではなく、共有workspaceへ直接保存されます。
+
+- 画面に未保存変更がある間は、AIによる書込み候補を作らない。
+- 確認情報はHMAC署名し、利用者、組織、権限revision、workspace revision、有効期限（5分）、固定request ID、payload hashへ結び付ける。
+- 確認直前にmembership、role、access revision、workspace revisionを再検証する。
+- 競合時はHTTP 409を返し、自動rebaseや古い内容の保存は行わない。最新データで依頼をやり直す。
+- `save_workspace`は利用者JWTのRLS contextから1回だけ呼ぶ。`service_role`や管理者clientで権限を迂回しない。
+- 固定request IDとpayload hashにより同じ操作の再送を冪等に扱い、既存RPCの監査logと整合性検証を利用する。
 
 ## 認証境界
 
@@ -119,9 +143,12 @@ npm exec supabase -- functions list --project-ref PROJECT_REF
 
 1. 未ログインまたは無効なJWTの呼び出しが拒否される。
 2. ログイン後、短い質問へ回答が表示される。
-3. 同じチャット内の直前の文脈を引き継ぐ。
-4. Gemini設定不備、429、timeoutで秘密情報を含まないエラー表示になる。
-5. PC幅とモバイル幅で開閉、送信、再送ができる。
+3. 最新データへの質問が、選択中の組織の内容だけで回答される。
+4. 書込み依頼では確認cardが表示され、キャンセル時は保存されない。
+5. 確認後に共有データが1回だけ更新され、画面が最新revisionへ更新される。
+6. 未保存変更、権限不足、有効期限切れ、revision競合が安全に拒否される。
+7. Gemini設定不備、429、timeoutで秘密情報を含まないエラー表示になる。
+8. PC幅とモバイル幅で開閉、送信、確認、再送ができる。
 
 ## 会話履歴とGoogle側の保持
 
@@ -159,27 +186,13 @@ Gemini File Searchは`tools`へ`type: "file_search"`とstore名を追加でき�
 
 公式仕様は[Gemini File Search](https://ai.google.dev/gemini-api/docs/file-search)を参照してください。
 
-## Phase 3: Function Calling / アプリ内操作
+## Function Calling / アプリ内操作
 
-Function宣言と実行器は次の場所へ追加し、UIからGeminiのFunction名や引数を直接実行しません。
+現在の実装は、固定の許可listとJSON schemaを`workspace-tools.mjs`へ集約しています。Geminiの`function_call`はserverでtool名と引数を検証し、参照toolだけを自動実行します。書込toolは変更計画を作るだけで、確認済みaction requestだけが既存RPCを呼びます。Geminiが返したSQL、RPC名、URL、保存payloadをそのまま実行する経路はありません。
 
-```text
-supabase/functions/chat/
-  tools/
-    registry.ts        # Geminiへ公開するtoolの許可listとschema
-    execute.ts         # 認証済み利用者としてのserver-side実行
-```
+Interactions APIの状態保持を使い、結果は公式の`function_result`形式で同じ`call_id`へ返します。tool loopは4 round、各round 4 callを上限とし、確認後の完了文生成では`generation_config.tool_choice: "none"`を指定します。公式仕様は[Gemini Function Calling](https://ai.google.dev/gemini-api/docs/function-calling)を参照してください。
 
-追加時は次を必須にします。
-
-- GeminiはFunctionの候補と引数を返すだけで、実行可否はserverが決める。
-- tool名を固定の許可listで照合し、引数をschema検証する。
-- 現在のJWT、organization membership、roleを、既存RPCと同じ規則で再検証する。
-- 書込み操作は確認画面、冪等request ID、revision競合検出、監査logを維持する。
-- Geminiの文章をSQL、RPC名、URLとして直接実行しない。
-- Function結果は必要最小限へ整形してGeminiへ返す。
-
-既存機能の候補は、まず読取専用のプロジェクト検索、メンバー稼働確認、欠員・過負荷の取得です。アサイン保存、組織招待、権限変更、利用停止は影響が大きいため、Phase 3でも自動実行を既定にせず、明示確認と権限検証を伴う別レビュー対象にします。公式仕様は[Gemini Function Calling](https://ai.google.dev/gemini-api/docs/function-calling)を参照してください。
+将来toolを増やす場合は、宣言、引数正規化、role制約、snapshot上の検証、影響preview、保存payload、単体testを同じ変更で追加します。組織招待、権限変更、利用停止は現在の許可list外です。これらを追加する場合は、workspace保存とは別の強い確認と監査設計を先にレビューします。
 
 ## 障害時
 
