@@ -69,6 +69,7 @@ export type SharedWorkspaceAdapter = {
 
 export type AppProps = {
   mode?: "demo" | "shared";
+  organizationId?: string;
   organizationName?: string;
   identity?: { name: string; email: string; role: OrganizationRole };
   shared?: SharedWorkspaceAdapter;
@@ -215,7 +216,7 @@ function newId() {
   return crypto.randomUUID();
 }
 
-export default function Home({ mode = "demo", organizationName = "MOSAIC デモ", identity, shared, onSignOut, onOpenOperations, onAccessInvalidated, aiChatTransport }: AppProps) {
+export default function Home({ mode = "demo", organizationId, organizationName = "MOSAIC デモ", identity, shared, onSignOut, onOpenOperations, onAccessInvalidated, aiChatTransport }: AppProps) {
   const startingWorkspace = shared?.initialState ?? initialWorkspace;
   const [workspace, setWorkspace] = useState<WorkspaceState>(() => cloneState(startingWorkspace));
   const [committedWorkspace, setCommittedWorkspace] = useState<WorkspaceState>(() => cloneState(startingWorkspace));
@@ -249,6 +250,7 @@ export default function Home({ mode = "demo", organizationName = "MOSAIC デモ"
   const [pendingSave, setPendingSave] = useState<{ requestId: string; snapshot: string } | null>(null);
   const [saveOutcomePending, setSaveOutcomePending] = useState(false);
   const [formDirty, setFormDirty] = useState(false);
+  const [aiActionBusy, setAiActionBusy] = useState(false);
   const drawerRef = useRef<HTMLElement>(null);
   const previousFocus = useRef<HTMLElement | null>(null);
   const unsavedRef = useRef(0);
@@ -257,7 +259,7 @@ export default function Home({ mode = "demo", organizationName = "MOSAIC デモ"
   const saveBusyRef = useRef(false);
   const pendingRemoteRevisionRef = useRef(0);
   const pendingUnknownRefreshRef = useRef(false);
-  const refreshWorkspaceRef = useRef<(remoteRevision?: number) => void>(() => undefined);
+  const refreshWorkspaceRef = useRef<(remoteRevision?: number, propagateError?: boolean) => Promise<void>>(async () => undefined);
   const saveOutcomeUncertainRef = useRef(false);
   const formDirtyRef = useRef(false);
 
@@ -281,7 +283,7 @@ export default function Home({ mode = "demo", organizationName = "MOSAIC デモ"
     if (syncBusyRef.current || saveBusyRef.current) return;
     if (pendingUnknownRefreshRef.current) {
       pendingUnknownRefreshRef.current = false;
-      refreshWorkspaceRef.current();
+      void refreshWorkspaceRef.current();
       return;
     }
     const pendingRevision = pendingRemoteRevisionRef.current;
@@ -290,7 +292,7 @@ export default function Home({ mode = "demo", organizationName = "MOSAIC デモ"
       return;
     }
     pendingRemoteRevisionRef.current = 0;
-    refreshWorkspaceRef.current(pendingRevision);
+    void refreshWorkspaceRef.current(pendingRevision);
   }, []);
 
   useEffect(() => {
@@ -385,7 +387,7 @@ export default function Home({ mode = "demo", organizationName = "MOSAIC デモ"
     if (mode !== "shared" || !shared) return;
     let active = true;
 
-    const refreshIfSafe = async (remoteRevision?: number) => {
+    const refreshIfSafe = async (remoteRevision?: number, propagateError = false) => {
       if (!active) return;
       if (saveOutcomeUncertainRef.current) {
         if (remoteRevision !== undefined) {
@@ -402,6 +404,7 @@ export default function Home({ mode = "demo", organizationName = "MOSAIC デモ"
       if (remoteRevision !== undefined && remoteRevision <= revisionRef.current) return;
       if (remoteRevision !== undefined && (unsavedRef.current > 0 || formDirtyRef.current)) {
         setSyncStatus("conflict");
+        if (propagateError) throw new Error("最新データを反映する前に編集が始まりました。");
         return;
       }
       syncBusyRef.current = true;
@@ -416,6 +419,9 @@ export default function Home({ mode = "demo", organizationName = "MOSAIC デモ"
         if (unsavedRef.current > 0 || formDirtyRef.current) {
           setSyncStatus("conflict");
           setSyncError("最新データの確認中に編集が始まりました。下書きは保持されています。");
+          if (propagateError) {
+            throw Object.assign(new Error("最新データの確認中に編集が始まりました。"), { code: "LOCAL_CHANGES_DURING_REFRESH" });
+          }
           return;
         }
         revisionRef.current = latest.revision;
@@ -426,17 +432,19 @@ export default function Home({ mode = "demo", organizationName = "MOSAIC デモ"
         setSyncStatus("idle");
         setToast("チームの最新変更を反映しました");
       } catch (error) {
+        if (typeof error === "object" && error !== null && "code" in error && error.code === "LOCAL_CHANGES_DURING_REFRESH") throw error;
         if (!active) return;
         if (typeof error === "object" && error !== null && "code" in error && error.code === "FORBIDDEN") onAccessInvalidated?.();
         setSyncStatus("error");
         setSyncError(error instanceof Error ? error.message : "共有データの再読み込みに失敗しました");
+        if (propagateError) throw error;
       } finally {
         syncBusyRef.current = false;
         if (active) drainPendingRefresh();
       }
     };
 
-    const triggerRefresh = (remoteRevision?: number) => void refreshIfSafe(remoteRevision);
+    const triggerRefresh = (remoteRevision?: number, propagateError = false) => refreshIfSafe(remoteRevision, propagateError);
     refreshWorkspaceRef.current = triggerRefresh;
     drainPendingRefresh();
     const unsubscribe = shared.subscribe((remoteRevision) => void refreshIfSafe(remoteRevision));
@@ -448,12 +456,17 @@ export default function Home({ mode = "demo", organizationName = "MOSAIC デモ"
     document.addEventListener("visibilitychange", handleVisibility);
     return () => {
       active = false;
-      if (refreshWorkspaceRef.current === triggerRefresh) refreshWorkspaceRef.current = () => undefined;
+      if (refreshWorkspaceRef.current === triggerRefresh) refreshWorkspaceRef.current = async () => undefined;
       unsubscribe();
       window.removeEventListener("focus", handleFocus);
       document.removeEventListener("visibilitychange", handleVisibility);
     };
   }, [closeDrawer, drainPendingRefresh, mode, onAccessInvalidated, shared]);
+
+  const handleAiWorkspaceRevision = useCallback(async (remoteRevision: number) => {
+    if (!Number.isSafeInteger(remoteRevision) || remoteRevision < 0 || remoteRevision <= revisionRef.current) return;
+    await refreshWorkspaceRef.current(remoteRevision, true);
+  }, []);
 
   const days = useMemo(() => getWeekDays(weekOffset), [weekOffset]);
   const weekStart = getWeekStart(weekOffset);
@@ -492,7 +505,7 @@ export default function Home({ mode = "demo", organizationName = "MOSAIC デモ"
   const hasEditPermission = mode === "demo" || role !== "viewer";
   const canEdit = hasEditPermission && !operationLocked && !saveOutcomePending;
   const canManageMembers = (mode === "demo" || role === "owner" || role === "admin") && !operationLocked && !saveOutcomePending;
-  const accountActionLocked = operationLocked || saveOutcomePending;
+  const accountActionLocked = operationLocked || saveOutcomePending || aiActionBusy;
   const roleLabel: Record<OrganizationRole, string> = { owner: "オーナー", admin: "管理者", planner: "プランナー", viewer: "閲覧者" };
   const displayName = identity?.name || "デモユーザー";
   const canAddAssignment = canEdit && workspace.members.length > 0 && workspace.projects.length > 0;
@@ -1700,6 +1713,12 @@ export default function Home({ mode = "demo", organizationName = "MOSAIC デモ"
 
       <AiChat
         transport={aiChatTransport}
+        organizationId={organizationId}
+        hasLocalChanges={unsavedChanges > 0 || formDirty}
+        organizationRole={role}
+        syncBusy={operationLocked || saveOutcomePending}
+        onActionBusyChange={setAiActionBusy}
+        onWorkspaceRevision={handleAiWorkspaceRevision}
         suspended={Boolean(drawer)}
         elevated={unsavedChanges > 0}
         unavailableReason={mode === "demo" ? "AIチャットは、共有モードでログインすると利用できます。" : undefined}

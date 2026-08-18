@@ -37,3 +37,10 @@ test("ships the interactive assignment workspace and social image", async () => 
   const og = await stat(path.join(dist, "og.png"));
   assert.ok(og.size > 1_000_000, "expected the full MOSAIC social image");
 });
+
+test("keeps the AI panel inside a short visual viewport, including portrait keyboards", async () => {
+  const css = await readFile(path.join(root, "src/styles.css"), "utf8");
+  const shortViewport = css.match(/@media \(max-height: 520px\) \{([\s\S]*?)\n\}/)?.[1] ?? "";
+  assert.match(shortViewport, /\.ai-chat-panel[\s\S]*height: calc\(100dvh - 82px\);[\s\S]*min-height: 0;/);
+  assert.doesNotMatch(css, /@media \(max-height: 520px\) and \(orientation: landscape\)/);
+});

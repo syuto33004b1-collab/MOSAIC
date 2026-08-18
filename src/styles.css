@@ -3125,6 +3125,17 @@ h1 {
 .ai-chat-intro strong { color: var(--ink); font-size: 13px; font-weight: 600; }
 .ai-chat-intro p { margin-top: 5px; color: var(--muted); font-size: 11px; line-height: 1.7; }
 
+.ai-chat-context-note {
+  margin: -3px 0 0;
+  padding: 9px 11px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: var(--canvas);
+  color: var(--muted-readable-dark);
+  font-size: 10px;
+  line-height: 1.65;
+}
+
 .ai-chat-unavailable {
   padding: 12px 13px;
   border: 1px solid #d9aa9e;
@@ -3178,6 +3189,246 @@ h1 {
 
 .ai-chat-message.is-model small { color: var(--sage); }
 
+.ai-chat-proposal {
+  position: relative;
+  margin-top: 14px;
+  padding: 14px;
+  border: 1px solid var(--line-strong);
+  border-left: 3px solid var(--coral);
+  border-radius: 3px;
+  background: var(--paper-pure);
+  color: var(--text);
+}
+
+.ai-chat-proposal.is-destructive {
+  border-color: #d9aa9e;
+  border-left-color: var(--coral-deep);
+  background: #fffaf8;
+}
+
+.ai-chat-proposal.is-confirmed {
+  border-color: #aecdbb;
+  border-left-color: var(--sage);
+  background: #fbfefc;
+}
+
+.ai-chat-proposal-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+}
+
+.ai-chat-proposal-header > span:last-child { min-width: 0; flex: 1; }
+
+.ai-chat-proposal-icon {
+  width: 30px;
+  height: 30px;
+  flex: 0 0 30px;
+  border-radius: 50%;
+  background: var(--coral-soft);
+  color: var(--coral-deep);
+  display: grid;
+  place-items: center;
+}
+
+.ai-chat-proposal:not(.is-destructive) .ai-chat-proposal-icon {
+  background: var(--sage-soft);
+  color: var(--sage);
+}
+
+.ai-chat-proposal-header small {
+  margin: 1px 0 4px;
+  color: var(--coral-deep);
+  font: 800 8px/1.2 var(--font-data);
+  letter-spacing: .13em;
+}
+
+.ai-chat-proposal:not(.is-destructive) .ai-chat-proposal-header small { color: var(--sage); }
+
+.ai-chat-proposal-header h3 {
+  margin: 0;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 650;
+  letter-spacing: -.02em;
+  line-height: 1.45;
+}
+
+.ai-chat-proposal-summary {
+  margin: 12px 0 0 !important;
+  color: var(--text);
+  font-size: 11px !important;
+  line-height: 1.7 !important;
+}
+
+.ai-chat-proposal-details {
+  margin: 12px 0 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.ai-chat-proposal-details > div {
+  min-width: 0;
+  padding: 8px 0;
+  display: grid;
+  grid-template-columns: minmax(72px, .8fr) minmax(0, 1.4fr);
+  align-items: start;
+  gap: 10px;
+}
+
+.ai-chat-proposal-details > div + div { border-top: 1px solid var(--line); }
+
+.ai-chat-proposal-details dt {
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1.5;
+}
+
+.ai-chat-proposal-details dd {
+  min-width: 0;
+  margin: 0;
+  color: var(--ink);
+  font-size: 10px;
+  font-weight: 650;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.ai-chat-proposal-impacts {
+  margin-top: 11px;
+  padding: 10px 11px;
+  border-left: 2px solid var(--line-strong);
+  background: var(--canvas);
+}
+
+.ai-chat-proposal.is-destructive .ai-chat-proposal-impacts {
+  border-left-color: var(--coral-deep);
+  background: #fff2ed;
+}
+
+.ai-chat-proposal-impacts strong {
+  color: var(--ink);
+  font-size: 9px;
+  font-weight: 750;
+}
+
+.ai-chat-proposal-impacts ul {
+  margin: 5px 0 0;
+  padding-left: 16px;
+  color: var(--muted-readable-dark);
+  font-size: 9px;
+  line-height: 1.65;
+}
+
+.ai-chat-proposal-meta {
+  margin: 10px 0 0 !important;
+  color: var(--coral-deep);
+  font-size: 9px !important;
+  font-weight: 750;
+  line-height: 1.45 !important;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.ai-chat-proposal-meta span {
+  color: var(--muted);
+  font: 700 8px/1.45 var(--font-data);
+  text-align: right;
+}
+
+.ai-chat-proposal-disclosure {
+  margin: 7px 0 0 !important;
+  color: var(--muted-readable-dark);
+  font-size: 9px !important;
+  line-height: 1.6 !important;
+}
+
+.ai-chat-proposal-blocked {
+  margin: 10px 0 0 !important;
+  padding: 9px 10px;
+  border-left: 3px solid var(--coral-deep);
+  background: #fff2ed;
+  color: #8c3522;
+  font-size: 9px !important;
+  line-height: 1.6 !important;
+}
+
+.ai-chat-proposal-actions {
+  margin-top: 12px;
+  display: grid;
+  grid-template-columns: minmax(92px, .75fr) minmax(0, 1.25fr);
+  gap: 8px;
+}
+
+.ai-chat-proposal-actions button {
+  min-height: 44px;
+  padding: 8px 10px;
+  border-radius: 3px;
+  cursor: pointer;
+  font: 750 10px/1.4 var(--font-body), "Yu Gothic UI", sans-serif;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.ai-chat-proposal-cancel {
+  border: 1px solid var(--line-strong);
+  background: var(--paper-pure);
+  color: var(--ink);
+}
+
+.ai-chat-proposal-cancel:hover:not(:disabled) { border-color: var(--ink); background: var(--canvas); }
+
+.ai-chat-proposal-confirm {
+  border: 1px solid var(--coral-deep);
+  background: var(--coral-deep);
+  color: #fff;
+}
+
+.ai-chat-proposal-confirm:hover:not(:disabled) { border-color: var(--ink); background: var(--ink); }
+
+.ai-chat-proposal-confirm.is-destructive {
+  border-color: #9e3f29;
+  background: #9e3f29;
+}
+
+.ai-chat-proposal-actions button:disabled { cursor: not-allowed; opacity: .52; }
+
+.ai-chat-proposal-actions button svg { flex: 0 0 auto; }
+
+.ai-chat-proposal-result {
+  margin-top: 11px;
+  padding: 9px 10px;
+  border-left: 3px solid var(--line-strong);
+  background: var(--canvas);
+  color: var(--muted-readable-dark);
+  font-size: 10px;
+  line-height: 1.6;
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+}
+
+.ai-chat-proposal-result.is-confirmed {
+  border-left-color: var(--sage);
+  background: var(--sage-soft);
+  color: #365443;
+}
+
+.ai-chat-proposal-result.is-cancelled,
+.ai-chat-proposal-result.is-superseded { color: var(--muted-readable-dark); }
+
+.ai-chat-proposal-result.is-error {
+  border-left-color: var(--coral-deep);
+  background: #fff2ed;
+  color: #8c3522;
+}
+
+.ai-chat-proposal-result svg { margin-top: 1px; flex: 0 0 auto; }
+
 .ai-chat-thinking {
   align-self: flex-start;
   color: var(--muted-readable-dark);
@@ -3188,7 +3439,8 @@ h1 {
 }
 
 .ai-chat-thinking svg,
-.ai-chat-composer button[aria-label="回答を待っています"] svg { animation: ai-chat-spin .9s linear infinite; }
+.ai-chat-composer button[aria-label="処理が終わるのを待っています"] svg,
+.ai-chat-proposal-actions button svg { animation: ai-chat-spin .9s linear infinite; }
 
 .ai-chat-error {
   margin: 0;
@@ -3297,10 +3549,14 @@ h1 {
   .ai-chat-clear { min-height: 40px; padding-inline: 5px; font-size: 8px; }
   .ai-chat-close { width: 40px; height: 40px; flex-basis: 40px; }
   .ai-chat-log { padding: 16px 14px 20px; }
+  .ai-chat-proposal { padding: 13px 12px; }
+  .ai-chat-proposal-actions { grid-template-columns: 1fr; }
+  .ai-chat-proposal-meta { display: grid; }
+  .ai-chat-proposal-meta span { text-align: left; }
   .ai-chat-composer { padding: 10px 11px max(10px, env(safe-area-inset-bottom)); }
 }
 
-@media (max-height: 520px) and (orientation: landscape) {
+@media (max-height: 520px) {
   .ai-chat-panel,
   .ai-chat-root.is-elevated .ai-chat-panel,
   .change-bar ~ .ai-chat-root .ai-chat-panel {
@@ -3317,7 +3573,8 @@ h1 {
 @media (prefers-reduced-motion: reduce) {
   .ai-chat-panel,
   .ai-chat-thinking svg,
-  .ai-chat-composer button svg { animation: none !important; }
+  .ai-chat-composer button svg,
+  .ai-chat-proposal-actions button svg { animation: none !important; }
 }
 
 @media print {

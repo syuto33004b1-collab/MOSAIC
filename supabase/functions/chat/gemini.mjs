@@ -3,6 +3,7 @@ import { MOSAIC_SYSTEM_INSTRUCTION } from "./prompt.mjs";
 export const GEMINI_INTERACTIONS_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/interactions";
 export const DEFAULT_GEMINI_MODEL = "gemini-3.7-flash";
 export const MAX_OUTPUT_TOKENS = 1_024;
+export const MAX_TOOL_RESULT_CHARACTERS = 20_000;
 
 const RETRYABLE_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
 
@@ -36,15 +37,22 @@ function interactionInput(chat) {
   ].join("\n");
 }
 
-export function buildInteractionRequest(chat, model = DEFAULT_GEMINI_MODEL) {
+export function buildInteractionRequest(chat, model = DEFAULT_GEMINI_MODEL, options = {}) {
+  if (!chat && options.input === undefined) {
+    throw new GeminiServiceError("INVALID_REQUEST", "Gemini interaction input is required.", { status: 500 });
+  }
+  const generationConfig = { max_output_tokens: MAX_OUTPUT_TOKENS, thinking_level: "low" };
+  if (options.toolChoice) generationConfig.tool_choice = options.toolChoice;
   const request = {
     model: normalizeModel(model),
-    input: interactionInput(chat),
+    input: options.input ?? interactionInput(chat),
     system_instruction: MOSAIC_SYSTEM_INSTRUCTION,
     store: true,
-    generation_config: { max_output_tokens: MAX_OUTPUT_TOKENS, thinking_level: "low" },
+    generation_config: generationConfig,
   };
-  if (chat.previousInteractionId) request.previous_interaction_id = chat.previousInteractionId;
+  if (Array.isArray(options.tools) && options.tools.length > 0) request.tools = options.tools;
+  const previousInteractionId = options.previousInteractionId ?? chat?.previousInteractionId;
+  if (previousInteractionId) request.previous_interaction_id = previousInteractionId;
   return request;
 }
 
@@ -63,16 +71,45 @@ function textFromLastModelOutput(steps) {
   return "";
 }
 
+function hasFunctionCall(steps) {
+  return Array.isArray(steps) && steps.some((step) => isRecord(step) && step.type === "function_call");
+}
+
 export function extractInteractionResult(value) {
   if (!isRecord(value) || typeof value.id !== "string" || value.id.length === 0) {
     throw new GeminiServiceError("INVALID_RESPONSE", "Gemini response did not include an interaction ID.", { retryable: true });
   }
-  const reply = (typeof value.output_text === "string" ? value.output_text.trim() : "")
-    || textFromLastModelOutput(value.steps);
-  if (!reply) {
-    throw new GeminiServiceError("INVALID_RESPONSE", "Gemini response did not include text output.", { retryable: true });
+  const steps = Array.isArray(value.steps) ? value.steps : [];
+  const reply = (typeof value.output_text === "string" ? value.output_text.trim() : "") || textFromLastModelOutput(steps);
+  if (!reply && !hasFunctionCall(steps)) {
+    throw new GeminiServiceError("INVALID_RESPONSE", "Gemini response did not include output.", { retryable: true });
   }
-  return { interactionId: value.id, reply };
+  return { interactionId: value.id, reply, steps };
+}
+
+function safeToolResult(value) {
+  let serialized;
+  try {
+    serialized = JSON.stringify(value);
+  } catch {
+    serialized = "";
+  }
+  if (!serialized || serialized.length > MAX_TOOL_RESULT_CHARACTERS) {
+    return JSON.stringify({ ok: false, code: "TOOL_RESULT_TOO_LARGE", message: "結果が大きすぎるため、条件を絞ってください。" });
+  }
+  return serialized;
+}
+
+export function buildFunctionResultInput(results) {
+  if (!Array.isArray(results) || results.length === 0) {
+    throw new GeminiServiceError("INVALID_TOOL_RESULT", "At least one function result is required.", { status: 500 });
+  }
+  return results.map(({ call, result }) => ({
+    type: "function_result",
+    name: call.name,
+    call_id: call.id,
+    result: [{ type: "text", text: safeToolResult(result) }],
+  }));
 }
 
 export function isRetryableGeminiStatus(status) {
@@ -92,10 +129,7 @@ async function responseBody(response) {
 function upstreamError(response, body) {
   const details = isRecord(body) && isRecord(body.error) ? body.error : undefined;
   const upstreamCode = typeof details?.status === "string" ? details.status : `HTTP_${response.status}`;
-  return new GeminiServiceError(upstreamCode, "Gemini request failed.", {
-    retryable: isRetryableGeminiStatus(response.status),
-    status: response.status,
-  });
+  return new GeminiServiceError(upstreamCode, "Gemini request failed.", { retryable: isRetryableGeminiStatus(response.status), status: response.status });
 }
 
 function wait(milliseconds) {
@@ -117,11 +151,7 @@ async function fetchInteraction(fetchImpl, apiKey, body, timeoutMs) {
       signal: controller.signal,
     });
   } catch (cause) {
-    throw new GeminiServiceError(
-      timedOut ? "TIMEOUT" : "NETWORK_ERROR",
-      timedOut ? "Gemini request timed out." : "Gemini request could not be completed.",
-      { cause, retryable: true, status: timedOut ? 504 : 503 },
-    );
+    throw new GeminiServiceError(timedOut ? "TIMEOUT" : "NETWORK_ERROR", timedOut ? "Gemini request timed out." : "Gemini request could not be completed.", { cause, retryable: true, status: timedOut ? 504 : 503 });
   } finally {
     clearTimeout(timeout);
   }
@@ -132,18 +162,21 @@ export async function createGeminiInteraction(options) {
     apiKey,
     chat,
     fetchImpl = fetch,
+    input,
     maxAttempts = 2,
     model = DEFAULT_GEMINI_MODEL,
+    previousInteractionId,
     random = Math.random,
     sleep = wait,
     timeoutMs = 20_000,
+    toolChoice,
+    tools,
   } = options;
-
   if (typeof apiKey !== "string" || apiKey.trim().length === 0) {
     throw new GeminiServiceError("NOT_CONFIGURED", "GEMINI_API_KEY is not configured.", { status: 503 });
   }
 
-  const request = buildInteractionRequest(chat, model);
+  const request = buildInteractionRequest(chat, model, { input, previousInteractionId, toolChoice, tools });
   const attempts = Math.max(1, Math.min(2, maxAttempts));
   let lastError;
   for (let attempt = 0; attempt < attempts; attempt += 1) {
@@ -153,9 +186,7 @@ export async function createGeminiInteraction(options) {
       if (!response.ok) throw upstreamError(response, body);
       return extractInteractionResult(body);
     } catch (error) {
-      const normalized = error instanceof GeminiServiceError
-        ? error
-        : new GeminiServiceError("UNKNOWN", "Gemini request failed.", { cause: error });
+      const normalized = error instanceof GeminiServiceError ? error : new GeminiServiceError("UNKNOWN", "Gemini request failed.", { cause: error });
       lastError = normalized;
       if (!normalized.retryable || attempt + 1 >= attempts) throw normalized;
       await sleep(250 * (2 ** attempt) + Math.floor(random() * 150));
