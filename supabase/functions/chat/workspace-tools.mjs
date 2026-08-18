@@ -817,6 +817,46 @@ function actionLabels(toolName) {
   return labels[toolName];
 }
 
+function previewValue(value) {
+  if (value === null || value === undefined || value === "") return "未設定";
+  if (Array.isArray(value)) return value.length ? value.join(", ") : "未設定";
+  return String(value);
+}
+
+function percentPreview(value) {
+  return value === null || value === undefined || value === "" ? "未設定" : `${value}%`;
+}
+
+function headcountPreview(value) {
+  return value === null || value === undefined || value === "" ? "未設定" : `${value}名`;
+}
+
+function memberPreview(state, id, fallback) {
+  if (!id) return "未設定";
+  return state.members.find((member) => member.id === id)?.name ?? fallback ?? id;
+}
+
+function projectPreview(state, id) {
+  if (!id) return "未設定";
+  return state.projects.find((project) => project.id === id)?.name ?? id;
+}
+
+function needPreview(state, id) {
+  if (!id) return "未設定";
+  const need = state.needs.find((candidate) => candidate.id === id);
+  if (!need) return id;
+  return `${projectPreview(state, need.projectId)} / ${need.role}`;
+}
+
+function needStatusPreview(value) {
+  return ({ open: "未充足", planned: "仮置き", filled: "充足済み" })[value] ?? previewValue(value);
+}
+
+function addPreviewChange(details, label, before, after, format = previewValue) {
+  if (stableStringify(before) === stableStringify(after)) return;
+  details.push({ label, value: `${format(before)} → ${format(after)}` });
+}
+
 function applyAction(state, toolName, args, newUuid, requestId) {
   const next = cloneState(state);
   const details = [];
@@ -853,7 +893,14 @@ function applyAction(state, toolName, args, newUuid, requestId) {
     next.assignments = next.assignments.filter((assignment) => !assignment.staffingNeedId || !reopened.has(assignment.staffingNeedId));
     next.needs = next.needs.map((need) => reopened.has(need.id) ? { ...need, status: "open", draftPersonId: null } : need);
     subject = updated.name;
-    details.push("メンバー情報を更新します。");
+    addPreviewChange(details, "氏名", current.name, updated.name);
+    addPreviewChange(details, "職種", current.role, updated.role);
+    addPreviewChange(details, "部署", current.department, updated.department);
+    addPreviewChange(details, "勤務地", current.location, updated.location);
+    addPreviewChange(details, "スキル", current.skills, updated.skills);
+    addPreviewChange(details, "稼働上限", current.capacity, updated.capacity, percentPreview);
+    addPreviewChange(details, "イニシャル", current.initials, updated.initials);
+    addPreviewChange(details, "アバター色", current.avatarTone, updated.avatarTone);
     if (reopened.size) impacts.push(`${reopened.size}件の要員要件を再オープンし、紐づくアサインを取り消します。`);
   } else if (toolName === "delete_member") {
     const member = byId(next.members, args.memberId, "メンバー");
@@ -895,7 +942,18 @@ function applyAction(state, toolName, args, newUuid, requestId) {
     next.assignments = next.assignments.filter((assignment) => !cancelledAssignments.has(assignment.id));
     next.needs = next.needs.filter((need) => !cancelledNeeds.has(need.id)).map((need) => reopened.has(need.id) ? { ...need, status: "open", draftPersonId: null } : need);
     subject = updated.name;
-    details.push("プロジェクト情報を更新します。");
+    addPreviewChange(details, "プロジェクトコード", current.code, updated.code);
+    addPreviewChange(details, "プロジェクト名", current.name, updated.name);
+    addPreviewChange(details, "概要", current.summary, updated.summary);
+    addPreviewChange(details, "ステータス", current.status, updated.status);
+    addPreviewChange(details, "表示色", current.tone, updated.tone);
+    addPreviewChange(details, "責任者", current.ownerPersonId, updated.ownerPersonId, (id) => memberPreview(next, id, id === current.ownerPersonId ? current.ownerName : updated.ownerName));
+    addPreviewChange(details, "開始日", current.startDate, updated.startDate);
+    addPreviewChange(details, "終了日", current.endDate, updated.endDate);
+    addPreviewChange(details, "次のマイルストーン", current.nextMilestone, updated.nextMilestone);
+    addPreviewChange(details, "マイルストーン日", current.nextMilestoneDate, updated.nextMilestoneDate);
+    addPreviewChange(details, "進捗", current.progress, updated.progress, percentPreview);
+    addPreviewChange(details, "必要人数", current.demand, updated.demand, headcountPreview);
     if (cancelledAssignments.size) impacts.push(`${cancelledAssignments.size}件の期間外アサインを取り消します。`);
     if (cancelledNeeds.size) impacts.push(`${cancelledNeeds.size}件の期間外要員要件を取り消します。`);
     if (reopened.size) impacts.push(`${reopened.size}件の要員要件を再オープンします。`);
@@ -944,7 +1002,13 @@ function applyAction(state, toolName, args, newUuid, requestId) {
     next.assignments = next.assignments.map((assignment) => assignment.id === updated.id ? updated : assignment);
     relevantAssignment = updated;
     subject = `${person.name} → ${project.name}`;
-    details.push(`${updated.startDate}〜${updated.endDate} / ${updated.allocation}%`);
+    addPreviewChange(details, "メンバー", current.personId, updated.personId, (id) => memberPreview(next, id));
+    addPreviewChange(details, "プロジェクト", current.projectId, updated.projectId, (id) => projectPreview(next, id));
+    addPreviewChange(details, "開始日", current.startDate, updated.startDate);
+    addPreviewChange(details, "終了日", current.endDate, updated.endDate);
+    addPreviewChange(details, "稼働配分", current.allocation, updated.allocation, percentPreview);
+    addPreviewChange(details, "ラベル", current.label, updated.label);
+    addPreviewChange(details, "要員要件との紐づけ", current.staffingNeedId, updated.staffingNeedId, (id) => needPreview(next, id));
   } else if (toolName === "delete_assignment") {
     const assignment = byId(next.assignments, args.assignmentId, "アサイン");
     const person = byId(next.members, assignment.personId, "メンバー");
@@ -980,7 +1044,14 @@ function applyAction(state, toolName, args, newUuid, requestId) {
     next.assignments = next.assignments.filter((assignment) => !invalidIds.has(assignment.id));
     next.needs = next.needs.map((need) => need.id === reconciled.id ? reconciled : need);
     subject = `${project.name} / ${reconciled.role}`;
-    details.push(`${reconciled.startDate}〜${reconciled.endDate} / ${reconciled.allocation}%`);
+    addPreviewChange(details, "プロジェクト", current.projectId, reconciled.projectId, (id) => projectPreview(next, id));
+    addPreviewChange(details, "必要ロール", current.role, reconciled.role);
+    addPreviewChange(details, "必要スキル", current.skills, reconciled.skills);
+    addPreviewChange(details, "開始日", current.startDate, reconciled.startDate);
+    addPreviewChange(details, "終了日", current.endDate, reconciled.endDate);
+    addPreviewChange(details, "必要配分", current.allocation, reconciled.allocation, percentPreview);
+    addPreviewChange(details, "状態", current.status, reconciled.status, needStatusPreview);
+    addPreviewChange(details, "担当候補", current.draftPersonId, reconciled.draftPersonId, (id) => memberPreview(next, id));
     if (invalidIds.size) impacts.push(`${invalidIds.size}件の条件を満たさないアサインを取り消し、要員要件を再オープンします。`);
   } else if (toolName === "delete_staffing_need") {
     const need = byId(next.needs, args.staffingNeedId, "要員要件");
