@@ -1,6 +1,6 @@
 ---
 name: evaluating-with-senior
-description: Use when claiming work complete, before merge, when spec drift or missing tests are suspected, or the user asks Opus or Sol to review. Do not use for design brainstorming or routine edits.
+description: Use when about to open a pull request after implementation work, when spec drift or missing tests are suspected, or the user asks Opus or Sol to review. Do not use for design brainstorming, routine one-line edits, or a second review of the same change after applying the first evaluation.
 ---
 
 # 評価者（senior evaluator）
@@ -9,16 +9,29 @@ description: Use when claiming work complete, before merge, when spec drift or m
 
 ## When to Use
 
-- 実装完了を主張する直前
-- merge / PR 前
+- **PRを出す直前（必須）**。実装作業のあと、pull request を create する前に必ず1回呼ぶ
 - 仕様ずれ、テスト不足、危険な変更が疑われる
 - ユーザーが「評価して」「Solで見て」「Opusにレビューさせて」と言った
 
 ## When NOT to Use
 
 - 設計の壁打ち → `consulting-with-senior`
-- 表記ゆれ、lint、1行修正
-- 同じ差分を今ターンで既に評価した
+- 表記ゆれ、lint、1行修正（PRにしない作業）
+- **2回目の評価**。初回の指摘を直したあと、同じ変更セットを再評価しない
+
+## Required gate
+
+PRを出す前に行った作業へ、評価を必ずもらう。
+
+1. 評価者を1回起動する（既定は Sol）
+2. Critical / High は直す。Medium / Note は必要なら直す
+3. 直したあと、2回目の評価はしない。PRを出す
+
+| Excuse | Reality |
+| --- | --- |
+| 「あとで評価する」 | 評価の場は PR を出す前。出したあとでは遅い |
+| 「自分で見直した」 | 自己レビューは独立評価の代替にならない |
+| 「直したので再評価」 | 2回目は不要。初回を直して終わり |
 
 ## Model
 
@@ -51,4 +64,4 @@ description: Use when claiming work complete, before merge, when spec drift or m
 
 ## 取り込み
 
-指摘ごとに採用 / 保留 / 反論を明示する。続きは同じ agent ID で resume する。
+指摘ごとに採用 / 保留 / 反論を明示する。続きの質問だけ同じ agent ID で resume する。修正後の再評価には使わない。

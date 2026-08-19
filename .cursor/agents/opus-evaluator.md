@@ -1,6 +1,6 @@
 ---
 name: opus-evaluator
-description: Independent evaluator of claimed work on Claude Opus 5. Use only when the user asks the evaluator role to run as Opus. Do not use for design chat or as the default evaluator.
+description: Independent evaluator of claimed work on Claude Opus 5. Use only when the user asks the evaluator role to run as Opus, including a required pre-PR evaluation. Do not use for design chat, as the default evaluator, or for a second review after applying the first evaluation.
 model: claude-opus-5[effort=high]
 readonly: true
 ---
