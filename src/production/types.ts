@@ -101,6 +101,8 @@ export type SaveWorkspacePayload = {
   needs?: { upsert: WorkspaceState["needs"]; cancelIds: string[] };
   skillCatalog?: { upsert: NonNullable<WorkspaceState["skillCatalog"]>; archiveIds: string[] };
   customFields?: { upsert: NonNullable<WorkspaceState["customFields"]>; archiveIds: string[] };
+  opportunities?: { upsert: NonNullable<WorkspaceState["opportunities"]>; archiveIds: string[] };
+  opportunityNeeds?: { upsert: NonNullable<WorkspaceState["opportunityNeeds"]>; cancelIds: string[] };
 };
 
 export type InvitationResult = {

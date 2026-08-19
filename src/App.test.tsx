@@ -961,6 +961,64 @@ describe("role-aware workspace", () => {
     expect(saved.customFields?.some((field) => field.key === "visa_status")).toBe(true);
   });
 
+  it("converts a pre-award opportunity into a project without creating assignments", async () => {
+    const user = userEvent.setup();
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const adapter = sharedAdapter();
+    const save = vi.fn().mockResolvedValue({ revision: 8, savedAt: "2026-08-19T10:00:00Z" });
+    adapter.save = save;
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "計画 花子", email: "planner@example.com", role: "planner" }} shared={adapter} />);
+    const navigation = within(screen.getByRole("navigation", { name: "メインナビゲーション" }));
+
+    await user.click(navigation.getByRole("button", { name: "受注前" }));
+    expect(screen.getByRole("heading", { level: 1, name: "受注前案件" })).toBeInTheDocument();
+    await user.type(screen.getByLabelText("受注前案件を検索"), "React");
+    expect(screen.getByText("北風商事 販売基盤")).toBeInTheDocument();
+    expect(screen.queryByText("Harbor 会員アプリ")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /北風商事 販売基盤/ }));
+
+    const dialog = within(screen.getByRole("dialog", { name: "詳細パネル" }));
+    expect(dialog.getByText("中村 美咲")).toBeInTheDocument();
+    expect(dialog.queryByRole("button", { name: "仮置き" })).not.toBeInTheDocument();
+    await user.click(dialog.getByRole("button", { name: "プロジェクトへ引き継ぐ" }));
+    expect(confirm).toHaveBeenCalledWith(expect.stringContaining("未充足の要員要件"));
+    const projectDialog = within(screen.getByRole("dialog", { name: "詳細パネル" }));
+    expect(projectDialog.getByRole("heading", { name: "北風商事 販売基盤" })).toBeInTheDocument();
+    expect(projectDialog.getByText("準備中")).toBeInTheDocument();
+    expect(projectDialog.getByRole("button", { name: /Frontend Engineer/ })).toBeInTheDocument();
+    await user.click(projectDialog.getByRole("button", { name: "詳細パネルを閉じる" }));
+
+    await user.click(screen.getByRole("button", { name: "チームへ保存" }));
+    await waitFor(() => expect(save).toHaveBeenCalledOnce());
+    const saved = save.mock.calls[0][0] as WorkspaceState;
+    const project = saved.projects.find((item) => item.name === "北風商事 販売基盤");
+    expect(project).toMatchObject({ status: "準備中", demand: 4 });
+    expect(saved.opportunities?.find((item) => item.id === "opp-northwind")).toMatchObject({ stage: "won", convertedProjectId: project?.id });
+    expect(saved.needs.filter((need) => need.projectId === project?.id)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ role: "Frontend Engineer", status: "open" }),
+      expect.objectContaining({ role: "Backend Engineer", status: "open" }),
+    ]));
+    expect(saved.assignments).toHaveLength(initialWorkspace.assignments.length);
+  });
+
+  it("keeps pipeline demand distinct from confirmed utilization in reports", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    const navigation = within(screen.getByRole("navigation", { name: "メインナビゲーション" }));
+
+    await user.click(navigation.getByRole("button", { name: "レポート" }));
+    expect(screen.getByText("確定稼働")).toBeInTheDocument();
+    expect(screen.getByText("受注前の想定人数")).toBeInTheDocument();
+    expect(document.querySelector(".pipeline-chip")).not.toBeNull();
+    const exceptions = screen.getByText("判断が必要な項目").closest("section");
+    expect(exceptions).not.toBeNull();
+    const pipelineButtons = within(exceptions!).getAllByRole("button", { name: /北風商事 販売基盤/ });
+    expect(pipelineButtons.length).toBeGreaterThan(0);
+    await user.click(pipelineButtons[0]);
+    expect(screen.getByRole("heading", { name: "北風商事 販売基盤" })).toBeInTheDocument();
+    expect(within(screen.getByRole("dialog", { name: "詳細パネル" })).getByText("引き合い")).toBeInTheDocument();
+  });
+
   it("migrates legacy demo leave rows out of local storage", async () => {
     const member = initialWorkspace.members[0];
     const project = initialWorkspace.projects[0];

@@ -167,8 +167,8 @@ function plannerOptions(toolName, args, overrides = {}) {
 }
 
 test("declares the allowlisted Gemini Interactions workspace tools and detects current function_call steps", () => {
-  assert.equal(WORKSPACE_TOOL_DECLARATIONS.length, 14);
-  assert.equal(new Set(WORKSPACE_TOOL_DECLARATIONS.map((tool) => tool.name)).size, 14);
+  assert.equal(WORKSPACE_TOOL_DECLARATIONS.length, 21);
+  assert.equal(new Set(WORKSPACE_TOOL_DECLARATIONS.map((tool) => tool.name)).size, 21);
   assert.ok(WORKSPACE_TOOL_DECLARATIONS.every((tool) => tool.type === "function" && tool.parameters.additionalProperties === false));
   assert.deepEqual(detectWorkspaceFunctionCalls({
     steps: [
@@ -566,4 +566,74 @@ test("stable hashing is independent of object key insertion order", async () => 
   const second = await stableSha256({ alpha: { x: "value", y: true }, beta: [2, 1] });
   assert.equal(first, second);
   assert.match(first, /^[0-9a-f]{64}$/);
+});
+
+test("converts an active opportunity into a project and open needs without assignments", async () => {
+  const opportunityId = "81000000-0000-4000-8000-000000000001";
+  const needId = "82000000-0000-4000-8000-000000000001";
+  const projectId = "65000000-0000-4000-8000-000000000010";
+  const copiedNeedId = "65000000-0000-4000-8000-000000000011";
+  const seeded = snapshot();
+  seeded.opportunities = [{
+    id: opportunityId,
+    code: "NWD",
+    name: "Northwind",
+    summary: "Pre-award",
+    stage: "inquiry",
+    tone: "sky",
+    ownerPersonId: ids.carol,
+    ownerName: "Carol C",
+    ownerInitials: "CC",
+    startDate: "2026-09-01",
+    endDate: "2026-12-25",
+    demand: 4,
+  }];
+  seeded.opportunityNeeds = [{
+    id: needId,
+    opportunityId,
+    role: "Frontend Engineer",
+    skills: ["React"],
+    startDate: "2026-09-01",
+    endDate: "2026-12-18",
+    allocation: 60,
+  }];
+
+  const listed = readWorkspaceTool(seeded, "read_workspace", { resource: "opportunities" });
+  assert.equal(listed.total, 1);
+  assert.equal(listed.items[0].stage, "inquiry");
+
+  const created = await planWorkspaceAction(plannerOptions("create_opportunity", {
+    name: "Harbor",
+    startDate: "2026-10-05",
+    endDate: "2027-01-29",
+    demand: 3,
+    ownerPersonId: ids.bob,
+  }, { snapshot: seeded }));
+  assert.equal(created.payload.opportunities.upsert[0].stage, "inquiry");
+  assert.equal(created.payload.opportunities.upsert[0].ownerName, "Bob B");
+  assert.equal(created.payload.assignments, undefined);
+
+  let seq = 0;
+  const plan = await planWorkspaceAction(plannerOptions("convert_opportunity", { opportunityId }, {
+    snapshot: seeded,
+    uuid: () => (seq++ === 0 ? projectId : copiedNeedId),
+  }));
+  assert.equal(plan.payload.projects.upsert[0].id, projectId);
+  assert.equal(plan.payload.projects.upsert[0].status, "準備中");
+  assert.equal(plan.payload.needs.upsert[0].id, copiedNeedId);
+  assert.equal(plan.payload.needs.upsert[0].status, "open");
+  assert.equal(plan.payload.needs.upsert[0].draftPersonId, null);
+  assert.equal(plan.payload.opportunities.upsert[0].stage, "won");
+  assert.equal(plan.payload.opportunities.upsert[0].convertedProjectId, projectId);
+  assert.equal(plan.payload.assignments, undefined);
+
+  await assert.rejects(
+    () => planWorkspaceAction(plannerOptions("convert_opportunity", { opportunityId }, {
+      snapshot: {
+        ...seeded,
+        opportunities: seeded.opportunities.map((item) => ({ ...item, stage: "lost" })),
+      },
+    })),
+    (error) => error.code === "OPPORTUNITY_NOT_CONVERTIBLE",
+  );
 });

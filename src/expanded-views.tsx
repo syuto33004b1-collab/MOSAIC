@@ -23,10 +23,15 @@ import {
   formatCustomValue,
   formatWorkHistoryPeriod,
   getWeekStart,
+  isActiveOpportunity,
   memberDailyLoads,
   memberLoad,
   memberSearchText,
   memberSkillLevels,
+  OPPORTUNITY_STAGE_LABELS,
+  opportunityNeedsFor,
+  opportunitySearchText,
+  pipelineDemandForWeek,
   PROFICIENCY_LABELS,
   projectMembers,
   projectSearchText,
@@ -35,6 +40,8 @@ import {
   type CustomFieldDefinition,
   type CustomFieldEntity,
   type CustomFieldType,
+  type Opportunity,
+  type OpportunityStage,
   type Project,
   type SkillKind,
   type WorkHistoryEntry,
@@ -63,6 +70,14 @@ type ReportsViewProps = {
   state: WorkspaceState;
   onOpenWeek: (offset: number) => void;
   onResolveNeed: (needId: string) => void;
+  onOpenOpportunity?: (opportunityId: string) => void;
+  canEdit?: boolean;
+};
+
+type OpportunitiesViewProps = {
+  state: WorkspaceState;
+  onOpen: (opportunityId: string) => void;
+  onCreate: () => void;
   canEdit?: boolean;
 };
 
@@ -187,6 +202,110 @@ export function ProjectsView({ state, weekOffset, onOpen, onCreate, canEdit = tr
   );
 }
 
+const opportunityStageClass: Record<OpportunityStage, string> = {
+  inquiry: "ready",
+  proposal: "active",
+  negotiation: "risk",
+  won: "closing",
+  lost: "closing",
+};
+
+export function OpportunitiesView({ state, onOpen, onCreate, canEdit = true }: OpportunitiesViewProps) {
+  const [query, setQuery] = useState("");
+  const [stage, setStage] = useState("進行中");
+  const queryNeedle = query.toLowerCase();
+  const opportunities = state.opportunities ?? [];
+  const filtered = opportunities.filter((opportunity) => {
+    const textMatch = opportunitySearchText(opportunity, opportunityNeedsFor(state, opportunity.id)).includes(queryNeedle);
+    const stageMatch = stage === "すべて"
+      || (stage === "進行中" && isActiveOpportunity(opportunity))
+      || opportunity.stage === stage
+      || (stage === "引き合い" && opportunity.stage === "inquiry")
+      || (stage === "提案" && opportunity.stage === "proposal")
+      || (stage === "商談" && opportunity.stage === "negotiation")
+      || (stage === "受注" && opportunity.stage === "won")
+      || (stage === "失注" && opportunity.stage === "lost");
+    return textMatch && stageMatch;
+  });
+  const activeCount = opportunities.filter(isActiveOpportunity).length;
+  const plannedHeadcount = opportunities.filter(isActiveOpportunity).reduce((sum, opportunity) => sum + opportunity.demand, 0);
+  const columns: OpportunityStage[] = ["inquiry", "proposal", "negotiation"];
+
+  return (
+    <section className="section-view projects-view" aria-labelledby="opportunities-heading">
+      <h2 id="opportunities-heading" className="sr-only">受注前案件</h2>
+      <div className="portfolio-ribbon">
+        <div className="ribbon-lead">
+          <span className="ribbon-icon"><BriefcaseBusiness size={18} /></span>
+          <div><small>PRE-AWARD PIPELINE</small><strong>確定プロジェクトと分けて要員を検討</strong></div>
+        </div>
+        <div className="ribbon-stat"><strong>{activeCount}</strong><span>進行中の案件</span></div>
+        <div className="ribbon-divider" />
+        <div className="ribbon-stat warning"><strong>{plannedHeadcount}</strong><span>想定人数</span></div>
+        <div className="ribbon-divider" />
+        <div className="ribbon-stat"><strong>{(state.opportunityNeeds ?? []).length}</strong><span>要員計画</span></div>
+      </div>
+
+      <div className="view-toolbar">
+        <div className="inline-search"><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="案件名・スキルを検索" aria-label="受注前案件を検索" /></div>
+        <label className="view-filter"><Filter size={14} /><select value={stage} onChange={(event) => setStage(event.target.value)} aria-label="案件段階で絞り込み">
+          {["進行中", "引き合い", "提案", "商談", "受注", "失注", "すべて"].map((option) => <option key={option}>{option}</option>)}
+        </select></label>
+        <span className="toolbar-result">{filtered.length}件を表示</span>
+        {canEdit && <button className="view-add-button" onClick={onCreate}><Plus size={15} />受注前案件を追加</button>}
+      </div>
+
+      <div className="pipeline-board">
+        {columns.map((column) => {
+          const items = filtered.filter((opportunity) => opportunity.stage === column);
+          return (
+            <section className="pipeline-column" key={column} aria-label={OPPORTUNITY_STAGE_LABELS[column]}>
+              <header><span>{OPPORTUNITY_STAGE_LABELS[column]}</span><strong>{items.length}</strong></header>
+              {items.map((opportunity) => (
+                <button className="pipeline-card" onClick={() => onOpen(opportunity.id)} key={opportunity.id}>
+                  <span className={"project-code " + opportunity.tone}>{opportunity.code}</span>
+                  <strong>{opportunity.name}</strong>
+                  <small>{opportunity.summary}</small>
+                  <em>{opportunity.demand}名 · {opportunityNeedsFor(state, opportunity.id).length}ロール · {opportunity.ownerName ?? "責任者未設定"}</em>
+                </button>
+              ))}
+              {items.length === 0 && <p className="pipeline-empty">案件はありません</p>}
+            </section>
+          );
+        })}
+      </div>
+
+      {filtered.some((opportunity) => !isActiveOpportunity(opportunity)) && (
+        <div className="portfolio-table-wrap">
+          <table className="portfolio-table">
+            <thead>
+              <tr><th>案件</th><th>段階</th><th>想定期間</th><th>必要人数</th><th>責任者</th><th><span className="sr-only">詳細</span></th></tr>
+            </thead>
+            <tbody>
+              {filtered.filter((opportunity) => !isActiveOpportunity(opportunity)).map((opportunity) => (
+                <tr key={opportunity.id}>
+                  <td>
+                    <button className="project-name-cell" onClick={() => onOpen(opportunity.id)}>
+                      <span className={"project-code " + opportunity.tone}>{opportunity.code}</span>
+                      <span><strong>{opportunity.name}</strong><small>{opportunity.summary}</small></span>
+                    </button>
+                  </td>
+                  <td><span className={"status-pill " + opportunityStageClass[opportunity.stage]}><i />{OPPORTUNITY_STAGE_LABELS[opportunity.stage]}</span></td>
+                  <td>{formatMonthDay(opportunity.startDate)} — {formatMonthDay(opportunity.endDate)}</td>
+                  <td>{opportunity.demand}名</td>
+                  <td><span className="owner-cell"><i>{opportunity.ownerInitials}</i><span>{opportunity.ownerName}</span></span></td>
+                  <td><button className="row-open" aria-label={opportunity.name + "の詳細を見る"} onClick={() => onOpen(opportunity.id)}><ChevronRight size={16} /></button></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {filtered.length === 0 && <div className="view-empty"><BriefcaseBusiness size={22} /><strong>条件に合う受注前案件がありません</strong><p>検索語または段階を変更してください。</p></div>}
+    </section>
+  );
+}
+
 export function MembersView({ state, weekOffset, onOpen, onAdd, onAssign, canEdit = true, canManageMembers = true }: MembersViewProps) {
   const [query, setQuery] = useState("");
   const [role, setRole] = useState("すべて");
@@ -254,7 +373,7 @@ export function MembersView({ state, weekOffset, onOpen, onAdd, onAssign, canEdi
   );
 }
 
-export function ReportsView({ state, onOpenWeek, onResolveNeed, canEdit = true }: ReportsViewProps) {
+export function ReportsView({ state, onOpenWeek, onResolveNeed, onOpenOpportunity, canEdit = true }: ReportsViewProps) {
   const [range, setRange] = useState(8);
   const weekOffsets = useMemo(() => Array.from({ length: range }, (_, index) => index), [range]);
   const horizon = weekOffsets.map((offset) => {
@@ -263,7 +382,7 @@ export function ReportsView({ state, onOpenWeek, onResolveNeed, canEdit = true }
     const load = state.members.reduce((sum, member) => sum + memberDailyLoads(state, member.id, weekStart, addDays(weekStart, 4)).reduce((dailySum, day) => dailySum + day.load, 0), 0);
     const confirmed = state.assignments.filter((assignment) => assignment.status === "confirmed" && assignment.startDate <= addDays(weekStart, 4) && assignment.endDate >= weekStart).length;
     const draft = state.assignments.filter((assignment) => assignment.status === "draft" && assignment.startDate <= addDays(weekStart, 4) && assignment.endDate >= weekStart).length;
-    return { offset, weekStart, average: capacity > 0 ? Math.round(load / capacity * 100) : 0, confirmed, draft };
+    return { offset, weekStart, average: capacity > 0 ? Math.round(load / capacity * 100) : 0, confirmed, draft, pipelineDemand: pipelineDemandForWeek(state, weekStart) };
   });
   const departments = Array.from(new Set(state.members.map((member) => member.department))).map((department) => {
     const people = state.members.filter((member) => member.department === department);
@@ -274,11 +393,13 @@ export function ReportsView({ state, onOpenWeek, onResolveNeed, canEdit = true }
   }).sort((a, b) => b.average - a.average);
   const currentOverloads = state.members.filter((member) => memberLoad(state, member.id, getWeekStart(0)) > member.capacity);
   const activeNeeds = state.needs.filter((need) => need.status !== "filled");
+  const activeOpportunities = (state.opportunities ?? []).filter(isActiveOpportunity);
+  const pipelineNeeds = (state.opportunityNeeds ?? []).filter((need) => activeOpportunities.some((opportunity) => opportunity.id === need.opportunityId));
 
   return (
     <section className="section-view reports-view" aria-labelledby="reports-heading">
       <div className="report-toolbar">
-        <div><small>CAPACITY HORIZON</small><h2 id="reports-heading">需給バランスの見通し</h2><p>確定・仮置き・空きを同じ時間軸で確認します。</p></div>
+        <div><small>CAPACITY HORIZON</small><h2 id="reports-heading">需給バランスの見通し</h2><p>確定稼働と受注前の想定人数を分けて確認します。</p></div>
         <div className="range-tabs" aria-label="表示期間">{[4, 8, 12].map((weeks) => <button className={range === weeks ? "selected" : ""} aria-pressed={range === weeks} onClick={() => setRange(weeks)} key={weeks}>{weeks}週間</button>)}</div>
       </div>
 
@@ -290,11 +411,12 @@ export function ReportsView({ state, onOpenWeek, onResolveNeed, canEdit = true }
             <button className="horizon-week" onClick={() => onOpenWeek(week.offset)} key={week.weekStart}>
               <span className="horizon-bar"><i className={week.average > 100 ? "over" : ""} style={{ height: Math.min(100, week.average / 120 * 100) + "%" }} />{week.draft > 0 && <b style={{ bottom: Math.min(100, week.average / 120 * 100) + "%" }} />}</span>
               <strong>{week.average}%</strong>
+              {week.pipelineDemand > 0 && <span className="pipeline-chip">+{week.pipelineDemand}名</span>}
               <small>{formatMonthDay(week.weekStart)}週</small>
             </button>
           ))}
         </div>
-        <div className="horizon-caption"><span><i className="confirmed" />確定稼働</span><span><i className="draft" />仮置きあり</span><button onClick={() => onOpenWeek(0)}>ボードで確認 <ArrowRight size={13} /></button></div>
+        <div className="horizon-caption"><span><i className="confirmed" />確定稼働</span><span><i className="draft" />仮置きあり</span><span><i className="pipeline" />受注前の想定人数</span><button onClick={() => onOpenWeek(0)}>ボードで確認 <ArrowRight size={13} /></button></div>
       </div>
 
       <div className="report-lower-grid">
@@ -304,15 +426,19 @@ export function ReportsView({ state, onOpenWeek, onResolveNeed, canEdit = true }
         </section>
 
         <section className="exceptions-card">
-          <div className="card-heading"><div><small>EXCEPTIONS</small><h3>判断が必要な項目</h3></div><span>{currentOverloads.length + activeNeeds.length}</span></div>
+          <div className="card-heading"><div><small>EXCEPTIONS</small><h3>判断が必要な項目</h3></div><span>{currentOverloads.length + activeNeeds.length + pipelineNeeds.length}</span></div>
           <div className="exception-list">
             {currentOverloads.map((member) => <button onClick={() => onOpenWeek(0)} key={member.id}><span className="exception-icon risk"><CircleAlert size={14} /></span><span><strong>{member.name}さんが{memberLoad(state, member.id, getWeekStart(0))}%</strong><small>今週の稼働を調整してください</small></span><ChevronRight size={15} /></button>)}
             {activeNeeds.map((need) => <button onClick={() => onResolveNeed(need.id)} key={need.id}><span className={"exception-icon " + (need.status === "planned" ? "planned" : "open")}><CalendarClock size={14} /></span><span><strong>{state.projects.find((project) => project.id === need.projectId)?.name}</strong><small>{need.role} {need.allocation}% · {need.status === "planned" ? "解消予定" : "担当未定"}</small></span><ChevronRight size={15} /></button>)}
+            {pipelineNeeds.map((need) => {
+              const opportunity = activeOpportunities.find((item) => item.id === need.opportunityId);
+              return <button onClick={() => onOpenOpportunity?.(need.opportunityId)} key={need.id}><span className="exception-icon pipeline"><BriefcaseBusiness size={14} /></span><span><strong>{opportunity?.name ?? "受注前案件"}</strong><small>{need.role} {need.allocation}% · {OPPORTUNITY_STAGE_LABELS[opportunity?.stage ?? "inquiry"]}の要員計画</small></span><ChevronRight size={15} /></button>;
+            })}
           </div>
         </section>
       </div>
 
-      <div className="report-insight"><span><Sparkles size={17} /></span><div><strong>今週の示唆</strong><p>未充足ロールとメンバーの空き状況を照合し、候補を確認できます。</p></div>{activeNeeds[0] && <button onClick={() => onResolveNeed(activeNeeds[0].id)}>{canEdit ? "候補を見る" : "候補を確認"} <ArrowRight size={13} /></button>}</div>
+      <div className="report-insight"><span><Sparkles size={17} /></span><div><strong>今週の示唆</strong><p>確定プロジェクトの不足と、受注前案件の想定人数を分けて照合できます。</p></div>{activeNeeds[0] && <button onClick={() => onResolveNeed(activeNeeds[0].id)}>{canEdit ? "候補を見る" : "候補を確認"} <ArrowRight size={13} /></button>}</div>
     </section>
   );
 }

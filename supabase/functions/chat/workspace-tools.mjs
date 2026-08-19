@@ -25,7 +25,9 @@ const PROJECT_TONES = ["blue", "mint", "orange", "plum", "sky"];
 const PROJECT_STATUSES = ["進行中", "要注意", "準備中", "完了間近", "完了"];
 const ASSIGNMENT_STATUSES = ["draft", "confirmed"];
 const NEED_STATUSES = ["open", "planned", "filled"];
-const READ_RESOURCES = ["summary", "members", "projects", "assignments", "staffing_needs"];
+const OPPORTUNITY_STAGES = ["inquiry", "proposal", "negotiation", "won", "lost"];
+const ACTIVE_OPPORTUNITY_STAGES = ["inquiry", "proposal", "negotiation"];
+const READ_RESOURCES = ["summary", "members", "projects", "assignments", "staffing_needs", "opportunities", "opportunity_needs"];
 const MAX_READ_RESULTS = 25;
 const DEFAULT_READ_RESULTS = 10;
 const MAX_SKILLS = 20;
@@ -44,6 +46,13 @@ const WRITE_TOOLS = new Set([
   "update_staffing_need",
   "delete_staffing_need",
   "assign_person_to_need",
+  "create_opportunity",
+  "update_opportunity",
+  "delete_opportunity",
+  "create_opportunity_need",
+  "update_opportunity_need",
+  "delete_opportunity_need",
+  "convert_opportunity",
 ]);
 
 const dateSchema = { type: "string", description: "YYYY-MM-DD形式の日付" };
@@ -69,7 +78,7 @@ const readParameters = {
     skills: skillsSchema,
     statuses: {
       type: "array",
-      items: { type: "string", enum: [...PROJECT_STATUSES, ...ASSIGNMENT_STATUSES, ...NEED_STATUSES] },
+      items: { type: "string", enum: [...PROJECT_STATUSES, ...ASSIGNMENT_STATUSES, ...NEED_STATUSES, ...OPPORTUNITY_STAGES] },
       maxItems: 6,
     },
     startDate: dateSchema,
@@ -124,6 +133,27 @@ const needFields = {
   allocation: { type: "number", exclusiveMinimum: 0, maximum: 100 },
 };
 
+const opportunityFields = {
+  code: { type: "string", description: "省略時は名称と生成IDから作成" },
+  name: { type: "string" },
+  summary: { type: "string" },
+  stage: { type: "string", enum: ACTIVE_OPPORTUNITY_STAGES },
+  tone: { type: "string", enum: PROJECT_TONES },
+  ownerPersonId: uuidSchema,
+  startDate: dateSchema,
+  endDate: dateSchema,
+  demand: { type: "integer", minimum: 0, maximum: 10000 },
+};
+
+const opportunityNeedFields = {
+  opportunityId: uuidSchema,
+  role: { type: "string" },
+  skills: skillsSchema,
+  startDate: dateSchema,
+  endDate: dateSchema,
+  allocation: { type: "number", exclusiveMinimum: 0, maximum: 100 },
+};
+
 function declaration(name, description, parameters) {
   return { type: "function", name, description, parameters };
 }
@@ -147,7 +177,7 @@ function updateParameters(idName, fields) {
 export const WORKSPACE_TOOL_DECLARATIONS = Object.freeze([
   declaration(
     READ_TOOL,
-    "MOSAICの現在の組織にあるメンバー、プロジェクト、アサイン、要員要件を参照する。変更前のID確認にも必ず使う。",
+    "MOSAICの現在の組織にあるメンバー、プロジェクト、アサイン、要員要件、受注前案件を参照する。変更前のID確認にも必ず使う。",
     readParameters,
   ),
   declaration("create_member", "業務上のアサイン対象メンバーを登録する。ログインユーザーや権限は作成しない。", createParameters(memberFields, ["name", "role", "department", "location", "capacity", "skills"])),
@@ -163,6 +193,13 @@ export const WORKSPACE_TOOL_DECLARATIONS = Object.freeze([
   declaration("update_staffing_need", "要員要件を編集する。既存アサインが新条件を満たさない場合は取り消して再オープンする。", updateParameters("staffingNeedId", needFields)),
   declaration("delete_staffing_need", "要員要件とそれに紐づくアサインを取り消す。", createParameters({ staffingNeedId: uuidSchema }, ["staffingNeedId"])),
   declaration("assign_person_to_need", "条件と空き容量を満たすメンバーで要員要件を充足し、確定アサインを同時作成する。", createParameters({ staffingNeedId: uuidSchema, personId: uuidSchema, label: { type: "string", nullable: true } }, ["staffingNeedId", "personId"])),
+  declaration("create_opportunity", "受注前案件を登録する。", createParameters(opportunityFields, ["name", "startDate", "endDate"])),
+  declaration("update_opportunity", "受注前案件を編集する。受注と失注はconvert_opportunityまたはdeleteしない専用操作を使う。", updateParameters("opportunityId", opportunityFields)),
+  declaration("delete_opportunity", "受注前案件をアーカイブし、要員計画を取り消す。", createParameters({ opportunityId: uuidSchema }, ["opportunityId"])),
+  declaration("create_opportunity_need", "受注前案件へ要員計画を登録する。", createParameters(opportunityNeedFields, ["opportunityId", "role", "skills", "startDate", "endDate", "allocation"])),
+  declaration("update_opportunity_need", "受注前の要員計画を編集する。", updateParameters("opportunityNeedId", opportunityNeedFields)),
+  declaration("delete_opportunity_need", "受注前の要員計画を取り消す。", createParameters({ opportunityNeedId: uuidSchema }, ["opportunityNeedId"])),
+  declaration("convert_opportunity", "受注前案件と要員計画を確定プロジェクトと未充足の要員要件へ引き継ぐ。", createParameters({ opportunityId: uuidSchema }, ["opportunityId"])),
 ]);
 
 const TOOL_NAMES = new Set(WORKSPACE_TOOL_DECLARATIONS.map((tool) => tool.name));
@@ -379,12 +416,49 @@ function parseNeedFields(value, patch = false) {
   return parsed;
 }
 
+function parseOpportunityFields(value, patch = false) {
+  const input = record(value, patch ? "受注前案件変更" : "受注前案件");
+  allowedKeys(input, Object.keys(opportunityFields), patch ? "受注前案件変更" : "受注前案件");
+  const parsed = compact({
+    code: optionalString(input.code, "案件コード", { max: 20 })?.toUpperCase(),
+    name: patch ? optionalString(input.name, "案件名", { max: 160 }) : requiredString(input.name, "案件名", { max: 160 }),
+    summary: optionalString(input.summary, "概要", { allowEmpty: true, max: 2000 }),
+    stage: optionalEnum(input.stage, "段階", ACTIVE_OPPORTUNITY_STAGES),
+    tone: optionalEnum(input.tone, "表示色", PROJECT_TONES),
+    ownerPersonId: optionalUuid(input.ownerPersonId, "責任者ID"),
+    startDate: patch ? optionalDate(input.startDate, "開始日") : dateValue(input.startDate, "開始日"),
+    endDate: patch ? optionalDate(input.endDate, "終了日") : dateValue(input.endDate, "終了日"),
+    demand: optionalNumber(input.demand, "必要人数", 0, 10000, { integer: true }),
+  });
+  if (patch && Object.keys(parsed).length === 0) fail("INVALID_TOOL_ARGUMENTS", "受注前案件の変更項目を1つ以上指定してください。");
+  ensureDateRange(parsed.startDate, parsed.endDate, "想定期間");
+  return parsed;
+}
+
+function parseOpportunityNeedFields(value, patch = false) {
+  const input = record(value, patch ? "要員計画変更" : "要員計画");
+  allowedKeys(input, Object.keys(opportunityNeedFields), patch ? "要員計画変更" : "要員計画");
+  const parsed = compact({
+    opportunityId: patch ? optionalUuid(input.opportunityId, "受注前案件ID") : uuidValue(input.opportunityId, "受注前案件ID"),
+    role: patch ? optionalString(input.role, "必要ロール", { max: 120 }) : requiredString(input.role, "必要ロール", { max: 120 }),
+    skills: patch ? optionalStringArray(input.skills, "必要スキル") : stringArray(input.skills, "必要スキル"),
+    startDate: patch ? optionalDate(input.startDate, "開始日") : dateValue(input.startDate, "開始日"),
+    endDate: patch ? optionalDate(input.endDate, "終了日") : dateValue(input.endDate, "終了日"),
+    allocation: patch ? optionalNumber(input.allocation, "必要配分", 0, 100, { exclusiveMin: true, maxDecimals: 2 }) : numberValue(input.allocation, "必要配分", 0, 100, { exclusiveMin: true, maxDecimals: 2 }),
+  });
+  if (patch && Object.keys(parsed).length === 0) fail("INVALID_TOOL_ARGUMENTS", "要員計画の変更項目を1つ以上指定してください。");
+  ensureDateRange(parsed.startDate, parsed.endDate, "要員計画期間");
+  return parsed;
+}
+
 const READ_ALLOWED = {
   summary: ["resource", "startDate", "endDate"],
   members: ["resource", "query", "role", "location", "skills", "startDate", "endDate", "minAvailablePercent", "limit"],
   projects: ["resource", "query", "ownerPersonId", "statuses", "startDate", "endDate", "limit"],
   assignments: ["resource", "personId", "projectId", "statuses", "startDate", "endDate", "limit"],
   staffing_needs: ["resource", "projectId", "statuses", "skills", "startDate", "endDate", "limit"],
+  opportunities: ["resource", "query", "ownerPersonId", "statuses", "startDate", "endDate", "limit"],
+  opportunity_needs: ["resource", "query", "skills", "startDate", "endDate", "limit"],
 };
 
 function parseReadArgs(value) {
@@ -395,7 +469,7 @@ function parseReadArgs(value) {
   const endDate = optionalDate(input.endDate, "終了日");
   if ((startDate && !endDate) || (!startDate && endDate)) fail("INVALID_TOOL_ARGUMENTS", "期間検索では開始日と終了日を両方指定してください。");
   ensureDateRange(startDate, endDate);
-  const statusValues = resource === "projects" ? PROJECT_STATUSES : resource === "assignments" ? ASSIGNMENT_STATUSES : resource === "staffing_needs" ? NEED_STATUSES : [];
+  const statusValues = resource === "projects" ? PROJECT_STATUSES : resource === "assignments" ? ASSIGNMENT_STATUSES : resource === "staffing_needs" ? NEED_STATUSES : resource === "opportunities" ? OPPORTUNITY_STAGES : [];
   let statuses;
   if (input.statuses !== undefined) {
     statuses = stringArray(input.statuses, "ステータス", { max: 6, itemMax: 20 });
@@ -481,6 +555,32 @@ export function parseWorkspaceToolCall(name, args) {
         label: optionalString(input.label, "ラベル", { allowEmpty: true, nullable: true, max: 240 }),
       });
       break;
+    case "create_opportunity":
+      normalized = parseOpportunityFields(input);
+      break;
+    case "update_opportunity":
+      allowedKeys(input, ["opportunityId", "patch"]);
+      normalized = { opportunityId: uuidValue(input.opportunityId, "受注前案件ID"), patch: parseOpportunityFields(input.patch, true) };
+      break;
+    case "delete_opportunity":
+      allowedKeys(input, ["opportunityId"]);
+      normalized = { opportunityId: uuidValue(input.opportunityId, "受注前案件ID") };
+      break;
+    case "create_opportunity_need":
+      normalized = parseOpportunityNeedFields(input);
+      break;
+    case "update_opportunity_need":
+      allowedKeys(input, ["opportunityNeedId", "patch"]);
+      normalized = { opportunityNeedId: uuidValue(input.opportunityNeedId, "要員計画ID"), patch: parseOpportunityNeedFields(input.patch, true) };
+      break;
+    case "delete_opportunity_need":
+      allowedKeys(input, ["opportunityNeedId"]);
+      normalized = { opportunityNeedId: uuidValue(input.opportunityNeedId, "要員計画ID") };
+      break;
+    case "convert_opportunity":
+      allowedKeys(input, ["opportunityId"]);
+      normalized = { opportunityId: uuidValue(input.opportunityId, "受注前案件ID") };
+      break;
     default:
       fail("UNKNOWN_WORKSPACE_TOOL", "許可されていないAI操作です。");
   }
@@ -523,6 +623,8 @@ function workspaceSnapshot(value) {
   }
   collections.skillCatalog = Array.isArray(state.skillCatalog) ? structuredClone(state.skillCatalog) : [];
   collections.customFields = Array.isArray(state.customFields) ? structuredClone(state.customFields) : [];
+  collections.opportunities = Array.isArray(state.opportunities) ? structuredClone(state.opportunities) : [];
+  collections.opportunityNeeds = Array.isArray(state.opportunityNeeds) ? structuredClone(state.opportunityNeeds) : [];
   return { organizationId: organizationId.toLowerCase(), revision, ...collections };
 }
 
@@ -633,6 +735,9 @@ export function readWorkspaceTool(snapshot, name, args) {
         assignments: state.assignments.length,
         staffingNeeds: state.needs.length,
         openStaffingNeeds: state.needs.filter((need) => need.status === "open").length,
+        opportunities: state.opportunities.length,
+        activeOpportunities: state.opportunities.filter((opportunity) => ACTIVE_OPPORTUNITY_STAGES.includes(opportunity.stage)).length,
+        opportunityNeeds: state.opportunityNeeds.length,
       },
       overloadedMembers: overloadedMembers.slice(0, MAX_READ_RESULTS),
     };
@@ -682,6 +787,24 @@ export function readWorkspaceTool(snapshot, name, args) {
     return { resource: filters.resource, revision: state.revision, ...bounded(values, filters.limit) };
   }
 
+  if (filters.resource === "opportunities") {
+    const values = state.opportunities.filter((opportunity) => containsQuery([opportunity.code, opportunity.name, opportunity.summary, opportunity.ownerName], filters.query))
+      .filter((opportunity) => !filters.ownerPersonId || opportunity.ownerPersonId === filters.ownerPersonId)
+      .filter((opportunity) => !filters.statuses?.length || filters.statuses.includes(opportunity.stage))
+      .filter((opportunity) => overlaps(opportunity, filters.startDate, filters.endDate))
+      .map((opportunity) => ({ id: opportunity.id, code: opportunity.code, name: opportunity.name, summary: opportunity.summary, stage: opportunity.stage, ownerPersonId: opportunity.ownerPersonId ?? null, ownerName: opportunity.ownerName ?? null, startDate: opportunity.startDate, endDate: opportunity.endDate, demand: Number(opportunity.demand), convertedProjectId: opportunity.convertedProjectId ?? null }));
+    return { resource: filters.resource, revision: state.revision, ...bounded(values, filters.limit) };
+  }
+
+  if (filters.resource === "opportunity_needs") {
+    const opportunities = new Map(state.opportunities.map((opportunity) => [opportunity.id, opportunity]));
+    const values = state.opportunityNeeds.filter((need) => containsQuery([need.role, ...(need.skills ?? [])], filters.query))
+      .filter((need) => includesSkills(need.skills, filters.skills))
+      .filter((need) => overlaps(need, filters.startDate, filters.endDate))
+      .map((need) => ({ id: need.id, opportunityId: need.opportunityId, opportunityName: opportunities.get(need.opportunityId)?.name ?? null, role: need.role, skills: need.skills ?? [], startDate: need.startDate, endDate: need.endDate, allocation: Number(need.allocation) }));
+    return { resource: filters.resource, revision: state.revision, ...bounded(values, filters.limit) };
+  }
+
   const members = new Map(state.members.map((member) => [member.id, member]));
   const projects = new Map(state.projects.map((project) => [project.id, project]));
   const values = state.needs.filter((need) => !filters.projectId || need.projectId === filters.projectId)
@@ -714,6 +837,15 @@ function assertWithinProject(item, project, label) {
   if (item.startDate < project.startDate || item.endDate > project.endDate) fail("WORKSPACE_VALIDATION_FAILED", `${label}期間はプロジェクト期間内にしてください。`);
 }
 
+function assertWithinOpportunity(item, opportunity, label) {
+  ensureDateRange(item.startDate, item.endDate, `${label}期間`);
+  if (item.startDate < opportunity.startDate || item.endDate > opportunity.endDate) fail("WORKSPACE_VALIDATION_FAILED", `${label}期間は案件の想定期間内にしてください。`);
+}
+
+function isActiveOpportunity(opportunity) {
+  return ACTIVE_OPPORTUNITY_STAGES.includes(opportunity.stage) && !opportunity.convertedProjectId;
+}
+
 function memberMatchesNeed(member, need) {
   if (lower(member.role) !== lower(need.role)) return false;
   const requirements = Array.isArray(need.skillRequirements) && need.skillRequirements.length
@@ -739,7 +871,7 @@ function assignmentMatchesNeed(state, assignment, need) {
 }
 
 function cloneState(state) {
-  return { members: structuredClone(state.members), projects: structuredClone(state.projects), assignments: structuredClone(state.assignments), needs: structuredClone(state.needs), skillCatalog: structuredClone(state.skillCatalog ?? []), customFields: structuredClone(state.customFields ?? []) };
+  return { members: structuredClone(state.members), projects: structuredClone(state.projects), assignments: structuredClone(state.assignments), needs: structuredClone(state.needs), skillCatalog: structuredClone(state.skillCatalog ?? []), customFields: structuredClone(state.customFields ?? []), opportunities: structuredClone(state.opportunities ?? []), opportunityNeeds: structuredClone(state.opportunityNeeds ?? []) };
 }
 
 export function stableStringify(value) {
@@ -784,6 +916,12 @@ function workspacePayload(next, previous) {
   const fieldUpsert = changedRows(next.customFields ?? [], previous.customFields ?? []);
   const fieldArchive = removedIds(next.customFields ?? [], previous.customFields ?? []);
   if (fieldUpsert.length || fieldArchive.length) payload.customFields = { upsert: fieldUpsert, archiveIds: fieldArchive };
+  const opportunityUpsert = changedRows(next.opportunities ?? [], previous.opportunities ?? []);
+  const opportunityArchive = removedIds(next.opportunities ?? [], previous.opportunities ?? []);
+  if (opportunityUpsert.length || opportunityArchive.length) payload.opportunities = { upsert: opportunityUpsert, archiveIds: opportunityArchive };
+  const opportunityNeedUpsert = changedRows(next.opportunityNeeds ?? [], previous.opportunityNeeds ?? []);
+  const opportunityNeedCancel = removedIds(next.opportunityNeeds ?? [], previous.opportunityNeeds ?? []);
+  if (opportunityNeedUpsert.length || opportunityNeedCancel.length) payload.opportunityNeeds = { upsert: opportunityNeedUpsert, cancelIds: opportunityNeedCancel };
   return payload;
 }
 
@@ -797,6 +935,8 @@ function operationCounts(payload) {
     staffingNeedsCancelled: payload.needs?.cancelIds.length ?? 0,
     membersArchived: payload.members?.archiveIds.length ?? 0,
     projectsArchived: payload.projects?.archiveIds.length ?? 0,
+    opportunitiesChanged: (payload.opportunities?.upsert.length ?? 0) + (payload.opportunities?.archiveIds.length ?? 0),
+    opportunityNeedsChanged: (payload.opportunityNeeds?.upsert.length ?? 0) + (payload.opportunityNeeds?.cancelIds.length ?? 0),
   };
 }
 
@@ -817,7 +957,9 @@ function payloadIsDestructive(payload) {
     payload.members?.archiveIds.length
     || payload.projects?.archiveIds.length
     || payload.assignments?.cancelIds.length
-    || payload.needs?.cancelIds.length,
+    || payload.needs?.cancelIds.length
+    || payload.opportunities?.archiveIds.length
+    || payload.opportunityNeeds?.cancelIds.length,
   );
 }
 
@@ -843,6 +985,13 @@ function actionLabels(toolName) {
     update_staffing_need: ["要員要件を更新", "更新する"],
     delete_staffing_need: ["要員要件を取消", "取り消す"],
     assign_person_to_need: ["要員要件へアサイン", "アサインする"],
+    create_opportunity: ["受注前案件を登録", "登録する"],
+    update_opportunity: ["受注前案件を更新", "更新する"],
+    delete_opportunity: ["受注前案件をアーカイブ", "アーカイブする"],
+    create_opportunity_need: ["要員計画を登録", "登録する"],
+    update_opportunity_need: ["要員計画を更新", "更新する"],
+    delete_opportunity_need: ["要員計画を取消", "取り消す"],
+    convert_opportunity: ["受注前案件をプロジェクトへ引き継ぐ", "引き継ぐ"],
   };
   return labels[toolName];
 }
@@ -1106,6 +1255,118 @@ function applyAction(state, toolName, args, newUuid, requestId) {
     relevantAssignment = assignment;
     subject = `${person.name} → ${project.name} / ${need.role}`;
     details.push(`${assignment.startDate}〜${assignment.endDate} / ${assignment.allocation}%`);
+  } else if (toolName === "create_opportunity") {
+    const id = newUuid();
+    const owner = args.ownerPersonId ? byId(next.members, args.ownerPersonId, "責任者メンバー") : undefined;
+    const opportunity = { id, code: args.code ?? createProjectCode(args.name, id), name: args.name, summary: args.summary ?? "", stage: args.stage ?? "inquiry", tone: args.tone ?? "sky", ownerPersonId: owner?.id, ownerName: owner?.name ?? null, ownerInitials: owner?.initials ?? null, startDate: args.startDate, endDate: args.endDate, demand: args.demand ?? 0 };
+    ensureDateRange(opportunity.startDate, opportunity.endDate, "想定期間");
+    if (next.opportunities.some((candidate) => lower(candidate.code) === lower(opportunity.code))) fail("DUPLICATE_OPPORTUNITY_CODE", "同じ案件コードがすでに使われています。");
+    next.opportunities.push(opportunity);
+    subject = opportunity.name;
+    details.push(`${opportunity.startDate}〜${opportunity.endDate} / ${opportunity.stage}`);
+  } else if (toolName === "update_opportunity") {
+    const current = byId(next.opportunities, args.opportunityId, "受注前案件");
+    if (!isActiveOpportunity(current)) fail("OPPORTUNITY_NOT_EDITABLE", "受注済みまたは失注の案件は編集できません。");
+    const owner = args.patch.ownerPersonId ? byId(next.members, args.patch.ownerPersonId, "責任者メンバー") : undefined;
+    const updated = { ...current, ...args.patch, ...(owner ? { ownerPersonId: owner.id, ownerName: owner.name, ownerInitials: owner.initials } : {}) };
+    ensureDateRange(updated.startDate, updated.endDate, "想定期間");
+    if (!isActiveOpportunity(updated)) fail("OPPORTUNITY_NOT_EDITABLE", "受注と失注は専用の操作から行ってください。");
+    if (next.opportunities.some((candidate) => candidate.id !== updated.id && lower(candidate.code) === lower(updated.code))) fail("DUPLICATE_OPPORTUNITY_CODE", "同じ案件コードがすでに使われています。");
+    const cancelled = new Set(next.opportunityNeeds.filter((need) => need.opportunityId === updated.id && (need.startDate < updated.startDate || need.endDate > updated.endDate)).map((need) => need.id));
+    next.opportunities = next.opportunities.map((opportunity) => opportunity.id === updated.id ? updated : opportunity);
+    next.opportunityNeeds = next.opportunityNeeds.filter((need) => !cancelled.has(need.id));
+    subject = updated.name;
+    addPreviewChange(details, "案件コード", current.code, updated.code);
+    addPreviewChange(details, "案件名", current.name, updated.name);
+    addPreviewChange(details, "概要", current.summary, updated.summary);
+    addPreviewChange(details, "段階", current.stage, updated.stage);
+    addPreviewChange(details, "責任者", current.ownerPersonId, updated.ownerPersonId, (id) => memberPreview(next, id, id === current.ownerPersonId ? current.ownerName : updated.ownerName));
+    addPreviewChange(details, "開始日", current.startDate, updated.startDate);
+    addPreviewChange(details, "終了日", current.endDate, updated.endDate);
+    addPreviewChange(details, "必要人数", current.demand, updated.demand, headcountPreview);
+    if (cancelled.size) impacts.push(`${cancelled.size}件の期間外要員計画を取り消します。`);
+  } else if (toolName === "delete_opportunity") {
+    const opportunity = byId(next.opportunities, args.opportunityId, "受注前案件");
+    const needCount = next.opportunityNeeds.filter((need) => need.opportunityId === opportunity.id).length;
+    next.opportunities = next.opportunities.filter((candidate) => candidate.id !== opportunity.id);
+    next.opportunityNeeds = next.opportunityNeeds.filter((need) => need.opportunityId !== opportunity.id);
+    subject = opportunity.name;
+    details.push("受注前案件をアーカイブします。");
+    if (needCount) impacts.push(`${needCount}件の関連要員計画を取り消します。`);
+  } else if (toolName === "create_opportunity_need") {
+    const opportunity = byId(next.opportunities, args.opportunityId, "受注前案件");
+    if (!isActiveOpportunity(opportunity)) fail("OPPORTUNITY_NOT_EDITABLE", "進行中の受注前案件にだけ要員計画を追加できます。");
+    const need = { id: newUuid(), opportunityId: opportunity.id, role: args.role, skills: args.skills, startDate: args.startDate, endDate: args.endDate, allocation: args.allocation };
+    assertWithinOpportunity(need, opportunity, "要員計画");
+    next.opportunityNeeds.push(need);
+    subject = `${opportunity.name} / ${need.role}`;
+    details.push(`${need.startDate}〜${need.endDate} / ${need.allocation}%`);
+  } else if (toolName === "update_opportunity_need") {
+    const current = byId(next.opportunityNeeds, args.opportunityNeedId, "要員計画");
+    const patch = {
+      ...args.patch,
+      ...(args.patch.skills !== undefined ? { skills: preserveCanonicalSkills(current.skills ?? [], args.patch.skills) } : {}),
+    };
+    const updated = { ...current, ...patch };
+    const opportunity = byId(next.opportunities, updated.opportunityId, "受注前案件");
+    if (!isActiveOpportunity(opportunity)) fail("OPPORTUNITY_NOT_EDITABLE", "進行中の受注前案件の要員計画だけ編集できます。");
+    assertWithinOpportunity(updated, opportunity, "要員計画");
+    next.opportunityNeeds = next.opportunityNeeds.map((need) => need.id === updated.id ? updated : need);
+    subject = `${opportunity.name} / ${updated.role}`;
+    addPreviewChange(details, "案件", current.opportunityId, updated.opportunityId, (id) => next.opportunities.find((item) => item.id === id)?.name ?? id);
+    addPreviewChange(details, "必要ロール", current.role, updated.role);
+    addPreviewChange(details, "必要スキル", current.skills, updated.skills);
+    addPreviewChange(details, "開始日", current.startDate, updated.startDate);
+    addPreviewChange(details, "終了日", current.endDate, updated.endDate);
+    addPreviewChange(details, "必要配分", current.allocation, updated.allocation, percentPreview);
+  } else if (toolName === "delete_opportunity_need") {
+    const need = byId(next.opportunityNeeds, args.opportunityNeedId, "要員計画");
+    const opportunity = byId(next.opportunities, need.opportunityId, "受注前案件");
+    next.opportunityNeeds = next.opportunityNeeds.filter((candidate) => candidate.id !== need.id);
+    subject = `${opportunity.name} / ${need.role}`;
+    details.push("要員計画を取り消します。");
+  } else if (toolName === "convert_opportunity") {
+    const opportunity = byId(next.opportunities, args.opportunityId, "受注前案件");
+    if (!isActiveOpportunity(opportunity)) fail("OPPORTUNITY_NOT_CONVERTIBLE", "受注できる段階ではありません。");
+    const owner = opportunity.ownerPersonId ? byId(next.members, opportunity.ownerPersonId, "責任者メンバー") : undefined;
+    const projectId = newUuid();
+    const project = {
+      id: projectId,
+      code: createProjectCode(opportunity.name, projectId),
+      name: opportunity.name,
+      summary: opportunity.summary ?? "",
+      status: "準備中",
+      tone: opportunity.tone ?? "sky",
+      ownerPersonId: owner?.id ?? opportunity.ownerPersonId,
+      ownerName: owner?.name ?? opportunity.ownerName ?? null,
+      ownerInitials: owner?.initials ?? opportunity.ownerInitials ?? null,
+      startDate: opportunity.startDate,
+      endDate: opportunity.endDate,
+      nextMilestone: "キックオフ",
+      nextMilestoneDate: opportunity.startDate,
+      progress: 0,
+      demand: Number(opportunity.demand ?? 0),
+    };
+    const planNeeds = next.opportunityNeeds.filter((need) => need.opportunityId === opportunity.id);
+    next.projects.push(project);
+    planNeeds.forEach((need) => {
+      next.needs.push({
+        id: newUuid(),
+        projectId,
+        role: need.role,
+        skills: need.skills ?? [],
+        skillRequirements: need.skillRequirements,
+        startDate: need.startDate,
+        endDate: need.endDate,
+        allocation: Number(need.allocation),
+        status: "open",
+        draftPersonId: null,
+      });
+    });
+    next.opportunities = next.opportunities.map((item) => item.id === opportunity.id ? { ...item, stage: "won", convertedProjectId: projectId } : item);
+    subject = opportunity.name;
+    details.push(`プロジェクト「${project.name}」へ引き継ぎます。`);
+    if (planNeeds.length) impacts.push(`${planNeeds.length}件の要員計画を未充足の要員要件として複製します。`);
   }
 
   if (relevantAssignment) {

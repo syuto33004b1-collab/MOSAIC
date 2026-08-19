@@ -1,6 +1,6 @@
 import type { AuthError, PostgrestError, SupabaseClient, User } from "@supabase/supabase-js";
-import type { Assignment, CustomFieldDefinition, CustomFieldEntity, CustomFieldType, Member, Project, SkillDefinition, SkillKind, StaffingNeed, WorkHistoryEntry, WorkspaceState } from "../domain";
-import { hydrateWorkspaceSkills, normalizeSkillProficiency, normalizeWorkHistory } from "../domain";
+import type { Assignment, CustomFieldDefinition, CustomFieldEntity, CustomFieldType, Member, Opportunity, OpportunityNeed, OpportunityStage, Project, SkillDefinition, SkillKind, StaffingNeed, WorkHistoryEntry, WorkspaceState } from "../domain";
+import { hydrateWorkspaceSkills, OPPORTUNITY_STAGES, normalizeSkillProficiency, normalizeWorkHistory } from "../domain";
 import { appAuthRedirectUrl } from "./authRecovery";
 import {
   ProductionRepositoryError,
@@ -29,6 +29,7 @@ const projectTones = new Set<Project["tone"]>(["blue", "mint", "orange", "plum",
 const projectStatuses = new Set<Project["status"]>(["進行中", "要注意", "準備中", "完了間近", "完了"]);
 const assignmentStatuses = new Set<Assignment["status"]>(["confirmed", "draft"]);
 const needStatuses = new Set<StaffingNeed["status"]>(["open", "planned", "filled"]);
+const opportunityStages = new Set<OpportunityStage>(OPPORTUNITY_STAGES);
 const customFieldEntities = new Set<CustomFieldEntity>(["member", "project"]);
 const customFieldTypes = new Set<CustomFieldType>(["text", "number", "date", "select"]);
 const isoDatePattern = /^\d{4}-\d{2}-\d{2}$/;
@@ -302,6 +303,67 @@ function normalizeWorkspaceNeed(value: unknown): StaffingNeed | undefined {
   };
 }
 
+function normalizeWorkspaceOpportunity(value: unknown): Opportunity | undefined {
+  const record = asRecord(value);
+  if (!record) return undefined;
+  const id = readString(record, "id");
+  const code = readString(record, "code");
+  const name = readString(record, "name");
+  const summary = typeof record.summary === "string" ? record.summary : undefined;
+  const stage = record.stage;
+  const tone = record.tone;
+  const demand = finiteNumber(record, "demand");
+  if (!id || !code || !name || summary === undefined || demand === undefined || demand < 0 || demand > 10000) return undefined;
+  if (typeof stage !== "string" || !opportunityStages.has(stage as OpportunityStage)) return undefined;
+  if (typeof tone !== "string" || !projectTones.has(tone as Opportunity["tone"])) return undefined;
+  if (!validDate(record.startDate) || !validDate(record.endDate) || record.startDate > record.endDate) return undefined;
+  if (record.convertedProjectId !== null && record.convertedProjectId !== undefined && typeof record.convertedProjectId !== "string") return undefined;
+  const convertedProjectId = nullableString(record, "convertedProjectId");
+  return {
+    id,
+    code,
+    name,
+    summary,
+    stage: stage as OpportunityStage,
+    tone: tone as Opportunity["tone"],
+    ownerPersonId: optionalString(record, "ownerPersonId"),
+    ownerName: nullableString(record, "ownerName"),
+    ownerInitials: nullableString(record, "ownerInitials"),
+    startDate: record.startDate,
+    endDate: record.endDate,
+    demand,
+    ...(convertedProjectId ? { convertedProjectId } : {}),
+  };
+}
+
+function normalizeWorkspaceOpportunityNeed(value: unknown): OpportunityNeed | undefined {
+  const record = asRecord(value);
+  if (!record) return undefined;
+  const id = readString(record, "id");
+  const opportunityId = readString(record, "opportunityId");
+  const role = readString(record, "role");
+  const allocation = finiteNumber(record, "allocation");
+  const skills = record.skills;
+  if (!id || !opportunityId || !role || allocation === undefined || allocation <= 0 || allocation > 100) return undefined;
+  if (!validDate(record.startDate) || !validDate(record.endDate) || record.startDate > record.endDate) return undefined;
+  if (!Array.isArray(skills) || skills.some((skill) => typeof skill !== "string" || !skill.trim())) return undefined;
+  return {
+    id,
+    opportunityId,
+    role,
+    skills: skills as string[],
+    skillRequirements: readArray(record, "skillRequirements").flatMap((value) => {
+      const requirement = asRecord(value);
+      const skillName = readString(requirement, "name");
+      const minProficiency = requirement ? normalizeSkillProficiency(requirement.minProficiency, 1) : undefined;
+      return skillName && minProficiency ? [{ name: skillName, minProficiency }] : [];
+    }),
+    startDate: record.startDate,
+    endDate: record.endDate,
+    allocation,
+  };
+}
+
 function normalizeSkillDefinition(value: unknown): SkillDefinition | undefined {
   const record = asRecord(value);
   if (!record) return undefined;
@@ -335,6 +397,17 @@ function normalizeWorkspaceState(value: unknown): WorkspaceState | undefined {
   if (memberIds.size !== members.length || projectIds.size !== projects.length || assignmentIds.size !== assignments.length || needIds.size !== needs.length) return undefined;
   if ((assignments as Assignment[]).some((assignment) => !memberIds.has(assignment.personId) || !projectIds.has(assignment.projectId))) return undefined;
   if ((needs as StaffingNeed[]).some((need) => !projectIds.has(need.projectId))) return undefined;
+  const opportunityValues = record.opportunities === undefined ? [] : readArray(record, "opportunities").map(normalizeWorkspaceOpportunity);
+  const opportunityNeedValues = record.opportunityNeeds === undefined ? [] : readArray(record, "opportunityNeeds").map(normalizeWorkspaceOpportunityNeed);
+  if (opportunityValues.some((item) => !item) || opportunityNeedValues.some((item) => !item)) return undefined;
+  const opportunities = opportunityValues as Opportunity[];
+  const opportunityNeeds = opportunityNeedValues as OpportunityNeed[];
+  const opportunityIds = new Set(opportunities.map((item) => item.id));
+  if (opportunityIds.size !== opportunities.length) return undefined;
+  const opportunityNeedIds = new Set(opportunityNeeds.map((item) => item.id));
+  if (opportunityNeedIds.size !== opportunityNeeds.length) return undefined;
+  if (opportunityNeeds.some((need) => !opportunityIds.has(need.opportunityId))) return undefined;
+  if (opportunities.some((opportunity) => opportunity.convertedProjectId && !projectIds.has(opportunity.convertedProjectId))) return undefined;
   const catalogValues = record.skillCatalog === undefined ? undefined : readArray(record, "skillCatalog").map(normalizeSkillDefinition);
   if (catalogValues && catalogValues.some((item) => !item)) return undefined;
   const customFieldValues = record.customFields === undefined ? undefined : readArray(record, "customFields").map(normalizeCustomFieldDefinition);
@@ -344,6 +417,8 @@ function normalizeWorkspaceState(value: unknown): WorkspaceState | undefined {
     projects: projects as Project[],
     assignments: assignments as Assignment[],
     needs: needs as StaffingNeed[],
+    opportunities,
+    opportunityNeeds,
     ...(catalogValues ? { skillCatalog: catalogValues as SkillDefinition[] } : {}),
     ...(customFieldValues ? { customFields: customFieldValues as CustomFieldDefinition[] } : {}),
   });
@@ -566,6 +641,8 @@ export function normalizeWorkspace(value: unknown): WorkspaceEnvelope {
     projects: record.projects,
     skillCatalog: record.skillCatalog,
     customFields: record.customFields,
+    opportunities: record.opportunities,
+    opportunityNeeds: record.opportunityNeeds,
   } : value);
   const rawState = typeof stateCandidate === "string" ? JSON.parse(stateCandidate) as unknown : stateCandidate;
   const state = normalizeWorkspaceState(rawState);
@@ -616,6 +693,8 @@ function auditSummary(action: string, entityType: string, oldData?: UnknownRecor
     custom_fields: "カスタム項目",
     custom_field_values: "カスタム項目値",
     work_history: "業務経歴",
+    opportunities: "受注前案件",
+    opportunity_needs: "要員計画",
   };
   const actionLabels: Record<string, string> = { delete: "削除", insert: "追加", update: "更新" };
   const source = newData ?? oldData;
@@ -720,6 +799,16 @@ export function workspaceChangesPayload(
       retryable: false,
     });
   }
+
+  const opportunityUpsert = changedRows(state.opportunities ?? [], previous.opportunities ?? []);
+  const opportunityArchiveIds = removedIds(state.opportunities ?? [], previous.opportunities ?? []);
+  if (opportunityUpsert.length || opportunityArchiveIds.length) payload.opportunities = { upsert: opportunityUpsert, archiveIds: opportunityArchiveIds };
+
+  const opportunityNeedUpsert = changedRows(state.opportunityNeeds ?? [], previous.opportunityNeeds ?? []);
+  const opportunityNeedCancelIds = removedIds(state.opportunityNeeds ?? [], previous.opportunityNeeds ?? []);
+  if (opportunityNeedUpsert.length || opportunityNeedCancelIds.length) {
+    payload.opportunityNeeds = { upsert: opportunityNeedUpsert, cancelIds: opportunityNeedCancelIds };
+  }
   return payload;
 }
 
@@ -816,7 +905,7 @@ export class ProductionRepository {
     state: WorkspaceState,
     expectedRevision: number,
     requestId: string,
-    previousState: WorkspaceState = { assignments: [], members: [], needs: [], projects: [] },
+    previousState: WorkspaceState = { assignments: [], members: [], needs: [], projects: [], opportunities: [], opportunityNeeds: [] },
     role: OrganizationRole = "planner",
   ): Promise<SaveWorkspaceResult> {
     const payload = workspaceChangesPayload(state, previousState, role);

@@ -4,6 +4,8 @@ import {
   addSkillCatalogEntry,
   assignmentGrid,
   buildSkillMap,
+  canConvertOpportunity,
+  convertOpportunityToProject,
   createProjectCode,
   formatSkillInput,
   formatWorkHistoryPeriod,
@@ -21,6 +23,7 @@ import {
   normalizeCustomValues,
   normalizeWorkHistory,
   parseSkillInput,
+  pipelineDemandForWeek,
   projectSearchText,
   visibleCustomFields,
   type WorkspaceState,
@@ -215,5 +218,49 @@ describe("custom fields and work history", () => {
     expect(memberSearchText(initialWorkspace, member)).toContain("ビジネス");
     expect(memberSearchText(initialWorkspace, member)).toContain("studio north");
     expect(projectSearchText(initialWorkspace, project)).toContain("atlas株式会社");
+  });
+});
+
+describe("pre-award opportunities", () => {
+  it("keeps pipeline demand out of confirmed projects and only counts active stages", () => {
+    expect(pipelineDemandForWeek(initialWorkspace, "2026-09-07")).toBe(6);
+    expect(pipelineDemandForWeek(initialWorkspace, "2026-08-24")).toBe(2);
+    expect(pipelineDemandForWeek({
+      ...initialWorkspace,
+      opportunities: (initialWorkspace.opportunities ?? []).map((opportunity) => opportunity.id === "opp-ledger" ? { ...opportunity, stage: "lost" as const } : opportunity),
+    }, "2026-08-24")).toBe(0);
+  });
+
+  it("converts an active opportunity into a project and open staffing needs", () => {
+    const converted = convertOpportunityToProject(initialWorkspace, "opp-northwind", {
+      projectId: "00000000-0000-4000-8000-000000000101",
+      needIdMap: {
+        "opp-need-northwind-fe": "00000000-0000-4000-8000-000000000201",
+        "opp-need-northwind-be": "00000000-0000-4000-8000-000000000202",
+      },
+    });
+    const project = converted.projects.find((item) => item.id === "00000000-0000-4000-8000-000000000101");
+    const opportunity = converted.opportunities?.find((item) => item.id === "opp-northwind");
+    const copiedNeeds = converted.needs.filter((need) => need.projectId === project?.id);
+
+    expect(project).toMatchObject({ name: "北風商事 販売基盤", status: "準備中", demand: 4, startDate: "2026-09-01", endDate: "2026-12-25" });
+    expect(opportunity).toMatchObject({ stage: "won", convertedProjectId: project?.id });
+    expect(copiedNeeds).toEqual(expect.arrayContaining([
+      expect.objectContaining({ role: "Frontend Engineer", allocation: 60, status: "open" }),
+      expect.objectContaining({ role: "Backend Engineer", allocation: 50, status: "open" }),
+    ]));
+    expect(converted.assignments).toEqual(initialWorkspace.assignments);
+    expect(canConvertOpportunity(opportunity!)).toBe(false);
+    expect(() => convertOpportunityToProject(converted, "opp-northwind")).toThrow("受注できる段階ではありません");
+    expect(() => convertOpportunityToProject({
+      ...initialWorkspace,
+      opportunities: (initialWorkspace.opportunities ?? []).map((item) => item.id === "opp-harbor" ? { ...item, stage: "lost" as const } : item),
+    }, "opp-harbor")).toThrow("受注できる段階ではありません");
+  });
+
+  it("matches pipeline staffing plans with the same skill and availability rules as project needs", () => {
+    const plan = (initialWorkspace.opportunityNeeds ?? []).find((need) => need.id === "opp-need-harbor-mobile")!;
+    expect(memberMatchesNeed(initialWorkspace.members.find((member) => member.id === "takahashi")!, plan)).toBe(true);
+    expect(memberMatchesNeed(initialWorkspace.members.find((member) => member.id === "nakamura")!, plan)).toBe(false);
   });
 });

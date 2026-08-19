@@ -12,6 +12,7 @@ import {
   ChevronRight,
   Clock3,
   FolderKanban,
+  Inbox,
   Layers3,
   LayoutDashboard,
   MoreHorizontal,
@@ -26,7 +27,7 @@ import {
   UsersRound,
   X,
 } from "lucide-react";
-import { CustomFieldFacts, CustomFieldInputs, FieldsView, MembersView, ProjectsView, ReportsView, SkillsView, WorkHistoryEditor, WorkHistoryList } from "./expanded-views";
+import { CustomFieldFacts, CustomFieldInputs, FieldsView, MembersView, OpportunitiesView, ProjectsView, ReportsView, SkillsView, WorkHistoryEditor, WorkHistoryList } from "./expanded-views";
 import { AiChat } from "./components/ai-chat/AiChat";
 import type { ChatTransport } from "./lib/ai/chatClient";
 import {
@@ -34,6 +35,8 @@ import {
   addDays,
   addSkillCatalogEntry,
   assignmentGrid,
+  canConvertOpportunity,
+  convertOpportunityToProject,
   createProjectCode,
   formatDate,
   formatSkillInput,
@@ -42,6 +45,7 @@ import {
   getWeekStart,
   hydrateWorkspaceSkills,
   initialWorkspace,
+  isActiveOpportunity,
   makeInitials,
   memberById,
   memberDailyLoads,
@@ -53,6 +57,9 @@ import {
   needSkillRequirements,
   normalizeCustomValues,
   normalizeWorkHistory,
+  OPPORTUNITY_STAGE_LABELS,
+  opportunityById,
+  opportunityNeedsFor,
   overlaps,
   parseSkillInput,
   projectById,
@@ -66,6 +73,9 @@ import {
   type CustomFieldEntity,
   type CustomFieldType,
   type Member,
+  type Opportunity,
+  type OpportunityNeed,
+  type OpportunityStage,
   type Project,
   type ProjectStatus,
   type SkillKind,
@@ -97,7 +107,7 @@ export type AppProps = {
   aiChatTransport?: ChatTransport;
 };
 
-type Drawer = "add" | "assignment" | "overload" | "openRole" | "project" | "member" | "newProject" | "newMember" | "editProject" | "editMember" | "needForm" | null;
+type Drawer = "add" | "assignment" | "overload" | "openRole" | "project" | "member" | "newProject" | "newMember" | "editProject" | "editMember" | "needForm" | "opportunity" | "newOpportunity" | "editOpportunity" | "opportunityNeedForm" | null;
 
 type AssignmentEditForm = {
   personId: string;
@@ -141,6 +151,25 @@ type NeedForm = {
   allocation: string;
 };
 
+type OpportunityForm = {
+  name: string;
+  summary: string;
+  stage: OpportunityStage;
+  ownerId: string;
+  startDate: string;
+  endDate: string;
+  demand: string;
+};
+
+type OpportunityNeedForm = {
+  opportunityId: string;
+  role: string;
+  skills: string;
+  startDate: string;
+  endDate: string;
+  allocation: string;
+};
+
 type ScheduleItem = {
   id: string;
   name: string;
@@ -167,6 +196,7 @@ type ScheduleRow = {
 const navItems = [
   { id: "board", label: "アサインボード", icon: LayoutDashboard },
   { id: "projects", label: "プロジェクト", icon: FolderKanban },
+  { id: "opportunities", label: "受注前", icon: Inbox },
   { id: "members", label: "メンバー", icon: UsersRound },
   { id: "skills", label: "スキルマップ", icon: Layers3 },
   { id: "fields", label: "項目定義", icon: SlidersHorizontal },
@@ -176,6 +206,7 @@ const navItems = [
 const pageMeta = {
   board: { eyebrow: "RESOURCE PLANNING", title: "今週のチーム編成", description: "日ごとの重なりと、週全体の余白を確認します。" },
   projects: { eyebrow: "PORTFOLIO CONTROL", title: "プロジェクト・ポートフォリオ", description: "案件ごとの充足と次の節目を横断して管理します。" },
+  opportunities: { eyebrow: "PRE-AWARD PIPELINE", title: "受注前案件", description: "引き合いから商談までの要員計画を、確定プロジェクトと分けて検討します。" },
   members: { eyebrow: "TEAM AVAILABILITY", title: "メンバーと空き状況", description: "スキルと4週間の余白から、次の担当者を探します。" },
   skills: { eyebrow: "SKILL TAXONOMY", title: "スキルマップ", description: "分類、習熟度、不足領域を組織全体で確認します。" },
   fields: { eyebrow: "FIELD DEFINITIONS", title: "項目と経歴", description: "独自項目の配置と、メンバーの業務経歴を管理します。" },
@@ -191,10 +222,13 @@ function cloneState(state: WorkspaceState): WorkspaceState {
 function migrateDemoWorkspace(state: WorkspaceState): WorkspaceState {
   const memberIds = new Set(state.members.map((member) => member.id));
   const projectIds = new Set(state.projects.map((project) => project.id));
+  const opportunityIds = new Set((state.opportunities ?? []).map((opportunity) => opportunity.id));
   return hydrateWorkspaceSkills({
     ...state,
     assignments: state.assignments.filter((assignment) => assignment.allocation > 0 && memberIds.has(assignment.personId) && projectIds.has(assignment.projectId)),
     needs: state.needs.filter((need) => projectIds.has(need.projectId)),
+    opportunities: state.opportunities ?? [],
+    opportunityNeeds: (state.opportunityNeeds ?? []).filter((need) => opportunityIds.has(need.opportunityId)),
   });
 }
 
@@ -256,6 +290,12 @@ export default function Home({ mode = "demo", organizationId, organizationName =
   const [projectEditForm, setProjectEditForm] = useState<ProjectEditForm>({ name: "", summary: "", status: "準備中", ownerId: "", startDate: "", endDate: "", nextMilestone: "", nextMilestoneDate: "", progress: "0", demand: "1", customValues: {} });
   const [needForm, setNeedForm] = useState<NeedForm>({ projectId: startingWorkspace.projects[0]?.id ?? "", role: "Frontend Engineer", skills: "", startDate: getWeekStart(0), endDate: addDays(getWeekStart(0), 4), allocation: "40" });
   const [editingNeedId, setEditingNeedId] = useState<string | null>(null);
+  const [opportunityForm, setOpportunityForm] = useState<OpportunityForm>({ name: "", summary: "", stage: "inquiry", ownerId: startingWorkspace.members[0]?.id ?? "", startDate: getWeekStart(0), endDate: addDays(getWeekStart(0), 90), demand: "3" });
+  const [opportunityEditForm, setOpportunityEditForm] = useState<OpportunityForm>({ name: "", summary: "", stage: "inquiry", ownerId: "", startDate: "", endDate: "", demand: "1" });
+  const [opportunityNeedForm, setOpportunityNeedForm] = useState<OpportunityNeedForm>({ opportunityId: startingWorkspace.opportunities?.[0]?.id ?? "", role: "Frontend Engineer", skills: "", startDate: getWeekStart(0), endDate: addDays(getWeekStart(0), 4), allocation: "40" });
+  const [editingOpportunityNeedId, setEditingOpportunityNeedId] = useState<string | null>(null);
+  const [selectedOpportunityId, setSelectedOpportunityId] = useState(startingWorkspace.opportunities?.[0]?.id ?? "");
+  const [selectedOpportunityNeedId, setSelectedOpportunityNeedId] = useState(startingWorkspace.opportunityNeeds?.[0]?.id ?? "");
   const [assignmentEditForm, setAssignmentEditForm] = useState<AssignmentEditForm>({ personId: "", projectId: "", startDate: "", endDate: "", allocation: "40" });
   const [pendingSave, setPendingSave] = useState<{ requestId: string; snapshot: string } | null>(null);
   const [saveOutcomePending, setSaveOutcomePending] = useState(false);
@@ -510,6 +550,13 @@ export default function Home({ mode = "demo", organizationId, organizationName =
   const selectedMember = memberById(workspace, selectedMemberId);
   const selectedAssignment = workspace.assignments.find((assignment) => assignment.id === selectedAssignmentId);
   const selectedAssignmentIsPersisted = Boolean(selectedAssignment && committedWorkspace.assignments.some((assignment) => assignment.id === selectedAssignment.id));
+  const selectedOpportunity = opportunityById(workspace, selectedOpportunityId);
+  const selectedOpportunityNeeds = selectedOpportunity ? opportunityNeedsFor(workspace, selectedOpportunity.id) : [];
+  const selectedOpportunityNeed = selectedOpportunityNeeds.find((need) => need.id === selectedOpportunityNeedId) ?? selectedOpportunityNeeds[0];
+  const opportunityCandidates = selectedOpportunityNeed ? workspace.members.filter((member) => {
+    const available = member.capacity - memberPeakLoad(workspace, member.id, selectedOpportunityNeed.startDate, selectedOpportunityNeed.endDate);
+    return memberMatchesNeed(member, selectedOpportunityNeed) && available >= selectedOpportunityNeed.allocation;
+  }).slice(0, 3) : [];
   const role = identity?.role ?? (mode === "demo" ? "owner" : "viewer");
   const operationLocked = mode === "shared" && (syncStatus === "saving" || syncStatus === "refreshing" || syncStatus === "conflict");
   const hasEditPermission = mode === "demo" || role !== "viewer";
@@ -645,6 +692,18 @@ export default function Home({ mode = "demo", organizationId, organizationName =
     }
     setSelectedNeedId(need.id);
     setDrawer("openRole");
+    setNotificationsOpen(false);
+  };
+
+  const openOpportunity = (opportunityId: string) => {
+    const opportunity = opportunityById(workspace, opportunityId);
+    if (!opportunity) {
+      setToast("受注前案件が更新されました。最新の一覧から選び直してください");
+      return;
+    }
+    setSelectedOpportunityId(opportunity.id);
+    setSelectedOpportunityNeedId(opportunityNeedsFor(workspace, opportunity.id)[0]?.id ?? "");
+    setDrawer("opportunity");
     setNotificationsOpen(false);
   };
 
@@ -1458,9 +1517,233 @@ export default function Home({ mode = "demo", organizationId, organizationName =
     setToast("独自項目を追加しました");
   };
 
+  const handleCreateOpportunity = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!canEdit) return;
+    const owner = memberById(workspace, opportunityForm.ownerId) || workspace.members[0];
+    const name = opportunityForm.name.trim();
+    const demand = Number(opportunityForm.demand);
+    if (!name) {
+      setToast("案件名を入力してください");
+      return;
+    }
+    if (!owner) {
+      setToast("先に責任者となるメンバーを登録してください");
+      return;
+    }
+    if (!opportunityForm.startDate || !opportunityForm.endDate || opportunityForm.endDate < opportunityForm.startDate) {
+      setToast("想定期間の終了日は開始日以降に設定してください");
+      return;
+    }
+    if (!Number.isInteger(demand) || demand < 0 || demand > 10000) {
+      setToast("必要人数は0〜10000で設定してください");
+      return;
+    }
+    const id = newId();
+    const opportunity: Opportunity = {
+      id,
+      code: createProjectCode(name, id),
+      name,
+      summary: opportunityForm.summary.trim() || "新しく追加した受注前案件",
+      stage: opportunityForm.stage,
+      tone: "sky",
+      ownerPersonId: owner.id,
+      ownerName: owner.name,
+      ownerInitials: owner.initials,
+      startDate: opportunityForm.startDate,
+      endDate: opportunityForm.endDate,
+      demand,
+    };
+    setWorkspace((current) => ({ ...current, opportunities: [...(current.opportunities ?? []), opportunity] }));
+    setSelectedOpportunityId(id);
+    setOpportunityNeedForm((current) => ({ ...current, opportunityId: id, startDate: opportunity.startDate, endDate: opportunity.endDate }));
+    markUnsaved();
+    setOpportunityForm({ name: "", summary: "", stage: "inquiry", ownerId: owner.id, startDate: getWeekStart(0), endDate: addDays(getWeekStart(0), 90), demand: "3" });
+    closeDrawer();
+    setToast(opportunity.name + "を追加しました");
+  };
+
+  const openOpportunityEditor = (opportunity: Opportunity) => {
+    if (!canEdit || !isActiveOpportunity(opportunity)) return;
+    setSelectedOpportunityId(opportunity.id);
+    setOpportunityEditForm({
+      name: opportunity.name,
+      summary: opportunity.summary,
+      stage: opportunity.stage,
+      ownerId: opportunity.ownerPersonId ?? workspace.members[0]?.id ?? "",
+      startDate: opportunity.startDate,
+      endDate: opportunity.endDate,
+      demand: String(opportunity.demand),
+    });
+    setDrawer("editOpportunity");
+  };
+
+  const handleEditOpportunity = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!canEdit || !selectedOpportunity || !isActiveOpportunity(selectedOpportunity)) return;
+    const owner = memberById(workspace, opportunityEditForm.ownerId);
+    const name = opportunityEditForm.name.trim();
+    const demand = Number(opportunityEditForm.demand);
+    if (!name || !owner) {
+      setToast("案件名と責任者を確認してください");
+      return;
+    }
+    if (!opportunityEditForm.startDate || !opportunityEditForm.endDate || opportunityEditForm.endDate < opportunityEditForm.startDate) {
+      setToast("想定期間の終了日は開始日以降に設定してください");
+      return;
+    }
+    if (!Number.isInteger(demand) || demand < 0 || demand > 10000) {
+      setToast("必要人数は0〜10000で設定してください");
+      return;
+    }
+    if (opportunityEditForm.stage === "won" || opportunityEditForm.stage === "lost") {
+      setToast("受注と失注は専用の操作から行ってください");
+      return;
+    }
+    const nextNeeds = opportunityNeedsFor(workspace, selectedOpportunity.id).filter((need) => need.startDate >= opportunityEditForm.startDate && need.endDate <= opportunityEditForm.endDate);
+    const removedNeedIds = new Set(opportunityNeedsFor(workspace, selectedOpportunity.id).filter((need) => !nextNeeds.some((item) => item.id === need.id)).map((need) => need.id));
+    setWorkspace((current) => ({
+      ...current,
+      opportunities: (current.opportunities ?? []).map((item) => item.id === selectedOpportunity.id ? {
+        ...item,
+        name,
+        summary: opportunityEditForm.summary.trim(),
+        stage: opportunityEditForm.stage,
+        ownerPersonId: owner.id,
+        ownerName: owner.name,
+        ownerInitials: owner.initials,
+        startDate: opportunityEditForm.startDate,
+        endDate: opportunityEditForm.endDate,
+        demand,
+      } : item),
+      opportunityNeeds: (current.opportunityNeeds ?? []).filter((need) => !removedNeedIds.has(need.id)),
+    }));
+    markUnsaved();
+    setDrawer("opportunity");
+    setToast(removedNeedIds.size > 0 ? "案件情報を更新し、期間外の要員計画を取消予定にしました" : "受注前案件を更新しました");
+  };
+
+  const archiveOpportunity = () => {
+    if (!canEdit || !selectedOpportunity) return;
+    if (!window.confirm(`${selectedOpportunity.name}を一覧から外します。要員計画も取消予定になります。続けますか？`)) return;
+    setWorkspace((current) => ({
+      ...current,
+      opportunities: (current.opportunities ?? []).filter((item) => item.id !== selectedOpportunity.id),
+      opportunityNeeds: (current.opportunityNeeds ?? []).filter((need) => need.opportunityId !== selectedOpportunity.id),
+    }));
+    setSelectedOpportunityId((workspace.opportunities ?? []).find((item) => item.id !== selectedOpportunity.id)?.id ?? "");
+    markUnsaved();
+    closeDrawer();
+    setToast("受注前案件を取消予定にしました");
+  };
+
+  const markOpportunityLost = () => {
+    if (!canEdit || !selectedOpportunity || !isActiveOpportunity(selectedOpportunity)) return;
+    if (!window.confirm(`${selectedOpportunity.name}を失注にしますか？`)) return;
+    setWorkspace((current) => ({
+      ...current,
+      opportunities: (current.opportunities ?? []).map((item) => item.id === selectedOpportunity.id ? { ...item, stage: "lost" as const } : item),
+    }));
+    markUnsaved();
+    setToast("失注として記録しました");
+  };
+
+  const convertSelectedOpportunity = () => {
+    if (!canEdit || !selectedOpportunity) return;
+    if (!canConvertOpportunity(selectedOpportunity)) {
+      setToast("受注できる段階ではありません");
+      return;
+    }
+    if (!window.confirm(`${selectedOpportunity.name}をプロジェクトへ引き継ぎます。要員計画は未充足の要員要件になります。続けますか？`)) return;
+    try {
+      const converted = convertOpportunityToProject(workspace, selectedOpportunity.id);
+      const project = converted.projects.find((item) => item.id === converted.opportunities?.find((opportunity) => opportunity.id === selectedOpportunity.id)?.convertedProjectId);
+      setWorkspace(converted);
+      if (project) setSelectedProjectId(project.id);
+      markUnsaved();
+      setDrawer("project");
+      setToast("プロジェクトへ引き継ぎました");
+    } catch (caught) {
+      setToast(caught instanceof Error ? caught.message : "受注処理に失敗しました");
+    }
+  };
+
+  const openOpportunityNeedEditor = (need?: OpportunityNeed) => {
+    if (!canEdit || !selectedOpportunity || !isActiveOpportunity(selectedOpportunity)) return;
+    setOpportunityNeedForm({
+      opportunityId: selectedOpportunity.id,
+      role: need?.role ?? "Frontend Engineer",
+      skills: need ? formatSkillInput(needSkillRequirements(need).map((item) => ({ name: item.name, proficiency: item.minProficiency }))) : "",
+      startDate: need?.startDate ?? selectedOpportunity.startDate,
+      endDate: need?.endDate ?? selectedOpportunity.endDate,
+      allocation: String(need?.allocation ?? 40),
+    });
+    setEditingOpportunityNeedId(need?.id ?? null);
+    setDrawer("opportunityNeedForm");
+  };
+
+  const handleSaveOpportunityNeed = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!canEdit) return;
+    const opportunity = opportunityById(workspace, opportunityNeedForm.opportunityId);
+    const allocation = Number(opportunityNeedForm.allocation);
+    const roleName = opportunityNeedForm.role.trim();
+    if (!opportunity || !isActiveOpportunity(opportunity) || !roleName) {
+      setToast("進行中の案件と必要ロールを確認してください");
+      return;
+    }
+    if (!opportunityNeedForm.startDate || !opportunityNeedForm.endDate || opportunityNeedForm.endDate < opportunityNeedForm.startDate) {
+      setToast("要員計画の終了日は開始日以降に設定してください");
+      return;
+    }
+    if (opportunityNeedForm.startDate < opportunity.startDate || opportunityNeedForm.endDate > opportunity.endDate) {
+      setToast("要員計画の期間は案件の想定期間内に設定してください");
+      return;
+    }
+    if (!Number.isFinite(allocation) || allocation <= 0 || allocation > 100) {
+      setToast("必要配分は1〜100%で設定してください");
+      return;
+    }
+    const existing = editingOpportunityNeedId ? (workspace.opportunityNeeds ?? []).find((need) => need.id === editingOpportunityNeedId) : undefined;
+    const skillRequirements = parseSkillInput(opportunityNeedForm.skills, 1).map((item) => ({ name: item.name, minProficiency: item.proficiency }));
+    const nextNeed: OpportunityNeed = {
+      id: existing?.id ?? newId(),
+      opportunityId: opportunity.id,
+      role: roleName,
+      skills: skillRequirements.map((item) => item.name),
+      skillRequirements,
+      startDate: opportunityNeedForm.startDate,
+      endDate: opportunityNeedForm.endDate,
+      allocation,
+    };
+    setWorkspace((current) => hydrateWorkspaceSkills({
+      ...current,
+      opportunityNeeds: existing
+        ? (current.opportunityNeeds ?? []).map((need) => need.id === existing.id ? nextNeed : need)
+        : [...(current.opportunityNeeds ?? []), nextNeed],
+    }));
+    setSelectedOpportunityId(opportunity.id);
+    setSelectedOpportunityNeedId(nextNeed.id);
+    markUnsaved();
+    setDrawer("opportunity");
+    setToast(existing ? "要員計画を更新しました" : "要員計画を追加しました");
+  };
+
+  const cancelOpportunityNeed = (need: OpportunityNeed) => {
+    if (!canEdit) return;
+    if (!window.confirm(`${need.role}の要員計画を取り消しますか？`)) return;
+    setWorkspace((current) => ({
+      ...current,
+      opportunityNeeds: (current.opportunityNeeds ?? []).filter((item) => item.id !== need.id),
+    }));
+    markUnsaved();
+    setToast("要員計画を取消予定にしました");
+  };
+
   const primaryAction = () => {
     if (activeNav === "board" && canAddAssignment) openNewAssignment();
     if (activeNav === "projects" && canEdit) setDrawer("newProject");
+    if (activeNav === "opportunities" && canEdit) setDrawer("newOpportunity");
     if (activeNav === "members" && canManageMembers) setDrawer("newMember");
     if (activeNav === "skills") {
       const openNeed = workspace.needs.find((need) => need.status !== "filled");
@@ -1489,6 +1772,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
               <button className={"nav-item " + (active ? "active" : "")} aria-label={item.label} aria-current={active ? "page" : undefined} onClick={() => setActiveNav(item.id as keyof typeof pageMeta)} key={item.id}>
                 <span className="nav-icon"><Icon size={18} strokeWidth={1.8} /></span><span className="nav-label">{item.label}</span>
                 {item.id === "projects" && <span className="nav-count">{workspace.projects.length}</span>}
+                {item.id === "opportunities" && <span className="nav-count">{(workspace.opportunities ?? []).filter(isActiveOpportunity).length}</span>}
               </button>
             );
           })}
@@ -1527,9 +1811,9 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                 </div>
               )}
             </div>
-            <button className="primary-button" onClick={primaryAction} disabled={activeNav === "board" ? !canAddAssignment : activeNav === "projects" ? !canEdit : activeNav === "members" ? !canManageMembers : activeNav === "skills" ? workspace.needs.every((need) => need.status === "filled") : false}>
-              {activeNav === "board" && <Plus size={16} />}{activeNav === "projects" && <BriefcaseBusiness size={16} />}{activeNav === "members" && <UserRoundPlus size={16} />}{activeNav === "skills" && <Layers3 size={16} />}{activeNav === "fields" && <UsersRound size={16} />}{activeNav === "reports" && <LayoutDashboard size={16} />}
-              {activeNav === "board" ? "アサインを追加" : activeNav === "projects" ? "プロジェクトを追加" : activeNav === "members" ? "メンバーを追加" : activeNav === "skills" ? "不足ロールを確認" : activeNav === "fields" ? "メンバーを確認" : "ボードで調整"}
+            <button className="primary-button" onClick={primaryAction} disabled={activeNav === "board" ? !canAddAssignment : activeNav === "projects" || activeNav === "opportunities" ? !canEdit : activeNav === "members" ? !canManageMembers : activeNav === "skills" ? workspace.needs.every((need) => need.status === "filled") : false}>
+              {activeNav === "board" && <Plus size={16} />}{activeNav === "projects" && <BriefcaseBusiness size={16} />}{activeNav === "opportunities" && <Inbox size={16} />}{activeNav === "members" && <UserRoundPlus size={16} />}{activeNav === "skills" && <Layers3 size={16} />}{activeNav === "fields" && <UsersRound size={16} />}{activeNav === "reports" && <LayoutDashboard size={16} />}
+              {activeNav === "board" ? "アサインを追加" : activeNav === "projects" ? "プロジェクトを追加" : activeNav === "opportunities" ? "受注前案件を追加" : activeNav === "members" ? "メンバーを追加" : activeNav === "skills" ? "不足ロールを確認" : activeNav === "fields" ? "メンバーを確認" : "ボードで調整"}
             </button>
           </div>
         </header>
@@ -1625,10 +1909,11 @@ export default function Home({ mode = "demo", organizationId, organizationName =
         )}
 
         {activeNav === "projects" && <ProjectsView state={workspace} weekOffset={weekOffset} onOpen={openProject} onCreate={() => setDrawer("newProject")} canEdit={canEdit} />}
+        {activeNav === "opportunities" && <OpportunitiesView state={workspace} onOpen={openOpportunity} onCreate={() => setDrawer("newOpportunity")} canEdit={canEdit} />}
         {activeNav === "members" && <MembersView state={workspace} weekOffset={weekOffset} onOpen={openMember} onAdd={() => setDrawer("newMember")} onAssign={openAssignmentFor} canEdit={canEdit} canManageMembers={canManageMembers} />}
         {activeNav === "skills" && <SkillsView state={hydrateWorkspaceSkills(workspace)} onAddCatalogEntry={handleAddCatalogEntry} onOpenMember={openMember} onResolveNeed={openStaffingNeed} canEdit={canEdit} />}
         {activeNav === "fields" && <FieldsView state={workspace} onAddField={handleAddCustomField} canManage={canManageMembers} />}
-        {activeNav === "reports" && <ReportsView state={workspace} onOpenWeek={openWeekFromReport} onResolveNeed={openStaffingNeed} canEdit={canEdit} />}
+        {activeNav === "reports" && <ReportsView state={workspace} onOpenWeek={openWeekFromReport} onResolveNeed={openStaffingNeed} onOpenOpportunity={openOpportunity} canEdit={canEdit} />}
       </section>
 
       {unsavedChanges > 0 && (
@@ -1643,7 +1928,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
           <button className="overlay-backdrop" aria-label="詳細パネルを閉じる" onClick={closeDrawer} />
           <section className="drawer" ref={drawerRef} role="dialog" aria-modal="true" aria-label="詳細パネル" tabIndex={-1}>
             <div className="drawer-handle" />
-            <div className="drawer-top"><span className="drawer-kicker">{drawer === "add" ? "NEW ASSIGNMENT" : drawer === "assignment" ? "ASSIGNMENT DETAIL" : drawer === "newProject" ? "NEW PROJECT" : drawer === "newMember" ? "NEW MEMBER" : drawer === "editProject" ? "EDIT PROJECT" : drawer === "editMember" ? "EDIT MEMBER" : drawer === "needForm" ? (editingNeedId ? "EDIT STAFFING NEED" : "NEW STAFFING NEED") : drawer === "project" ? "PROJECT DETAIL" : drawer === "member" ? "MEMBER PROFILE" : "RESOLUTION GUIDE"}</span><button className="close-button" aria-label="詳細パネルを閉じる" onClick={closeDrawer}><X size={18} /></button></div>
+            <div className="drawer-top"><span className="drawer-kicker">{drawer === "add" ? "NEW ASSIGNMENT" : drawer === "assignment" ? "ASSIGNMENT DETAIL" : drawer === "newProject" ? "NEW PROJECT" : drawer === "newMember" ? "NEW MEMBER" : drawer === "editProject" ? "EDIT PROJECT" : drawer === "editMember" ? "EDIT MEMBER" : drawer === "needForm" ? (editingNeedId ? "EDIT STAFFING NEED" : "NEW STAFFING NEED") : drawer === "opportunity" ? "OPPORTUNITY DETAIL" : drawer === "newOpportunity" ? "NEW OPPORTUNITY" : drawer === "editOpportunity" ? "EDIT OPPORTUNITY" : drawer === "opportunityNeedForm" ? (editingOpportunityNeedId ? "EDIT STAFFING PLAN" : "NEW STAFFING PLAN") : drawer === "project" ? "PROJECT DETAIL" : drawer === "member" ? "MEMBER PROFILE" : "RESOLUTION GUIDE"}</span><button className="close-button" aria-label="詳細パネルを閉じる" onClick={closeDrawer}><X size={18} /></button></div>
 
             {drawer === "add" && (
               <form className="assignment-form" onChange={markFormDraftDirty} onSubmit={handleAddAssignment}>
@@ -1711,6 +1996,9 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                 <div className="drawer-heading"><span className={"project-code drawer-code " + selectedProject.tone}>{selectedProject.code}</span><div><h2>{selectedProject.name}</h2><p>{selectedProject.summary}</p></div></div>
                 <div className="detail-facts"><div><span>状態</span><strong>{selectedProject.status}</strong></div><div><span>進捗</span><strong>{selectedProject.progress}%</strong></div><div><span>責任者</span><strong>{selectedProject.ownerName ?? "未設定"}</strong></div><div><span>完了予定</span><strong>{formatDate(selectedProject.endDate).replace(/^\d{4}年/, "")}</strong></div></div>
                 <CustomFieldFacts fields={visibleCustomFields(workspace.customFields, "project", "detail")} values={selectedProject.customValues} />
+                {(workspace.opportunities ?? []).some((opportunity) => opportunity.convertedProjectId === selectedProject.id) && (
+                  <button className="drawer-secondary" onClick={() => openOpportunity((workspace.opportunities ?? []).find((opportunity) => opportunity.convertedProjectId === selectedProject.id)!.id)}>元の受注前案件を開く</button>
+                )}
                 <div className="drawer-section-title"><span>4週間の充足</span><small>{selectedProject.demand === 0 ? "必要人数 未設定" : `必要 ${selectedProject.demand}名`}</small></div>
                 <div className="detail-capacity-rail">{[0, 1, 2, 3].map((offset) => { const count = projectMembers(workspace, selectedProject.id, addDays(currentWeekStart, offset * 7)); return <div key={offset}><i><b className={selectedProject.demand > 0 && count < selectedProject.demand ? "short" : ""} style={{ width: (selectedProject.demand === 0 ? 100 : Math.min(100, count / selectedProject.demand * 100)) + "%" }} /></i><span>{offset === 0 ? "今週" : offset + 1 + "週後"}</span><strong>{selectedProject.demand === 0 ? "未設定" : `${count}/${selectedProject.demand}`}</strong></div>; })}</div>
                 <div className="drawer-section-title"><span>担当メンバー</span><small>{projectMembers(workspace, selectedProject.id, weekStart)}名</small></div>
@@ -1779,6 +2067,106 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                 <label>必要配分（%）<input required type="number" min="1" max="100" step="1" value={needForm.allocation} onChange={(event) => setNeedForm({ ...needForm, allocation: event.target.value })} /></label>
                 <div className="form-note"><Sparkles size={15} /><span>条件変更で既存の担当者が要件を満たさなくなる場合、アサインを取消予定にして再募集します。</span></div>
                 <button className="drawer-primary" type="submit" disabled={!canEdit}><Check size={16} />{editingNeedId ? "変更を仮置き" : "要員要件を追加"}</button>
+              </form>
+            )}
+
+            {drawer === "opportunity" && selectedOpportunity && (
+              <div className="drawer-content">
+                <div className="drawer-heading"><span className={"project-code drawer-code " + selectedOpportunity.tone}>{selectedOpportunity.code}</span><div><h2>{selectedOpportunity.name}</h2><p>{selectedOpportunity.summary}</p></div></div>
+                <div className="detail-facts">
+                  <div><span>段階</span><strong>{OPPORTUNITY_STAGE_LABELS[selectedOpportunity.stage]}</strong></div>
+                  <div><span>想定人数</span><strong>{selectedOpportunity.demand}名</strong></div>
+                  <div><span>責任者</span><strong>{selectedOpportunity.ownerName ?? "未設定"}</strong></div>
+                  <div><span>想定期間</span><strong>{formatDate(selectedOpportunity.startDate).replace(/^\d{4}年/, "")} — {formatDate(selectedOpportunity.endDate).replace(/^\d{4}年/, "")}</strong></div>
+                </div>
+                {selectedOpportunity.convertedProjectId && projectById(workspace, selectedOpportunity.convertedProjectId) && (
+                  <button className="drawer-secondary" onClick={() => openProject(selectedOpportunity.convertedProjectId!)}>引き継いだプロジェクトを開く</button>
+                )}
+                <div className="drawer-section-title"><span>要員計画</span><small>{selectedOpportunityNeeds.length}件</small></div>
+                {selectedOpportunityNeeds.length > 0 ? (
+                  <div className="detail-need-list">
+                    {selectedOpportunityNeeds.map((need) => (
+                      <button onClick={() => setSelectedOpportunityNeedId(need.id)} key={need.id} className={need.id === selectedOpportunityNeed?.id ? "selected-need" : ""}>
+                        <span><strong>{need.role}</strong><small>{formatDate(need.startDate)} — {formatDate(need.endDate)} · {need.allocation}%</small></span>
+                        <em>候補を見る</em>
+                        <ChevronRight size={14} />
+                      </button>
+                    ))}
+                  </div>
+                ) : <div className="candidate-empty"><UsersRound size={18} /><span><strong>要員計画はありません</strong><small>必要なロールと期間を追加できます。</small></span></div>}
+                {selectedOpportunityNeed && (
+                  <>
+                    <div className="candidate-label"><span>{selectedOpportunityNeed.role}の候補</span><small>確定アサインにはせず、空きとスキルから検討します</small></div>
+                    {opportunityCandidates.length > 0 ? (
+                      <div className="candidate-list">
+                        {opportunityCandidates.map((member) => (
+                          <article key={member.id}>
+                            <span className={"avatar " + member.avatarTone}>{member.initials}</span>
+                            <span>
+                              <strong>{member.name}</strong>
+                              <small>{member.role} · 要件期間の最小空き {member.capacity - memberPeakLoad(workspace, member.id, selectedOpportunityNeed.startDate, selectedOpportunityNeed.endDate)}%</small>
+                              <em><Check size={10} />{selectedOpportunityNeed.skills.length > 0 ? `${member.skills.filter((skill) => selectedOpportunityNeed.skills.some((neededSkill) => neededSkill.toLocaleLowerCase() === skill.toLocaleLowerCase())).join("・")}に適合` : `${selectedOpportunityNeed.role}に適合`}</em>
+                            </span>
+                            <button type="button" onClick={() => openMember(member.id)}>詳細</button>
+                          </article>
+                        ))}
+                      </div>
+                    ) : <div className="candidate-empty"><UsersRound size={18} /><span><strong>条件を満たす候補がいません</strong><small>メンバーのスキルまたは想定期間の配分を見直してください。</small></span></div>}
+                  </>
+                )}
+                {canEdit && isActiveOpportunity(selectedOpportunity) && <button className="drawer-primary" onClick={() => openOpportunityNeedEditor()}><UserRoundPlus size={16} />要員計画を追加</button>}
+                {canEdit && isActiveOpportunity(selectedOpportunity) && selectedOpportunityNeed && <button className="drawer-secondary" onClick={() => openOpportunityNeedEditor(selectedOpportunityNeed)}>選択中の計画を編集</button>}
+                {canEdit && isActiveOpportunity(selectedOpportunity) && selectedOpportunityNeed && <button className="drawer-danger" onClick={() => cancelOpportunityNeed(selectedOpportunityNeed)}><Trash2 size={15} />選択中の計画を取消</button>}
+                {canEdit && canConvertOpportunity(selectedOpportunity) && <button className="drawer-primary" onClick={convertSelectedOpportunity}><CheckCircle2 size={16} />プロジェクトへ引き継ぐ</button>}
+                {canEdit && isActiveOpportunity(selectedOpportunity) && (
+                  <div className="entity-action-row">
+                    <button className="drawer-secondary" onClick={() => openOpportunityEditor(selectedOpportunity)}>案件情報を編集</button>
+                    <button className="drawer-secondary" onClick={markOpportunityLost}>失注にする</button>
+                    <button className="drawer-danger" onClick={archiveOpportunity}><Trash2 size={15} />案件を取消</button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {drawer === "newOpportunity" && (
+              <form className="assignment-form" onChange={markFormDraftDirty} onSubmit={handleCreateOpportunity}>
+                <div className="drawer-heading"><span className="drawer-icon cobalt"><Inbox size={19} /></span><div><h2>受注前案件を追加</h2><p>想定期間と必要人数を先に置き、候補を検討します。</p></div></div>
+                <label>案件名<input required value={opportunityForm.name} onChange={(event) => setOpportunityForm({ ...opportunityForm, name: event.target.value })} placeholder="例：北風商事 基盤刷新" /></label>
+                <label>概要<textarea value={opportunityForm.summary} onChange={(event) => setOpportunityForm({ ...opportunityForm, summary: event.target.value })} rows={3} /></label>
+                <div className="form-grid">
+                  <label htmlFor="opportunity-new-stage">段階<select id="opportunity-new-stage" aria-label="段階" value={opportunityForm.stage} onChange={(event) => setOpportunityForm({ ...opportunityForm, stage: event.target.value as OpportunityStage })}>{(["inquiry", "proposal", "negotiation"] as const).map((stage) => <option value={stage} key={stage}>{OPPORTUNITY_STAGE_LABELS[stage]}</option>)}</select></label>
+                  <label htmlFor="opportunity-new-owner">責任者<select id="opportunity-new-owner" aria-label="責任者" required value={opportunityForm.ownerId} onChange={(event) => setOpportunityForm({ ...opportunityForm, ownerId: event.target.value })}>{workspace.members.map((member) => <option value={member.id} key={member.id}>{member.name}</option>)}</select></label>
+                </div>
+                <div className="form-grid"><label>開始日<input required type="date" value={opportunityForm.startDate} onChange={(event) => setOpportunityForm({ ...opportunityForm, startDate: event.target.value })} /></label><label>終了日<input required type="date" min={opportunityForm.startDate} value={opportunityForm.endDate} onChange={(event) => setOpportunityForm({ ...opportunityForm, endDate: event.target.value })} /></label></div>
+                <label>必要人数<input required type="number" min="0" max="10000" value={opportunityForm.demand} onChange={(event) => setOpportunityForm({ ...opportunityForm, demand: event.target.value })} /></label>
+                <button className="drawer-primary" type="submit" disabled={!canEdit}><Check size={16} />受注前案件を追加</button>
+              </form>
+            )}
+
+            {drawer === "editOpportunity" && selectedOpportunity && (
+              <form className="assignment-form" onChange={markFormDraftDirty} onSubmit={handleEditOpportunity}>
+                <div className="drawer-heading"><span className="drawer-icon cobalt"><Inbox size={19} /></span><div><h2>受注前案件を編集</h2><p>{selectedOpportunity.code} · 期間外の要員計画は取消予定になります。</p></div></div>
+                <label>案件名<input required value={opportunityEditForm.name} onChange={(event) => setOpportunityEditForm({ ...opportunityEditForm, name: event.target.value })} /></label>
+                <label>概要<textarea value={opportunityEditForm.summary} onChange={(event) => setOpportunityEditForm({ ...opportunityEditForm, summary: event.target.value })} rows={3} /></label>
+                <div className="form-grid">
+                  <label htmlFor="opportunity-edit-stage">段階<select id="opportunity-edit-stage" aria-label="段階" value={opportunityEditForm.stage} onChange={(event) => setOpportunityEditForm({ ...opportunityEditForm, stage: event.target.value as OpportunityStage })}>{(["inquiry", "proposal", "negotiation"] as const).map((stage) => <option value={stage} key={stage}>{OPPORTUNITY_STAGE_LABELS[stage]}</option>)}</select></label>
+                  <label htmlFor="opportunity-edit-owner">責任者<select id="opportunity-edit-owner" aria-label="責任者" required value={opportunityEditForm.ownerId} onChange={(event) => setOpportunityEditForm({ ...opportunityEditForm, ownerId: event.target.value })}>{workspace.members.map((member) => <option value={member.id} key={member.id}>{member.name}</option>)}</select></label>
+                </div>
+                <div className="form-grid"><label>開始日<input required type="date" value={opportunityEditForm.startDate} onChange={(event) => setOpportunityEditForm({ ...opportunityEditForm, startDate: event.target.value })} /></label><label>終了日<input required type="date" min={opportunityEditForm.startDate} value={opportunityEditForm.endDate} onChange={(event) => setOpportunityEditForm({ ...opportunityEditForm, endDate: event.target.value })} /></label></div>
+                <label>必要人数<input required type="number" min="0" max="10000" value={opportunityEditForm.demand} onChange={(event) => setOpportunityEditForm({ ...opportunityEditForm, demand: event.target.value })} /></label>
+                <button className="drawer-primary" type="submit" disabled={!canEdit}><Check size={16} />変更を仮置き</button>
+              </form>
+            )}
+
+            {drawer === "opportunityNeedForm" && (
+              <form className="assignment-form" onChange={markFormDraftDirty} onSubmit={handleSaveOpportunityNeed}>
+                <div className="drawer-heading"><span className="drawer-icon mint"><UserRoundPlus size={19} /></span><div><h2>{editingOpportunityNeedId ? "要員計画を編集" : "要員計画を追加"}</h2><p>受注前の必要ロールと期間から候補を照合します。</p></div></div>
+                <label htmlFor="opportunity-need-parent">案件<select id="opportunity-need-parent" aria-label="案件" required value={opportunityNeedForm.opportunityId} onChange={(event) => setOpportunityNeedForm({ ...opportunityNeedForm, opportunityId: event.target.value })}>{(workspace.opportunities ?? []).filter(isActiveOpportunity).map((opportunity) => <option value={opportunity.id} key={opportunity.id}>{opportunity.name}</option>)}</select></label>
+                <label>必要ロール<input required value={opportunityNeedForm.role} onChange={(event) => setOpportunityNeedForm({ ...opportunityNeedForm, role: event.target.value })} placeholder="Frontend Engineer" /></label>
+                <label>必要スキル（カンマ区切り）<input value={opportunityNeedForm.skills} onChange={(event) => setOpportunityNeedForm({ ...opportunityNeedForm, skills: event.target.value })} placeholder="React:3, TypeScript:2" /></label>
+                <div className="form-grid"><label>開始日<input required type="date" value={opportunityNeedForm.startDate} onChange={(event) => setOpportunityNeedForm({ ...opportunityNeedForm, startDate: event.target.value })} /></label><label>終了日<input required type="date" min={opportunityNeedForm.startDate} value={opportunityNeedForm.endDate} onChange={(event) => setOpportunityNeedForm({ ...opportunityNeedForm, endDate: event.target.value })} /></label></div>
+                <label>必要配分（%）<input required type="number" min="1" max="100" step="1" value={opportunityNeedForm.allocation} onChange={(event) => setOpportunityNeedForm({ ...opportunityNeedForm, allocation: event.target.value })} /></label>
+                <button className="drawer-primary" type="submit" disabled={!canEdit}><Check size={16} />{editingOpportunityNeedId ? "変更を仮置き" : "要員計画を追加"}</button>
               </form>
             )}
 
