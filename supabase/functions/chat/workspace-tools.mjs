@@ -521,6 +521,7 @@ function workspaceSnapshot(value) {
     if (!Array.isArray(state[key])) fail("INVALID_WORKSPACE", `ワークスペースの${key}形式が正しくありません。`, { status: 502 });
     collections[key] = structuredClone(state[key]);
   }
+  collections.skillCatalog = Array.isArray(state.skillCatalog) ? structuredClone(state.skillCatalog) : [];
   return { organizationId: organizationId.toLowerCase(), revision, ...collections };
 }
 
@@ -542,6 +543,13 @@ function containsQuery(values, query) {
   if (!query) return true;
   const needle = lower(query);
   return values.some((value) => lower(value).includes(needle));
+}
+
+function skillLevel(member, name) {
+  const levels = Array.isArray(member?.skillLevels) ? member.skillLevels : [];
+  const found = levels.find((level) => lower(level?.name) === lower(name));
+  if (found) return Number(found.proficiency);
+  return (member?.skills ?? []).some((skill) => lower(skill) === lower(name)) ? 3 : undefined;
 }
 
 function includesSkills(actual, wanted) {
@@ -639,7 +647,7 @@ export function readWorkspaceTool(snapshot, name, args) {
           const peakAllocation = memberPeakLoad(state, member.id, filters.startDate, filters.endDate);
           return { peakAllocation, availablePercent: Math.max(0, Number(member.capacity) - peakAllocation) };
         })() : {};
-        return { id: member.id, name: member.name, role: member.role, department: member.department, location: member.location, skills: member.skills ?? [], capacity: Number(member.capacity), ...availability };
+        return { id: member.id, name: member.name, role: member.role, department: member.department, location: member.location, skills: member.skills ?? [], skillLevels: member.skillLevels ?? [], capacity: Number(member.capacity), ...availability };
       })
       .filter((member) => filters.minAvailablePercent === undefined || member.availablePercent >= filters.minAvailablePercent);
     return { resource: filters.resource, revision: state.revision, ...bounded(values, filters.limit) };
@@ -671,7 +679,7 @@ export function readWorkspaceTool(snapshot, name, args) {
     .filter((need) => !filters.statuses?.length || filters.statuses.includes(need.status))
     .filter((need) => includesSkills(need.skills, filters.skills))
     .filter((need) => overlaps(need, filters.startDate, filters.endDate))
-    .map((need) => ({ id: need.id, projectId: need.projectId, projectName: projects.get(need.projectId)?.name ?? null, role: need.role, skills: need.skills ?? [], startDate: need.startDate, endDate: need.endDate, allocation: Number(need.allocation), status: need.status, draftPersonId: need.draftPersonId ?? null, draftPersonName: members.get(need.draftPersonId)?.name ?? null }));
+    .map((need) => ({ id: need.id, projectId: need.projectId, projectName: projects.get(need.projectId)?.name ?? null, role: need.role, skills: need.skills ?? [], skillRequirements: need.skillRequirements ?? [], startDate: need.startDate, endDate: need.endDate, allocation: Number(need.allocation), status: need.status, draftPersonId: need.draftPersonId ?? null, draftPersonName: members.get(need.draftPersonId)?.name ?? null }));
   return { resource: filters.resource, revision: state.revision, ...bounded(values, filters.limit) };
 }
 
@@ -698,7 +706,14 @@ function assertWithinProject(item, project, label) {
 }
 
 function memberMatchesNeed(member, need) {
-  return lower(member.role) === lower(need.role) && includesSkills(member.skills, need.skills);
+  if (lower(member.role) !== lower(need.role)) return false;
+  const requirements = Array.isArray(need.skillRequirements) && need.skillRequirements.length
+    ? need.skillRequirements
+    : (need.skills ?? []).map((name) => ({ name, minProficiency: 1 }));
+  return requirements.every((requirement) => {
+    const proficiency = skillLevel(member, requirement.name);
+    return proficiency !== undefined && proficiency >= Number(requirement.minProficiency ?? 1);
+  });
 }
 
 function assignmentMatchesNeed(state, assignment, need) {
@@ -715,7 +730,7 @@ function assignmentMatchesNeed(state, assignment, need) {
 }
 
 function cloneState(state) {
-  return { members: structuredClone(state.members), projects: structuredClone(state.projects), assignments: structuredClone(state.assignments), needs: structuredClone(state.needs) };
+  return { members: structuredClone(state.members), projects: structuredClone(state.projects), assignments: structuredClone(state.assignments), needs: structuredClone(state.needs), skillCatalog: structuredClone(state.skillCatalog ?? []) };
 }
 
 export function stableStringify(value) {
@@ -754,6 +769,9 @@ function workspacePayload(next, previous) {
   const needUpsert = changedRows(next.needs, previous.needs);
   const needCancel = removedIds(next.needs, previous.needs);
   if (needUpsert.length || needCancel.length) payload.needs = { upsert: needUpsert, cancelIds: needCancel };
+  const catalogUpsert = changedRows(next.skillCatalog ?? [], previous.skillCatalog ?? []);
+  const catalogArchive = removedIds(next.skillCatalog ?? [], previous.skillCatalog ?? []);
+  if (catalogUpsert.length || catalogArchive.length) payload.skillCatalog = { upsert: catalogUpsert, archiveIds: catalogArchive };
   return payload;
 }
 

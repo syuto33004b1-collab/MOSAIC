@@ -16,11 +16,16 @@ import {
 } from "lucide-react";
 import {
   addDays,
+  addSkillCatalogEntry,
+  buildSkillMap,
   getWeekStart,
   memberDailyLoads,
   memberLoad,
+  memberSkillLevels,
+  PROFICIENCY_LABELS,
   projectMembers,
   type Project,
+  type SkillKind,
   type WorkspaceState,
 } from "./domain";
 
@@ -45,6 +50,14 @@ type MembersViewProps = {
 type ReportsViewProps = {
   state: WorkspaceState;
   onOpenWeek: (offset: number) => void;
+  onResolveNeed: (needId: string) => void;
+  canEdit?: boolean;
+};
+
+type SkillsViewProps = {
+  state: WorkspaceState;
+  onAddCatalogEntry: (input: { name: string; kind: SkillKind; parentId?: string | null }) => void;
+  onOpenMember: (memberId: string) => void;
   onResolveNeed: (needId: string) => void;
   canEdit?: boolean;
 };
@@ -192,7 +205,7 @@ export function MembersView({ state, weekOffset, onOpen, onAdd, onAssign, canEdi
               return (
                 <tr key={member.id}>
                   <td><button className="member-name-cell" onClick={() => onOpen(member.id)}><span className={"avatar " + member.avatarTone}>{member.initials}</span><span><strong>{member.name}</strong><small>{member.role} · {member.department}</small></span></button></td>
-                  <td><div className="member-skills">{member.skills.slice(0, 3).map((skill) => <span key={skill}>{skill}</span>)}</div></td>
+                  <td><div className="member-skills">{memberSkillLevels(member).slice(0, 3).map((level) => <span key={level.name}>{level.name}<small>{level.proficiency}</small></span>)}</div></td>
                   <td><span className={"load-ring " + (load > member.capacity ? "over" : member.capacity > 0 && load <= member.capacity * .6 ? "open" : "")} style={{ "--load": Math.min(100, loadRatio) } as React.CSSProperties}><strong>{load}%</strong></span><small className="capacity-limit">上限 {member.capacity}%</small></td>
                   <td><div className="member-week-rail">{weeklyLoads.map((value, index) => { const ratio = member.capacity > 0 ? value / member.capacity * 100 : value > 0 ? 100 : 0; return <i className={value > member.capacity ? "over" : member.capacity > 0 && value <= member.capacity * .6 ? "open" : ""} key={index}><b style={{ height: Math.max(12, Math.min(100, ratio)) + "%" }} /><small>{value}%</small></i>; })}</div></td>
                   <td><span className="next-open">{member.capacity === 0 ? "稼働不可 · 上限0%" : nextOpen === -1 ? "4週先まで満員" : nextOpen === 0 ? "今週 " + Math.max(0, member.capacity - load) + "%空き" : (nextOpen + 1) + "週目から"}<small>{member.location}</small></span></td>
@@ -266,6 +279,120 @@ export function ReportsView({ state, onOpenWeek, onResolveNeed, canEdit = true }
       </div>
 
       <div className="report-insight"><span><Sparkles size={17} /></span><div><strong>今週の示唆</strong><p>未充足ロールとメンバーの空き状況を照合し、候補を確認できます。</p></div>{activeNeeds[0] && <button onClick={() => onResolveNeed(activeNeeds[0].id)}>{canEdit ? "候補を見る" : "候補を確認"} <ArrowRight size={13} /></button>}</div>
+    </section>
+  );
+}
+
+export function SkillsView({ state, onAddCatalogEntry, onOpenMember, onResolveNeed, canEdit = true }: SkillsViewProps) {
+  const [query, setQuery] = useState("");
+  const [focus, setFocus] = useState<"すべて" | "不足あり" | "保有あり">("すべて");
+  const [name, setName] = useState("");
+  const [kind, setKind] = useState<SkillKind>("skill");
+  const [parentId, setParentId] = useState("");
+  const [error, setError] = useState("");
+  const rows = useMemo(() => buildSkillMap(state), [state]);
+  const categories = (state.skillCatalog ?? []).filter((item) => item.kind === "category");
+  const filtered = rows.filter((row) => {
+    const text = (row.name + " " + row.path.join(" ")).toLowerCase();
+    const textMatch = text.includes(query.toLowerCase());
+    const focusMatch = focus === "すべて" || (focus === "不足あり" ? row.gap > 0 : row.memberCount > 0);
+    return textMatch && focusMatch;
+  });
+  const skillRows = rows.filter((row) => row.kind === "skill");
+  const covered = skillRows.filter((row) => row.memberCount > 0).length;
+  const gaps = skillRows.filter((row) => row.gap > 0).length;
+  const needForSkill = (skillName: string) => state.needs.find((need) => need.status !== "filled" && need.skills.some((item) => item.toLocaleLowerCase() === skillName.toLocaleLowerCase()));
+
+  const submitCatalog = () => {
+    try {
+      addSkillCatalogEntry(state.skillCatalog ?? [], { name, kind, parentId: parentId || null });
+      onAddCatalogEntry({ name, kind, parentId: parentId || null });
+      setName("");
+      setError("");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "分類を追加できませんでした");
+    }
+  };
+
+  return (
+    <section className="section-view skills-view" aria-labelledby="skills-heading">
+      <h2 id="skills-heading" className="sr-only">スキルマップ</h2>
+      <div className="member-ribbon">
+        <div className="ribbon-lead"><span className="ribbon-icon"><Layers3 size={18} /></span><div><small>SKILL TAXONOMY</small><strong>分類・習熟度・不足を同じマップで確認</strong></div></div>
+        <div className="ribbon-stat"><strong>{skillRows.length}</strong><span>登録スキル</span></div>
+        <div className="ribbon-divider" />
+        <div className="ribbon-stat good"><strong>{covered}</strong><span>保有あり</span></div>
+        <div className="ribbon-divider" />
+        <div className="ribbon-stat risk"><strong>{gaps}</strong><span>不足スキル</span></div>
+      </div>
+
+      <div className="view-toolbar">
+        <div className="inline-search"><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="スキル・分類を検索" aria-label="スキルを検索" /></div>
+        <label className="view-filter"><Filter size={14} /><select value={focus} onChange={(event) => setFocus(event.target.value as typeof focus)} aria-label="スキルマップの表示">
+          {(["すべて", "不足あり", "保有あり"] as const).map((option) => <option key={option}>{option}</option>)}
+        </select></label>
+        <span className="toolbar-result">{filtered.length}件を表示</span>
+      </div>
+
+      {canEdit && (
+        <form className="skill-catalog-form" onSubmit={(event) => { event.preventDefault(); submitCatalog(); }}>
+          <label>名前<input value={name} onChange={(event) => setName(event.target.value)} placeholder="React または フロントエンド" /></label>
+          <label>種類<select value={kind} onChange={(event) => setKind(event.target.value as SkillKind)} aria-label="スキル種類">{[{ value: "skill", label: "スキル" }, { value: "category", label: "分類" }].map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}</select></label>
+          <label>親分類<select value={parentId} onChange={(event) => setParentId(event.target.value)} aria-label="親分類">
+            <option value="">なし（最上位）</option>
+            {categories.map((category) => <option value={category.id} key={category.id}>{category.name}</option>)}
+          </select></label>
+          <button type="submit" className="view-add-button"><Plus size={15} />分類またはスキルを追加</button>
+          {error && <p className="skill-catalog-error" role="alert">{error}</p>}
+        </form>
+      )}
+
+      <div className="skill-map-wrap">
+        <table className="skill-map-table">
+          <thead>
+            <tr>
+              <th>スキル分類</th>
+              <th>保有</th>
+              <th>習熟度</th>
+              <th>部署</th>
+              <th>未充足</th>
+              <th>不足</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.map((row) => (
+              <tr key={row.id} className={row.kind === "category" ? "category-row" : row.gap > 0 ? "gap-row" : ""}>
+                <td>
+                  <span className={"skill-tree-name depth-" + row.depth}>
+                    <strong>{row.name}</strong>
+                    <small>{row.kind === "category" ? "分類" : row.path.slice(0, -1).join(" / ") || "未分類"}</small>
+                  </span>
+                </td>
+                <td><strong>{row.memberCount}</strong><small>名</small></td>
+                <td>
+                  <div className="proficiency-rail" aria-label={`${row.name}の習熟度分布`}>
+                    {([1, 2, 3, 4, 5] as const).map((level) => (
+                      <i key={level} title={`${PROFICIENCY_LABELS[level]} ${row.byProficiency[level]}名`} className={row.byProficiency[level] > 0 ? "filled level-" + level : "level-" + level}>
+                        <b>{row.byProficiency[level] || ""}</b>
+                      </i>
+                    ))}
+                  </div>
+                </td>
+                <td><span className="skill-departments">{row.departments.slice(0, 2).map((item) => item.department).join(" / ") || "—"}</span></td>
+                <td>{row.openNeedCount > 0 && needForSkill(row.name) ? <button className="skill-need-link" onClick={() => onResolveNeed(needForSkill(row.name)!.id)}>{row.openNeedCount}件</button> : row.openNeedCount}</td>
+                <td>{row.gap > 0 ? <strong className="skill-gap">{row.gap}</strong> : <span className="skill-ok">充足</span>}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {filtered.length === 0 && <div className="view-empty"><Layers3 size={22} /><strong>条件に合うスキルがありません</strong><p>検索語または表示条件を変更してください。</p></div>}
+      </div>
+
+      <div className="report-insight">
+        <span><Sparkles size={17} /></span>
+        <div><strong>スキルマップの見方</strong><p>習熟度は初級から指導までの5段階です。未充足の要員要件より保有者が少ないスキルを不足として表示します。</p></div>
+        {state.members[0] && <button onClick={() => onOpenMember(state.members[0].id)}>メンバーを確認 <ArrowRight size={13} /></button>}
+      </div>
     </section>
   );
 }

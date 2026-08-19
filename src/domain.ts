@@ -4,6 +4,50 @@ export type AssignmentStatus = "confirmed" | "draft";
 export type NeedStatus = "open" | "planned" | "filled";
 export type ProjectStatus = "進行中" | "要注意" | "準備中" | "完了間近" | "完了";
 
+export type SkillKind = "category" | "skill";
+export type SkillProficiency = 1 | 2 | 3 | 4 | 5;
+
+export type SkillDefinition = {
+  id: string;
+  name: string;
+  kind: SkillKind;
+  parentId?: string | null;
+  sortOrder?: number;
+};
+
+export type SkillLevel = {
+  name: string;
+  proficiency: SkillProficiency;
+};
+
+export type NeedSkillRequirement = {
+  name: string;
+  minProficiency: SkillProficiency;
+};
+
+export type SkillMapRow = {
+  id: string;
+  name: string;
+  kind: SkillKind;
+  parentId: string | null;
+  depth: number;
+  path: string[];
+  memberCount: number;
+  byProficiency: Record<SkillProficiency, number>;
+  departments: { department: string; count: number }[];
+  openNeedCount: number;
+  qualifiedCount: number;
+  gap: number;
+};
+
+export const PROFICIENCY_LABELS: Record<SkillProficiency, string> = {
+  1: "初級",
+  2: "基礎",
+  3: "実務",
+  4: "応用",
+  5: "指導",
+};
+
 export type Member = {
   id: string;
   initials: string;
@@ -12,6 +56,7 @@ export type Member = {
   department: string;
   avatarTone: AvatarTone;
   skills: string[];
+  skillLevels?: SkillLevel[];
   location: string;
   capacity: number;
 };
@@ -52,6 +97,7 @@ export type StaffingNeed = {
   projectId: string;
   role: string;
   skills: string[];
+  skillRequirements?: NeedSkillRequirement[];
   startDate: string;
   endDate: string;
   allocation: number;
@@ -64,6 +110,7 @@ export type WorkspaceState = {
   projects: Project[];
   assignments: Assignment[];
   needs: StaffingNeed[];
+  skillCatalog?: SkillDefinition[];
 };
 
 export type WeekDay = {
@@ -85,16 +132,51 @@ export const projectTone: Record<string, Tone> = {
   pulse: "mint",
 };
 
+const skillCatalog: SkillDefinition[] = [
+  { id: "cat-engineering", name: "エンジニアリング", kind: "category", sortOrder: 10 },
+  { id: "cat-frontend", name: "フロントエンド", kind: "category", parentId: "cat-engineering", sortOrder: 10 },
+  { id: "cat-backend", name: "バックエンド", kind: "category", parentId: "cat-engineering", sortOrder: 20 },
+  { id: "cat-mobile", name: "モバイル", kind: "category", parentId: "cat-engineering", sortOrder: 30 },
+  { id: "cat-data", name: "データ", kind: "category", parentId: "cat-engineering", sortOrder: 40 },
+  { id: "cat-design", name: "デザイン", kind: "category", sortOrder: 20 },
+  { id: "cat-quality", name: "品質保証", kind: "category", sortOrder: 30 },
+  { id: "cat-delivery", name: "デリバリー", kind: "category", sortOrder: 40 },
+  { id: "skill-react", name: "React", kind: "skill", parentId: "cat-frontend", sortOrder: 10 },
+  { id: "skill-typescript", name: "TypeScript", kind: "skill", parentId: "cat-frontend", sortOrder: 20 },
+  { id: "skill-a11y", name: "A11y", kind: "skill", parentId: "cat-frontend", sortOrder: 30 },
+  { id: "skill-java", name: "Java", kind: "skill", parentId: "cat-backend", sortOrder: 10 },
+  { id: "skill-aws", name: "AWS", kind: "skill", parentId: "cat-backend", sortOrder: 20 },
+  { id: "skill-api", name: "API", kind: "skill", parentId: "cat-backend", sortOrder: 30 },
+  { id: "skill-payments", name: "Payments", kind: "skill", parentId: "cat-backend", sortOrder: 40 },
+  { id: "skill-ios", name: "iOS", kind: "skill", parentId: "cat-mobile", sortOrder: 10 },
+  { id: "skill-swift", name: "Swift", kind: "skill", parentId: "cat-mobile", sortOrder: 20 },
+  { id: "skill-mobile", name: "Mobile", kind: "skill", parentId: "cat-mobile", sortOrder: 30 },
+  { id: "skill-python", name: "Python", kind: "skill", parentId: "cat-data", sortOrder: 10 },
+  { id: "skill-sql", name: "SQL", kind: "skill", parentId: "cat-data", sortOrder: 20 },
+  { id: "skill-bi", name: "BI", kind: "skill", parentId: "cat-data", sortOrder: 30 },
+  { id: "skill-figma", name: "Figma", kind: "skill", parentId: "cat-design", sortOrder: 10 },
+  { id: "skill-ux", name: "UX", kind: "skill", parentId: "cat-design", sortOrder: 20 },
+  { id: "skill-design-system", name: "Design system", kind: "skill", parentId: "cat-design", sortOrder: 30 },
+  { id: "skill-research", name: "Research", kind: "skill", parentId: "cat-design", sortOrder: 40 },
+  { id: "skill-interview", name: "Interview", kind: "skill", parentId: "cat-design", sortOrder: 50 },
+  { id: "skill-qa", name: "QA", kind: "skill", parentId: "cat-quality", sortOrder: 10 },
+  { id: "skill-automation", name: "Automation", kind: "skill", parentId: "cat-quality", sortOrder: 20 },
+  { id: "skill-web", name: "Web", kind: "skill", parentId: "cat-quality", sortOrder: 30 },
+  { id: "skill-pm", name: "PM", kind: "skill", parentId: "cat-delivery", sortOrder: 10 },
+  { id: "skill-scrum", name: "Scrum", kind: "skill", parentId: "cat-delivery", sortOrder: 20 },
+  { id: "skill-b2b", name: "B2B", kind: "skill", parentId: "cat-delivery", sortOrder: 30 },
+];
+
 const members: Member[] = [
-  { id: "saeki", initials: "YS", name: "佐伯 優斗", role: "Product Designer", department: "デザイン", avatarTone: "lavender", skills: ["Figma", "UX", "Design system"], location: "東京", capacity: 100 },
-  { id: "nakamura", initials: "MN", name: "中村 美咲", role: "Frontend Engineer", department: "プロダクト開発", avatarTone: "peach", skills: ["React", "TypeScript", "A11y"], location: "東京", capacity: 100 },
-  { id: "suzuki", initials: "KS", name: "鈴木 健太", role: "Backend Engineer", department: "プラットフォーム", avatarTone: "sky", skills: ["Java", "AWS", "Payments"], location: "大阪", capacity: 100 },
-  { id: "hayashi", initials: "AH", name: "林 葵", role: "Project Manager", department: "事業推進", avatarTone: "mint", skills: ["PM", "Scrum", "B2B"], location: "東京", capacity: 100 },
-  { id: "matsumoto", initials: "RM", name: "松本 蓮", role: "QA Engineer", department: "品質保証", avatarTone: "sand", skills: ["QA", "Mobile", "Automation"], location: "福岡", capacity: 100 },
-  { id: "ito", initials: "YI", name: "伊藤 優", role: "Data Analyst", department: "データ戦略", avatarTone: "rose", skills: ["Python", "SQL", "BI"], location: "リモート", capacity: 100 },
-  { id: "morita", initials: "AM", name: "森田 葵", role: "UX Researcher", department: "デザイン", avatarTone: "mint", skills: ["Research", "UX", "Interview"], location: "東京", capacity: 100 },
-  { id: "takahashi", initials: "NT", name: "高橋 直樹", role: "Mobile Engineer", department: "プロダクト開発", avatarTone: "lavender", skills: ["iOS", "Swift", "Mobile"], location: "大阪", capacity: 100 },
-  { id: "okada", initials: "SO", name: "岡田 紗季", role: "QA Engineer", department: "品質保証", avatarTone: "rose", skills: ["QA", "Web", "Automation"], location: "東京", capacity: 100 },
+  { id: "saeki", initials: "YS", name: "佐伯 優斗", role: "Product Designer", department: "デザイン", avatarTone: "lavender", skills: ["Figma", "UX", "Design system"], skillLevels: [{ name: "Figma", proficiency: 5 }, { name: "UX", proficiency: 4 }, { name: "Design system", proficiency: 4 }], location: "東京", capacity: 100 },
+  { id: "nakamura", initials: "MN", name: "中村 美咲", role: "Frontend Engineer", department: "プロダクト開発", avatarTone: "peach", skills: ["React", "TypeScript", "A11y"], skillLevels: [{ name: "React", proficiency: 4 }, { name: "TypeScript", proficiency: 4 }, { name: "A11y", proficiency: 3 }], location: "東京", capacity: 100 },
+  { id: "suzuki", initials: "KS", name: "鈴木 健太", role: "Backend Engineer", department: "プラットフォーム", avatarTone: "sky", skills: ["Java", "AWS", "Payments"], skillLevels: [{ name: "Java", proficiency: 4 }, { name: "AWS", proficiency: 5 }, { name: "Payments", proficiency: 3 }], location: "大阪", capacity: 100 },
+  { id: "hayashi", initials: "AH", name: "林 葵", role: "Project Manager", department: "事業推進", avatarTone: "mint", skills: ["PM", "Scrum", "B2B"], skillLevels: [{ name: "PM", proficiency: 5 }, { name: "Scrum", proficiency: 4 }, { name: "B2B", proficiency: 3 }], location: "東京", capacity: 100 },
+  { id: "matsumoto", initials: "RM", name: "松本 蓮", role: "QA Engineer", department: "品質保証", avatarTone: "sand", skills: ["QA", "Mobile", "Automation"], skillLevels: [{ name: "QA", proficiency: 4 }, { name: "Mobile", proficiency: 3 }, { name: "Automation", proficiency: 3 }], location: "福岡", capacity: 100 },
+  { id: "ito", initials: "YI", name: "伊藤 優", role: "Data Analyst", department: "データ戦略", avatarTone: "rose", skills: ["Python", "SQL", "BI"], skillLevels: [{ name: "Python", proficiency: 4 }, { name: "SQL", proficiency: 5 }, { name: "BI", proficiency: 3 }], location: "リモート", capacity: 100 },
+  { id: "morita", initials: "AM", name: "森田 葵", role: "UX Researcher", department: "デザイン", avatarTone: "mint", skills: ["Research", "UX", "Interview"], skillLevels: [{ name: "Research", proficiency: 5 }, { name: "UX", proficiency: 4 }, { name: "Interview", proficiency: 4 }], location: "東京", capacity: 100 },
+  { id: "takahashi", initials: "NT", name: "高橋 直樹", role: "Mobile Engineer", department: "プロダクト開発", avatarTone: "lavender", skills: ["iOS", "Swift", "Mobile"], skillLevels: [{ name: "iOS", proficiency: 4 }, { name: "Swift", proficiency: 4 }, { name: "Mobile", proficiency: 4 }], location: "大阪", capacity: 100 },
+  { id: "okada", initials: "SO", name: "岡田 紗季", role: "QA Engineer", department: "品質保証", avatarTone: "rose", skills: ["QA", "Web", "Automation"], skillLevels: [{ name: "QA", proficiency: 3 }, { name: "Web", proficiency: 3 }, { name: "Automation", proficiency: 4 }], location: "東京", capacity: 100 },
 ];
 
 const projects: Project[] = [
@@ -127,11 +209,11 @@ const assignments: Assignment[] = [
 ];
 
 const needs: StaffingNeed[] = [
-  { id: "need-mobile-qa", projectId: "mobile", role: "QA Engineer", skills: ["QA", "Mobile"], startDate: "2026-08-24", endDate: "2026-09-04", allocation: 60, status: "open" },
-  { id: "need-orion-be", projectId: "orion", role: "Backend Engineer", skills: ["API", "AWS"], startDate: "2026-08-31", endDate: "2026-09-30", allocation: 40, status: "open" },
+  { id: "need-mobile-qa", projectId: "mobile", role: "QA Engineer", skills: ["QA", "Mobile"], skillRequirements: [{ name: "QA", minProficiency: 3 }, { name: "Mobile", minProficiency: 3 }], startDate: "2026-08-24", endDate: "2026-09-04", allocation: 60, status: "open" },
+  { id: "need-orion-be", projectId: "orion", role: "Backend Engineer", skills: ["API", "AWS"], skillRequirements: [{ name: "API", minProficiency: 3 }, { name: "AWS", minProficiency: 4 }], startDate: "2026-08-31", endDate: "2026-09-30", allocation: 40, status: "open" },
 ];
 
-export const initialWorkspace: WorkspaceState = { members, projects, assignments, needs };
+export const initialWorkspace: WorkspaceState = { members, projects, assignments, needs, skillCatalog };
 
 function isoDate(date: Date) {
   return date.toISOString().slice(0, 10);
@@ -305,4 +387,267 @@ export function createProjectCode(name: string, id: string) {
   const prefix = name.replace(/[^A-Za-z0-9]/g, "").slice(0, 8).toUpperCase() || "PJ";
   const suffix = id.replaceAll("-", "").slice(0, 11).toUpperCase();
   return `${prefix}-${suffix}`;
+}
+
+export function isSkillProficiency(value: number): value is SkillProficiency {
+  return value === 1 || value === 2 || value === 3 || value === 4 || value === 5;
+}
+
+export function normalizeSkillProficiency(value: unknown, fallback: SkillProficiency = 3): SkillProficiency {
+  const number = typeof value === "number" ? value : typeof value === "string" ? Number(value) : Number.NaN;
+  return isSkillProficiency(number) ? number : fallback;
+}
+
+function skillKey(name: string) {
+  return name.trim().toLocaleLowerCase();
+}
+
+export function memberSkillLevels(member: Pick<Member, "skills" | "skillLevels">): SkillLevel[] {
+  if (member.skillLevels?.length) {
+    const seen = new Set<string>();
+    return member.skillLevels.flatMap((level) => {
+      const name = level.name.trim();
+      const key = skillKey(name);
+      if (!name || seen.has(key)) return [];
+      seen.add(key);
+      return [{ name, proficiency: normalizeSkillProficiency(level.proficiency) }];
+    });
+  }
+  return (member.skills ?? []).flatMap((name) => {
+    const trimmed = name.trim();
+    return trimmed ? [{ name: trimmed, proficiency: 3 as const }] : [];
+  });
+}
+
+export function needSkillRequirements(need: Pick<StaffingNeed, "skills" | "skillRequirements">): NeedSkillRequirement[] {
+  if (need.skillRequirements?.length) {
+    const seen = new Set<string>();
+    return need.skillRequirements.flatMap((requirement) => {
+      const name = requirement.name.trim();
+      const key = skillKey(name);
+      if (!name || seen.has(key)) return [];
+      seen.add(key);
+      return [{ name, minProficiency: normalizeSkillProficiency(requirement.minProficiency, 1) }];
+    });
+  }
+  return (need.skills ?? []).flatMap((name) => {
+    const trimmed = name.trim();
+    return trimmed ? [{ name: trimmed, minProficiency: 1 as const }] : [];
+  });
+}
+
+export function parseSkillInput(value: string, defaultProficiency: SkillProficiency = 3): SkillLevel[] {
+  const seen = new Set<string>();
+  return value.split(",").flatMap((part) => {
+    const trimmed = part.trim();
+    if (!trimmed) return [];
+    const separator = trimmed.lastIndexOf(":");
+    const maybeLevel = separator >= 0 ? trimmed.slice(separator + 1).trim() : "";
+    const hasLevel = /^\d+$/.test(maybeLevel);
+    const name = (hasLevel ? trimmed.slice(0, separator) : trimmed).trim();
+    const key = skillKey(name);
+    if (!name || name.length > 80 || seen.has(key)) return [];
+    seen.add(key);
+    return [{ name, proficiency: hasLevel ? normalizeSkillProficiency(maybeLevel, defaultProficiency) : defaultProficiency }];
+  });
+}
+
+export function formatSkillInput(levels: SkillLevel[]): string {
+  return levels.map((level) => `${level.name}:${level.proficiency}`).join(", ");
+}
+
+export function memberMatchesNeed(member: Pick<Member, "role" | "skills" | "skillLevels">, need: Pick<StaffingNeed, "role" | "skills" | "skillRequirements">) {
+  if (member.role.toLocaleLowerCase() !== need.role.toLocaleLowerCase()) return false;
+  const levels = memberSkillLevels(member);
+  return needSkillRequirements(need).every((requirement) => {
+    const level = levels.find((item) => skillKey(item.name) === skillKey(requirement.name));
+    return Boolean(level && level.proficiency >= requirement.minProficiency);
+  });
+}
+
+function catalogIdForName(name: string) {
+  return `skill:${skillKey(name)}`;
+}
+
+export function inferSkillCatalog(state: Pick<WorkspaceState, "members" | "needs" | "skillCatalog">): SkillDefinition[] {
+  const catalog = [...(state.skillCatalog ?? [])];
+  const known = new Set(catalog.filter((item) => item.kind === "skill").map((item) => skillKey(item.name)));
+  const names = new Set<string>();
+  state.members.forEach((member) => memberSkillLevels(member).forEach((level) => names.add(level.name)));
+  state.needs.forEach((need) => needSkillRequirements(need).forEach((requirement) => names.add(requirement.name)));
+  names.forEach((name) => {
+    if (known.has(skillKey(name))) return;
+    catalog.push({ id: catalogIdForName(name), name, kind: "skill", sortOrder: catalog.length + 1 });
+    known.add(skillKey(name));
+  });
+  return catalog;
+}
+
+export function hydrateWorkspaceSkills(state: WorkspaceState): WorkspaceState {
+  const skillCatalog = inferSkillCatalog(state);
+  return {
+    ...state,
+    skillCatalog,
+    members: state.members.map((member) => {
+      const skillLevels = memberSkillLevels(member);
+      return { ...member, skillLevels, skills: skillLevels.map((level) => level.name) };
+    }),
+    needs: state.needs.map((need) => {
+      const skillRequirements = needSkillRequirements(need);
+      return { ...need, skillRequirements, skills: skillRequirements.map((requirement) => requirement.name) };
+    }),
+  };
+}
+
+export function skillCatalogTree(catalog: SkillDefinition[]): SkillDefinition[] {
+  const byParent = new Map<string | null, SkillDefinition[]>();
+  catalog.forEach((item) => {
+    const parentId = item.parentId ?? null;
+    const siblings = byParent.get(parentId) ?? [];
+    siblings.push(item);
+    byParent.set(parentId, siblings);
+  });
+  byParent.forEach((siblings) => siblings.sort((left, right) => (left.sortOrder ?? 0) - (right.sortOrder ?? 0) || left.name.localeCompare(right.name, "ja")));
+  const ordered: SkillDefinition[] = [];
+  const walk = (parentId: string | null) => {
+    (byParent.get(parentId) ?? []).forEach((item) => {
+      ordered.push(item);
+      walk(item.id);
+    });
+  };
+  walk(null);
+  catalog.forEach((item) => {
+    if (!ordered.some((candidate) => candidate.id === item.id)) ordered.push(item);
+  });
+  return ordered;
+}
+
+export function skillCatalogPath(catalog: SkillDefinition[], skillId: string): string[] {
+  const byId = new Map(catalog.map((item) => [item.id, item]));
+  const path: string[] = [];
+  const seen = new Set<string>();
+  let current = byId.get(skillId);
+  while (current && !seen.has(current.id)) {
+    seen.add(current.id);
+    path.unshift(current.name);
+    current = current.parentId ? byId.get(current.parentId) : undefined;
+  }
+  return path;
+}
+
+export function addSkillCatalogEntry(
+  catalog: SkillDefinition[],
+  input: { name: string; kind: SkillKind; parentId?: string | null; id?: string },
+): SkillDefinition[] {
+  const name = input.name.trim();
+  if (!name || name.length > 80) throw new Error("スキル名は1〜80文字で入力してください");
+  if (catalog.some((item) => skillKey(item.name) === skillKey(name))) throw new Error("同じ名前のスキルまたは分類がすでにあります");
+  const parentId = input.parentId || null;
+  if (parentId) {
+    const parent = catalog.find((item) => item.id === parentId);
+    if (!parent) throw new Error("親分類が見つかりません");
+    if (parent.kind !== "category") throw new Error("親には分類だけを指定できます");
+  }
+  return [
+    ...catalog,
+    {
+      id: input.id ?? (typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : catalogIdForName(name)),
+      name,
+      kind: input.kind,
+      parentId,
+      sortOrder: catalog.length + 1,
+    },
+  ];
+}
+
+function emptyProficiency(): Record<SkillProficiency, number> {
+  return { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+}
+
+export function buildSkillMap(state: WorkspaceState): SkillMapRow[] {
+  const catalog = inferSkillCatalog(state);
+  const ordered = skillCatalogTree(catalog);
+  const children = new Map<string, string[]>();
+  catalog.forEach((item) => {
+    if (!item.parentId) return;
+    const list = children.get(item.parentId) ?? [];
+    list.push(item.id);
+    children.set(item.parentId, list);
+  });
+
+  const membersBySkill = new Map<string, { member: Member; proficiency: SkillProficiency }[]>();
+  state.members.forEach((member) => {
+    memberSkillLevels(member).forEach((level) => {
+      const key = skillKey(level.name);
+      const list = membersBySkill.get(key) ?? [];
+      list.push({ member, proficiency: level.proficiency });
+      membersBySkill.set(key, list);
+    });
+  });
+
+  const openNeeds = state.needs.filter((need) => need.status !== "filled");
+  const needsBySkill = new Map<string, NeedSkillRequirement[]>();
+  openNeeds.forEach((need) => {
+    needSkillRequirements(need).forEach((requirement) => {
+      const key = skillKey(requirement.name);
+      const list = needsBySkill.get(key) ?? [];
+      list.push(requirement);
+      needsBySkill.set(key, list);
+    });
+  });
+
+  const rows = new Map<string, SkillMapRow>();
+  ordered.forEach((item) => {
+    const holders = item.kind === "skill" ? (membersBySkill.get(skillKey(item.name)) ?? []) : [];
+    const byProficiency = emptyProficiency();
+    const departmentCounts = new Map<string, number>();
+    holders.forEach(({ member, proficiency }) => {
+      byProficiency[proficiency] += 1;
+      departmentCounts.set(member.department, (departmentCounts.get(member.department) ?? 0) + 1);
+    });
+    const requirements = item.kind === "skill" ? (needsBySkill.get(skillKey(item.name)) ?? []) : [];
+    const qualifiedCount = item.kind === "skill"
+      ? holders.filter(({ proficiency }) => requirements.length === 0 || requirements.some((requirement) => proficiency >= requirement.minProficiency)).length
+      : 0;
+    const openNeedCount = requirements.length;
+    rows.set(item.id, {
+      id: item.id,
+      name: item.name,
+      kind: item.kind,
+      parentId: item.parentId ?? null,
+      depth: Math.max(0, skillCatalogPath(catalog, item.id).length - 1),
+      path: skillCatalogPath(catalog, item.id),
+      memberCount: holders.length,
+      byProficiency,
+      departments: [...departmentCounts.entries()].map(([department, count]) => ({ department, count })).sort((left, right) => right.count - left.count || left.department.localeCompare(right.department, "ja")),
+      openNeedCount,
+      qualifiedCount,
+      gap: Math.max(0, openNeedCount - qualifiedCount),
+    });
+  });
+
+  const descendants = (id: string): string[] => (children.get(id) ?? []).flatMap((childId) => [childId, ...descendants(childId)]);
+  ordered.filter((item) => item.kind === "category").forEach((category) => {
+    const row = rows.get(category.id);
+    if (!row) return;
+    const childRows = descendants(category.id).map((id) => rows.get(id)).filter((item): item is SkillMapRow => Boolean(item && item.kind === "skill"));
+    const byProficiency = emptyProficiency();
+    childRows.forEach((child) => {
+      ([1, 2, 3, 4, 5] as SkillProficiency[]).forEach((level) => {
+        byProficiency[level] += child.byProficiency[level];
+      });
+    });
+    row.memberCount = childRows.reduce((sum, child) => sum + child.memberCount, 0);
+    row.byProficiency = byProficiency;
+    row.openNeedCount = childRows.reduce((sum, child) => sum + child.openNeedCount, 0);
+    row.qualifiedCount = childRows.reduce((sum, child) => sum + child.qualifiedCount, 0);
+    row.gap = childRows.reduce((sum, child) => sum + child.gap, 0);
+    const departmentCounts = new Map<string, number>();
+    childRows.forEach((child) => child.departments.forEach(({ department, count }) => {
+      departmentCounts.set(department, (departmentCounts.get(department) ?? 0) + count);
+    }));
+    row.departments = [...departmentCounts.entries()].map(([department, count]) => ({ department, count })).sort((left, right) => right.count - left.count || left.department.localeCompare(right.department, "ja"));
+  });
+
+  return ordered.map((item) => rows.get(item.id)).filter((row): row is SkillMapRow => Boolean(row));
 }

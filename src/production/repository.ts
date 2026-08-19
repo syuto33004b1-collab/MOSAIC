@@ -1,5 +1,6 @@
 import type { AuthError, PostgrestError, SupabaseClient, User } from "@supabase/supabase-js";
-import type { Assignment, Member, Project, StaffingNeed, WorkspaceState } from "../domain";
+import type { Assignment, Member, Project, SkillDefinition, SkillKind, StaffingNeed, WorkspaceState } from "../domain";
+import { hydrateWorkspaceSkills, normalizeSkillProficiency } from "../domain";
 import { appAuthRedirectUrl } from "./authRecovery";
 import {
   ProductionRepositoryError,
@@ -111,7 +112,24 @@ function normalizeWorkspaceMember(value: unknown): Member | undefined {
   if (!id || !initials || !name || !role || !department || !location || capacity === undefined || capacity < 0 || capacity > 100) return undefined;
   if (typeof avatarTone !== "string" || !avatarTones.has(avatarTone as Member["avatarTone"])) return undefined;
   if (!Array.isArray(skills) || skills.some((skill) => typeof skill !== "string" || !skill.trim())) return undefined;
-  return { id, initials, name, role, department, location, capacity, avatarTone: avatarTone as Member["avatarTone"], skills: skills as string[] };
+  const skillLevels = readArray(record, "skillLevels").flatMap((value) => {
+    const level = asRecord(value);
+    const skillName = readString(level, "name");
+    const proficiency = level ? normalizeSkillProficiency(level.proficiency) : undefined;
+    return skillName && proficiency ? [{ name: skillName, proficiency }] : [];
+  });
+  return {
+    id,
+    initials,
+    name,
+    role,
+    department,
+    location,
+    capacity,
+    avatarTone: avatarTone as Member["avatarTone"],
+    skills: skills as string[],
+    ...(skillLevels.length ? { skillLevels } : {}),
+  };
 }
 
 function normalizeWorkspaceProject(value: unknown): Project | undefined {
@@ -193,11 +211,35 @@ function normalizeWorkspaceNeed(value: unknown): StaffingNeed | undefined {
     projectId,
     role,
     skills: skills as string[],
+    skillRequirements: readArray(record, "skillRequirements").flatMap((value) => {
+      const requirement = asRecord(value);
+      const skillName = readString(requirement, "name");
+      const minProficiency = requirement ? normalizeSkillProficiency(requirement.minProficiency, 1) : undefined;
+      return skillName && minProficiency ? [{ name: skillName, minProficiency }] : [];
+    }),
     startDate: record.startDate,
     endDate: record.endDate,
     allocation,
     status: status as StaffingNeed["status"],
     draftPersonId: nullableString(record, "draftPersonId"),
+  };
+}
+
+function normalizeSkillDefinition(value: unknown): SkillDefinition | undefined {
+  const record = asRecord(value);
+  if (!record) return undefined;
+  const id = readString(record, "id");
+  const name = readString(record, "name");
+  const kind = record.kind;
+  if (!id || !name || (kind !== "category" && kind !== "skill")) return undefined;
+  const parentId = nullableString(record, "parentId");
+  const sortOrder = finiteNumber(record, "sortOrder");
+  return {
+    id,
+    name,
+    kind: kind as SkillKind,
+    parentId,
+    ...(sortOrder !== undefined ? { sortOrder } : {}),
   };
 }
 
@@ -216,12 +258,15 @@ function normalizeWorkspaceState(value: unknown): WorkspaceState | undefined {
   if (memberIds.size !== members.length || projectIds.size !== projects.length || assignmentIds.size !== assignments.length || needIds.size !== needs.length) return undefined;
   if ((assignments as Assignment[]).some((assignment) => !memberIds.has(assignment.personId) || !projectIds.has(assignment.projectId))) return undefined;
   if ((needs as StaffingNeed[]).some((need) => !projectIds.has(need.projectId))) return undefined;
-  return {
+  const catalogValues = record.skillCatalog === undefined ? undefined : readArray(record, "skillCatalog").map(normalizeSkillDefinition);
+  if (catalogValues && catalogValues.some((item) => !item)) return undefined;
+  return hydrateWorkspaceSkills({
     members: members as Member[],
     projects: projects as Project[],
     assignments: assignments as Assignment[],
     needs: needs as StaffingNeed[],
-  };
+    ...(catalogValues ? { skillCatalog: catalogValues as SkillDefinition[] } : {}),
+  });
 }
 
 function rpcError(action: string, error: PostgrestError) {
@@ -439,6 +484,7 @@ export function normalizeWorkspace(value: unknown): WorkspaceEnvelope {
     members: record.members,
     needs: record.needs,
     projects: record.projects,
+    skillCatalog: record.skillCatalog,
   } : value);
   const rawState = typeof stateCandidate === "string" ? JSON.parse(stateCandidate) as unknown : stateCandidate;
   const state = normalizeWorkspaceState(rawState);
@@ -570,6 +616,14 @@ export function workspaceChangesPayload(
   const needUpsert = changedRows(state.needs, previous.needs);
   const needCancelIds = removedIds(state.needs, previous.needs);
   if (needUpsert.length || needCancelIds.length) payload.needs = { upsert: needUpsert, cancelIds: needCancelIds };
+
+  const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  const persistedId = (id: string) => uuidPattern.test(id);
+  const nextCatalog = (state.skillCatalog ?? []).filter((item) => persistedId(item.id));
+  const previousCatalog = (previous.skillCatalog ?? []).filter((item) => persistedId(item.id));
+  const catalogUpsert = changedRows(nextCatalog, previousCatalog);
+  const catalogArchiveIds = removedIds(nextCatalog, previousCatalog);
+  if (catalogUpsert.length || catalogArchiveIds.length) payload.skillCatalog = { upsert: catalogUpsert, archiveIds: catalogArchiveIds };
   return payload;
 }
 
