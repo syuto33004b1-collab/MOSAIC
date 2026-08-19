@@ -234,6 +234,16 @@ export function readListFilters(url) {
   };
 }
 
+export function createDeterministicUuidSource(seed) {
+  const base = String(seed ?? "").toLowerCase().replace(/[^0-9a-f]/g, "").padEnd(32, "0").slice(0, 32);
+  let serial = 0;
+  return () => {
+    serial += 1;
+    const serialHex = serial.toString(16).padStart(12, "0");
+    return `${base.slice(0, 8)}-${base.slice(8, 12)}-4${base.slice(13, 16)}-8${base.slice(17, 20)}-${serialHex}`;
+  };
+}
+
 export function compactArgs(value) {
   const result = {};
   for (const [key, entry] of Object.entries(value)) {

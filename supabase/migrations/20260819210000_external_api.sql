@@ -637,7 +637,8 @@ begin
     update app.webhook_outbox as outbox
     set
       claimed_at = now(),
-      attempts = outbox.attempts + 1
+      attempts = outbox.attempts + 1,
+      available_at = now() + interval '2 minutes'
     from pending
     where outbox.id = pending.id
     returning outbox.*

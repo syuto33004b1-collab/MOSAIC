@@ -198,6 +198,46 @@ test("lists members through the shared catalog without confirmation", async () =
   assert.equal(calls.some((call) => call.name === "integration_save_workspace"), false);
 });
 
+test("retrieves a member by id even when it would fall outside the default page", async () => {
+  const lateId = "60000000-0000-4000-8000-000000000099";
+  const crowded = snapshot();
+  crowded.members = [
+    ...Array.from({ length: 12 }, (_, index) => ({
+      ...crowded.members[0],
+      id: `60000000-0000-4000-8000-0000000000${String(10 + index).padStart(2, "0")}`,
+      name: `Member ${index}`,
+    })),
+    { ...crowded.members[0], id: lateId, name: "Zed Z" },
+  ];
+  const { rpc } = rpcMap({
+    integration_get_workspace: async () => crowded,
+  });
+  const response = await handleApiRequest(apiRequest(`/v1/members/${lateId}`), { rpc });
+  assert.equal(response.status, 200);
+  const payload = await response.json();
+  assert.equal(payload.item.name, "Zed Z");
+});
+
+test("reuses the same generated entity id when an Idempotency-Key is retried", async () => {
+  const { rpc, calls } = rpcMap();
+  const headers = { "Idempotency-Key": "40000000-0000-4000-8000-000000000011" };
+  const body = {
+    name: "Dana D",
+    role: "Designer",
+    department: "デザイン",
+    location: "福岡",
+    capacity: 80,
+    skills: ["Figma"],
+  };
+  assert.equal((await handleApiRequest(apiRequest("/v1/members", { method: "POST", headers, body }), { rpc })).status, 201);
+  assert.equal((await handleApiRequest(apiRequest("/v1/members", { method: "POST", headers, body }), { rpc })).status, 201);
+  const saves = calls.filter((call) => call.name === "integration_save_workspace");
+  assert.equal(saves.length, 2);
+  assert.equal(saves[0].args.p_request_id, saves[1].args.p_request_id);
+  assert.equal(saves[0].args.p_payload_hash, saves[1].args.p_payload_hash);
+  assert.equal(saves[0].args.p_payload.members.upsert[0].id, saves[1].args.p_payload.members.upsert[0].id);
+});
+
 test("creates a member through planWorkspaceAction and impersonated save", async () => {
   const { rpc, calls } = rpcMap();
   const response = await handleApiRequest(apiRequest("/v1/members", {
@@ -237,6 +277,7 @@ test("forbids writes that the credential scope does not allow", async () => {
 
 test("delivers claimed webhook outbox items with a signature header", async () => {
   const delivered = [];
+  let drain;
   const { rpc } = rpcMap({
     claim_webhook_outbox: async () => ({
       items: [{
@@ -260,13 +301,50 @@ test("delivers claimed webhook outbox items with a signature header", async () =
       delivered.push({ url, init });
       return new Response("ok", { status: 200 });
     },
-    waitUntil: async (task) => { await task; },
+    waitUntil: (task) => { drain = task; },
   });
   assert.equal(response.status, 200);
+  assert.equal(delivered.length, 0);
+  await drain;
   assert.equal(delivered.length, 1);
   assert.equal(delivered[0].url, "https://hooks.example.com/mosaic");
   assert.match(delivered[0].init.headers["X-MOSAIC-Signature"], /^sha256=[0-9a-f]{64}$/);
   assert.equal(delivered[0].init.headers["X-MOSAIC-Event"], "workspace.committed");
+  assert.equal(delivered[0].init.redirect, "manual");
+});
+
+test("does not follow redirects or private DNS answers when delivering webhooks", async () => {
+  const delivered = [];
+  let drain;
+  const { rpc } = rpcMap({
+    claim_webhook_outbox: async () => ({
+      items: [{
+        id: 10,
+        organizationId: orgId,
+        eventType: "workspace.committed",
+        payload: { type: "workspace.committed", organizationId: orgId, revision: 8 },
+        attempts: 1,
+        endpoints: [{
+          id: "72000000-0000-4000-8000-000000000002",
+          url: "https://hooks.example.com/internal",
+          secret: "c".repeat(64),
+          events: ["workspace.committed"],
+        }],
+      }],
+    }),
+  });
+  const response = await handleApiRequest(apiRequest("/v1/members?limit=1"), {
+    rpc,
+    resolveHost: async () => ["10.0.0.8"],
+    fetchImpl: async (url, init) => {
+      delivered.push({ url, init });
+      return new Response(null, { status: 302, headers: { location: "http://127.0.0.1/steal" } });
+    },
+    waitUntil: (task) => { drain = task; },
+  });
+  assert.equal(response.status, 200);
+  await drain;
+  assert.equal(delivered.length, 0);
 });
 
 test("keeps the API function unauthenticated at the gateway and separate from chat", async () => {
@@ -288,6 +366,7 @@ test("keeps the API function unauthenticated at the gateway and separate from ch
   assert.doesNotMatch(chatIndex, /functions\/v1\/api/);
   assert.match(sql, /webhook_url_is_public_https/);
   assert.match(sql, /169\\.254/);
+  assert.match(sql, /available_at = now\(\) \+ interval '2 minutes'/);
   assert.match(sql, /member\.changed/);
   assert.match(sql, /grant execute on function public\.create_webhook_endpoint/);
   assert.doesNotMatch(sql, /grant execute on function public\.integration_get_workspace\(uuid\) to authenticated/);

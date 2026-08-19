@@ -37,7 +37,17 @@ export default {
         waitUntil: (task: Promise<unknown>) => {
           const runtime = (globalThis as { EdgeRuntime?: { waitUntil?: (value: Promise<unknown>) => void } }).EdgeRuntime;
           if (runtime?.waitUntil) runtime.waitUntil(task);
-          return task;
+        },
+        resolveHost: async (hostname: string) => {
+          const addresses: string[] = [];
+          for (const recordType of ["A", "AAAA"] as const) {
+            try {
+              addresses.push(...await Deno.resolveDns(hostname, recordType));
+            } catch {
+              // Missing A or AAAA records are not an error until both fail.
+            }
+          }
+          return addresses;
         },
       });
     } catch (error) {

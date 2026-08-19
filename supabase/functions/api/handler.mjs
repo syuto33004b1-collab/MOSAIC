@@ -8,6 +8,7 @@ import {
   API_RESOURCES,
   ApiContractError,
   compactArgs,
+  createDeterministicUuidSource,
   errorBody,
   isPrivateIpAddress,
   jsonResponse,
@@ -93,7 +94,10 @@ export async function deliverWebhookBatch(items, { fetchImpl, resolveHost, compl
             "X-MOSAIC-Delivery": String(item.id),
           },
           body,
+          redirect: "manual",
+          signal: AbortSignal.timeout(4_000),
         });
+        if (response.status >= 300 && response.status < 400) throw new Error("redirect blocked");
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
       } catch (error) {
         ok = false;
@@ -123,7 +127,8 @@ async function drainWebhooks(rpc, organizationId, options) {
 function scheduleDrain(rpc, organizationId, options) {
   const task = drainWebhooks(rpc, organizationId, options).catch(() => undefined);
   if (typeof options.waitUntil === "function") {
-    return options.waitUntil(task);
+    options.waitUntil(task);
+    return undefined;
   }
   return task;
 }
@@ -154,20 +159,26 @@ export async function handleApiRequest(request, options = {}) {
     const rateHeaders = remaining === undefined ? {} : { "X-RateLimit-Remaining": String(remaining) };
 
     if (route.method === "GET" && !route.extra) {
-      const filters = compactArgs({ ...readListFilters(url), resource: spec.read });
+      const filters = compactArgs({
+        ...readListFilters(url),
+        resource: spec.read,
+        ...(route.id ? { id: route.id, limit: 1 } : {}),
+      });
       const result = readWorkspaceTool(snapshot, "read_workspace", filters, caller);
       if (route.id) {
         const item = findItem(result, route.id);
         if (!item) throw new ApiContractError("NOT_FOUND", "対象のデータが見つかりません。", 404);
-        await scheduleDrain(rpc, client.organizationId, options);
+        scheduleDrain(rpc, client.organizationId, options);
         return jsonResponse({ resource: spec.read, revision: result.revision, item }, 200, rateHeaders);
       }
-      await scheduleDrain(rpc, client.organizationId, options);
+      scheduleDrain(rpc, client.organizationId, options);
       return jsonResponse(result, 200, rateHeaders);
     }
 
+    const idempotencyKey = parseIdempotencyKey(request);
     const expectedRevision = parseExpectedRevision(request);
-    const requestId = parseIdempotencyKey(request) ?? (typeof options.uuid === "function" ? options.uuid() : crypto.randomUUID());
+    const requestId = idempotencyKey ?? (typeof options.uuid === "function" ? options.uuid() : crypto.randomUUID());
+    const uuid = idempotencyKey ? createDeterministicUuidSource(requestId) : options.uuid;
     const body = route.method === "DELETE" ? {} : await readJsonBody(request);
     const toolName = route.extra === "assign" ? spec.assign : route.method === "POST" ? spec.create : route.method === "PATCH" ? spec.update : spec.remove;
     const args = writeToolArgs(spec, route.method, route.extra, route.id, body);
@@ -187,7 +198,7 @@ export async function handleApiRequest(request, options = {}) {
         args,
         caller,
         requestId,
-        uuid: options.uuid,
+        uuid,
       });
     } catch (error) {
       if (error instanceof WorkspaceToolError) {
@@ -205,7 +216,7 @@ export async function handleApiRequest(request, options = {}) {
       p_payload_hash: saveRequest.p_payload_hash,
     }, "save"));
 
-    await scheduleDrain(rpc, client.organizationId, options);
+    scheduleDrain(rpc, client.organizationId, options);
     const status = route.method === "POST" ? 201 : 200;
     return jsonResponse({
       revision: saved?.revision,

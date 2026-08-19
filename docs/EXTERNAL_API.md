@@ -10,7 +10,7 @@
 Authorization: Bearer mosaic_sk_...
 ```
 
-利用者 JWT では呼べません。検証は service_role から `authorize_integration_request` を呼び、組織あたり毎分60回です。スコープは `workspace:read` 必須で、書込みは `members:write` / `projects:write` / `assignments:write` / `staffing:write` です。
+利用者 JWT では呼べません。検証は service_role から `authorize_integration_request` を呼び、連携資格あたり毎分60回です。スコープは `workspace:read` 必須で、書込みは `members:write` / `projects:write` / `assignments:write` / `staffing:write` です。
 
 ## エンドポイント
 

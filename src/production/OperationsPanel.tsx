@@ -543,7 +543,7 @@ export function OperationsPanel({
         {canInvite && (
           <>
             <div className="drawer-section-title"><span>外部連携</span><small>{loading ? "読込中" : `${clients.length}件`}</small></div>
-            <div className="form-note"><KeyRound size={15} /><span>API・AI秘書・MCPは同じ業務カタログを使います。資格は人間のログインとは別です。外部APIは <code>/functions/v1/api/v1/</code> です。</span></div>
+            <div className="form-note"><KeyRound size={15} /><span>API・AI秘書は同じ業務カタログを使います。資格は人間のログインとは別です。外部APIは <code>/functions/v1/api/v1/</code> です。MCPは別Issueです。</span></div>
             {issuedSecret && (
               <div className="form-note production-secret-banner" role="status">
                 <KeyRound size={15} />
