@@ -1088,6 +1088,30 @@ describe("role-aware workspace", () => {
     expect(screen.queryByRole("button", { name: "検索シーンを保存" })).not.toBeInTheDocument();
   });
 
+  it("lets admins apply and save a custom report definition", async () => {
+    const user = userEvent.setup();
+    const adapter = sharedAdapter();
+    const save = vi.fn().mockResolvedValue({ revision: 11, savedAt: "2026-08-19T13:00:00Z" });
+    adapter.save = save;
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "admin@example.com", role: "admin" }} shared={adapter} />);
+    const navigation = within(screen.getByRole("navigation", { name: "メインナビゲーション" }));
+
+    await user.click(navigation.getByRole("button", { name: "レポート" }));
+    expect(screen.getByRole("heading", { name: "任意項目レポート" })).toBeInTheDocument();
+    const reportSelect = screen.getByLabelText("保存したレポート");
+    await user.selectOptions(reportSelect, within(reportSelect).getByRole("option", { name: "部署別人数" }));
+    expect(screen.getAllByText("デザイン").length).toBeGreaterThan(0);
+    await user.type(screen.getByPlaceholderText("部署別人数"), "勤務地別人数");
+    await user.selectOptions(screen.getByLabelText("レポートの集計対象"), "members");
+    await user.selectOptions(screen.getByLabelText("レポートのグループ"), "勤務地");
+    await user.click(screen.getByRole("button", { name: "レポートを保存" }));
+    expect(screen.getByRole("option", { name: "勤務地別人数" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "チームへ保存" }));
+    await waitFor(() => expect(save).toHaveBeenCalledOnce());
+    const saved = save.mock.calls[0][0] as WorkspaceState;
+    expect(saved.savedReports?.some((report) => report.name === "勤務地別人数" && report.groupBy === "location")).toBe(true);
+  });
+
   it("migrates legacy demo leave rows out of local storage", async () => {
     const member = initialWorkspace.members[0];
     const project = initialWorkspace.projects[0];

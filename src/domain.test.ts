@@ -33,6 +33,8 @@ import {
   pipelineDemandForWeek,
   projectSearchText,
   addSearchScene,
+  addSavedReport,
+  buildSavedReport,
   matchMembers,
   searchSceneFromNeed,
   setMemberOrgMemberships,
@@ -315,6 +317,27 @@ describe("organization units", () => {
     const rows = orgUnitLoadRows(initialWorkspace, "2026-08-17");
     expect(rows.find((row) => row.id === "org-engineering")?.count).toBe(5);
     expect(rows.find((row) => row.id === "org-design")?.managers).toEqual(["佐伯 優斗"]);
+  });
+});
+
+describe("saved reports", () => {
+  it("groups members by department count and roles by weekly load", () => {
+    const department = (initialWorkspace.savedReports ?? []).find((report) => report.id === "report-dept-count");
+    const roleLoad = (initialWorkspace.savedReports ?? []).find((report) => report.id === "report-role-load");
+    expect(department).toBeDefined();
+    expect(roleLoad).toBeDefined();
+    const rows = buildSavedReport(initialWorkspace, department!, "2026-08-17");
+    expect(rows.find((row) => row.label === "デザイン")).toMatchObject({ count: 2, value: 2 });
+    const frontend = buildSavedReport(initialWorkspace, roleLoad!, "2026-08-17").find((row) => row.label === "Frontend Engineer");
+    expect(frontend).toMatchObject({ count: 1, value: 100 });
+  });
+
+  it("groups projects by status as counts and rejects invalid combinations", () => {
+    const rows = buildSavedReport(initialWorkspace, { id: "x", name: "状態別", source: "projects", groupBy: "status", metric: "count" }, "2026-08-17");
+    expect(rows.find((row) => row.label === "進行中")?.count).toBe(4);
+    expect(() => addSavedReport([], { name: "不正", source: "projects", groupBy: "department", metric: "count" })).toThrow("グループ");
+    const reports = addSavedReport(initialWorkspace.savedReports ?? [], { name: "勤務地別人数", source: "members", groupBy: "location", metric: "count" });
+    expect(reports.at(-1)).toMatchObject({ name: "勤務地別人数", groupBy: "location" });
   });
 });
 

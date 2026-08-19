@@ -50,12 +50,17 @@ import {
   projectSearchText,
   sortedWorkHistory,
   visibleCustomFields,
+  allowedReportGroupBy,
+  buildSavedReport,
   type CustomFieldDefinition,
   type CustomFieldEntity,
   type CustomFieldType,
   type OpportunityStage,
   type OrgUnit,
   type Project,
+  type ReportGroupBy,
+  type ReportMetric,
+  type ReportSource,
   type SearchSkillFilter,
   type SkillKind,
   type WorkHistoryEntry,
@@ -97,7 +102,10 @@ type ReportsViewProps = {
   onOpenWeek: (offset: number) => void;
   onResolveNeed: (needId: string) => void;
   onOpenOpportunity?: (opportunityId: string) => void;
+  onAddReport: (input: { name: string; source: ReportSource; groupBy: ReportGroupBy; metric: ReportMetric }) => void;
+  onDeleteReport: (reportId: string) => void;
   canEdit?: boolean;
+  canManageReports?: boolean;
 };
 
 type OpportunitiesViewProps = {
@@ -493,8 +501,14 @@ export function MembersView({ state, weekOffset, onOpen, onAdd, onAssign, onAddS
   );
 }
 
-export function ReportsView({ state, onOpenWeek, onResolveNeed, onOpenOpportunity, canEdit = true }: ReportsViewProps) {
+export function ReportsView({ state, onOpenWeek, onResolveNeed, onOpenOpportunity, onAddReport, onDeleteReport, canEdit = true, canManageReports = false }: ReportsViewProps) {
   const [range, setRange] = useState(8);
+  const [reportId, setReportId] = useState((state.savedReports ?? [])[0]?.id ?? "");
+  const [reportName, setReportName] = useState("");
+  const [source, setSource] = useState<ReportSource>("members");
+  const [groupBy, setGroupBy] = useState<ReportGroupBy>("department");
+  const [metric, setMetric] = useState<ReportMetric>("count");
+  const [error, setError] = useState("");
   const weekOffsets = useMemo(() => Array.from({ length: range }, (_, index) => index), [range]);
   const horizon = weekOffsets.map((offset) => {
     const weekStart = getWeekStart(offset);
@@ -517,6 +531,20 @@ export function ReportsView({ state, onOpenWeek, onResolveNeed, onOpenOpportunit
   const activeNeeds = state.needs.filter((need) => need.status !== "filled");
   const activeOpportunities = (state.opportunities ?? []).filter(isActiveOpportunity);
   const pipelineNeeds = (state.opportunityNeeds ?? []).filter((need) => activeOpportunities.some((opportunity) => opportunity.id === need.opportunityId));
+  const reports = state.savedReports ?? [];
+  const selectedReport = reports.find((report) => report.id === reportId) ?? reports[0];
+  const reportRows = selectedReport ? buildSavedReport(state, selectedReport, getWeekStart(0)) : [];
+  const maxValue = Math.max(1, ...reportRows.map((row) => row.value));
+  const groupOptions = allowedReportGroupBy(source);
+  const submitReport = () => {
+    try {
+      onAddReport({ name: reportName, source, groupBy, metric });
+      setReportName("");
+      setError("");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "レポートを保存できませんでした");
+    }
+  };
 
   return (
     <section className="section-view reports-view" aria-labelledby="reports-heading">
@@ -524,6 +552,51 @@ export function ReportsView({ state, onOpenWeek, onResolveNeed, onOpenOpportunit
         <div><small>CAPACITY HORIZON</small><h2 id="reports-heading">需給バランスの見通し</h2><p>確定稼働と受注前の想定人数を分けて確認します。</p></div>
         <div className="range-tabs" aria-label="表示期間">{[4, 8, 12].map((weeks) => <button className={range === weeks ? "selected" : ""} aria-pressed={range === weeks} onClick={() => setRange(weeks)} key={weeks}>{weeks}週間</button>)}</div>
       </div>
+
+      <section className="balance-card saved-report-card" aria-labelledby="saved-report-heading">
+        <div className="card-heading"><div><small>SAVED REPORTS</small><h3 id="saved-report-heading">任意項目レポート</h3></div><Gauge size={18} /></div>
+        <div className="view-toolbar">
+          <label className="view-filter"><Filter size={14} /><select value={selectedReport?.id ?? ""} onChange={(event) => setReportId(event.target.value)} aria-label="保存したレポート">
+            {reports.length === 0 && <option value="">レポートなし</option>}
+            {reports.map((report) => <option value={report.id} key={report.id}>{report.name}</option>)}
+          </select></label>
+          {canManageReports && selectedReport && <button className="view-add-button" type="button" onClick={() => { onDeleteReport(selectedReport.id); setReportId(""); }}>このレポートを削除</button>}
+        </div>
+        {canManageReports && (
+          <form className="field-catalog-form" onSubmit={(event) => { event.preventDefault(); submitReport(); }}>
+            <label>レポート名<input value={reportName} onChange={(event) => setReportName(event.target.value)} placeholder="部署別人数" /></label>
+            <label>対象<select aria-label="レポートの集計対象" value={source} onChange={(event) => {
+              const next = event.target.value as ReportSource;
+              setSource(next);
+              const allowed = allowedReportGroupBy(next);
+              if (!allowed.includes(groupBy)) setGroupBy(allowed[0]);
+              if (next === "projects") setMetric("count");
+            }}>
+              <option value="members">メンバー</option>
+              <option value="projects">プロジェクト</option>
+            </select></label>
+            <label>グループ<select aria-label="レポートのグループ" value={groupBy} onChange={(event) => setGroupBy(event.target.value as ReportGroupBy)}>
+              {groupOptions.map((option) => <option value={option} key={option}>{option === "department" ? "部署" : option === "role" ? "職種" : option === "location" ? "勤務地" : "状態"}</option>)}
+            </select></label>
+            <label>指標<select aria-label="レポートの指標" value={source === "projects" ? "count" : metric} onChange={(event) => setMetric(event.target.value as ReportMetric)} disabled={source === "projects"}>
+              <option value="count">件数</option>
+              <option value="avgLoad">平均稼働率</option>
+            </select></label>
+            <button type="submit" className="view-add-button"><Plus size={15} />レポートを保存</button>
+            {error && <p className="skill-catalog-error" role="alert">{error}</p>}
+          </form>
+        )}
+        <div className="department-list">
+          {reportRows.map((row) => (
+            <div key={row.key}>
+              <span><strong>{row.label}</strong><small>{row.count}{selectedReport?.source === "projects" ? "件" : "名"}</small></span>
+              <i><b className={selectedReport?.metric === "avgLoad" && row.value > 100 ? "over" : ""} style={{ width: Math.min(100, row.value / maxValue * 100) + "%" }} /></i>
+              <em>{selectedReport?.metric === "avgLoad" ? `${row.value}%` : row.value}</em>
+            </div>
+          ))}
+          {reportRows.length === 0 && <p className="view-empty">表示できる集計がありません。</p>}
+        </div>
+      </section>
 
       <div className="horizon-card">
         <div className="horizon-y-labels"><span>120%</span><span>100%</span><span>60%</span><span>0</span></div>

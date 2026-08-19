@@ -27,20 +27,25 @@ const ASSIGNMENT_STATUSES = ["draft", "confirmed"];
 const NEED_STATUSES = ["open", "planned", "filled"];
 const OPPORTUNITY_STAGES = ["inquiry", "proposal", "negotiation", "won", "lost"];
 const ACTIVE_OPPORTUNITY_STAGES = ["inquiry", "proposal", "negotiation"];
-const READ_RESOURCES = ["summary", "members", "projects", "assignments", "staffing_needs", "opportunities", "opportunity_needs", "org_units", "org_memberships", "search_scenes"];
+const READ_RESOURCES = ["summary", "members", "projects", "assignments", "staffing_needs", "opportunities", "opportunity_needs", "org_units", "org_memberships", "search_scenes", "saved_reports"];
 const MAX_READ_RESULTS = 25;
 const DEFAULT_READ_RESULTS = 10;
 const MAX_SKILLS = 20;
 const SKILL_IMPORTANCES = ["must", "nice"];
+const REPORT_SOURCES = ["members", "projects"];
+const REPORT_GROUP_BY = ["department", "role", "location", "status"];
+const REPORT_METRICS = ["count", "avgLoad"];
 
 const READ_TOOL = "read_workspace";
 const MEMBER_TOOLS = new Set(["create_member", "update_member", "delete_member"]);
 const ORG_TOOLS = new Set(["create_org_unit", "update_org_unit", "delete_org_unit", "set_member_org_memberships"]);
 const SEARCH_SCENE_TOOLS = new Set(["create_search_scene", "delete_search_scene"]);
+const REPORT_TOOLS = new Set(["create_saved_report", "delete_saved_report"]);
 const WRITE_TOOLS = new Set([
   ...MEMBER_TOOLS,
   ...ORG_TOOLS,
   ...SEARCH_SCENE_TOOLS,
+  ...REPORT_TOOLS,
   "create_project",
   "update_project",
   "delete_project",
@@ -90,6 +95,7 @@ const readParameters = {
     endDate: dateSchema,
     minAvailablePercent: { type: "number", minimum: 0, maximum: 100 },
     sceneId: uuidSchema,
+    reportId: uuidSchema,
     limit: { type: "integer", minimum: 1, maximum: MAX_READ_RESULTS },
   },
   required: ["resource"],
@@ -182,6 +188,13 @@ const searchSceneFields = {
   minAvailablePercent: { type: "number", minimum: 0, maximum: 100 },
 };
 
+const savedReportFields = {
+  name: { type: "string" },
+  source: { type: "string", enum: REPORT_SOURCES },
+  groupBy: { type: "string", enum: REPORT_GROUP_BY },
+  metric: { type: "string", enum: REPORT_METRICS },
+};
+
 function declaration(name, description, parameters) {
   return { type: "function", name, description, parameters };
 }
@@ -239,6 +252,8 @@ export const WORKSPACE_TOOL_DECLARATIONS = Object.freeze([
   }, ["memberId"])),
   declaration("create_search_scene", "必須・歓迎スキルを含む検索シーンを組織共有で保存する。", createParameters(searchSceneFields, ["name"])),
   declaration("delete_search_scene", "保存済みの検索シーンを削除する。", createParameters({ sceneId: uuidSchema }, ["sceneId"])),
+  declaration("create_saved_report", "メンバーまたはプロジェクトのグループ集計レポートを保存する。", createParameters(savedReportFields, ["name", "source", "groupBy", "metric"])),
+  declaration("delete_saved_report", "保存済みの集計レポートを削除する。", createParameters({ reportId: uuidSchema }, ["reportId"])),
 ]);
 
 const TOOL_NAMES = new Set(WORKSPACE_TOOL_DECLARATIONS.map((tool) => tool.name));
@@ -543,6 +558,25 @@ function parseSearchSceneFields(value) {
   return parsed;
 }
 
+function allowedReportGroupBy(source) {
+  return source === "projects" ? ["status"] : ["department", "role", "location"];
+}
+
+function parseSavedReportFields(value) {
+  const input = record(value, "保存レポート");
+  allowedKeys(input, Object.keys(savedReportFields), "保存レポート");
+  const source = enumValue(input.source, "集計対象", REPORT_SOURCES);
+  const groupBy = enumValue(input.groupBy, "グループ", REPORT_GROUP_BY);
+  const metric = enumValue(input.metric, "指標", REPORT_METRICS);
+  if (!allowedReportGroupBy(source).includes(groupBy)) fail("INVALID_TOOL_ARGUMENTS", "この集計対象では使えないグループです。");
+  return {
+    name: requiredString(input.name, "レポート名", { max: 80 }),
+    source,
+    groupBy,
+    metric: source === "projects" ? "count" : metric,
+  };
+}
+
 const READ_ALLOWED = {
   summary: ["resource", "startDate", "endDate"],
   members: ["resource", "query", "role", "location", "skills", "startDate", "endDate", "minAvailablePercent", "sceneId", "limit"],
@@ -554,6 +588,7 @@ const READ_ALLOWED = {
   org_units: ["resource", "query", "limit"],
   org_memberships: ["resource", "query", "personId", "limit"],
   search_scenes: ["resource", "query", "limit"],
+  saved_reports: ["resource", "query", "reportId", "startDate", "endDate", "limit"],
 };
 
 function parseReadArgs(value) {
@@ -576,6 +611,8 @@ function parseReadArgs(value) {
   }
   const sceneId = optionalUuid(input.sceneId, "検索シーンID");
   if (sceneId && resource !== "members") fail("INVALID_TOOL_ARGUMENTS", "検索シーンIDはメンバー参照だけで使えます。");
+  const reportId = optionalUuid(input.reportId, "レポートID");
+  if (reportId && resource !== "saved_reports") fail("INVALID_TOOL_ARGUMENTS", "レポートIDは保存レポート参照だけで使えます。");
   return compact({
     resource,
     query: optionalString(input.query, "検索語", { max: 120 }),
@@ -590,6 +627,7 @@ function parseReadArgs(value) {
     endDate,
     minAvailablePercent,
     sceneId,
+    reportId,
     limit: optionalNumber(input.limit, "取得件数", 1, MAX_READ_RESULTS, { integer: true }) ?? DEFAULT_READ_RESULTS,
   });
 }
@@ -721,6 +759,13 @@ export function parseWorkspaceToolCall(name, args) {
       allowedKeys(input, ["sceneId"]);
       normalized = { sceneId: uuidValue(input.sceneId, "検索シーンID") };
       break;
+    case "create_saved_report":
+      normalized = parseSavedReportFields(input);
+      break;
+    case "delete_saved_report":
+      allowedKeys(input, ["reportId"]);
+      normalized = { reportId: uuidValue(input.reportId, "レポートID") };
+      break;
     default:
       fail("UNKNOWN_WORKSPACE_TOOL", "許可されていないAI操作です。");
   }
@@ -768,6 +813,7 @@ function workspaceSnapshot(value) {
   collections.orgUnits = Array.isArray(state.orgUnits) ? structuredClone(state.orgUnits) : [];
   collections.orgMemberships = Array.isArray(state.orgMemberships) ? structuredClone(state.orgMemberships) : [];
   collections.searchScenes = Array.isArray(state.searchScenes) ? structuredClone(state.searchScenes) : [];
+  collections.savedReports = Array.isArray(state.savedReports) ? structuredClone(state.savedReports) : [];
   return { organizationId: organizationId.toLowerCase(), revision, ...collections };
 }
 
@@ -852,6 +898,33 @@ function memberPeakLoad(state, personId, startDate, endDate, excludedAssignmentI
     if (containsBusinessDay(day, Math.min(rangeEnd, next - 1))) peak = Math.max(peak, load);
   });
   return peak;
+}
+
+function buildSavedReportRows(state, report, startDate, endDate) {
+  const groups = new Map();
+  if (report.source === "projects") {
+    for (const project of state.projects) {
+      const label = project.status?.trim() || "未設定";
+      const current = groups.get(label) ?? { count: 0, load: 0, capacity: 0 };
+      groups.set(label, { count: current.count + 1, load: current.load, capacity: current.capacity });
+    }
+  } else {
+    const groupBy = ["department", "role", "location"].includes(report.groupBy) ? report.groupBy : "department";
+    for (const member of state.members) {
+      const label = (groupBy === "role" ? member.role : groupBy === "location" ? member.location : member.department)?.trim() || "未設定";
+      const current = groups.get(label) ?? { count: 0, load: 0, capacity: 0 };
+      groups.set(label, {
+        count: current.count + 1,
+        load: current.load + memberPeakLoad(state, member.id, startDate, endDate),
+        capacity: current.capacity + Number(member.capacity),
+      });
+    }
+  }
+  return [...groups.entries()].map(([label, group]) => {
+    const avgLoad = group.capacity > 0 ? Math.round(group.load / group.capacity * 100) : 0;
+    const value = report.source === "members" && report.metric === "avgLoad" ? avgLoad : group.count;
+    return { label, count: group.count, value };
+  }).sort((left, right) => right.value - left.value || String(left.label).localeCompare(String(right.label), "ja"));
 }
 
 function bounded(items, limit) {
@@ -1038,6 +1111,21 @@ export function readWorkspaceTool(snapshot, name, args) {
     return { resource: filters.resource, revision: state.revision, ...bounded(values, filters.limit) };
   }
 
+  if (filters.resource === "saved_reports") {
+    const reports = state.savedReports.filter((report) => containsQuery([report.name, report.source, report.groupBy, report.metric], filters.query));
+    const weekStart = filters.startDate;
+    const values = (filters.reportId ? reports.filter((report) => report.id === filters.reportId) : reports).map((report) => ({
+      id: report.id,
+      name: report.name,
+      source: report.source,
+      groupBy: report.groupBy,
+      metric: report.metric,
+      ...(weekStart && filters.endDate ? { rows: buildSavedReportRows(state, report, weekStart, filters.endDate) } : {}),
+    }));
+    if (filters.reportId && values.length === 0) byId(state.savedReports, filters.reportId, "保存レポート");
+    return { resource: filters.resource, revision: state.revision, ...bounded(values, filters.limit) };
+  }
+
   const members = new Map(state.members.map((member) => [member.id, member]));
   const projects = new Map(state.projects.map((project) => [project.id, project]));
   if (filters.resource === "org_units") {
@@ -1188,6 +1276,7 @@ function cloneState(state) {
     orgUnits: structuredClone(state.orgUnits ?? []),
     orgMemberships: structuredClone(state.orgMemberships ?? []),
     searchScenes: structuredClone(state.searchScenes ?? []),
+    savedReports: structuredClone(state.savedReports ?? []),
   };
 }
 
@@ -1248,6 +1337,9 @@ function workspacePayload(next, previous) {
   const sceneUpsert = changedRows(next.searchScenes ?? [], previous.searchScenes ?? []);
   const sceneArchive = removedIds(next.searchScenes ?? [], previous.searchScenes ?? []);
   if (sceneUpsert.length || sceneArchive.length) payload.searchScenes = { upsert: sceneUpsert, archiveIds: sceneArchive };
+  const reportUpsert = changedRows(next.savedReports ?? [], previous.savedReports ?? []);
+  const reportArchive = removedIds(next.savedReports ?? [], previous.savedReports ?? []);
+  if (reportUpsert.length || reportArchive.length) payload.savedReports = { upsert: reportUpsert, archiveIds: reportArchive };
   return payload;
 }
 
@@ -1278,6 +1370,7 @@ function actionPermission(role, toolName) {
   if (role === "planner" && MEMBER_TOOLS.has(toolName)) fail("FORBIDDEN", "メンバー変更はオーナーまたは管理者だけが実行できます。", { status: 403 });
   if (role === "planner" && ORG_TOOLS.has(toolName)) fail("FORBIDDEN", "組織階層の変更はオーナーまたは管理者だけが実行できます。", { status: 403 });
   if (role === "planner" && SEARCH_SCENE_TOOLS.has(toolName)) fail("FORBIDDEN", "検索シーンの変更はオーナーまたは管理者だけが実行できます。", { status: 403 });
+  if (role === "planner" && REPORT_TOOLS.has(toolName)) fail("FORBIDDEN", "レポート定義の変更はオーナーまたは管理者だけが実行できます。", { status: 403 });
 }
 
 function payloadIsDestructive(payload) {
@@ -1290,7 +1383,8 @@ function payloadIsDestructive(payload) {
     || payload.opportunityNeeds?.cancelIds.length
     || payload.orgUnits?.archiveIds.length
     || payload.orgMemberships?.archiveIds.length
-    || payload.searchScenes?.archiveIds.length,
+    || payload.searchScenes?.archiveIds.length
+    || payload.savedReports?.archiveIds.length,
   );
 }
 
@@ -1329,6 +1423,8 @@ function actionLabels(toolName) {
     set_member_org_memberships: ["所属を更新", "更新する"],
     create_search_scene: ["検索シーンを保存", "保存する"],
     delete_search_scene: ["検索シーンを削除", "削除する"],
+    create_saved_report: ["レポートを保存", "保存する"],
+    delete_saved_report: ["レポートを削除", "削除する"],
   };
   return labels[toolName];
 }
@@ -1786,6 +1882,17 @@ function applyAction(state, toolName, args, newUuid, requestId) {
     next.searchScenes = next.searchScenes.filter((candidate) => candidate.id !== scene.id);
     subject = scene.name;
     details.push("検索シーンを削除します。");
+  } else if (toolName === "create_saved_report") {
+    if (next.savedReports.some((report) => lower(report.name) === lower(args.name))) fail("DUPLICATE_SAVED_REPORT", "同じ名前のレポートがすでにあります。");
+    const report = { id: newUuid(), name: args.name, source: args.source, groupBy: args.groupBy, metric: args.metric };
+    next.savedReports.push(report);
+    subject = report.name;
+    details.push(`${report.source} / ${report.groupBy} / ${report.metric}`);
+  } else if (toolName === "delete_saved_report") {
+    const report = byId(next.savedReports, args.reportId, "保存レポート");
+    next.savedReports = next.savedReports.filter((candidate) => candidate.id !== report.id);
+    subject = report.name;
+    details.push("レポート定義を削除します。");
   }
 
   if (relevantAssignment) {

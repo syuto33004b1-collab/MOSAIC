@@ -211,6 +211,26 @@ export type WorkspaceState = {
   orgUnits?: OrgUnit[];
   orgMemberships?: OrgMembership[];
   searchScenes?: SearchScene[];
+  savedReports?: SavedReport[];
+};
+
+export type ReportSource = "members" | "projects";
+export type ReportGroupBy = "department" | "role" | "location" | "status";
+export type ReportMetric = "count" | "avgLoad";
+
+export type SavedReport = {
+  id: string;
+  name: string;
+  source: ReportSource;
+  groupBy: ReportGroupBy;
+  metric: ReportMetric;
+};
+
+export type ReportRow = {
+  key: string;
+  label: string;
+  count: number;
+  value: number;
 };
 
 export type SkillImportance = "must" | "nice";
@@ -412,7 +432,12 @@ const searchScenes: SearchScene[] = [
   },
 ];
 
-export const initialWorkspace: WorkspaceState = { members, projects, assignments, needs, skillCatalog, customFields, opportunities, opportunityNeeds, orgUnits, orgMemberships, searchScenes };
+const savedReports: SavedReport[] = [
+  { id: "report-dept-count", name: "部署別人数", source: "members", groupBy: "department", metric: "count" },
+  { id: "report-role-load", name: "職種別稼働", source: "members", groupBy: "role", metric: "avgLoad" },
+];
+
+export const initialWorkspace: WorkspaceState = { members, projects, assignments, needs, skillCatalog, customFields, opportunities, opportunityNeeds, orgUnits, orgMemberships, searchScenes, savedReports };
 
 function isoDate(date: Date) {
   return date.toISOString().slice(0, 10);
@@ -1046,6 +1071,71 @@ export function projectSearchText(state: Pick<WorkspaceState, "customFields">, p
     project.customValues,
     [project.code, project.name, project.summary, project.ownerName ?? ""],
   );
+}
+
+export const REPORT_SOURCES: ReportSource[] = ["members", "projects"];
+export const REPORT_GROUP_BY: ReportGroupBy[] = ["department", "role", "location", "status"];
+export const REPORT_METRICS: ReportMetric[] = ["count", "avgLoad"];
+
+export function allowedReportGroupBy(source: ReportSource): ReportGroupBy[] {
+  return source === "projects" ? ["status"] : ["department", "role", "location"];
+}
+
+export function addSavedReport(reports: SavedReport[], input: {
+  id?: string;
+  name: string;
+  source: ReportSource;
+  groupBy: ReportGroupBy;
+  metric: ReportMetric;
+}): SavedReport[] {
+  const name = input.name.trim();
+  if (!name) throw new Error("レポート名を入力してください");
+  if (name.length > 80) throw new Error("レポート名は80文字以内にしてください");
+  if (reports.some((report) => report.name.trim().toLocaleLowerCase() === name.toLocaleLowerCase())) {
+    throw new Error("同じ名前のレポートがすでにあります");
+  }
+  if (!REPORT_SOURCES.includes(input.source)) throw new Error("集計対象はメンバーまたはプロジェクトです");
+  if (!REPORT_METRICS.includes(input.metric)) throw new Error("指標は件数または平均稼働率です");
+  if (!allowedReportGroupBy(input.source).includes(input.groupBy)) throw new Error("この集計対象では使えないグループです");
+  return [...reports, {
+    id: input.id ?? crypto.randomUUID(),
+    name,
+    source: input.source,
+    groupBy: input.groupBy,
+    metric: input.source === "projects" ? "count" : input.metric,
+  }];
+}
+
+function reportGroupLabel(value: string | undefined) {
+  const trimmed = value?.trim() ?? "";
+  return trimmed || "未設定";
+}
+
+export function buildSavedReport(state: WorkspaceState, report: SavedReport, weekStart: string): ReportRow[] {
+  const groups = new Map<string, { count: number; load: number; capacity: number }>();
+  if (report.source === "projects") {
+    state.projects.forEach((project) => {
+      const label = reportGroupLabel(project.status);
+      const current = groups.get(label) ?? { count: 0, load: 0, capacity: 0 };
+      groups.set(label, { count: current.count + 1, load: current.load, capacity: current.capacity });
+    });
+  } else {
+    const groupBy = allowedReportGroupBy("members").includes(report.groupBy) ? report.groupBy : "department";
+    state.members.forEach((member) => {
+      const label = reportGroupLabel(groupBy === "role" ? member.role : groupBy === "location" ? member.location : member.department);
+      const current = groups.get(label) ?? { count: 0, load: 0, capacity: 0 };
+      groups.set(label, {
+        count: current.count + 1,
+        load: current.load + memberLoad(state, member.id, weekStart),
+        capacity: current.capacity + member.capacity,
+      });
+    });
+  }
+  return [...groups.entries()].map(([label, group]) => {
+    const avgLoad = group.capacity > 0 ? Math.round(group.load / group.capacity * 100) : 0;
+    const value = report.source === "members" && report.metric === "avgLoad" ? avgLoad : group.count;
+    return { key: label, label, count: group.count, value };
+  }).sort((left, right) => right.value - left.value || left.label.localeCompare(right.label, "ja"));
 }
 
 export function isActiveOpportunity(opportunity: Pick<Opportunity, "stage">) {

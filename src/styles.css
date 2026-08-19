@@ -3757,6 +3757,7 @@ h1 {
   font-weight: 700;
 }
 .match-score small { color: #8c95a6; font-size: 7px; font-weight: 700; }
+.saved-report-card { margin: 0 0 18px; }
 .field-surfaces { color: #6d7689; font-size: 10px; font-weight: 700; }
 
 .pipeline-board {
