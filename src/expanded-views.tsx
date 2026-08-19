@@ -7,6 +7,7 @@ import {
   ChevronRight,
   CircleAlert,
   ClipboardCheck,
+  Download,
   EyeOff,
   Filter,
   Gauge,
@@ -18,6 +19,7 @@ import {
   Sparkles,
   Star,
   Trash2,
+  Upload,
   UserRoundPlus,
   UsersRound,
 } from "lucide-react";
@@ -27,6 +29,21 @@ import {
   MAX_PROPOSAL_MEMBERS,
   type Favorite,
 } from "./collaboration";
+import {
+  exportMembersCsv,
+  exportProjectsCsv,
+  memberCsvColumns,
+  parseCsv,
+  previewMemberImport,
+  projectCsvColumns,
+  readCsvPresets,
+  writeCsvPresets,
+  type CsvExportPreset,
+  type CsvIssue,
+  type CsvSource,
+  type MemberImportAction,
+  CSV_PRESETS_KEY,
+} from "./csv";
 import {
   addDays,
   addOrgUnit,
@@ -1557,6 +1574,145 @@ export function OrgView({ state, onAddUnit, onMoveUnit, onArchiveUnit, canManage
         </table>
         {filtered.length === 0 && <div className="view-empty"><Building2 size={22} /><strong>条件に合う部門がありません</strong><p>検索語を変更するか、部門を追加してください。</p></div>}
       </div>
+    </section>
+  );
+}
+
+function downloadCsv(filename: string, content: string) {
+  const blob = new Blob([content], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+type CsvTransferPanelProps = {
+  state: WorkspaceState;
+  organizationId?: string;
+  canImport?: boolean;
+  onImportMembers: (actions: MemberImportAction[]) => void;
+};
+
+export function CsvTransferPanel({ state, organizationId, canImport = false, onImportMembers }: CsvTransferPanelProps) {
+  const storageKey = `${CSV_PRESETS_KEY}:${organizationId ?? "demo"}`;
+  const [source, setSource] = useState<CsvSource>("members");
+  const available = source === "members" ? memberCsvColumns(state.customFields) : projectCsvColumns(state.customFields);
+  const [columns, setColumns] = useState<string[]>(() => memberCsvColumns(state.customFields).map((column) => column.key));
+  const [presets, setPresets] = useState<CsvExportPreset[]>(() => readCsvPresets(storageKey));
+  const [presetName, setPresetName] = useState("");
+  const [issues, setIssues] = useState<CsvIssue[]>([]);
+  const [pending, setPending] = useState<MemberImportAction[]>([]);
+  const [importMessage, setImportMessage] = useState("");
+
+  const toggleColumn = (key: string) => {
+    setColumns((current) => current.includes(key) ? current.filter((item) => item !== key) : [...current, key]);
+  };
+
+  const changeSource = (next: CsvSource) => {
+    setSource(next);
+    setColumns((next === "members" ? memberCsvColumns(state.customFields) : projectCsvColumns(state.customFields)).map((column) => column.key));
+  };
+
+  const savePreset = () => {
+    const name = presetName.trim();
+    if (!name || columns.length === 0) return;
+    const next = [...presets.filter((preset) => preset.name !== name), {
+      id: crypto.randomUUID(),
+      name,
+      source,
+      columns,
+    }].slice(-20);
+    setPresets(next);
+    writeCsvPresets(next, storageKey);
+    setPresetName("");
+  };
+
+  const applyPreset = (preset: CsvExportPreset) => {
+    setSource(preset.source);
+    setColumns(preset.columns);
+  };
+
+  const removePreset = (id: string) => {
+    const next = presets.filter((preset) => preset.id !== id);
+    setPresets(next);
+    writeCsvPresets(next, storageKey);
+  };
+
+  const exportNow = () => {
+    const csv = source === "members" ? exportMembersCsv(state, columns) : exportProjectsCsv(state, columns);
+    downloadCsv(`mosaic-${source}.csv`, csv);
+  };
+
+  const onFile = async (file: File | undefined) => {
+    if (!file || !canImport) return;
+    setImportMessage("");
+    setIssues([]);
+    setPending([]);
+    try {
+      const parsed = parseCsv(await file.text());
+      const preview = previewMemberImport(state, parsed, () => crypto.randomUUID());
+      setIssues(preview.issues);
+      setPending(preview.actions);
+      setImportMessage(preview.actions.length ? `${preview.actions.length}行を仮置きできます` : "適用できる行がありません");
+    } catch (caught) {
+      setImportMessage(caught instanceof Error ? caught.message : "CSVを読み込めませんでした");
+    }
+  };
+
+  return (
+    <section className="section-view csv-view" aria-labelledby="csv-heading">
+      <h2 id="csv-heading">CSV入出力</h2>
+      <p className="csv-lead">UTF-8（BOM付き）で出力します。メンバーCSVは氏名・職種・部署・勤務地があれば新規登録できます。IDがある行は更新です。</p>
+      <div className="csv-toolbar">
+        <label className="view-filter">対象
+          <select aria-label="CSVの対象" value={source} onChange={(event) => changeSource(event.target.value as CsvSource)}>
+            <option value="members">メンバー</option>
+            <option value="projects">プロジェクト</option>
+          </select>
+        </label>
+        <button className="view-add-button" type="button" onClick={exportNow} disabled={columns.length === 0}><Download size={15} />CSVをダウンロード</button>
+      </div>
+      <div className="csv-columns" role="group" aria-label="出力する列">
+        {available.map((column) => (
+          <label key={column.key} className="field-flag">
+            <input type="checkbox" checked={columns.includes(column.key)} onChange={() => toggleColumn(column.key)} />
+            {column.label}
+          </label>
+        ))}
+      </div>
+      <div className="csv-presets">
+        <input value={presetName} onChange={(event) => setPresetName(event.target.value)} placeholder="出力設定名" aria-label="出力設定名" />
+        <button className="view-add-button ghost" type="button" onClick={savePreset} disabled={!presetName.trim() || columns.length === 0}>この列構成を保存</button>
+        {presets.map((preset) => (
+          <span className="csv-preset" key={preset.id}>
+            <button type="button" onClick={() => applyPreset(preset)}>{preset.name}</button>
+            <button type="button" aria-label={`${preset.name}を削除`} onClick={() => removePreset(preset.id)}>×</button>
+          </span>
+        ))}
+      </div>
+      {canImport && (
+        <div className="csv-import">
+          <strong>メンバーCSVを取り込む</strong>
+          <label className="view-add-button ghost">
+            <Upload size={15} />ファイルを選択
+            <input className="sr-only" type="file" accept=".csv,text/csv" onChange={(event) => void onFile(event.target.files?.[0])} />
+          </label>
+          {importMessage && <p>{importMessage}</p>}
+          {issues.length > 0 && (
+            <ul className="csv-issues">
+              {issues.map((issue) => <li key={`${issue.row}-${issue.message}`}>{issue.row}行目: {issue.message}</li>)}
+            </ul>
+          )}
+          {pending.length > 0 && (
+            <button className="view-add-button" type="button" onClick={() => { onImportMembers(pending); setPending([]); setImportMessage("仮置きしました。チームへ保存すると確定します。"); }}>
+              {pending.length}行を仮置きする
+            </button>
+          )}
+        </div>
+      )}
+      {!canImport && <p className="csv-lead">取り込みはオーナーまたは管理者だけが実行できます。</p>}
     </section>
   );
 }

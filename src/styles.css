@@ -1290,6 +1290,24 @@ button:focus-visible, a:focus-visible { outline: 3px solid rgba(86,104,232,.35);
 .view-empty strong { margin-top: 9px; color: #5e687a; font-size: 10px; }
 .view-empty p { margin: 5px 0 0; font-size: 8px; }
 
+.csv-view {
+  margin-top: 18px;
+  padding: 16px;
+  border: 1px solid #dfe4ed;
+  border-radius: 17px;
+  background: #fff;
+}
+.csv-view h2 { margin: 0 0 6px; font-size: 16px; }
+.csv-lead { margin: 0 0 12px; color: #7b8494; font-size: 11px; }
+.csv-toolbar, .csv-presets, .csv-import { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
+.csv-columns { display: flex; flex-wrap: wrap; gap: 8px 12px; margin-bottom: 12px; }
+.csv-preset { display: inline-flex; align-items: center; border: 1px solid #dce2eb; border-radius: 999px; overflow: hidden; }
+.csv-preset button { height: 32px; padding: 0 10px; border: 0; background: #f7f8ff; color: #5663b2; cursor: pointer; font-size: 10px; font-weight: 700; }
+.csv-preset button + button { border-left: 1px solid #dce2eb; background: #fff; color: #687285; }
+.csv-issues { margin: 0; padding-left: 18px; color: #b42318; font-size: 11px; }
+.csv-import { padding-top: 8px; border-top: 1px solid #eef1f6; }
+.view-add-button.ghost { margin-left: 0; color: #687285; cursor: pointer; }
+
 .member-table th:nth-child(1) { width: 24%; }
 .member-table th:nth-child(2) { width: 20%; }
 .member-table th:nth-child(3) { width: 10%; }

@@ -1218,3 +1218,20 @@ describe("favorites, share links, and anonymous proposals", () => {
   });
 });
 
+describe("CSV import", () => {
+  it("imports a member CSV as unsaved shared changes", async () => {
+    const user = userEvent.setup();
+    const adapter = sharedAdapter();
+    const save = vi.fn().mockResolvedValue({ revision: 8, savedAt: "2026-08-17T10:00:00Z" });
+    adapter.save = save;
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: "項目定義" }));
+    const input = document.querySelector("input[type='file']") as HTMLInputElement;
+    const file = new File(["name,role,department,location,capacity\nCSV 花子,Frontend Engineer,プロダクト開発,東京,90\n"], "members.csv", { type: "text/csv" });
+    await user.upload(input, file);
+    await user.click(await screen.findByRole("button", { name: "1行を仮置きする" }));
+    await user.click(screen.getByRole("button", { name: "チームへ保存" }));
+    await waitFor(() => expect(save).toHaveBeenCalledOnce());
+    expect((save.mock.calls[0][0] as WorkspaceState).members.some((member) => member.name === "CSV 花子" && member.capacity === 90)).toBe(true);
+  });
+});
