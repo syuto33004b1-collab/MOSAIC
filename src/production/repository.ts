@@ -1,6 +1,6 @@
 import type { AuthError, PostgrestError, SupabaseClient, User } from "@supabase/supabase-js";
-import type { Assignment, CustomFieldDefinition, CustomFieldEntity, CustomFieldType, Member, Opportunity, OpportunityNeed, OpportunityStage, OrgMembership, OrgUnit, Project, ReportGroupBy, ReportMetric, ReportSource, SavedReport, SearchScene, SearchSkillFilter, SkillDefinition, SkillImportance, SkillKind, StaffingNeed, WorkHistoryEntry, WorkspaceState } from "../domain";
-import { hydrateWorkspaceSkills, OPPORTUNITY_STAGES, normalizeSkillProficiency, normalizeWorkHistory } from "../domain";
+import type { Assignment, CustomFieldDefinition, CustomFieldEntity, CustomFieldType, Member, Opportunity, OpportunityNeed, OpportunityStage, OrgMembership, OrgUnit, ProfileRequest, ProfileRequestScope, ProfileRequestStatus, Project, ReportGroupBy, ReportMetric, ReportSource, SavedReport, SearchScene, SearchSkillFilter, SkillDefinition, SkillImportance, SkillKind, StaffingNeed, WorkHistoryEntry, WorkspaceState } from "../domain";
+import { hydrateWorkspaceSkills, OPPORTUNITY_STAGES, normalizeSkillProficiency, normalizeWorkHistory, parseSkillInput, PROFILE_REQUEST_SCOPES, PROFILE_REQUEST_STATUSES } from "../domain";
 import { appAuthRedirectUrl } from "./authRecovery";
 import {
   ProductionRepositoryError,
@@ -36,6 +36,8 @@ const skillImportances = new Set<SkillImportance>(["must", "nice"]);
 const reportSources = new Set<ReportSource>(["members", "projects"]);
 const reportGroupBy = new Set<ReportGroupBy>(["department", "role", "location", "status"]);
 const reportMetrics = new Set<ReportMetric>(["count", "avgLoad"]);
+const profileRequestScopes = new Set<ProfileRequestScope>(PROFILE_REQUEST_SCOPES);
+const profileRequestStatuses = new Set<ProfileRequestStatus>(PROFILE_REQUEST_STATUSES);
 const isoDatePattern = /^\d{4}-\d{2}-\d{2}$/;
 
 function asRecord(value: unknown): UnknownRecord | undefined {
@@ -234,6 +236,36 @@ function normalizeSavedReport(value: unknown): SavedReport | undefined {
   };
 }
 
+function normalizeProfileRequest(value: unknown): ProfileRequest | undefined {
+  const record = asRecord(value);
+  if (!record) return undefined;
+  const id = readString(record, "id");
+  const personId = readString(record, "personId");
+  const scope = record.scope;
+  const status = record.status;
+  if (!id || !personId || !profileRequestScopes.has(scope as ProfileRequestScope) || !profileRequestStatuses.has(status as ProfileRequestStatus)) {
+    return undefined;
+  }
+  const note = readString(record, "note");
+  const proposedSkills = readArray(record, "proposedSkills").flatMap((item) => {
+    const level = asRecord(item);
+    const name = readString(level, "name");
+    const proficiency = level ? normalizeSkillProficiency(level.proficiency) : undefined;
+    return name && proficiency ? [{ name, proficiency }] : [];
+  });
+  const proposedWorkHistory = record.proposedWorkHistory === undefined ? undefined : normalizeIncomingWorkHistory(record.proposedWorkHistory);
+  if (record.proposedWorkHistory !== undefined && proposedWorkHistory === undefined) return undefined;
+  return {
+    id,
+    personId,
+    scope: scope as ProfileRequestScope,
+    status: status as ProfileRequestStatus,
+    ...(note ? { note } : {}),
+    ...(proposedSkills.length ? { proposedSkills } : {}),
+    ...(proposedWorkHistory?.length ? { proposedWorkHistory } : {}),
+  };
+}
+
 function normalizeWorkspaceMember(value: unknown): Member | undefined {
   const record = asRecord(value);
   if (!record) return undefined;
@@ -259,8 +291,10 @@ function normalizeWorkspaceMember(value: unknown): Member | undefined {
   if (record.customValues !== undefined && customValues === null) return undefined;
   const workHistory = record.workHistory === undefined ? undefined : normalizeIncomingWorkHistory(record.workHistory);
   if (record.workHistory !== undefined && workHistory === undefined) return undefined;
+  const authUserId = readString(record, "authUserId");
   return {
     id,
+    ...(authUserId ? { authUserId } : {}),
     initials,
     name,
     role,
@@ -521,6 +555,8 @@ function normalizeWorkspaceState(value: unknown): WorkspaceState | undefined {
   if (searchSceneValues && searchSceneValues.some((item) => !item)) return undefined;
   const savedReportValues = record.savedReports === undefined ? undefined : readArray(record, "savedReports").map(normalizeSavedReport);
   if (savedReportValues && savedReportValues.some((item) => !item)) return undefined;
+  const profileRequestValues = record.profileRequests === undefined ? undefined : readArray(record, "profileRequests").map(normalizeProfileRequest);
+  if (profileRequestValues && profileRequestValues.some((item) => !item)) return undefined;
   return hydrateWorkspaceSkills({
     members: members as Member[],
     projects: projects as Project[],
@@ -534,6 +570,7 @@ function normalizeWorkspaceState(value: unknown): WorkspaceState | undefined {
     ...(orgMembershipValues ? { orgMemberships: orgMembershipValues as OrgMembership[] } : {}),
     ...(searchSceneValues ? { searchScenes: searchSceneValues as SearchScene[] } : {}),
     ...(savedReportValues ? { savedReports: savedReportValues as SavedReport[] } : {}),
+    ...(profileRequestValues ? { profileRequests: profileRequestValues as ProfileRequest[] } : {}),
   });
 }
 
@@ -760,6 +797,7 @@ export function normalizeWorkspace(value: unknown): WorkspaceEnvelope {
     orgMemberships: record.orgMemberships,
     searchScenes: record.searchScenes,
     savedReports: record.savedReports,
+    profileRequests: record.profileRequests,
   } : value);
   const rawState = typeof stateCandidate === "string" ? JSON.parse(stateCandidate) as unknown : stateCandidate;
   const state = normalizeWorkspaceState(rawState);
@@ -981,6 +1019,11 @@ export function workspaceChangesPayload(
       retryable: false,
     });
   }
+  const nextRequests = (state.profileRequests ?? []).filter((item) => persistedId(item.id));
+  const previousRequests = (previous.profileRequests ?? []).filter((item) => persistedId(item.id));
+  const requestUpsert = changedRows(nextRequests, previousRequests);
+  const requestArchiveIds = removedIds(nextRequests, previousRequests);
+  if (requestUpsert.length || requestArchiveIds.length) payload.profileRequests = { upsert: requestUpsert, archiveIds: requestArchiveIds };
   return payload;
 }
 
@@ -1094,6 +1137,35 @@ export class ProductionRepository {
     const revision = readNumber(record, "revision", "workspace_revision");
     if (revision === undefined) {
       throw new ProductionRepositoryError("保存結果の更新番号を確認できませんでした。", { code: "INVALID_SAVE_RESULT" });
+    }
+    return {
+      revision,
+      savedAt: readString(record, "saved_at", "savedAt", "updated_at") ?? new Date().toISOString(),
+    };
+  }
+
+  async submitProfileRequest(
+    organizationId: string,
+    profileRequestId: string,
+    proposed: { skills: string; workHistory: WorkHistoryEntry[] },
+    expectedRevision: number,
+    requestId: string,
+  ): Promise<SaveWorkspaceResult> {
+    const { data, error } = await this.client.rpc("submit_profile_request", {
+      p_expected_revision: expectedRevision,
+      p_organization_id: organizationId,
+      p_profile_request_id: profileRequestId,
+      p_proposed: {
+        proposedSkills: parseSkillInput(proposed.skills),
+        proposedWorkHistory: proposed.workHistory,
+      },
+      p_request_id: requestId,
+    });
+    if (error) throw rpcError("更新内容を提出", error);
+    const record = asRecord(unwrapRpcValue(data));
+    const revision = readNumber(record, "revision", "workspace_revision");
+    if (revision === undefined) {
+      throw new ProductionRepositoryError("提出結果の更新番号を確認できませんでした。", { code: "INVALID_SAVE_RESULT" });
     }
     return {
       revision,

@@ -961,6 +961,29 @@ describe("role-aware workspace", () => {
     expect(saved.customFields?.some((field) => field.key === "visa_status")).toBe(true);
   });
 
+  it("lets admins request, collect, and confirm a member profile update", async () => {
+    const user = userEvent.setup();
+    const adapter = sharedAdapter();
+    const save = vi.fn().mockResolvedValue({ revision: 12, savedAt: "2026-08-19T14:00:00Z" });
+    adapter.save = save;
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "admin@example.com", role: "admin" }} shared={adapter} />);
+    const navigation = within(screen.getByRole("navigation", { name: "メインナビゲーション" }));
+
+    await user.click(navigation.getByRole("button", { name: "項目定義" }));
+    expect(screen.getByRole("heading", { name: "プロフィール更新依頼" })).toBeInTheDocument();
+    expect(screen.getByText("フロント案件に向けてスキルを更新してください")).toBeInTheDocument();
+    await user.clear(screen.getByLabelText("中村 美咲の更新スキル"));
+    await user.type(screen.getByLabelText("中村 美咲の更新スキル"), "React:5, TypeScript:4, A11y:4");
+    await user.click(screen.getByRole("button", { name: "中村 美咲の内容で提出" }));
+    expect(screen.getByRole("button", { name: "中村 美咲を確認して反映" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "中村 美咲を確認して反映" }));
+    await user.click(screen.getByRole("button", { name: "チームへ保存" }));
+    await waitFor(() => expect(save).toHaveBeenCalledOnce());
+    const saved = save.mock.calls[0][0] as WorkspaceState;
+    expect(saved.members.find((member) => member.id === "nakamura")?.skillLevels?.find((level) => level.name === "React")?.proficiency).toBe(5);
+    expect(saved.profileRequests?.find((request) => request.id === "req-nakamura-skills")?.status).toBe("done");
+  });
+
   it("converts a pre-award opportunity into a project without creating assignments", async () => {
     const user = userEvent.setup();
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);

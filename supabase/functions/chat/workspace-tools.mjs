@@ -27,7 +27,7 @@ const ASSIGNMENT_STATUSES = ["draft", "confirmed"];
 const NEED_STATUSES = ["open", "planned", "filled"];
 const OPPORTUNITY_STAGES = ["inquiry", "proposal", "negotiation", "won", "lost"];
 const ACTIVE_OPPORTUNITY_STAGES = ["inquiry", "proposal", "negotiation"];
-const READ_RESOURCES = ["summary", "members", "projects", "assignments", "staffing_needs", "opportunities", "opportunity_needs", "org_units", "org_memberships", "search_scenes", "saved_reports"];
+const READ_RESOURCES = ["summary", "members", "projects", "assignments", "staffing_needs", "opportunities", "opportunity_needs", "org_units", "org_memberships", "search_scenes", "saved_reports", "profile_requests"];
 const MAX_READ_RESULTS = 25;
 const DEFAULT_READ_RESULTS = 10;
 const MAX_SKILLS = 20;
@@ -35,17 +35,22 @@ const SKILL_IMPORTANCES = ["must", "nice"];
 const REPORT_SOURCES = ["members", "projects"];
 const REPORT_GROUP_BY = ["department", "role", "location", "status"];
 const REPORT_METRICS = ["count", "avgLoad"];
+const PROFILE_REQUEST_SCOPES = ["skills", "workHistory", "all"];
+const PROFILE_REQUEST_STATUSES = ["open", "submitted", "done", "cancelled"];
 
 const READ_TOOL = "read_workspace";
 const MEMBER_TOOLS = new Set(["create_member", "update_member", "delete_member"]);
 const ORG_TOOLS = new Set(["create_org_unit", "update_org_unit", "delete_org_unit", "set_member_org_memberships"]);
 const SEARCH_SCENE_TOOLS = new Set(["create_search_scene", "delete_search_scene"]);
 const REPORT_TOOLS = new Set(["create_saved_report", "delete_saved_report"]);
+const PROFILE_ADMIN_TOOLS = new Set(["create_profile_request", "complete_profile_request", "cancel_profile_request"]);
+const PROFILE_TOOLS = new Set([...PROFILE_ADMIN_TOOLS, "submit_profile_request"]);
 const WRITE_TOOLS = new Set([
   ...MEMBER_TOOLS,
   ...ORG_TOOLS,
   ...SEARCH_SCENE_TOOLS,
   ...REPORT_TOOLS,
+  ...PROFILE_TOOLS,
   "create_project",
   "update_project",
   "delete_project",
@@ -88,7 +93,7 @@ const readParameters = {
     skills: skillsSchema,
     statuses: {
       type: "array",
-      items: { type: "string", enum: [...PROJECT_STATUSES, ...ASSIGNMENT_STATUSES, ...NEED_STATUSES, ...OPPORTUNITY_STAGES] },
+      items: { type: "string", enum: [...PROJECT_STATUSES, ...ASSIGNMENT_STATUSES, ...NEED_STATUSES, ...OPPORTUNITY_STAGES, ...PROFILE_REQUEST_STATUSES] },
       maxItems: 6,
     },
     startDate: dateSchema,
@@ -195,6 +200,25 @@ const savedReportFields = {
   metric: { type: "string", enum: REPORT_METRICS },
 };
 
+const workHistoryItemSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    title: { type: "string" },
+    organization: { type: "string" },
+    startDate: dateSchema,
+    endDate: { ...dateSchema, nullable: true },
+    description: { type: "string" },
+  },
+  required: ["title", "organization", "startDate"],
+};
+
+const profileRequestFields = {
+  personIds: { type: "array", items: uuidSchema, maxItems: 20, description: "更新を依頼するメンバーID" },
+  scope: { type: "string", enum: PROFILE_REQUEST_SCOPES },
+  note: { type: "string" },
+};
+
 function declaration(name, description, parameters) {
   return { type: "function", name, description, parameters };
 }
@@ -254,6 +278,14 @@ export const WORKSPACE_TOOL_DECLARATIONS = Object.freeze([
   declaration("delete_search_scene", "保存済みの検索シーンを削除する。", createParameters({ sceneId: uuidSchema }, ["sceneId"])),
   declaration("create_saved_report", "メンバーまたはプロジェクトのグループ集計レポートを保存する。", createParameters(savedReportFields, ["name", "source", "groupBy", "metric"])),
   declaration("delete_saved_report", "保存済みの集計レポートを削除する。", createParameters({ reportId: uuidSchema }, ["reportId"])),
+  declaration("create_profile_request", "メンバーへスキルまたは経歴の更新依頼を作成する。複数人への一括作成もできる。", createParameters(profileRequestFields, ["personIds", "scope"])),
+  declaration("submit_profile_request", "更新依頼へ提案スキルまたは経歴を提出する。", createParameters({
+    requestId: uuidSchema,
+    skills: skillsSchema,
+    workHistory: { type: "array", items: workHistoryItemSchema, maxItems: 20 },
+  }, ["requestId"])),
+  declaration("complete_profile_request", "提出済みの更新依頼を確認し、メンバー情報へ反映する。", createParameters({ requestId: uuidSchema }, ["requestId"])),
+  declaration("cancel_profile_request", "未完了の更新依頼を取り消す。", createParameters({ requestId: uuidSchema }, ["requestId"])),
 ]);
 
 const TOOL_NAMES = new Set(WORKSPACE_TOOL_DECLARATIONS.map((tool) => tool.name));
@@ -562,6 +594,61 @@ function allowedReportGroupBy(source) {
   return source === "projects" ? ["status"] : ["department", "role", "location"];
 }
 
+function parseSkillLevels(value) {
+  if (value === undefined) return undefined;
+  return stringArray(value, "スキル").map((part) => {
+    const separator = part.lastIndexOf(":");
+    const maybeLevel = separator >= 0 ? part.slice(separator + 1).trim() : "";
+    const hasLevel = /^\d+$/u.test(maybeLevel);
+    const name = (hasLevel ? part.slice(0, separator) : part).trim();
+    const proficiency = hasLevel ? Number(maybeLevel) : 3;
+    if (!name || proficiency < 1 || proficiency > 5) fail("INVALID_TOOL_ARGUMENTS", "スキル名または習熟度を確認してください。");
+    return { name, proficiency };
+  });
+}
+
+function parseWorkHistory(value) {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value)) fail("INVALID_TOOL_ARGUMENTS", "経歴の形式が正しくありません。");
+  if (value.length > 20) fail("INVALID_TOOL_ARGUMENTS", "経歴は20件以内にしてください。");
+  return value.map((item, index) => {
+    const input = record(item, `経歴${index + 1}`);
+    allowedKeys(input, ["title", "organization", "startDate", "endDate", "description"], `経歴${index + 1}`);
+    const startDate = dateValue(input.startDate, "経歴の開始日");
+    const endDate = optionalDate(input.endDate, "経歴の終了日", { nullable: true });
+    if (endDate && endDate < startDate) fail("INVALID_TOOL_ARGUMENTS", "経歴の終了日は開始日以降にしてください。");
+    return compact({
+      title: requiredString(input.title, "経歴の役割", { max: 120 }),
+      organization: requiredString(input.organization, "経歴の所属", { max: 160 }),
+      startDate,
+      endDate,
+      description: optionalString(input.description, "経歴の概要", { max: 2000 }),
+    });
+  });
+}
+
+function parseCreateProfileRequest(value) {
+  const input = record(value, "更新依頼");
+  allowedKeys(input, Object.keys(profileRequestFields), "更新依頼");
+  const personIds = [...new Set(stringArray(input.personIds, "対象メンバー", { max: 20, itemMax: 36 }).map((item) => uuidValue(item, "対象メンバー")))];
+  if (!personIds.length) fail("INVALID_TOOL_ARGUMENTS", "対象メンバーを選んでください。");
+  return compact({
+    personIds,
+    scope: enumValue(input.scope, "依頼内容", PROFILE_REQUEST_SCOPES),
+    note: optionalString(input.note, "依頼メモ", { max: 400 }),
+  });
+}
+
+function parseSubmitProfileRequest(value) {
+  const input = record(value, "更新提出");
+  allowedKeys(input, ["requestId", "skills", "workHistory"], "更新提出");
+  return compact({
+    requestId: uuidValue(input.requestId, "依頼ID"),
+    skills: parseSkillLevels(input.skills),
+    workHistory: parseWorkHistory(input.workHistory),
+  });
+}
+
 function parseSavedReportFields(value) {
   const input = record(value, "保存レポート");
   allowedKeys(input, Object.keys(savedReportFields), "保存レポート");
@@ -589,6 +676,7 @@ const READ_ALLOWED = {
   org_memberships: ["resource", "query", "personId", "limit"],
   search_scenes: ["resource", "query", "limit"],
   saved_reports: ["resource", "query", "reportId", "startDate", "endDate", "limit"],
+  profile_requests: ["resource", "query", "personId", "statuses", "limit"],
 };
 
 function parseReadArgs(value) {
@@ -599,7 +687,7 @@ function parseReadArgs(value) {
   const endDate = optionalDate(input.endDate, "終了日");
   if ((startDate && !endDate) || (!startDate && endDate)) fail("INVALID_TOOL_ARGUMENTS", "期間検索では開始日と終了日を両方指定してください。");
   ensureDateRange(startDate, endDate);
-  const statusValues = resource === "projects" ? PROJECT_STATUSES : resource === "assignments" ? ASSIGNMENT_STATUSES : resource === "staffing_needs" ? NEED_STATUSES : resource === "opportunities" ? OPPORTUNITY_STAGES : [];
+  const statusValues = resource === "projects" ? PROJECT_STATUSES : resource === "assignments" ? ASSIGNMENT_STATUSES : resource === "staffing_needs" ? NEED_STATUSES : resource === "opportunities" ? OPPORTUNITY_STAGES : resource === "profile_requests" ? PROFILE_REQUEST_STATUSES : [];
   let statuses;
   if (input.statuses !== undefined) {
     statuses = stringArray(input.statuses, "ステータス", { max: 6, itemMax: 20 });
@@ -766,6 +854,17 @@ export function parseWorkspaceToolCall(name, args) {
       allowedKeys(input, ["reportId"]);
       normalized = { reportId: uuidValue(input.reportId, "レポートID") };
       break;
+    case "create_profile_request":
+      normalized = parseCreateProfileRequest(input);
+      break;
+    case "submit_profile_request":
+      normalized = parseSubmitProfileRequest(input);
+      break;
+    case "complete_profile_request":
+    case "cancel_profile_request":
+      allowedKeys(input, ["requestId"]);
+      normalized = { requestId: uuidValue(input.requestId, "依頼ID") };
+      break;
     default:
       fail("UNKNOWN_WORKSPACE_TOOL", "許可されていないAI操作です。");
   }
@@ -814,6 +913,7 @@ function workspaceSnapshot(value) {
   collections.orgMemberships = Array.isArray(state.orgMemberships) ? structuredClone(state.orgMemberships) : [];
   collections.searchScenes = Array.isArray(state.searchScenes) ? structuredClone(state.searchScenes) : [];
   collections.savedReports = Array.isArray(state.savedReports) ? structuredClone(state.savedReports) : [];
+  collections.profileRequests = Array.isArray(state.profileRequests) ? structuredClone(state.profileRequests) : [];
   return { organizationId: organizationId.toLowerCase(), revision, ...collections };
 }
 
@@ -1126,6 +1226,25 @@ export function readWorkspaceTool(snapshot, name, args) {
     return { resource: filters.resource, revision: state.revision, ...bounded(values, filters.limit) };
   }
 
+  if (filters.resource === "profile_requests") {
+    const members = new Map(state.members.map((member) => [member.id, member]));
+    const values = state.profileRequests
+      .filter((request) => !filters.personId || request.personId === filters.personId)
+      .filter((request) => !filters.statuses?.length || filters.statuses.includes(request.status))
+      .filter((request) => containsQuery([request.note, request.scope, request.status, members.get(request.personId)?.name], filters.query))
+      .map((request) => ({
+        id: request.id,
+        personId: request.personId,
+        personName: members.get(request.personId)?.name ?? null,
+        scope: request.scope,
+        note: request.note ?? null,
+        status: request.status,
+        ...(request.proposedSkills?.length ? { proposedSkills: request.proposedSkills } : {}),
+        ...(request.proposedWorkHistory?.length ? { proposedWorkHistory: request.proposedWorkHistory } : {}),
+      }));
+    return { resource: filters.resource, revision: state.revision, ...bounded(values, filters.limit) };
+  }
+
   const members = new Map(state.members.map((member) => [member.id, member]));
   const projects = new Map(state.projects.map((project) => [project.id, project]));
   if (filters.resource === "org_units") {
@@ -1277,6 +1396,7 @@ function cloneState(state) {
     orgMemberships: structuredClone(state.orgMemberships ?? []),
     searchScenes: structuredClone(state.searchScenes ?? []),
     savedReports: structuredClone(state.savedReports ?? []),
+    profileRequests: structuredClone(state.profileRequests ?? []),
   };
 }
 
@@ -1340,6 +1460,9 @@ function workspacePayload(next, previous) {
   const reportUpsert = changedRows(next.savedReports ?? [], previous.savedReports ?? []);
   const reportArchive = removedIds(next.savedReports ?? [], previous.savedReports ?? []);
   if (reportUpsert.length || reportArchive.length) payload.savedReports = { upsert: reportUpsert, archiveIds: reportArchive };
+  const requestUpsert = changedRows(next.profileRequests ?? [], previous.profileRequests ?? []);
+  const requestArchive = removedIds(next.profileRequests ?? [], previous.profileRequests ?? []);
+  if (requestUpsert.length || requestArchive.length) payload.profileRequests = { upsert: requestUpsert, archiveIds: requestArchive };
   return payload;
 }
 
@@ -1371,6 +1494,7 @@ function actionPermission(role, toolName) {
   if (role === "planner" && ORG_TOOLS.has(toolName)) fail("FORBIDDEN", "組織階層の変更はオーナーまたは管理者だけが実行できます。", { status: 403 });
   if (role === "planner" && SEARCH_SCENE_TOOLS.has(toolName)) fail("FORBIDDEN", "検索シーンの変更はオーナーまたは管理者だけが実行できます。", { status: 403 });
   if (role === "planner" && REPORT_TOOLS.has(toolName)) fail("FORBIDDEN", "レポート定義の変更はオーナーまたは管理者だけが実行できます。", { status: 403 });
+  if (role === "planner" && PROFILE_ADMIN_TOOLS.has(toolName)) fail("FORBIDDEN", "更新依頼の作成・確認・取消はオーナーまたは管理者だけが実行できます。", { status: 403 });
 }
 
 function payloadIsDestructive(payload) {
@@ -1425,6 +1549,10 @@ function actionLabels(toolName) {
     delete_search_scene: ["検索シーンを削除", "削除する"],
     create_saved_report: ["レポートを保存", "保存する"],
     delete_saved_report: ["レポートを削除", "削除する"],
+    create_profile_request: ["更新依頼を作成", "作成する"],
+    submit_profile_request: ["更新内容を提出", "提出する"],
+    complete_profile_request: ["更新依頼を反映", "反映する"],
+    cancel_profile_request: ["更新依頼を取消", "取り消す"],
   };
   return labels[toolName];
 }
@@ -1893,6 +2021,54 @@ function applyAction(state, toolName, args, newUuid, requestId) {
     next.savedReports = next.savedReports.filter((candidate) => candidate.id !== report.id);
     subject = report.name;
     details.push("レポート定義を削除します。");
+  } else if (toolName === "create_profile_request") {
+    const created = [];
+    for (const personId of args.personIds) {
+      const person = byId(next.members, personId, "メンバー");
+      if (next.profileRequests.some((request) => request.personId === person.id && (request.status === "open" || request.status === "submitted"))) {
+        fail("DUPLICATE_PROFILE_REQUEST", `${person.name}さんには未完了の更新依頼があります。`);
+      }
+      const request = { id: newUuid(), personId: person.id, scope: args.scope, status: "open", ...(args.note ? { note: args.note } : {}) };
+      next.profileRequests.push(request);
+      created.push(person.name);
+    }
+    subject = created.join("、");
+    details.push(`${args.scope === "skills" ? "スキル" : args.scope === "workHistory" ? "業務経歴" : "スキルと経歴"}の更新を依頼します。`);
+  } else if (toolName === "submit_profile_request") {
+    const request = byId(next.profileRequests, args.requestId, "更新依頼");
+    if (request.status !== "open") fail("PROFILE_REQUEST_NOT_OPEN", "この依頼は提出できる状態ではありません。");
+    byId(next.members, request.personId, "メンバー");
+    if (request.scope !== "workHistory" && !args.skills?.length) fail("INVALID_TOOL_ARGUMENTS", "更新するスキルを入力してください。");
+    if (request.scope !== "skills" && !args.workHistory?.length) fail("INVALID_TOOL_ARGUMENTS", "更新する経歴を入力してください。");
+    next.profileRequests = next.profileRequests.map((candidate) => candidate.id === request.id ? {
+      ...candidate,
+      status: "submitted",
+      ...(args.skills?.length ? { proposedSkills: args.skills } : {}),
+      ...(args.workHistory?.length ? { proposedWorkHistory: args.workHistory.map((entry) => ({ ...entry, id: newUuid() })) } : {}),
+    } : candidate);
+    subject = memberPreview(next, request.personId);
+    details.push("提案内容を提出します。");
+  } else if (toolName === "complete_profile_request") {
+    const request = byId(next.profileRequests, args.requestId, "更新依頼");
+    if (request.status !== "submitted") fail("PROFILE_REQUEST_NOT_SUBMITTED", "確認できるのは提出済みの依頼です。");
+    const person = byId(next.members, request.personId, "メンバー");
+    next.members = next.members.map((member) => member.id !== person.id ? member : {
+      ...member,
+      ...(request.scope !== "workHistory" && request.proposedSkills?.length ? {
+        skills: request.proposedSkills.map((level) => level.name),
+        skillLevels: request.proposedSkills,
+      } : {}),
+      ...(request.scope !== "skills" && request.proposedWorkHistory ? { workHistory: request.proposedWorkHistory } : {}),
+    });
+    next.profileRequests = next.profileRequests.map((candidate) => candidate.id === request.id ? { ...candidate, status: "done" } : candidate);
+    subject = person.name;
+    details.push("提出内容をメンバー情報へ反映します。");
+  } else if (toolName === "cancel_profile_request") {
+    const request = byId(next.profileRequests, args.requestId, "更新依頼");
+    if (request.status === "done" || request.status === "cancelled") fail("PROFILE_REQUEST_NOT_ACTIVE", "この依頼は取り消せません。");
+    next.profileRequests = next.profileRequests.map((candidate) => candidate.id === request.id ? { ...candidate, status: "cancelled" } : candidate);
+    subject = memberPreview(next, request.personId);
+    details.push("更新依頼を取り消します。");
   }
 
   if (relevantAssignment) {

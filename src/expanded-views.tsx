@@ -6,9 +6,11 @@ import {
   CalendarClock,
   ChevronRight,
   CircleAlert,
+  ClipboardCheck,
   Filter,
   Gauge,
   Layers3,
+  MailPlus,
   Plus,
   Search,
   SlidersHorizontal,
@@ -25,9 +27,12 @@ import {
   buildSkillMap,
   customValue,
   formatCustomValue,
+  formatSkillInput,
   formatWorkHistoryPeriod,
   getWeekStart,
   isActiveOpportunity,
+  isActiveProfileRequest,
+  canActAsProfileRequestSubject,
   memberDailyLoads,
   memberLoad,
   memberOrgMemberships,
@@ -46,6 +51,8 @@ import {
   matchMembers,
   parseSkillInput,
   PROFICIENCY_LABELS,
+  profileRequestScopeLabel,
+  profileRequestStatusLabel,
   projectMembers,
   projectSearchText,
   sortedWorkHistory,
@@ -57,6 +64,8 @@ import {
   type CustomFieldType,
   type OpportunityStage,
   type OrgUnit,
+  type ProfileRequest,
+  type ProfileRequestScope,
   type Project,
   type ReportGroupBy,
   type ReportMetric,
@@ -137,6 +146,11 @@ type FieldsViewProps = {
     searchable?: boolean;
   }) => void;
   canManage?: boolean;
+  identity?: { userId?: string };
+  onCreateRequests?: (personIds: string[], input: { scope: ProfileRequestScope; note: string }) => void;
+  onSubmitRequest?: (requestId: string, proposed: { skills: string; workHistory: WorkHistoryEntry[] }) => void;
+  onCompleteRequest?: (requestId: string) => void;
+  onCancelRequest?: (requestId: string) => void;
 };
 
 type OrgViewProps = {
@@ -853,7 +867,128 @@ export function WorkHistoryEditor({
   );
 }
 
-export function FieldsView({ state, onAddField, canManage = false }: FieldsViewProps) {
+export function ProfileRequestsPanel({
+  state,
+  identity,
+  canManage = false,
+  onCreateRequests,
+  onSubmitRequest,
+  onCompleteRequest,
+  onCancelRequest,
+}: {
+  state: WorkspaceState;
+  identity?: { userId?: string };
+  canManage?: boolean;
+  onCreateRequests?: (personIds: string[], input: { scope: ProfileRequestScope; note: string }) => void;
+  onSubmitRequest?: (requestId: string, proposed: { skills: string; workHistory: WorkHistoryEntry[] }) => void;
+  onCompleteRequest?: (requestId: string) => void;
+  onCancelRequest?: (requestId: string) => void;
+}) {
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [scope, setScope] = useState<ProfileRequestScope>("skills");
+  const [note, setNote] = useState("");
+  const [createError, setCreateError] = useState("");
+  const [submitSkills, setSubmitSkills] = useState<Record<string, string>>({});
+  const [submitHistory, setSubmitHistory] = useState<Record<string, WorkHistoryEntry[]>>({});
+  const [submitError, setSubmitError] = useState<Record<string, string>>({});
+  const requests = state.profileRequests ?? [];
+  const members = new Map(state.members.map((member) => [member.id, member]));
+  const visible = requests.filter((request) => {
+    if (canManage) return true;
+    return canActAsProfileRequestSubject(members.get(request.personId), identity, false);
+  });
+  const openCount = visible.filter((request) => request.status === "open").length;
+  const reviewCount = visible.filter((request) => request.status === "submitted").length;
+
+  const toggleMember = (personId: string) => {
+    setSelectedIds((current) => current.includes(personId) ? current.filter((id) => id !== personId) : [...current, personId]);
+  };
+
+  const create = () => {
+    try {
+      onCreateRequests?.(selectedIds, { scope, note });
+      setSelectedIds([]);
+      setNote("");
+      setCreateError("");
+    } catch (caught) {
+      setCreateError(caught instanceof Error ? caught.message : "依頼を作成できませんでした");
+    }
+  };
+
+  const submit = (request: ProfileRequest) => {
+    try {
+      const member = members.get(request.personId);
+      onSubmitRequest?.(request.id, {
+        skills: submitSkills[request.id] ?? formatSkillInput(memberSkillLevels(member ?? { skills: [] })),
+        workHistory: submitHistory[request.id] ?? member?.workHistory ?? [],
+      });
+      setSubmitError((current) => ({ ...current, [request.id]: "" }));
+    } catch (caught) {
+      setSubmitError((current) => ({ ...current, [request.id]: caught instanceof Error ? caught.message : "提出できませんでした" }));
+    }
+  };
+
+  return (
+    <section className="balance-card profile-request-card" aria-labelledby="profile-request-heading">
+      <div className="card-heading">
+        <div><small>PROFILE REQUESTS</small><h3 id="profile-request-heading">プロフィール更新依頼</h3></div>
+        <span>{openCount}件未対応 · {reviewCount}件確認待ち</span>
+      </div>
+      {canManage && onCreateRequests && (
+        <form className="field-catalog-form profile-request-form" onSubmit={(event) => { event.preventDefault(); create(); }}>
+          <fieldset className="profile-request-members">
+            <legend>対象メンバー</legend>
+            {state.members.map((member) => (
+              <label key={member.id}>
+                <input type="checkbox" checked={selectedIds.includes(member.id)} onChange={() => toggleMember(member.id)} />
+                {member.name}
+              </label>
+            ))}
+          </fieldset>
+          <label>依頼内容<select aria-label="依頼内容" value={scope} onChange={(event) => setScope(event.target.value as ProfileRequestScope)}>
+            <option value="skills">スキル</option>
+            <option value="workHistory">業務経歴</option>
+            <option value="all">スキルと経歴</option>
+          </select></label>
+          <label>メモ<input value={note} onChange={(event) => setNote(event.target.value)} placeholder="スキル棚卸しをお願いします" /></label>
+          <button type="submit" className="view-add-button"><MailPlus size={15} />依頼を作成</button>
+          {createError && <p className="skill-catalog-error" role="alert">{createError}</p>}
+        </form>
+      )}
+      <div className="profile-request-list">
+        {visible.map((request) => {
+          const member = members.get(request.personId);
+          const canSubmit = request.status === "open" && canActAsProfileRequestSubject(member, identity, canManage);
+          const skillsValue = submitSkills[request.id] ?? formatSkillInput(memberSkillLevels(member ?? { skills: [] }));
+          const historyValue = submitHistory[request.id] ?? member?.workHistory ?? [];
+          return (
+            <article className="profile-request-item" key={request.id}>
+              <header>
+                <strong>{member?.name ?? "不明なメンバー"}</strong>
+                <small>{profileRequestScopeLabel(request.scope)} · {profileRequestStatusLabel(request.status)}</small>
+              </header>
+              {request.note && <p>{request.note}</p>}
+              {request.status === "submitted" && request.proposedSkills?.length ? <p>提案スキル: {formatSkillInput(request.proposedSkills)}</p> : null}
+              {request.status === "submitted" && request.proposedWorkHistory?.length ? <p>提案経歴: {request.proposedWorkHistory.map((entry) => entry.title).join("、")}</p> : null}
+              {canSubmit && onSubmitRequest && (
+                <div className="profile-request-submit">
+                  {request.scope !== "workHistory" && <label>更新後のスキル<input aria-label={`${member?.name ?? "メンバー"}の更新スキル`} value={skillsValue} onChange={(event) => setSubmitSkills((current) => ({ ...current, [request.id]: event.target.value }))} placeholder="React:4, TypeScript:3" /></label>}
+                  {request.scope !== "skills" && <WorkHistoryEditor entries={historyValue} onChange={(workHistory) => setSubmitHistory((current) => ({ ...current, [request.id]: workHistory }))} />}
+                  <button type="button" className="view-add-button" onClick={() => submit(request)}><ClipboardCheck size={15} />{member?.name}の内容で提出</button>
+                  {submitError[request.id] && <p className="skill-catalog-error" role="alert">{submitError[request.id]}</p>}
+                </div>
+              )}
+              {canManage && request.status === "submitted" && onCompleteRequest && <button type="button" className="view-add-button" onClick={() => onCompleteRequest(request.id)}>{member?.name}を確認して反映</button>}
+              {canManage && isActiveProfileRequest(request) && onCancelRequest && <button type="button" className="drawer-danger compact" onClick={() => onCancelRequest(request.id)}>{member?.name}の依頼を取り消す</button>}
+            </article>
+          );
+        })}
+        {visible.length === 0 && <p className="view-empty">表示できる更新依頼はありません。</p>}
+      </div>
+    </section>
+  );
+}
+export function FieldsView({ state, onAddField, canManage = false, identity, onCreateRequests, onSubmitRequest, onCompleteRequest, onCancelRequest }: FieldsViewProps) {
   const [query, setQuery] = useState("");
   const [entityType, setEntityType] = useState<CustomFieldEntity | "すべて">("すべて");
   const [formEntity, setFormEntity] = useState<CustomFieldEntity>("member");
@@ -906,6 +1041,16 @@ export function FieldsView({ state, onAddField, canManage = false }: FieldsViewP
         <div className="ribbon-divider" />
         <div className="ribbon-stat"><strong>{(state.members.filter((member) => (member.workHistory ?? []).length > 0).length)}</strong><span>経歴あり</span></div>
       </div>
+
+      <ProfileRequestsPanel
+        state={state}
+        identity={identity}
+        canManage={canManage}
+        onCreateRequests={onCreateRequests}
+        onSubmitRequest={onSubmitRequest}
+        onCompleteRequest={onCompleteRequest}
+        onCancelRequest={onCancelRequest}
+      />
 
       <div className="view-toolbar">
         <div className="inline-search"><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="項目名・キーを検索" aria-label="項目を検索" /></div>

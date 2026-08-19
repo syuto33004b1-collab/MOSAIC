@@ -32,6 +32,7 @@ describe("shared workspace controller", () => {
     const repository = {
       getWorkspace: vi.fn().mockResolvedValue({ state: initialWorkspace, revision: 7 }),
       saveWorkspace,
+      submitProfileRequest: vi.fn(),
       subscribeToWorkspace: vi.fn().mockReturnValue(() => undefined),
     };
     const controller = createSharedWorkspaceController(repository, "00000000-0000-4000-8000-000000000002", "planner");

@@ -26,6 +26,7 @@ const ids = {
   request: "40000000-0000-4000-8000-000000000001",
   scene: "66000000-0000-4000-8000-000000000001",
   report: "67000000-0000-4000-8000-000000000001",
+  profileRequest: "68000000-0000-4000-8000-000000000001",
 };
 
 function snapshot() {
@@ -173,6 +174,15 @@ function snapshot() {
         metric: "count",
       },
     ],
+    profileRequests: [
+      {
+        id: ids.profileRequest,
+        personId: ids.alice,
+        scope: "skills",
+        note: "スキルを更新してください",
+        status: "open",
+      },
+    ],
   };
 }
 
@@ -189,8 +199,8 @@ function plannerOptions(toolName, args, overrides = {}) {
 }
 
 test("declares the allowlisted Gemini Interactions workspace tools and detects current function_call steps", () => {
-  assert.equal(WORKSPACE_TOOL_DECLARATIONS.length, 29);
-  assert.equal(new Set(WORKSPACE_TOOL_DECLARATIONS.map((tool) => tool.name)).size, 29);
+  assert.equal(WORKSPACE_TOOL_DECLARATIONS.length, 33);
+  assert.equal(new Set(WORKSPACE_TOOL_DECLARATIONS.map((tool) => tool.name)).size, 33);
   assert.ok(WORKSPACE_TOOL_DECLARATIONS.every((tool) => tool.type === "function" && tool.parameters.additionalProperties === false));
   assert.deepEqual(detectWorkspaceFunctionCalls({
     steps: [
@@ -275,6 +285,7 @@ test("enforces the organization role matrix before planning writes", async () =>
   await assert.rejects(() => planWorkspaceAction(plannerOptions("create_assignment", assignmentArgs, { role: "viewer" })), (error) => error.code === "FORBIDDEN");
   await assert.rejects(() => planWorkspaceAction(plannerOptions("create_member", { name: "D", role: "QA", department: "品質", location: "東京", capacity: 100, skills: [] })), (error) => error.code === "FORBIDDEN");
   await assert.rejects(() => planWorkspaceAction(plannerOptions("create_saved_report", { name: "新規", source: "members", groupBy: "department", metric: "count" })), (error) => error.code === "FORBIDDEN");
+  await assert.rejects(() => planWorkspaceAction(plannerOptions("create_profile_request", { personIds: [ids.bob], scope: "skills" })), (error) => error.code === "FORBIDDEN");
   const adminPlan = await planWorkspaceAction(plannerOptions("create_member", { name: "D", role: "QA", department: "品質", location: "東京", capacity: 100, skills: [] }, { role: "admin" }));
   assert.equal(adminPlan.payload.members.upsert[0].name, "D");
 });
@@ -643,6 +654,24 @@ test("plans saved report create and delete for owners and admins", async () => {
   assert.equal(created.payload.savedReports.upsert[0].name, "勤務地別");
   const deleted = await planWorkspaceAction(plannerOptions("delete_saved_report", { reportId: ids.report }, { role: "owner" }));
   assert.deepEqual(deleted.payload.savedReports.archiveIds, [ids.report]);
+});
+
+test("reads and plans profile update requests", async () => {
+  const listed = readWorkspaceTool(snapshot(), "read_workspace", { resource: "profile_requests" });
+  assert.equal(listed.total, 1);
+  assert.equal(listed.items[0].personName, "Alice A");
+  const submitted = await planWorkspaceAction(plannerOptions("submit_profile_request", {
+    requestId: ids.profileRequest,
+    skills: ["React:5", "API:4"],
+  }));
+  assert.equal(submitted.payload.profileRequests.upsert[0].status, "submitted");
+  const created = await planWorkspaceAction(plannerOptions("create_profile_request", {
+    personIds: [ids.bob],
+    scope: "workHistory",
+    note: "経歴を更新",
+  }, { role: "admin" }));
+  assert.equal(created.payload.profileRequests.upsert[0].personId, ids.bob);
+  assert.equal(created.payload.profileRequests.upsert[0].status, "open");
 });
 
 test("stable hashing is independent of object key insertion order", async () => {
