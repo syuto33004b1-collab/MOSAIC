@@ -119,6 +119,29 @@ describe("production repository response adapters", () => {
     const payload = workspaceChangesPayload(changed, initialWorkspace, "admin");
     expect(payload.members?.upsert).toHaveLength(1);
     expect(payload.assignments).toBeUndefined();
+    expect(payload.skillCatalog).toBeUndefined();
+  });
+
+  it("sends UUID skill catalog changes and keeps inferred names out of the payload", () => {
+    const catalogId = "11111111-0000-4000-8000-000000000001";
+    const previous = {
+      ...initialWorkspace,
+      skillCatalog: [{ id: catalogId, name: "Backend", kind: "category" as const }],
+    };
+    const changed = {
+      ...previous,
+      skillCatalog: [
+        { id: catalogId, name: "Backend", kind: "category" as const },
+        { id: "skill:graphql", name: "GraphQL", kind: "skill" as const, parentId: catalogId },
+        { id: "22222222-0000-4000-8000-000000000002", name: "Platform", kind: "category" as const },
+      ],
+    };
+
+    const payload = workspaceChangesPayload(changed, previous, "planner");
+    expect(payload.skillCatalog?.upsert).toEqual([
+      { id: "22222222-0000-4000-8000-000000000002", name: "Platform", kind: "category" },
+    ]);
+    expect(payload.skillCatalog?.archiveIds).toEqual([]);
   });
 
   it("creates a deterministic lowercase SHA-256 payload hash", async () => {

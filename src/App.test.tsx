@@ -902,7 +902,33 @@ describe("role-aware workspace", () => {
     await user.click(dialog.getByRole("button", { name: "メンバーを追加" }));
     await user.click(screen.getByRole("button", { name: "チームへ保存" }));
     await waitFor(() => expect(save).toHaveBeenCalledOnce());
-    expect(save.mock.calls[0][0].members[0]).toMatchObject({ name: "山田 花子", skills: ["React", "TypeScript"], capacity: 60 });
+    expect(save.mock.calls[0][0].members[0]).toMatchObject({ name: "山田 花子", skills: ["React", "TypeScript"], skillLevels: [{ name: "React", proficiency: 3 }, { name: "TypeScript", proficiency: 3 }], capacity: 60 });
+  });
+
+  it("shows skill map gaps and adds a catalog skill for planners", async () => {
+    const user = userEvent.setup();
+    const adapter = sharedAdapter();
+    const save = vi.fn().mockResolvedValue({ revision: 8, savedAt: "2026-08-17T10:00:00Z" });
+    adapter.save = save;
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "計画 花子", email: "planner@example.com", role: "planner" }} shared={adapter} />);
+    const navigation = within(screen.getByRole("navigation", { name: "メインナビゲーション" }));
+
+    await user.click(navigation.getByRole("button", { name: "スキルマップ" }));
+    expect(screen.getByRole("heading", { level: 1, name: "スキルマップ" })).toBeInTheDocument();
+    const apiName = screen.getAllByText("API").find((node) => node.tagName === "STRONG");
+    expect(apiName).toBeTruthy();
+    const apiRow = apiName!.closest("tr");
+    expect(apiRow?.querySelector(".skill-gap")).not.toBeNull();
+
+    await user.type(screen.getByPlaceholderText("React または フロントエンド"), "GraphQL");
+    await user.selectOptions(screen.getByLabelText("スキル種類"), "skill");
+    await user.selectOptions(screen.getByLabelText("親分類"), "バックエンド");
+    await user.click(screen.getByRole("button", { name: "分類またはスキルを追加" }));
+    expect(screen.getByText("GraphQL")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "チームへ保存" }));
+    await waitFor(() => expect(save).toHaveBeenCalledOnce());
+    const saved = save.mock.calls[0][0] as WorkspaceState;
+    expect(saved.skillCatalog?.some((item) => item.name === "GraphQL")).toBe(true);
   });
 
   it("migrates legacy demo leave rows out of local storage", async () => {

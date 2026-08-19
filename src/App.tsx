@@ -12,6 +12,7 @@ import {
   ChevronRight,
   Clock3,
   FolderKanban,
+  Layers3,
   LayoutDashboard,
   MoreHorizontal,
   Plus,
@@ -25,24 +26,31 @@ import {
   UsersRound,
   X,
 } from "lucide-react";
-import { MembersView, ProjectsView, ReportsView } from "./expanded-views";
+import { MembersView, ProjectsView, ReportsView, SkillsView } from "./expanded-views";
 import { AiChat } from "./components/ai-chat/AiChat";
 import type { ChatTransport } from "./lib/ai/chatClient";
 import {
   addDays,
+  addSkillCatalogEntry,
   assignmentGrid,
   createProjectCode,
   formatDate,
+  formatSkillInput,
   getIsoWeekNumber,
   getWeekDays,
   getWeekStart,
+  hydrateWorkspaceSkills,
   initialWorkspace,
   makeInitials,
   memberById,
   memberDailyLoads,
   memberLoad,
+  memberMatchesNeed,
   memberPeakLoad,
+  memberSkillLevels,
+  needSkillRequirements,
   overlaps,
+  parseSkillInput,
   projectById,
   projectMembers,
   projectTone,
@@ -52,6 +60,7 @@ import {
   type Member,
   type Project,
   type ProjectStatus,
+  type SkillKind,
   type StaffingNeed,
   type Tone,
   type WorkspaceState,
@@ -147,6 +156,7 @@ const navItems = [
   { id: "board", label: "アサインボード", icon: LayoutDashboard },
   { id: "projects", label: "プロジェクト", icon: FolderKanban },
   { id: "members", label: "メンバー", icon: UsersRound },
+  { id: "skills", label: "スキルマップ", icon: Layers3 },
   { id: "reports", label: "レポート", icon: ChartNoAxesCombined },
 ];
 
@@ -154,6 +164,7 @@ const pageMeta = {
   board: { eyebrow: "RESOURCE PLANNING", title: "今週のチーム編成", description: "日ごとの重なりと、週全体の余白を確認します。" },
   projects: { eyebrow: "PORTFOLIO CONTROL", title: "プロジェクト・ポートフォリオ", description: "案件ごとの充足と次の節目を横断して管理します。" },
   members: { eyebrow: "TEAM AVAILABILITY", title: "メンバーと空き状況", description: "スキルと4週間の余白から、次の担当者を探します。" },
+  skills: { eyebrow: "SKILL TAXONOMY", title: "スキルマップ", description: "分類、習熟度、不足領域を組織全体で確認します。" },
   reports: { eyebrow: "CAPACITY FORECAST", title: "キャパシティ予測", description: "需給の変化と、判断が必要な例外を見通します。" },
 } as const;
 
@@ -166,26 +177,11 @@ function cloneState(state: WorkspaceState): WorkspaceState {
 function migrateDemoWorkspace(state: WorkspaceState): WorkspaceState {
   const memberIds = new Set(state.members.map((member) => member.id));
   const projectIds = new Set(state.projects.map((project) => project.id));
-  return {
+  return hydrateWorkspaceSkills({
     ...state,
     assignments: state.assignments.filter((assignment) => assignment.allocation > 0 && memberIds.has(assignment.personId) && projectIds.has(assignment.projectId)),
     needs: state.needs.filter((need) => projectIds.has(need.projectId)),
-  };
-}
-
-function normalizeSkills(value: string) {
-  const seen = new Set<string>();
-  return value.split(",").map((skill) => skill.trim()).filter((skill) => {
-    const key = skill.toLocaleLowerCase();
-    if (!key || seen.has(key)) return false;
-    seen.add(key);
-    return true;
   });
-}
-
-function memberMatchesNeed(member: Member, need: StaffingNeed) {
-  return member.role.toLocaleLowerCase() === need.role.toLocaleLowerCase()
-    && need.skills.every((skill) => member.skills.some((memberSkill) => memberSkill.toLocaleLowerCase() === skill.toLocaleLowerCase()));
 }
 
 function assignmentMatchesNeed(state: WorkspaceState, assignment: Assignment, need: StaffingNeed) {
@@ -640,7 +636,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
       role: member.role,
       department: member.department,
       location: member.location,
-      skills: member.skills.join(", "),
+      skills: formatSkillInput(memberSkillLevels(member)),
       capacity: String(member.capacity),
     });
     setDrawer("editMember");
@@ -690,7 +686,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
     setNeedForm({
       projectId: need.projectId,
       role: need.role,
-      skills: need.skills.join(", "),
+      skills: formatSkillInput(needSkillRequirements(need).map((requirement) => ({ name: requirement.name, proficiency: requirement.minProficiency }))),
       startDate: need.startDate,
       endDate: need.endDate,
       allocation: String(need.allocation),
@@ -1095,7 +1091,8 @@ export default function Home({ mode = "demo", organizationId, organizationName =
       return;
     }
     const id = newId();
-    setWorkspace((current) => ({
+    const skillLevels = parseSkillInput(memberForm.skills);
+    setWorkspace((current) => hydrateWorkspaceSkills({
       ...current,
       members: [...current.members, {
         id,
@@ -1104,7 +1101,8 @@ export default function Home({ mode = "demo", organizationId, organizationName =
         role: memberForm.role,
         department: memberForm.department,
         avatarTone: "lavender",
-        skills: normalizeSkills(memberForm.skills),
+        skills: skillLevels.map((level) => level.name),
+        skillLevels,
         location: memberForm.location,
         capacity,
       }],
@@ -1130,6 +1128,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
       setToast("稼働上限は0〜100%で設定してください");
       return;
     }
+    const skillLevels = parseSkillInput(memberEditForm.skills);
     const updatedMember: Member = {
       ...selectedMember,
       initials: makeInitials(name),
@@ -1137,11 +1136,12 @@ export default function Home({ mode = "demo", organizationId, organizationName =
       role: memberEditForm.role.trim(),
       department: memberEditForm.department.trim(),
       location: memberEditForm.location.trim(),
-      skills: normalizeSkills(memberEditForm.skills),
+      skills: skillLevels.map((level) => level.name),
+      skillLevels,
       capacity,
     };
     const members = workspace.members.map((member) => member.id === updatedMember.id ? updatedMember : member);
-    const memberState = { ...workspace, members };
+    const memberState = hydrateWorkspaceSkills({ ...workspace, members });
     const reopenedNeedIds = new Set<string>();
     workspace.needs.forEach((need) => {
       if (need.draftPersonId === updatedMember.id && (!memberMatchesNeed(updatedMember, need) || capacity < need.allocation)) {
@@ -1154,9 +1154,8 @@ export default function Home({ mode = "demo", organizationId, organizationName =
       if (need && (!assignmentMatchesNeed(memberState, assignment, need) || capacity < assignment.allocation)) reopenedNeedIds.add(need.id);
     });
     const nextWorkspace: WorkspaceState = {
-      ...workspace,
-      members,
-      projects: workspace.projects.map((project) => project.ownerPersonId === updatedMember.id || (!project.ownerPersonId && project.ownerName === selectedMember.name) ? {
+      ...memberState,
+      projects: memberState.projects.map((project) => project.ownerPersonId === updatedMember.id || (!project.ownerPersonId && project.ownerName === selectedMember.name) ? {
         ...project,
         ownerPersonId: updatedMember.id,
         ownerName: updatedMember.name,
@@ -1310,21 +1309,23 @@ export default function Home({ mode = "demo", organizationId, organizationName =
       return;
     }
     const existing = editingNeedId ? workspace.needs.find((need) => need.id === editingNeedId) : undefined;
+    const skillRequirements = parseSkillInput(needForm.skills, 1).map((item) => ({ name: item.name, minProficiency: item.proficiency }));
     const nextNeed: StaffingNeed = {
       id: existing?.id ?? newId(),
       projectId: project.id,
       role: roleName,
-      skills: normalizeSkills(needForm.skills),
+      skills: skillRequirements.map((item) => item.name),
+      skillRequirements,
       startDate: needForm.startDate,
       endDate: needForm.endDate,
       allocation,
       status: existing?.status ?? "open",
       draftPersonId: existing?.draftPersonId ?? null,
     };
-    const withEditedNeed: WorkspaceState = {
+    const withEditedNeed: WorkspaceState = hydrateWorkspaceSkills({
       ...workspace,
       needs: existing ? workspace.needs.map((need) => need.id === existing.id ? nextNeed : need) : [...workspace.needs, nextNeed],
-    };
+    });
     const linkedAssignments = existing ? workspace.assignments.filter((assignment) => assignment.staffingNeedId === existing.id) : [];
     const validLinkedAssignments = linkedAssignments.filter((assignment) => assignmentMatchesNeed(withEditedNeed, assignment, nextNeed));
     const invalidLinkedAssignmentIds = new Set(linkedAssignments.filter((assignment) => !validLinkedAssignments.some((valid) => valid.id === assignment.id)).map((assignment) => assignment.id));
@@ -1376,10 +1377,24 @@ export default function Home({ mode = "demo", organizationId, organizationName =
     setViewMode("members");
   };
 
+  const handleAddCatalogEntry = (input: { name: string; kind: SkillKind; parentId?: string | null }) => {
+    if (!canEdit) return;
+    setWorkspace((current) => ({
+      ...current,
+      skillCatalog: addSkillCatalogEntry(current.skillCatalog ?? [], input),
+    }));
+    markUnsaved();
+    setToast(input.kind === "category" ? "スキル分類を追加しました" : "スキルを分類へ追加しました");
+  };
+
   const primaryAction = () => {
     if (activeNav === "board" && canAddAssignment) openNewAssignment();
     if (activeNav === "projects" && canEdit) setDrawer("newProject");
     if (activeNav === "members" && canManageMembers) setDrawer("newMember");
+    if (activeNav === "skills") {
+      const openNeed = workspace.needs.find((need) => need.status !== "filled");
+      if (openNeed) openStaffingNeed(openNeed.id);
+    }
     if (activeNav === "reports") openWeekFromReport(0);
   };
 
@@ -1438,9 +1453,9 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                 </div>
               )}
             </div>
-            <button className="primary-button" onClick={primaryAction} disabled={activeNav === "board" ? !canAddAssignment : activeNav === "projects" ? !canEdit : activeNav === "members" ? !canManageMembers : false}>
-              {activeNav === "board" && <Plus size={16} />}{activeNav === "projects" && <BriefcaseBusiness size={16} />}{activeNav === "members" && <UserRoundPlus size={16} />}{activeNav === "reports" && <LayoutDashboard size={16} />}
-              {activeNav === "board" ? "アサインを追加" : activeNav === "projects" ? "プロジェクトを追加" : activeNav === "members" ? "メンバーを追加" : "ボードで調整"}
+            <button className="primary-button" onClick={primaryAction} disabled={activeNav === "board" ? !canAddAssignment : activeNav === "projects" ? !canEdit : activeNav === "members" ? !canManageMembers : activeNav === "skills" ? workspace.needs.every((need) => need.status === "filled") : false}>
+              {activeNav === "board" && <Plus size={16} />}{activeNav === "projects" && <BriefcaseBusiness size={16} />}{activeNav === "members" && <UserRoundPlus size={16} />}{activeNav === "skills" && <Layers3 size={16} />}{activeNav === "reports" && <LayoutDashboard size={16} />}
+              {activeNav === "board" ? "アサインを追加" : activeNav === "projects" ? "プロジェクトを追加" : activeNav === "members" ? "メンバーを追加" : activeNav === "skills" ? "不足ロールを確認" : "ボードで調整"}
             </button>
           </div>
         </header>
@@ -1537,6 +1552,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
 
         {activeNav === "projects" && <ProjectsView state={workspace} weekOffset={weekOffset} onOpen={openProject} onCreate={() => setDrawer("newProject")} canEdit={canEdit} />}
         {activeNav === "members" && <MembersView state={workspace} weekOffset={weekOffset} onOpen={openMember} onAdd={() => setDrawer("newMember")} onAssign={openAssignmentFor} canEdit={canEdit} canManageMembers={canManageMembers} />}
+        {activeNav === "skills" && <SkillsView state={hydrateWorkspaceSkills(workspace)} onAddCatalogEntry={handleAddCatalogEntry} onOpenMember={openMember} onResolveNeed={openStaffingNeed} canEdit={canEdit} />}
         {activeNav === "reports" && <ReportsView state={workspace} onOpenWeek={openWeekFromReport} onResolveNeed={openStaffingNeed} canEdit={canEdit} />}
       </section>
 
@@ -1634,7 +1650,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
             {drawer === "member" && selectedMember && (
               <div className="drawer-content">
                 <div className="profile-hero"><span className={"avatar profile-avatar " + selectedMember.avatarTone}>{selectedMember.initials}</span><div><h2>{selectedMember.name}</h2><p>{selectedMember.role} · {selectedMember.department}</p><small>{selectedMember.location}</small></div><strong>{memberLoad(workspace, selectedMember.id, weekStart)}%</strong></div>
-                <div className="profile-skills">{selectedMember.skills.map((skill) => <span key={skill}>{skill}</span>)}</div>
+                <div className="profile-skills">{memberSkillLevels(selectedMember).map((level) => <span key={level.name}>{level.name}<small>{level.proficiency}</small></span>)}</div>
                 <div className="drawer-section-title"><span>4週間のキャパシティ</span><small>上限 {selectedMember.capacity}%</small></div>
                 <div className="profile-capacity">{[0, 1, 2, 3].map((offset) => { const load = memberLoad(workspace, selectedMember.id, addDays(weekStart, offset * 7)); const ratio = selectedMember.capacity > 0 ? load / selectedMember.capacity * 100 : load > 0 ? 100 : 0; return <div key={offset}><span>{offset === 0 ? "今週" : offset + 1 + "週後"}</span><i><b className={load > selectedMember.capacity ? "over" : ""} style={{ width: Math.min(100, ratio) + "%" }} /></i><strong>{load}% / {selectedMember.capacity}%</strong></div>; })}</div>
                 <div className="drawer-section-title"><span>現在のアサイン</span><small>{workspace.assignments.filter((assignment) => assignment.personId === selectedMember.id && overlaps(assignment.startDate, assignment.endDate, weekStart, weekEnd(weekStart))).length}件</small></div>
@@ -1649,7 +1665,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                 <div className="drawer-heading"><span className="drawer-icon mint"><UsersRound size={19} /></span><div><h2>メンバー情報を編集</h2><p>スキルと稼働上限は候補判定にも反映されます。</p></div></div>
                 <label>氏名<input required value={memberEditForm.name} onChange={(event) => setMemberEditForm({ ...memberEditForm, name: event.target.value })} /></label>
                 <label>職種<input required value={memberEditForm.role} onChange={(event) => setMemberEditForm({ ...memberEditForm, role: event.target.value })} /></label>
-                <label>スキル（カンマ区切り）<input value={memberEditForm.skills} onChange={(event) => setMemberEditForm({ ...memberEditForm, skills: event.target.value })} placeholder="React, TypeScript, A11y" /></label>
+                <label>スキル（カンマ区切り）<input value={memberEditForm.skills} onChange={(event) => setMemberEditForm({ ...memberEditForm, skills: event.target.value })} placeholder="React:4, TypeScript:3, A11y" /></label>
                 <div className="form-grid"><label>部署<input required value={memberEditForm.department} onChange={(event) => setMemberEditForm({ ...memberEditForm, department: event.target.value })} /></label><label>勤務地<input required value={memberEditForm.location} onChange={(event) => setMemberEditForm({ ...memberEditForm, location: event.target.value })} /></label></div>
                 <label>稼働上限（%）<input required type="number" min="0" max="100" step="1" value={memberEditForm.capacity} onChange={(event) => setMemberEditForm({ ...memberEditForm, capacity: event.target.value })} /></label>
                 <div className="form-note"><SlidersHorizontal size={15} /><span>変更後に満たせない要員要件がある場合、紐づくアサインを取消予定にして要件を再オープンします。</span></div>
@@ -1676,7 +1692,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                 <div className="drawer-heading"><span className="drawer-icon mint"><UserRoundPlus size={19} /></span><div><h2>{editingNeedId ? "要員要件を編集" : "要員要件を追加"}</h2><p>必要ロール・期間・稼働配分から候補を照合します。</p></div></div>
                 <label htmlFor="staffing-need-project">プロジェクト<select id="staffing-need-project" aria-label="プロジェクト" required value={needForm.projectId} onChange={(event) => setNeedForm({ ...needForm, projectId: event.target.value })}>{workspace.projects.map((project) => <option value={project.id} key={project.id}>{project.name}</option>)}</select></label>
                 <label>必要ロール<input required value={needForm.role} onChange={(event) => setNeedForm({ ...needForm, role: event.target.value })} placeholder="Frontend Engineer" /></label>
-                <label>必要スキル（カンマ区切り）<input value={needForm.skills} onChange={(event) => setNeedForm({ ...needForm, skills: event.target.value })} placeholder="React, TypeScript" /></label>
+                <label>必要スキル（カンマ区切り）<input value={needForm.skills} onChange={(event) => setNeedForm({ ...needForm, skills: event.target.value })} placeholder="React:3, TypeScript:2" /></label>
                 <div className="form-grid"><label>開始日<input required type="date" value={needForm.startDate} onChange={(event) => setNeedForm({ ...needForm, startDate: event.target.value })} /></label><label>終了日<input required type="date" min={needForm.startDate} value={needForm.endDate} onChange={(event) => setNeedForm({ ...needForm, endDate: event.target.value })} /></label></div>
                 <label>必要配分（%）<input required type="number" min="1" max="100" step="1" value={needForm.allocation} onChange={(event) => setNeedForm({ ...needForm, allocation: event.target.value })} /></label>
                 <div className="form-note"><Sparkles size={15} /><span>条件変更で既存の担当者が要件を満たさなくなる場合、アサインを取消予定にして再募集します。</span></div>
@@ -1702,7 +1718,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                 <label htmlFor="member-new-role">職種<select id="member-new-role" aria-label="職種" value={memberForm.role} onChange={(event) => setMemberForm({ ...memberForm, role: event.target.value })}>{["Frontend Engineer", "Backend Engineer", "QA Engineer", "Product Designer", "Project Manager", "Data Analyst"].map((role) => <option key={role}>{role}</option>)}</select></label>
                 <label htmlFor="member-new-department">部署<select id="member-new-department" aria-label="部署" value={memberForm.department} onChange={(event) => setMemberForm({ ...memberForm, department: event.target.value })}>{["プロダクト開発", "プラットフォーム", "品質保証", "デザイン", "事業推進", "データ戦略"].map((department) => <option key={department}>{department}</option>)}</select></label>
                 <label htmlFor="member-new-location">勤務地<select id="member-new-location" aria-label="勤務地" value={memberForm.location} onChange={(event) => setMemberForm({ ...memberForm, location: event.target.value })}>{["東京", "大阪", "福岡", "リモート"].map((location) => <option key={location}>{location}</option>)}</select></label>
-                <label>スキル（カンマ区切り）<input value={memberForm.skills} onChange={(event) => setMemberForm({ ...memberForm, skills: event.target.value })} placeholder="React, TypeScript, A11y" /></label>
+                <label>スキル（カンマ区切り）<input value={memberForm.skills} onChange={(event) => setMemberForm({ ...memberForm, skills: event.target.value })} placeholder="React:4, TypeScript:3, A11y" /></label>
                 <label>稼働上限（%）<input required type="number" min="0" max="100" step="1" value={memberForm.capacity} onChange={(event) => setMemberForm({ ...memberForm, capacity: event.target.value })} /></label>
                 <button className="drawer-primary" type="submit" disabled={!canManageMembers}><Check size={16} />メンバーを追加</button>
               </form>
