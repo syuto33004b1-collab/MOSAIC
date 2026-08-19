@@ -144,6 +144,28 @@ describe("production repository response adapters", () => {
     expect(payload.skillCatalog?.archiveIds).toEqual([]);
   });
 
+  it("sends UUID custom field catalog changes and rejects planner catalog edits", () => {
+    const fieldId = "11111111-0000-4000-8000-000000000021";
+    const previous = {
+      ...initialWorkspace,
+      customFields: [{ id: fieldId, entityType: "member" as const, key: "english", label: "英語", fieldType: "select" as const, options: ["日常会話"] }],
+    };
+    const changed = {
+      ...previous,
+      customFields: [
+        { id: fieldId, entityType: "member" as const, key: "english", label: "英語", fieldType: "select" as const, options: ["日常会話"] },
+        { id: "field:member:visa", entityType: "member" as const, key: "visa", label: "在留資格", fieldType: "text" as const },
+        { id: "22222222-0000-4000-8000-000000000022", entityType: "project" as const, key: "client_name", label: "顧客名", fieldType: "text" as const },
+      ],
+    };
+
+    const payload = workspaceChangesPayload(changed, previous, "admin");
+    expect(payload.customFields?.upsert).toEqual([
+      { id: "22222222-0000-4000-8000-000000000022", entityType: "project", key: "client_name", label: "顧客名", fieldType: "text" },
+    ]);
+    expect(() => workspaceChangesPayload(changed, previous, "planner")).toThrow("項目定義を保存できません");
+  });
+
   it("creates a deterministic lowercase SHA-256 payload hash", async () => {
     const first = await sha256Hex({ beta: [2, 1], alpha: { y: true, x: "value" } });
     const second = await sha256Hex({ alpha: { x: "value", y: true }, beta: [2, 1] });

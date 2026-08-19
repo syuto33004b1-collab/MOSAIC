@@ -931,6 +931,36 @@ describe("role-aware workspace", () => {
     expect(saved.skillCatalog?.some((item) => item.name === "GraphQL")).toBe(true);
   });
 
+  it("shows custom fields, work history, and lets admins add a field definition", async () => {
+    const user = userEvent.setup();
+    const adapter = sharedAdapter();
+    const save = vi.fn().mockResolvedValue({ revision: 9, savedAt: "2026-08-19T10:00:00Z" });
+    adapter.save = save;
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "admin@example.com", role: "admin" }} shared={adapter} />);
+    const navigation = within(screen.getByRole("navigation", { name: "メインナビゲーション" }));
+
+    await user.click(navigation.getByRole("button", { name: "項目定義" }));
+    expect(screen.getByRole("heading", { level: 1, name: "項目と経歴" })).toBeInTheDocument();
+    expect(screen.getAllByText("雇用形態").length).toBeGreaterThan(0);
+    await user.type(screen.getByPlaceholderText("雇用形態"), "在留資格");
+    await user.type(screen.getByPlaceholderText("employment_type"), "visa_status");
+    await user.click(screen.getByRole("button", { name: "項目を追加" }));
+    expect(screen.getByText("在留資格")).toBeInTheDocument();
+
+    await user.click(navigation.getByRole("button", { name: "メンバー" }));
+    await user.click(screen.getByRole("button", { name: /佐伯 優斗/ }));
+    expect(screen.getByText("Studio North")).toBeInTheDocument();
+    expect(screen.getAllByText("ビジネス").length).toBeGreaterThan(0);
+    await user.click(document.querySelector(".close-button") as HTMLButtonElement);
+
+    await user.click(navigation.getByRole("button", { name: "プロジェクト" }));
+    expect(screen.getByText("Atlas株式会社")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "チームへ保存" }));
+    await waitFor(() => expect(save).toHaveBeenCalledOnce());
+    const saved = save.mock.calls[0][0] as WorkspaceState;
+    expect(saved.customFields?.some((field) => field.key === "visa_status")).toBe(true);
+  });
+
   it("migrates legacy demo leave rows out of local storage", async () => {
     const member = initialWorkspace.members[0];
     const project = initialWorkspace.projects[0];

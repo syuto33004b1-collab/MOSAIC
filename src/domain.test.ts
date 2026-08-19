@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
+  addCustomField,
   addSkillCatalogEntry,
   assignmentGrid,
   buildSkillMap,
   createProjectCode,
   formatSkillInput,
+  formatWorkHistoryPeriod,
   getCurrentWeekStart,
   getIsoWeekNumber,
   getWeekStartForDate,
@@ -15,7 +17,12 @@ import {
   memberLoad,
   memberMatchesNeed,
   memberPeakLoad,
+  memberSearchText,
+  normalizeCustomValues,
+  normalizeWorkHistory,
   parseSkillInput,
+  projectSearchText,
+  visibleCustomFields,
   type WorkspaceState,
 } from "./domain";
 
@@ -163,5 +170,50 @@ describe("skill taxonomy and matching", () => {
     expect(() => addSkillCatalogEntry(initialWorkspace.skillCatalog ?? [], { name: "React", kind: "skill" })).toThrow("同じ名前");
     expect(() => addSkillCatalogEntry(initialWorkspace.skillCatalog ?? [], { name: "GraphQL", kind: "skill", parentId: "skill-react" })).toThrow("親には分類");
     expect(addSkillCatalogEntry(initialWorkspace.skillCatalog ?? [], { name: "GraphQL", kind: "skill", parentId: "cat-backend", id: "skill-graphql" }).some((item) => item.id === "skill-graphql")).toBe(true);
+  });
+});
+
+describe("custom fields and work history", () => {
+  it("adds unique field definitions and rejects invalid keys or select options", () => {
+    const catalog = addCustomField(initialWorkspace.customFields ?? [], {
+      entityType: "member",
+      key: "visa_status",
+      label: "在留資格",
+      fieldType: "text",
+      showInList: true,
+    });
+    expect(catalog.at(-1)).toMatchObject({ key: "visa_status", label: "在留資格", showInDetail: true, searchable: true });
+    expect(() => addCustomField(catalog, { entityType: "member", key: "visa_status", label: "別ラベル", fieldType: "text" })).toThrow("同じキー");
+    expect(() => addCustomField(catalog, { entityType: "member", key: "Visa Status", label: "VISA", fieldType: "text" })).toThrow("英小文字");
+    expect(() => addCustomField(catalog, { entityType: "project", key: "phase", label: "フェーズ", fieldType: "select" })).toThrow("選択肢");
+  });
+
+  it("validates required values and keeps list/search surfaces separate", () => {
+    const required = (initialWorkspace.customFields ?? []).map((field) => field.id === "field-client" ? { ...field, required: true } : field);
+    expect(visibleCustomFields(required, "member", "list").map((field) => field.key)).toEqual(["employment_type", "english"]);
+    expect(visibleCustomFields(required, "project", "detail").some((field) => field.key === "contract_type")).toBe(true);
+    expect(() => normalizeCustomValues(required, "project", {})).toThrow("顧客名は必須です");
+    expect(normalizeCustomValues(required, "project", { "field-client": " 北風商事 ", "field-contract": "準委任" })).toEqual({
+      "field-client": "北風商事",
+      "field-contract": "準委任",
+    });
+  });
+
+  it("sorts work history with current roles first and rejects inverted dates", () => {
+    const history = normalizeWorkHistory([
+      { id: "past", title: "開発", organization: "A社", startDate: "2018-04-01", endDate: "2020-03-31" },
+      { id: "current", title: "リード", organization: "B社", startDate: "2020-04-01" },
+    ]);
+    expect(history.map((entry) => entry.id)).toEqual(["current", "past"]);
+    expect(formatWorkHistoryPeriod(history[0])).toContain("現在");
+    expect(() => normalizeWorkHistory([{ id: "bad", title: "開発", organization: "A社", startDate: "2022-01-01", endDate: "2021-12-31" }])).toThrow("終了日は開始日以降");
+  });
+
+  it("includes searchable custom values and work history in member and project search text", () => {
+    const member = initialWorkspace.members[0];
+    const project = initialWorkspace.projects[0];
+    expect(memberSearchText(initialWorkspace, member)).toContain("ビジネス");
+    expect(memberSearchText(initialWorkspace, member)).toContain("studio north");
+    expect(projectSearchText(initialWorkspace, project)).toContain("atlas株式会社");
   });
 });

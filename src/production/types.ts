@@ -100,6 +100,7 @@ export type SaveWorkspacePayload = {
   assignments?: { upsert: WorkspaceState["assignments"]; cancelIds: string[] };
   needs?: { upsert: WorkspaceState["needs"]; cancelIds: string[] };
   skillCatalog?: { upsert: NonNullable<WorkspaceState["skillCatalog"]>; archiveIds: string[] };
+  customFields?: { upsert: NonNullable<WorkspaceState["customFields"]>; archiveIds: string[] };
 };
 
 export type InvitationResult = {

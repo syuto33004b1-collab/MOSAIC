@@ -40,6 +40,33 @@ export type SkillMapRow = {
   gap: number;
 };
 
+export type CustomFieldEntity = "member" | "project";
+export type CustomFieldType = "text" | "number" | "date" | "select";
+export type CustomFieldSurface = "list" | "detail" | "search";
+
+export type CustomFieldDefinition = {
+  id: string;
+  entityType: CustomFieldEntity;
+  key: string;
+  label: string;
+  fieldType: CustomFieldType;
+  required?: boolean;
+  options?: string[];
+  showInList?: boolean;
+  showInDetail?: boolean;
+  searchable?: boolean;
+  sortOrder?: number;
+};
+
+export type WorkHistoryEntry = {
+  id: string;
+  title: string;
+  organization: string;
+  startDate: string;
+  endDate?: string | null;
+  description?: string;
+};
+
 export const PROFICIENCY_LABELS: Record<SkillProficiency, string> = {
   1: "初級",
   2: "基礎",
@@ -59,6 +86,8 @@ export type Member = {
   skillLevels?: SkillLevel[];
   location: string;
   capacity: number;
+  customValues?: Record<string, string>;
+  workHistory?: WorkHistoryEntry[];
 };
 
 export type Project = {
@@ -77,6 +106,7 @@ export type Project = {
   nextMilestoneDate?: string | null;
   progress: number;
   demand: number;
+  customValues?: Record<string, string>;
 };
 
 export type Assignment = {
@@ -111,6 +141,7 @@ export type WorkspaceState = {
   assignments: Assignment[];
   needs: StaffingNeed[];
   skillCatalog?: SkillDefinition[];
+  customFields?: CustomFieldDefinition[];
 };
 
 export type WeekDay = {
@@ -131,6 +162,14 @@ export const projectTone: Record<string, Tone> = {
   orion: "orange",
   pulse: "mint",
 };
+
+const customFields: CustomFieldDefinition[] = [
+  { id: "field-employment", entityType: "member", key: "employment_type", label: "雇用形態", fieldType: "select", options: ["正社員", "契約", "業務委託"], showInList: true, showInDetail: true, searchable: true, sortOrder: 10 },
+  { id: "field-joined", entityType: "member", key: "joined_on", label: "入社日", fieldType: "date", showInDetail: true, searchable: false, sortOrder: 20 },
+  { id: "field-english", entityType: "member", key: "english", label: "英語", fieldType: "select", options: ["不要", "日常会話", "ビジネス", "ネイティブ"], showInList: true, showInDetail: true, searchable: true, sortOrder: 30 },
+  { id: "field-client", entityType: "project", key: "client_name", label: "顧客名", fieldType: "text", showInList: true, showInDetail: true, searchable: true, sortOrder: 10 },
+  { id: "field-contract", entityType: "project", key: "contract_type", label: "契約形態", fieldType: "select", options: ["準委任", "請負", "派遣"], showInDetail: true, searchable: true, sortOrder: 20 },
+];
 
 const skillCatalog: SkillDefinition[] = [
   { id: "cat-engineering", name: "エンジニアリング", kind: "category", sortOrder: 10 },
@@ -168,9 +207,9 @@ const skillCatalog: SkillDefinition[] = [
 ];
 
 const members: Member[] = [
-  { id: "saeki", initials: "YS", name: "佐伯 優斗", role: "Product Designer", department: "デザイン", avatarTone: "lavender", skills: ["Figma", "UX", "Design system"], skillLevels: [{ name: "Figma", proficiency: 5 }, { name: "UX", proficiency: 4 }, { name: "Design system", proficiency: 4 }], location: "東京", capacity: 100 },
-  { id: "nakamura", initials: "MN", name: "中村 美咲", role: "Frontend Engineer", department: "プロダクト開発", avatarTone: "peach", skills: ["React", "TypeScript", "A11y"], skillLevels: [{ name: "React", proficiency: 4 }, { name: "TypeScript", proficiency: 4 }, { name: "A11y", proficiency: 3 }], location: "東京", capacity: 100 },
-  { id: "suzuki", initials: "KS", name: "鈴木 健太", role: "Backend Engineer", department: "プラットフォーム", avatarTone: "sky", skills: ["Java", "AWS", "Payments"], skillLevels: [{ name: "Java", proficiency: 4 }, { name: "AWS", proficiency: 5 }, { name: "Payments", proficiency: 3 }], location: "大阪", capacity: 100 },
+  { id: "saeki", initials: "YS", name: "佐伯 優斗", role: "Product Designer", department: "デザイン", avatarTone: "lavender", skills: ["Figma", "UX", "Design system"], skillLevels: [{ name: "Figma", proficiency: 5 }, { name: "UX", proficiency: 4 }, { name: "Design system", proficiency: 4 }], location: "東京", capacity: 100, customValues: { "field-employment": "正社員", "field-joined": "2021-04-01", "field-english": "ビジネス" }, workHistory: [{ id: "wh-saeki-1", title: "プロダクトデザイナー", organization: "GIFTEE Inc.", startDate: "2021-04-01", description: "販売管理と採用ブランドの体験設計" }, { id: "wh-saeki-2", title: "UIデザイナー", organization: "Studio North", startDate: "2018-04-01", endDate: "2021-03-31", description: "B2B管理画面のデザインシステム構築" }] },
+  { id: "nakamura", initials: "MN", name: "中村 美咲", role: "Frontend Engineer", department: "プロダクト開発", avatarTone: "peach", skills: ["React", "TypeScript", "A11y"], skillLevels: [{ name: "React", proficiency: 4 }, { name: "TypeScript", proficiency: 4 }, { name: "A11y", proficiency: 3 }], location: "東京", capacity: 100, customValues: { "field-employment": "正社員", "field-joined": "2022-07-01", "field-english": "日常会話" }, workHistory: [{ id: "wh-nakamura-1", title: "フロントエンドエンジニア", organization: "Atlas リニューアル", startDate: "2022-07-01", description: "販売管理フロントの刷新" }] },
+  { id: "suzuki", initials: "KS", name: "鈴木 健太", role: "Backend Engineer", department: "プラットフォーム", avatarTone: "sky", skills: ["Java", "AWS", "Payments"], skillLevels: [{ name: "Java", proficiency: 4 }, { name: "AWS", proficiency: 5 }, { name: "Payments", proficiency: 3 }], location: "大阪", capacity: 100, customValues: { "field-employment": "正社員", "field-joined": "2019-10-01", "field-english": "ビジネス" } },
   { id: "hayashi", initials: "AH", name: "林 葵", role: "Project Manager", department: "事業推進", avatarTone: "mint", skills: ["PM", "Scrum", "B2B"], skillLevels: [{ name: "PM", proficiency: 5 }, { name: "Scrum", proficiency: 4 }, { name: "B2B", proficiency: 3 }], location: "東京", capacity: 100 },
   { id: "matsumoto", initials: "RM", name: "松本 蓮", role: "QA Engineer", department: "品質保証", avatarTone: "sand", skills: ["QA", "Mobile", "Automation"], skillLevels: [{ name: "QA", proficiency: 4 }, { name: "Mobile", proficiency: 3 }, { name: "Automation", proficiency: 3 }], location: "福岡", capacity: 100 },
   { id: "ito", initials: "YI", name: "伊藤 優", role: "Data Analyst", department: "データ戦略", avatarTone: "rose", skills: ["Python", "SQL", "BI"], skillLevels: [{ name: "Python", proficiency: 4 }, { name: "SQL", proficiency: 5 }, { name: "BI", proficiency: 3 }], location: "リモート", capacity: 100 },
@@ -180,8 +219,8 @@ const members: Member[] = [
 ];
 
 const projects: Project[] = [
-  { id: "atlas", code: "ATL", name: "Atlas リニューアル", summary: "販売管理プロダクトの全面刷新", status: "進行中", tone: "blue", ownerName: "林 葵", ownerInitials: "AH", startDate: "2026-07-06", endDate: "2026-10-31", nextMilestone: "β版レビュー", nextMilestoneDate: "2026-08-28", progress: 58, demand: 6 },
-  { id: "payment", code: "PAY", name: "決済基盤アップデート", summary: "決済処理の可用性と監査対応を強化", status: "要注意", tone: "orange", ownerName: "鈴木 健太", ownerInitials: "KS", startDate: "2026-07-20", endDate: "2026-09-18", nextMilestone: "移行判定", nextMilestoneDate: "2026-08-21", progress: 71, demand: 4 },
+  { id: "atlas", code: "ATL", name: "Atlas リニューアル", summary: "販売管理プロダクトの全面刷新", status: "進行中", tone: "blue", ownerName: "林 葵", ownerInitials: "AH", startDate: "2026-07-06", endDate: "2026-10-31", nextMilestone: "β版レビュー", nextMilestoneDate: "2026-08-28", progress: 58, demand: 6, customValues: { "field-client": "Atlas株式会社", "field-contract": "準委任" } },
+  { id: "payment", code: "PAY", name: "決済基盤アップデート", summary: "決済処理の可用性と監査対応を強化", status: "要注意", tone: "orange", ownerName: "鈴木 健太", ownerInitials: "KS", startDate: "2026-07-20", endDate: "2026-09-18", nextMilestone: "移行判定", nextMilestoneDate: "2026-08-21", progress: 71, demand: 4, customValues: { "field-client": "決済基盤チーム", "field-contract": "請負" } },
   { id: "recruit", code: "REC", name: "採用サイト", summary: "採用ブランドと応募体験の刷新", status: "完了間近", tone: "mint", ownerName: "林 葵", ownerInitials: "AH", startDate: "2026-07-27", endDate: "2026-09-04", nextMilestone: "公開前確認", nextMilestoneDate: "2026-08-26", progress: 84, demand: 3 },
   { id: "mobile", code: "MOB", name: "モバイル会員証", summary: "会員証とクーポンを統合した新規アプリ", status: "準備中", tone: "sky", ownerName: "高橋 直樹", ownerInitials: "NT", startDate: "2026-08-24", endDate: "2026-11-27", nextMilestone: "キックオフ", nextMilestoneDate: "2026-08-24", progress: 12, demand: 3 },
   { id: "kite", code: "KIT", name: "Kite データ統合", summary: "事業データを統合し指標定義を標準化", status: "進行中", tone: "sky", ownerName: "伊藤 優", ownerInitials: "YI", startDate: "2026-06-15", endDate: "2026-12-18", nextMilestone: "データ品質レビュー", nextMilestoneDate: "2026-09-02", progress: 46, demand: 4 },
@@ -213,7 +252,7 @@ const needs: StaffingNeed[] = [
   { id: "need-orion-be", projectId: "orion", role: "Backend Engineer", skills: ["API", "AWS"], skillRequirements: [{ name: "API", minProficiency: 3 }, { name: "AWS", minProficiency: 4 }], startDate: "2026-08-31", endDate: "2026-09-30", allocation: 40, status: "open" },
 ];
 
-export const initialWorkspace: WorkspaceState = { members, projects, assignments, needs, skillCatalog };
+export const initialWorkspace: WorkspaceState = { members, projects, assignments, needs, skillCatalog, customFields };
 
 function isoDate(date: Date) {
   return date.toISOString().slice(0, 10);
@@ -650,4 +689,196 @@ export function buildSkillMap(state: WorkspaceState): SkillMapRow[] {
   });
 
   return ordered.map((item) => rows.get(item.id)).filter((row): row is SkillMapRow => Boolean(row));
+}
+
+const customFieldKeyPattern = /^[a-z][a-z0-9_]{0,39}$/;
+const customFieldDatePattern = /^\d{4}-\d{2}-\d{2}$/;
+
+export const CUSTOM_FIELD_TYPES: CustomFieldType[] = ["text", "number", "date", "select"];
+export const CUSTOM_FIELD_ENTITIES: CustomFieldEntity[] = ["member", "project"];
+
+function fieldKey(value: string) {
+  return value.trim().toLocaleLowerCase();
+}
+
+export function orderedCustomFields(catalog: CustomFieldDefinition[] | undefined, entityType?: CustomFieldEntity) {
+  return [...(catalog ?? [])]
+    .filter((field) => !entityType || field.entityType === entityType)
+    .sort((left, right) => (left.sortOrder ?? 0) - (right.sortOrder ?? 0) || left.label.localeCompare(right.label, "ja"));
+}
+
+export function visibleCustomFields(catalog: CustomFieldDefinition[] | undefined, entityType: CustomFieldEntity, surface: CustomFieldSurface) {
+  return orderedCustomFields(catalog, entityType).filter((field) => {
+    if (surface === "list") return Boolean(field.showInList);
+    if (surface === "search") return field.searchable !== false;
+    return field.showInDetail !== false;
+  });
+}
+
+export function customValue(values: Record<string, string> | undefined, fieldId: string) {
+  const value = values?.[fieldId];
+  return typeof value === "string" ? value.trim() : "";
+}
+
+export function formatCustomValue(field: CustomFieldDefinition, value?: string) {
+  const trimmed = (value ?? "").trim();
+  if (!trimmed) return "未設定";
+  if (field.fieldType === "date") {
+    const [, month, day] = trimmed.split("-");
+    return month && day ? `${Number(month)}/${Number(day)}` : trimmed;
+  }
+  return trimmed;
+}
+
+export function validateCustomValue(field: CustomFieldDefinition, value: string | undefined) {
+  const trimmed = (value ?? "").trim();
+  if (!trimmed) {
+    if (field.required) throw new Error(`${field.label}は必須です`);
+    return "";
+  }
+  if (field.fieldType === "number") {
+    const number = Number(trimmed);
+    if (!Number.isFinite(number)) throw new Error(`${field.label}は数値で入力してください`);
+    return String(number);
+  }
+  if (field.fieldType === "date") {
+    if (!customFieldDatePattern.test(trimmed) || Number.isNaN(Date.parse(`${trimmed}T00:00:00Z`))) {
+      throw new Error(`${field.label}は日付で入力してください`);
+    }
+    return trimmed;
+  }
+  if (field.fieldType === "select") {
+    if (!(field.options ?? []).includes(trimmed)) throw new Error(`${field.label}の候補から選択してください`);
+    return trimmed;
+  }
+  if (trimmed.length > 200) throw new Error(`${field.label}は200文字以内にしてください`);
+  return trimmed;
+}
+
+export function normalizeCustomValues(catalog: CustomFieldDefinition[] | undefined, entityType: CustomFieldEntity, values: Record<string, string> | undefined) {
+  const next: Record<string, string> = {};
+  orderedCustomFields(catalog, entityType).forEach((field) => {
+    const value = validateCustomValue(field, customValue(values, field.id));
+    if (value) next[field.id] = value;
+  });
+  return next;
+}
+
+export function addCustomField(catalog: CustomFieldDefinition[], input: {
+  id?: string;
+  entityType: CustomFieldEntity;
+  key: string;
+  label: string;
+  fieldType: CustomFieldType;
+  required?: boolean;
+  options?: string[];
+  showInList?: boolean;
+  showInDetail?: boolean;
+  searchable?: boolean;
+  sortOrder?: number;
+}): CustomFieldDefinition[] {
+  const key = fieldKey(input.key);
+  const label = input.label.trim();
+  if (!CUSTOM_FIELD_ENTITIES.includes(input.entityType)) throw new Error("対象はメンバーまたはプロジェクトです");
+  if (!CUSTOM_FIELD_TYPES.includes(input.fieldType)) throw new Error("項目の入力形式を確認してください");
+  if (!customFieldKeyPattern.test(key)) throw new Error("項目キーは英小文字で始まる半角英数と_にしてください");
+  if (!label) throw new Error("項目名を入力してください");
+  if (label.length > 40) throw new Error("項目名は40文字以内にしてください");
+  if (catalog.some((field) => field.entityType === input.entityType && fieldKey(field.key) === key)) {
+    throw new Error("同じキーの項目がすでにあります");
+  }
+  if (catalog.some((field) => field.entityType === input.entityType && field.label.trim().toLocaleLowerCase() === label.toLocaleLowerCase())) {
+    throw new Error("同じ名前の項目がすでにあります");
+  }
+  const options = [...new Set((input.options ?? []).map((option) => option.trim()).filter(Boolean))];
+  if (input.fieldType === "select" && options.length < 1) throw new Error("選択肢を1件以上入力してください");
+  if (input.fieldType !== "select" && options.length) throw new Error("選択肢は選択式の項目だけに設定できます");
+  const siblings = catalog.filter((field) => field.entityType === input.entityType);
+  return [...catalog, {
+    id: input.id ?? `field:${input.entityType}:${key}`,
+    entityType: input.entityType,
+    key,
+    label,
+    fieldType: input.fieldType,
+    required: Boolean(input.required),
+    ...(options.length ? { options } : {}),
+    showInList: Boolean(input.showInList),
+    showInDetail: input.showInDetail !== false,
+    searchable: input.searchable !== false,
+    sortOrder: input.sortOrder ?? (siblings.length + 1) * 10,
+  }];
+}
+
+export function sortedWorkHistory(entries: WorkHistoryEntry[] | undefined) {
+  return [...(entries ?? [])].sort((left, right) => {
+    const leftEnd = left.endDate || "9999-12-31";
+    const rightEnd = right.endDate || "9999-12-31";
+    return rightEnd.localeCompare(leftEnd) || right.startDate.localeCompare(left.startDate) || left.title.localeCompare(right.title, "ja");
+  });
+}
+
+export function normalizeWorkHistory(entries: WorkHistoryEntry[] | undefined) {
+  const seen = new Set<string>();
+  return sortedWorkHistory(entries).map((entry) => {
+    const title = entry.title.trim();
+    const organization = entry.organization.trim();
+    if (!title) throw new Error("経歴の役割を入力してください");
+    if (!organization) throw new Error("経歴の所属を入力してください");
+    if (!customFieldDatePattern.test(entry.startDate) || Number.isNaN(Date.parse(`${entry.startDate}T00:00:00Z`))) {
+      throw new Error("経歴の開始日を確認してください");
+    }
+    const endDate = entry.endDate ? entry.endDate.trim() : "";
+    if (endDate && (!customFieldDatePattern.test(endDate) || Number.isNaN(Date.parse(`${endDate}T00:00:00Z`)))) {
+      throw new Error("経歴の終了日を確認してください");
+    }
+    if (endDate && endDate < entry.startDate) throw new Error("経歴の終了日は開始日以降にしてください");
+    if (seen.has(entry.id)) throw new Error("経歴のIDが重複しています");
+    seen.add(entry.id);
+    const description = entry.description?.trim() ?? "";
+    return {
+      id: entry.id,
+      title,
+      organization,
+      startDate: entry.startDate,
+      ...(endDate ? { endDate } : {}),
+      ...(description ? { description } : {}),
+    };
+  });
+}
+
+export function formatWorkHistoryPeriod(entry: Pick<WorkHistoryEntry, "startDate" | "endDate">) {
+  const start = formatCustomValue({ id: "", entityType: "member", key: "start", label: "開始", fieldType: "date" }, entry.startDate);
+  const end = entry.endDate ? formatCustomValue({ id: "", entityType: "member", key: "end", label: "終了", fieldType: "date" }, entry.endDate) : "現在";
+  return `${start} — ${end}`;
+}
+
+export function entitySearchText(
+  catalog: CustomFieldDefinition[] | undefined,
+  entityType: CustomFieldEntity,
+  values: Record<string, string> | undefined,
+  extra: string[] = [],
+  workHistory?: WorkHistoryEntry[],
+) {
+  const searchable = visibleCustomFields(catalog, entityType, "search").map((field) => customValue(values, field.id));
+  const history = (workHistory ?? []).flatMap((entry) => [entry.title, entry.organization, entry.description ?? ""]);
+  return [...extra, ...searchable, ...history].join(" ").toLocaleLowerCase();
+}
+
+export function memberSearchText(state: Pick<WorkspaceState, "customFields">, member: Member) {
+  return entitySearchText(
+    state.customFields,
+    "member",
+    member.customValues,
+    [member.name, member.role, member.department, member.location, ...(member.skills ?? [])],
+    member.workHistory,
+  );
+}
+
+export function projectSearchText(state: Pick<WorkspaceState, "customFields">, project: Project) {
+  return entitySearchText(
+    state.customFields,
+    "project",
+    project.customValues,
+    [project.code, project.name, project.summary, project.ownerName ?? ""],
+  );
 }
