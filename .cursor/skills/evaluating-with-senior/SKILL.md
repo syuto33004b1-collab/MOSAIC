@@ -29,7 +29,16 @@ description: Use when claiming work complete, before merge, when spec drift or m
 | なし / sol / gpt-5.6 / gpt-5.6-sol | `senior-evaluator` | `gpt-5.6-sol` |
 | opus / opus5 / claude opus 5 | `opus-evaluator` | `claude-opus-5[effort=high]` |
 
-役割は相談者に切り替えない。モデルが使えないときはその旨を伝え、自分で評価者を演じない。
+役割は相談者に切り替えない。
+
+## Fallback
+
+モデルが使えない・別モデルに落ちたとき:
+
+- 旧リクエスト制で Max Mode がオフ、プラン外、管理者が禁止 → Cursor が別モデルへ落とす
+- そのときはユーザーに「指定モデルで起動できなかった」と伝え、自分で評価者を演じない
+- Opus 5 / GPT-5.6 Sol は Other Models。起動はトークンを独立計上する
+- Cloud Agent ではチーム側でそのモデルが使えること
 
 ## Brief
 
