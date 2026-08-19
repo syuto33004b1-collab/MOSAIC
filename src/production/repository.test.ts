@@ -266,3 +266,60 @@ describe("production repository response adapters", () => {
     expect(normalizeOrganizationInvitation({ id: "id", organizationId: "org", email: "owner@example.jp", role: "owner" })).toBeUndefined();
   });
 });
+
+describe("password recovery repository", () => {
+  it("requests a reset email with the current app URL as redirectTo", async () => {
+    const resetPasswordForEmail = vi.fn().mockResolvedValue({ data: {}, error: null });
+    const repository = new ProductionRepository({
+      auth: { resetPasswordForEmail },
+    } as unknown as SupabaseClient);
+
+    await repository.requestPasswordReset("  member@example.jp  ");
+
+    expect(resetPasswordForEmail).toHaveBeenCalledWith("member@example.jp", {
+      redirectTo: expect.stringMatching(/\/$/),
+    });
+  });
+
+  it("does not reveal missing accounts when reset email lookup fails", async () => {
+    const resetPasswordForEmail = vi.fn().mockResolvedValue({
+      data: {},
+      error: { code: "user_not_found", message: "User not found", status: 400 },
+    });
+    const repository = new ProductionRepository({
+      auth: { resetPasswordForEmail },
+    } as unknown as SupabaseClient);
+
+    await expect(repository.requestPasswordReset("missing@example.jp")).resolves.toBeUndefined();
+  });
+
+  it("returns a generic retryable error when reset email sending is rate limited", async () => {
+    const resetPasswordForEmail = vi.fn().mockResolvedValue({
+      data: {},
+      error: { code: "over_email_send_rate_limit", message: "email rate limit exceeded", status: 429 },
+    });
+    const repository = new ProductionRepository({
+      auth: { resetPasswordForEmail },
+    } as unknown as SupabaseClient);
+
+    await expect(repository.requestPasswordReset("member@example.jp")).rejects.toMatchObject({
+      retryable: true,
+      message: expect.stringContaining("しばらくしてから"),
+    });
+  });
+
+  it("updates the password without exposing the provider error text", async () => {
+    const updateUser = vi.fn().mockResolvedValue({
+      data: { user: {} },
+      error: { code: "weak_password", message: "Password should contain at least one character of each: abcABC123.", status: 422 },
+    });
+    const repository = new ProductionRepository({
+      auth: { updateUser },
+    } as unknown as SupabaseClient);
+
+    await expect(repository.updatePassword("short")).rejects.toMatchObject({
+      code: "WEAK_PASSWORD",
+    });
+    await expect(repository.updatePassword("short")).rejects.toSatisfy((error: unknown) => error instanceof Error && !error.message.includes("abcABC123"));
+  });
+});

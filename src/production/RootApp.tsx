@@ -4,6 +4,7 @@ import App from "../App";
 import { getSupabaseClient, getSupabaseRuntimeConfiguration } from "../lib/supabase";
 import { createSupabaseChatTransport, type ChatTransport } from "../lib/ai/chatClient";
 import { AuthScreen } from "./AuthScreen";
+import { hasAuthCallbackParams, passwordRecoveryLinkError, stripAuthCallbackError } from "./authRecovery";
 import { OperationsPanel } from "./OperationsPanel";
 import { OrganizationSetup } from "./OrganizationSetup";
 import { ProductionFrame, ProductionState } from "./ProductionFrame";
@@ -223,13 +224,24 @@ export function ProductionGate() {
   const [invitationError, setInvitationError] = useState("");
   const [contextRetryKey, setContextRetryKey] = useState(0);
   const [selectedOrganizationId, setSelectedOrganizationId] = useState<string | null>(null);
+  const [passwordRecovery, setPasswordRecovery] = useState(false);
+  const [recoveryLinkError, setRecoveryLinkError] = useState(() => passwordRecoveryLinkError(window.location.search, window.location.hash));
   const processedInvitationRef = useRef("");
+  const passwordRecoveryRef = useRef(false);
+  const awaitingCallbackRef = useRef(false);
   const hasLoadedContext = context !== null;
 
   useEffect(() => {
     let active = true;
+    const linkError = passwordRecoveryLinkError(window.location.search, window.location.hash);
+    awaitingCallbackRef.current = hasAuthCallbackParams(window.location.search, window.location.hash) && !linkError;
+    if (linkError) {
+      window.history.replaceState({}, "", stripAuthCallbackError(window.location.href));
+    }
+
     client.auth.getUser().then(({ data, error }) => {
       if (!active) return;
+      if (awaitingCallbackRef.current || passwordRecoveryRef.current) return;
       if (error && error.name !== "AuthSessionMissingError") {
         setAuth({ status: "error", user: null, error: "セッションを確認できませんでした。通信状況を確認してください。" });
         return;
@@ -237,8 +249,34 @@ export function ProductionGate() {
       setAuth({ status: "ready", user: data.user, error: "" });
     });
 
-    const { data: { subscription } } = client.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = client.auth.onAuthStateChange((event, session) => {
       if (!active) return;
+      if (event === "PASSWORD_RECOVERY" && session?.user) {
+        awaitingCallbackRef.current = false;
+        passwordRecoveryRef.current = true;
+        setPasswordRecovery(true);
+        setRecoveryLinkError("");
+        setAuth({ status: "ready", user: session.user, error: "" });
+        return;
+      }
+      if (event === "USER_UPDATED" || event === "SIGNED_OUT") {
+        passwordRecoveryRef.current = false;
+        setPasswordRecovery(false);
+      }
+      if (awaitingCallbackRef.current && event === "INITIAL_SESSION") {
+        if (!session?.user) {
+          awaitingCallbackRef.current = false;
+          setRecoveryLinkError((current) => current || "再設定リンクを利用できません。もう一度メールを送信してください。");
+          setAuth({ status: "ready", user: null, error: "" });
+          return;
+        }
+        awaitingCallbackRef.current = false;
+        passwordRecoveryRef.current = true;
+        setPasswordRecovery(true);
+        setAuth({ status: "ready", user: session.user, error: "" });
+        return;
+      }
+      awaitingCallbackRef.current = false;
       setAuth({ status: "ready", user: session?.user ?? null, error: "" });
       if (!session?.user) {
         setContext(null);
@@ -260,7 +298,7 @@ export function ProductionGate() {
   }, [repository]);
 
   const refreshAccessNow = useCallback(async () => {
-    if (auth.status !== "ready" || !auth.user) return;
+    if (auth.status !== "ready" || !auth.user || passwordRecovery) return;
     try {
       const nextContext = await repository.getMyContext(auth.user);
       setContext(nextContext);
@@ -273,10 +311,10 @@ export function ProductionGate() {
       setSelectedOrganizationId(null);
       setContextError(messageFrom(reason));
     }
-  }, [auth.status, auth.user, repository]);
+  }, [auth.status, auth.user, passwordRecovery, repository]);
 
   useEffect(() => {
-    if (auth.status !== "ready" || !auth.user) return;
+    if (auth.status !== "ready" || !auth.user || passwordRecovery) return;
     let active = true;
     repository.getMyContext(auth.user)
       .then((nextContext) => {
@@ -298,10 +336,10 @@ export function ProductionGate() {
     return () => {
       active = false;
     };
-  }, [auth.status, auth.user, contextRetryKey, repository]);
+  }, [auth.status, auth.user, contextRetryKey, passwordRecovery, repository]);
 
   useEffect(() => {
-    if (auth.status !== "ready" || !auth.user || !hasLoadedContext) return;
+    if (auth.status !== "ready" || !auth.user || passwordRecovery || !hasLoadedContext) return;
     let active = true;
     let refreshing = false;
     const refreshAccess = async () => {
@@ -332,10 +370,10 @@ export function ProductionGate() {
       window.removeEventListener("focus", handleFocus);
       document.removeEventListener("visibilitychange", handleVisibility);
     };
-  }, [auth.status, auth.user, hasLoadedContext, repository]);
+  }, [auth.status, auth.user, hasLoadedContext, passwordRecovery, repository]);
 
   useEffect(() => {
-    if (auth.status !== "ready" || !auth.user || !context) return;
+    if (auth.status !== "ready" || !auth.user || passwordRecovery || !context) return;
     const invitationId = invitationIdFromLocation();
     if (!invitationId || processedInvitationRef.current === invitationId) return;
     processedInvitationRef.current = invitationId;
@@ -351,16 +389,30 @@ export function ProductionGate() {
         clearInvitationFromLocation();
         setInvitationError(`招待リンクを処理できませんでした。${messageFrom(reason)} 所属情報はそのまま利用できます。`);
       });
-  }, [auth.status, auth.user, context, loadContext, repository]);
+  }, [auth.status, auth.user, context, loadContext, passwordRecovery, repository]);
 
   const signIn = async (email: string, password: string) => {
     const user = await repository.signIn(email, password);
     if (user) setAuth({ status: "ready", user, error: "" });
   };
 
+  const requestPasswordReset = async (email: string) => {
+    await repository.requestPasswordReset(email);
+  };
+
+  const updatePassword = async (password: string) => {
+    await repository.updatePassword(password);
+    passwordRecoveryRef.current = false;
+    setPasswordRecovery(false);
+    setRecoveryLinkError("");
+  };
+
   const signOut = async () => {
     try {
       await repository.signOut();
+      passwordRecoveryRef.current = false;
+      setPasswordRecovery(false);
+      setRecoveryLinkError("");
       setAuth({ status: "ready", user: null, error: "" });
       setContext(null);
       setSelectedOrganizationId(null);
@@ -369,6 +421,20 @@ export function ProductionGate() {
       setContextError(messageFrom(reason));
     }
   };
+
+  const authScreen = (mode: "sign-in" | "update-password" | "invalid-link" = "sign-in") => (
+    <AuthScreen
+      mode={mode}
+      recoveryMessage={recoveryLinkError}
+      onSignIn={signIn}
+      onRequestReset={requestPasswordReset}
+      onUpdatePassword={updatePassword}
+      onCancelRecovery={() => {
+        setRecoveryLinkError("");
+        if (passwordRecoveryRef.current) void signOut();
+      }}
+    />
+  );
 
   const selectOrganization = (organization: OrganizationSummary) => {
     if (auth.status !== "ready" || !auth.user) return;
@@ -394,6 +460,9 @@ export function ProductionGate() {
     await refreshAndSelect(accepted.organizationId ?? invitation.organizationId);
   };
 
+  if (passwordRecovery) return authScreen("update-password");
+  if (recoveryLinkError) return authScreen("invalid-link");
+
   if (auth.status === "checking") {
     return <ProductionState eyebrow="SECURE SESSION" title="セッションを確認中" description="安全なチームワークスペースを準備しています。" />;
   }
@@ -402,7 +471,7 @@ export function ProductionGate() {
     return <ProductionState eyebrow="SECURE SESSION" title="セッションを確認できません" description={auth.error} error actionLabel="再読み込み" onAction={() => window.location.reload()} />;
   }
 
-  if (!auth.user) return <AuthScreen onSignIn={signIn} />;
+  if (!auth.user) return authScreen();
 
   if (contextLoading || (!context && !contextError)) {
     return <ProductionState eyebrow="ORGANIZATION ACCESS" title="所属情報を読み込み中" description="利用できる組織と権限を確認しています。" />;
