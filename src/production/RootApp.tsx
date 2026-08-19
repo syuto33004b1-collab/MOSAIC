@@ -4,7 +4,14 @@ import App from "../App";
 import { getSupabaseClient, getSupabaseRuntimeConfiguration } from "../lib/supabase";
 import { createSupabaseChatTransport, type ChatTransport } from "../lib/ai/chatClient";
 import { AuthScreen } from "./AuthScreen";
-import { hasAuthCallbackParams, passwordRecoveryLinkError, stripAuthCallbackError } from "./authRecovery";
+import {
+  hasAuthCallbackParams,
+  isInviteCallback,
+  isInviteOnboardingUser,
+  passwordRecoveryLinkError,
+  stripAuthCallback,
+  stripAuthCallbackError,
+} from "./authRecovery";
 import { OperationsPanel } from "./OperationsPanel";
 import { OrganizationSetup } from "./OrganizationSetup";
 import { ProductionFrame, ProductionState } from "./ProductionFrame";
@@ -225,11 +232,14 @@ export function ProductionGate() {
   const [contextRetryKey, setContextRetryKey] = useState(0);
   const [selectedOrganizationId, setSelectedOrganizationId] = useState<string | null>(null);
   const [passwordRecovery, setPasswordRecovery] = useState(false);
+  const [onboarding, setOnboarding] = useState(false);
   const [recoveryLinkError, setRecoveryLinkError] = useState(() => passwordRecoveryLinkError(window.location.search, window.location.hash));
   const processedInvitationRef = useRef("");
   const passwordRecoveryRef = useRef(false);
+  const onboardingRef = useRef(false);
   const awaitingCallbackRef = useRef(false);
   const hasLoadedContext = context !== null;
+  const holdAuth = passwordRecovery || onboarding;
 
   useEffect(() => {
     let active = true;
@@ -241,9 +251,16 @@ export function ProductionGate() {
 
     client.auth.getUser().then(({ data, error }) => {
       if (!active) return;
-      if (awaitingCallbackRef.current || passwordRecoveryRef.current) return;
+      if (awaitingCallbackRef.current || passwordRecoveryRef.current || onboardingRef.current) return;
       if (error && error.name !== "AuthSessionMissingError") {
         setAuth({ status: "error", user: null, error: "セッションを確認できませんでした。通信状況を確認してください。" });
+        return;
+      }
+      if (isInviteOnboardingUser(data.user)) {
+        onboardingRef.current = true;
+        setOnboarding(true);
+        setPasswordRecovery(false);
+        setAuth({ status: "ready", user: data.user, error: "" });
         return;
       }
       setAuth({ status: "ready", user: data.user, error: "" });
@@ -251,29 +268,69 @@ export function ProductionGate() {
 
     const { data: { subscription } } = client.auth.onAuthStateChange((event, session) => {
       if (!active) return;
+      const inviteSession = Boolean(session?.user) && (
+        isInviteOnboardingUser(session?.user)
+        || (
+          (event === "PASSWORD_RECOVERY" || event === "INITIAL_SESSION" || awaitingCallbackRef.current)
+          && isInviteCallback(window.location.search, window.location.hash)
+        )
+      );
       if (event === "PASSWORD_RECOVERY" && session?.user) {
         awaitingCallbackRef.current = false;
-        passwordRecoveryRef.current = true;
-        setPasswordRecovery(true);
+        if (inviteSession) {
+          onboardingRef.current = true;
+          passwordRecoveryRef.current = false;
+          setOnboarding(true);
+          setPasswordRecovery(false);
+        } else {
+          passwordRecoveryRef.current = true;
+          onboardingRef.current = false;
+          setPasswordRecovery(true);
+          setOnboarding(false);
+        }
         setRecoveryLinkError("");
         setAuth({ status: "ready", user: session.user, error: "" });
+        window.history.replaceState({}, "", stripAuthCallback(window.location.href));
         return;
       }
-      if (event === "USER_UPDATED" || event === "SIGNED_OUT") {
+      if (event === "SIGNED_OUT") {
+        passwordRecoveryRef.current = false;
+        onboardingRef.current = false;
+        setPasswordRecovery(false);
+        setOnboarding(false);
+      }
+      if (event === "USER_UPDATED") {
         passwordRecoveryRef.current = false;
         setPasswordRecovery(false);
       }
       if (awaitingCallbackRef.current && event === "INITIAL_SESSION") {
         if (!session?.user) {
           awaitingCallbackRef.current = false;
-          setRecoveryLinkError((current) => current || "再設定リンクを利用できません。もう一度メールを送信してください。");
+          setRecoveryLinkError((current) => current || "リンクを利用できません。もう一度メールを送信するか、管理者に連絡してください。");
           setAuth({ status: "ready", user: null, error: "" });
           return;
         }
         awaitingCallbackRef.current = false;
-        passwordRecoveryRef.current = true;
-        setPasswordRecovery(true);
+        if (inviteSession) {
+          onboardingRef.current = true;
+          setOnboarding(true);
+          setPasswordRecovery(false);
+        } else {
+          passwordRecoveryRef.current = true;
+          setPasswordRecovery(true);
+          setOnboarding(false);
+        }
         setAuth({ status: "ready", user: session.user, error: "" });
+        window.history.replaceState({}, "", stripAuthCallback(window.location.href));
+        return;
+      }
+      if (session?.user && inviteSession && event !== "USER_UPDATED") {
+        awaitingCallbackRef.current = false;
+        onboardingRef.current = true;
+        setOnboarding(true);
+        setPasswordRecovery(false);
+        setAuth({ status: "ready", user: session.user, error: "" });
+        window.history.replaceState({}, "", stripAuthCallback(window.location.href));
         return;
       }
       awaitingCallbackRef.current = false;
@@ -298,7 +355,7 @@ export function ProductionGate() {
   }, [repository]);
 
   const refreshAccessNow = useCallback(async () => {
-    if (auth.status !== "ready" || !auth.user || passwordRecovery) return;
+    if (auth.status !== "ready" || !auth.user || holdAuth) return;
     try {
       const nextContext = await repository.getMyContext(auth.user);
       setContext(nextContext);
@@ -311,10 +368,10 @@ export function ProductionGate() {
       setSelectedOrganizationId(null);
       setContextError(messageFrom(reason));
     }
-  }, [auth.status, auth.user, passwordRecovery, repository]);
+  }, [auth.status, auth.user, holdAuth, repository]);
 
   useEffect(() => {
-    if (auth.status !== "ready" || !auth.user || passwordRecovery) return;
+    if (auth.status !== "ready" || !auth.user || holdAuth) return;
     let active = true;
     repository.getMyContext(auth.user)
       .then((nextContext) => {
@@ -323,7 +380,8 @@ export function ProductionGate() {
         setContextError("");
         const storedId = window.localStorage.getItem(storedOrganizationKey(auth.user!.id));
         const storedOrganization = nextContext.organizations.find((organization) => organization.id === storedId);
-        if (storedOrganization) setSelectedOrganizationId(storedOrganization.id);
+        if (nextContext.invitations.length > 0) setSelectedOrganizationId(null);
+        else if (storedOrganization) setSelectedOrganizationId(storedOrganization.id);
         else if (nextContext.organizations.length === 1) setSelectedOrganizationId(nextContext.organizations[0].id);
         else setSelectedOrganizationId(null);
       })
@@ -336,10 +394,10 @@ export function ProductionGate() {
     return () => {
       active = false;
     };
-  }, [auth.status, auth.user, contextRetryKey, passwordRecovery, repository]);
+  }, [auth.status, auth.user, contextRetryKey, holdAuth, repository]);
 
   useEffect(() => {
-    if (auth.status !== "ready" || !auth.user || passwordRecovery || !hasLoadedContext) return;
+    if (auth.status !== "ready" || !auth.user || holdAuth || !hasLoadedContext) return;
     let active = true;
     let refreshing = false;
     const refreshAccess = async () => {
@@ -370,10 +428,10 @@ export function ProductionGate() {
       window.removeEventListener("focus", handleFocus);
       document.removeEventListener("visibilitychange", handleVisibility);
     };
-  }, [auth.status, auth.user, hasLoadedContext, passwordRecovery, repository]);
+  }, [auth.status, auth.user, hasLoadedContext, holdAuth, repository]);
 
   useEffect(() => {
-    if (auth.status !== "ready" || !auth.user || passwordRecovery || !context) return;
+    if (auth.status !== "ready" || !auth.user || holdAuth || !context) return;
     const invitationId = invitationIdFromLocation();
     if (!invitationId || processedInvitationRef.current === invitationId) return;
     processedInvitationRef.current = invitationId;
@@ -389,7 +447,7 @@ export function ProductionGate() {
         clearInvitationFromLocation();
         setInvitationError(`招待リンクを処理できませんでした。${messageFrom(reason)} 所属情報はそのまま利用できます。`);
       });
-  }, [auth.status, auth.user, context, loadContext, passwordRecovery, repository]);
+  }, [auth.status, auth.user, context, holdAuth, loadContext, repository]);
 
   const signIn = async (email: string, password: string) => {
     const user = await repository.signIn(email, password);
@@ -407,11 +465,36 @@ export function ProductionGate() {
     setRecoveryLinkError("");
   };
 
+  const completeOnboarding = async (displayName: string, password: string) => {
+    await repository.completeOnboarding(displayName, password);
+    const user = auth.status === "ready" ? auth.user : null;
+    if (user) {
+      const nextContext = await repository.getMyContext(user);
+      let selectedId: string | undefined;
+      for (const invitation of nextContext.invitations) {
+        try {
+          const accepted = await repository.acceptInvitation(invitation.id);
+          selectedId = accepted.organizationId ?? invitation.organizationId ?? selectedId;
+        } catch (reason) {
+          setInvitationError(`招待の承認を完了できませんでした。${messageFrom(reason)}`);
+        }
+      }
+      onboardingRef.current = false;
+      setOnboarding(false);
+      await refreshAndSelect(selectedId);
+      return;
+    }
+    onboardingRef.current = false;
+    setOnboarding(false);
+  };
+
   const signOut = async () => {
     try {
       await repository.signOut();
       passwordRecoveryRef.current = false;
+      onboardingRef.current = false;
       setPasswordRecovery(false);
+      setOnboarding(false);
       setRecoveryLinkError("");
       setAuth({ status: "ready", user: null, error: "" });
       setContext(null);
@@ -422,16 +505,17 @@ export function ProductionGate() {
     }
   };
 
-  const authScreen = (mode: "sign-in" | "update-password" | "invalid-link" = "sign-in") => (
+  const authScreen = (mode: "sign-in" | "update-password" | "onboard" | "invalid-link" = "sign-in") => (
     <AuthScreen
       mode={mode}
       recoveryMessage={recoveryLinkError}
       onSignIn={signIn}
       onRequestReset={requestPasswordReset}
       onUpdatePassword={updatePassword}
+      onCompleteOnboarding={completeOnboarding}
       onCancelRecovery={() => {
         setRecoveryLinkError("");
-        if (passwordRecoveryRef.current) void signOut();
+        if (passwordRecoveryRef.current || onboardingRef.current) void signOut();
       }}
     />
   );
@@ -460,6 +544,7 @@ export function ProductionGate() {
     await refreshAndSelect(accepted.organizationId ?? invitation.organizationId);
   };
 
+  if (onboarding) return authScreen("onboard");
   if (passwordRecovery) return authScreen("update-password");
   if (recoveryLinkError) return authScreen("invalid-link");
 

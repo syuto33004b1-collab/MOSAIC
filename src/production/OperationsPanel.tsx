@@ -30,6 +30,13 @@ function actionLabel(event: AuditEvent) {
   return event.summary;
 }
 
+function inviteStatusMessage(invitation: { email: string; role: string; authInvite?: "sent" | "existing" }) {
+  if (invitation.authInvite === "existing") {
+    return `${invitation.email}はすでにアカウントがあるため、ログイン後に招待を承認できます。`;
+  }
+  return `${invitation.email}へ招待メールを送りました。`;
+}
+
 function formatAuditData(value?: Record<string, unknown>) {
   return value ? JSON.stringify(value, null, 2) : "—";
 }
@@ -157,13 +164,29 @@ export function OperationsPanel({
     setError("");
     try {
       const invitation = await repository.inviteMember(currentOrganization.id, inviteEmail, effectiveInviteRole);
-      setInviteStatus(`${invitation.email}を${invitation.role}として招待登録しました。`);
+      setInviteStatus(inviteStatusMessage(invitation));
       setInviteEmail("");
       await loadOperations();
     } catch (reason) {
       setError(messageFrom(reason));
     } finally {
       setInviting(false);
+    }
+  };
+
+  const resendInvitation = async (invitation: OrganizationInvitation) => {
+    if (!canInvite || invitationAction) return;
+    setInvitationAction(`resend:${invitation.id}`);
+    setInviteStatus("");
+    setError("");
+    try {
+      const result = await repository.inviteMember(currentOrganization.id, invitation.email, invitation.role);
+      setInviteStatus(inviteStatusMessage(result));
+      await loadOperations();
+    } catch (reason) {
+      setError(messageFrom(reason));
+    } finally {
+      setInvitationAction("");
     }
   };
 
@@ -299,19 +322,24 @@ export function OperationsPanel({
                     <strong>{invitation.email}</strong>
                     <small>{invitation.role} · {invitation.status === "expired" ? "期限切れ" : `${formatDateTime(invitation.expiresAt)}まで`}{invitation.invitedByName ? ` · ${invitation.invitedByName}` : ""}</small>
                   </span>
-                  <button className="row-open invitation-revoke-button" type="button" disabled={Boolean(invitationAction)} onClick={() => void revokeInvitation(invitation)}>
-                    <MailX size={14} />{invitationAction === invitation.id ? "取消中" : "取消"}
-                  </button>
+                  <span className="member-access-controls">
+                    <button className="row-open invitation-resend-button" type="button" disabled={Boolean(invitationAction)} onClick={() => void resendInvitation(invitation)}>
+                      <MailPlus size={14} />{invitationAction === `resend:${invitation.id}` ? "再送中" : "再送"}
+                    </button>
+                    <button className="row-open invitation-revoke-button" type="button" disabled={Boolean(invitationAction)} onClick={() => void revokeInvitation(invitation)}>
+                      <MailX size={14} />{invitationAction === invitation.id ? "取消中" : "取消"}
+                    </button>
+                  </span>
                 </div>
               ))}
-              {!loading && invitations.length === 0 && <div><MailPlus size={16} /><span><strong>保留中の招待はありません</strong><small>登録した招待は受諾または取消までここに表示されます。</small></span></div>}
+              {!loading && invitations.length === 0 && <div><MailPlus size={16} /><span><strong>保留中の招待はありません</strong><small>送った招待は受諾または取消までここに表示されます。</small></span></div>}
             </div>
           </>
         )}
 
         {canInvite && (
           <form className="assignment-form production-invite-form" onSubmit={invite}>
-            <div className="drawer-section-title"><span>メンバーの招待を登録</span><small>owner / admin</small></div>
+            <div className="drawer-section-title"><span>メンバーを招待</span><small>owner / admin</small></div>
             <label>
               メールアドレス
               <input required type="email" autoComplete="email" value={inviteEmail} onChange={(event) => setInviteEmail(event.target.value)} placeholder="member@company.jp" />
@@ -324,8 +352,8 @@ export function OperationsPanel({
                 <option value="viewer">viewer · 閲覧のみ</option>
               </select>
             </label>
-            <div className="form-note"><MailPlus size={15} /><span>ここでは招待情報を登録します。メールは自動送信されません。</span></div>
-            <button className="drawer-primary" type="submit" disabled={inviting}><MailPlus size={15} />{inviting ? "招待を登録中…" : "招待を登録"}</button>
+            <div className="form-note"><MailPlus size={15} /><span>招待メールを送ります。公開サインアップは使いません。届かない場合は再送してください。</span></div>
+            <button className="drawer-primary" type="submit" disabled={inviting}><MailPlus size={15} />{inviting ? "送信中…" : "招待メールを送る"}</button>
           </form>
         )}
 

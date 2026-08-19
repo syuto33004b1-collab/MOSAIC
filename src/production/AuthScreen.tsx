@@ -2,7 +2,7 @@ import { useState, type FormEvent } from "react";
 import { Check, KeyRound, LockKeyhole, ShieldCheck } from "lucide-react";
 import { ProductionFrame } from "./ProductionFrame";
 
-export type AuthScreenMode = "sign-in" | "update-password" | "invalid-link";
+export type AuthScreenMode = "sign-in" | "update-password" | "onboard" | "invalid-link";
 
 type AuthScreenProps = {
   mode?: AuthScreenMode;
@@ -10,10 +10,11 @@ type AuthScreenProps = {
   onSignIn: (email: string, password: string) => Promise<void>;
   onRequestReset: (email: string) => Promise<void>;
   onUpdatePassword: (password: string) => Promise<void>;
+  onCompleteOnboarding?: (displayName: string, password: string) => Promise<void>;
   onCancelRecovery?: () => void;
 };
 
-type AuthView = "login" | "request" | "sent" | "update";
+type AuthView = "login" | "request" | "sent" | "update" | "onboard";
 
 function messageFrom(error: unknown) {
   return error instanceof Error ? error.message : "処理を完了できませんでした。もう一度お試しください。";
@@ -21,6 +22,7 @@ function messageFrom(error: unknown) {
 
 function initialView(mode: AuthScreenMode): AuthView {
   if (mode === "update-password") return "update";
+  if (mode === "onboard") return "onboard";
   if (mode === "invalid-link") return "request";
   return "login";
 }
@@ -31,22 +33,38 @@ export function AuthScreen({
   onSignIn,
   onRequestReset,
   onUpdatePassword,
+  onCompleteOnboarding,
   onCancelRecovery,
 }: AuthScreenProps) {
   const [view, setView] = useState<AuthView>(() => initialView(mode));
   const [email, setEmail] = useState("");
+  const [displayName, setDisplayName] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(mode === "invalid-link" ? recoveryMessage : "");
 
-  const heading = view === "update" ? "新しいパスワードを設定" : view === "login" ? "MOSAICへログイン" : "パスワードを再設定";
-  const title = view === "update" ? "パスワードを再設定" : view === "login" ? "チームの計画へログイン" : "パスワードを再設定";
-  const description = view === "update"
-    ? "再設定リンクを確認しました。新しいパスワードを入力してください。"
-    : view === "login"
-      ? "共有アサインと変更履歴は、認証されたメンバーだけが利用できます。"
-      : "メールアドレスへ、再設定手順を送ります。";
+  const heading = view === "onboard"
+    ? "表示名とパスワードを設定"
+    : view === "update"
+      ? "新しいパスワードを設定"
+      : view === "login"
+        ? "MOSAICへログイン"
+        : "パスワードを再設定";
+  const title = view === "onboard"
+    ? "アカウントを有効にする"
+    : view === "update"
+      ? "パスワードを再設定"
+      : view === "login"
+        ? "チームの計画へログイン"
+        : "パスワードを再設定";
+  const description = view === "onboard"
+    ? "招待を確認しました。表示名とパスワードを設定すると、対象の組織へ参加できます。"
+    : view === "update"
+      ? "再設定リンクを確認しました。新しいパスワードを入力してください。"
+      : view === "login"
+        ? "共有アサインと変更履歴は、認証されたメンバーだけが利用できます。"
+        : "メールアドレスへ、再設定手順を送ります。";
 
   const handleSignIn = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -95,13 +113,48 @@ export function AuthScreen({
     }
   };
 
+  const handleOnboard = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (submitting) return;
+    if (!displayName.trim()) {
+      setError("表示名を入力してください。");
+      return;
+    }
+    if (password !== confirmPassword) {
+      setError("確認用パスワードが一致しません");
+      return;
+    }
+    if (!onCompleteOnboarding) {
+      setError("初回設定を完了できませんでした。もう一度お試しください。");
+      return;
+    }
+    setSubmitting(true);
+    setError("");
+    try {
+      await onCompleteOnboarding(displayName.trim(), password);
+    } catch (reason) {
+      setError(messageFrom(reason));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   const backToLogin = () => {
     setView("login");
     setError("");
     setPassword("");
     setConfirmPassword("");
+    setDisplayName("");
     if (mode !== "sign-in") onCancelRecovery?.();
   };
+
+  const submitHandler = view === "login"
+    ? handleSignIn
+    : view === "update"
+      ? handleUpdatePassword
+      : view === "onboard"
+        ? handleOnboard
+        : handleRequestReset;
 
   return (
     <ProductionFrame
@@ -111,12 +164,9 @@ export function AuthScreen({
       sidebarLabel="SECURE"
       sidebarDescription="認証済みアクセス"
     >
-      <form
-        className="assignment-form production-auth-form"
-        onSubmit={view === "login" ? handleSignIn : view === "update" ? handleUpdatePassword : handleRequestReset}
-      >
+      <form className="assignment-form production-auth-form" onSubmit={submitHandler}>
         <div className="drawer-heading">
-          <span className="drawer-icon cobalt">{view === "update" ? <KeyRound size={19} /> : <LockKeyhole size={19} />}</span>
+          <span className="drawer-icon cobalt">{view === "update" || view === "onboard" ? <KeyRound size={19} /> : <LockKeyhole size={19} />}</span>
           <div>
             <h2>{heading}</h2>
             <p>
@@ -124,11 +174,12 @@ export function AuthScreen({
               {view === "request" && "届かない場合は、迷惑メールフォルダを確認するか、管理者に連絡してください。"}
               {view === "sent" && "届かない場合は、迷惑メールフォルダを確認するか、管理者に連絡してください。"}
               {view === "update" && "この画面を閉じると、再設定リンクは無効になります。"}
+              {view === "onboard" && "この画面を閉じると、招待リンクは無効になります。"}
             </p>
           </div>
         </div>
 
-        {view !== "update" && view !== "sent" && (
+        {view !== "update" && view !== "sent" && view !== "onboard" && (
           <label>
             メールアドレス
             <input
@@ -157,7 +208,22 @@ export function AuthScreen({
           </label>
         )}
 
-        {view === "update" && (
+        {view === "onboard" && (
+          <label>
+            表示名
+            <input
+              required
+              autoComplete="name"
+              type="text"
+              maxLength={120}
+              value={displayName}
+              onChange={(event) => setDisplayName(event.target.value)}
+              placeholder="山田 太郎"
+            />
+          </label>
+        )}
+
+        {(view === "update" || view === "onboard") && (
           <>
             <label>
               新しいパスワード
@@ -223,6 +289,15 @@ export function AuthScreen({
           <>
             <button className="drawer-primary" type="submit" disabled={submitting} aria-busy={submitting}>
               <Check size={16} />{submitting ? "更新しています…" : "パスワードを更新"}
+            </button>
+            <button className="drawer-secondary" type="button" onClick={backToLogin}>ログインに戻る</button>
+          </>
+        )}
+
+        {view === "onboard" && (
+          <>
+            <button className="drawer-primary" type="submit" disabled={submitting} aria-busy={submitting}>
+              <Check size={16} />{submitting ? "登録しています…" : "登録を完了"}
             </button>
             <button className="drawer-secondary" type="button" onClick={backToLogin}>ログインに戻る</button>
           </>

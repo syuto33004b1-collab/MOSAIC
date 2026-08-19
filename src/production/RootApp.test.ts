@@ -23,6 +23,7 @@ vi.mock("../lib/supabase", () => ({
 afterEach(() => {
   vi.restoreAllMocks();
   window.history.replaceState({}, "", "/");
+  window.localStorage.clear();
 });
 
 describe("shared workspace controller", () => {
@@ -151,5 +152,118 @@ describe("password recovery deep links", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("有効期限が切れています");
     expect(screen.queryByText(/Email link/i)).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "再設定メールを送る" })).toBeInTheDocument();
+  });
+});
+
+describe("invite onboarding deep links", () => {
+  it("keeps an invite session on the onboarding screen", async () => {
+    const authUser = {
+      id: "00000000-0000-4000-8000-000000000001",
+      email: "invitee@example.jp",
+      user_metadata: { mosaic_invite: true },
+    } as unknown as User;
+    supabaseClient.auth.getUser.mockResolvedValue({ data: { user: authUser }, error: null });
+    supabaseClient.auth.onAuthStateChange.mockImplementation((listener: (event: string, session: { user: User } | null) => void) => {
+      listener("SIGNED_IN", { user: authUser });
+      return { data: { subscription: { unsubscribe: vi.fn() } } };
+    });
+    const getMyContext = vi.spyOn(ProductionRepository.prototype, "getMyContext").mockResolvedValue({
+      userId: authUser.id,
+      name: "未設定",
+      email: authUser.email!,
+      organizations: [{ id: "00000000-0000-4000-8000-000000000010", name: "第一組織", role: "viewer" }],
+      invitations: [],
+    });
+
+    render(createElement(ProductionGate));
+
+    expect(await screen.findByRole("heading", { level: 2, name: "表示名とパスワードを設定" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "利用する組織を選択" })).not.toBeInTheDocument();
+    expect(getMyContext).not.toHaveBeenCalled();
+  });
+
+  it("accepts pending invitations after onboarding and opens the organization", async () => {
+    const user = userEvent.setup();
+    const authUser = {
+      id: "00000000-0000-4000-8000-000000000001",
+      email: "invitee@example.jp",
+      user_metadata: { mosaic_invite: true },
+    } as unknown as User;
+    const organization = { id: "00000000-0000-4000-8000-000000000010", name: "第一組織", role: "planner" as const };
+    supabaseClient.auth.getUser.mockResolvedValue({ data: { user: authUser }, error: null });
+    supabaseClient.auth.onAuthStateChange.mockImplementation((listener: (event: string, session: { user: User } | null) => void) => {
+      listener("SIGNED_IN", { user: authUser });
+      return { data: { subscription: { unsubscribe: vi.fn() } } };
+    });
+    vi.spyOn(ProductionRepository.prototype, "completeOnboarding").mockResolvedValue(undefined);
+    vi.spyOn(ProductionRepository.prototype, "acceptInvitation").mockResolvedValue({
+      organizationId: organization.id,
+      organizationName: organization.name,
+      role: organization.role,
+    });
+    vi.spyOn(ProductionRepository.prototype, "getMyContext")
+      .mockResolvedValueOnce({
+        userId: authUser.id,
+        name: "招待 花子",
+        email: authUser.email!,
+        organizations: [],
+        invitations: [{
+          id: "00000000-0000-4000-8000-000000000099",
+          organizationId: organization.id,
+          organizationName: organization.name,
+          role: organization.role,
+        }],
+      })
+      .mockResolvedValue({
+        userId: authUser.id,
+        name: "招待 花子",
+        email: authUser.email!,
+        organizations: [organization],
+        invitations: [],
+      });
+    vi.spyOn(ProductionRepository.prototype, "getWorkspace").mockResolvedValue({
+      revision: 1,
+      state: initialWorkspace,
+    });
+    vi.spyOn(ProductionRepository.prototype, "subscribeToWorkspace").mockReturnValue(() => undefined);
+
+    render(createElement(ProductionGate));
+
+    await screen.findByRole("heading", { level: 2, name: "表示名とパスワードを設定" });
+    await user.type(screen.getByLabelText("表示名"), "招待 花子");
+    await user.type(screen.getByLabelText("新しいパスワード"), "NewPassword12");
+    await user.type(screen.getByLabelText("新しいパスワード（確認）"), "NewPassword12");
+    await user.click(screen.getByRole("button", { name: "登録を完了" }));
+
+    await waitFor(() => expect(ProductionRepository.prototype.acceptInvitation).toHaveBeenCalledWith("00000000-0000-4000-8000-000000000099"));
+    expect(await screen.findByText("第一組織")).toBeInTheDocument();
+  });
+
+  it("keeps pending invitations visible when the user already belongs to an organization", async () => {
+    const authUser = { id: "00000000-0000-4000-8000-000000000001", email: "member@example.jp" } as User;
+    supabaseClient.auth.getUser.mockResolvedValue({ data: { user: authUser }, error: null });
+    supabaseClient.auth.onAuthStateChange.mockImplementation((listener: (event: string, session: { user: User } | null) => void) => {
+      listener("SIGNED_IN", { user: authUser });
+      return { data: { subscription: { unsubscribe: vi.fn() } } };
+    });
+    vi.spyOn(ProductionRepository.prototype, "getMyContext").mockResolvedValue({
+      userId: authUser.id,
+      name: "既存 利用者",
+      email: authUser.email!,
+      organizations: [{ id: "00000000-0000-4000-8000-000000000010", name: "第一組織", role: "viewer" }],
+      invitations: [{
+        id: "00000000-0000-4000-8000-000000000099",
+        organizationId: "00000000-0000-4000-8000-000000000011",
+        organizationName: "第二組織",
+        role: "planner",
+      }],
+    });
+    window.localStorage.setItem("mosaic-active-organization:00000000-0000-4000-8000-000000000001", "00000000-0000-4000-8000-000000000010");
+
+    render(createElement(ProductionGate));
+
+    expect(await screen.findByRole("heading", { name: "利用する組織を選択" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "参加" })).toBeInTheDocument();
+    expect(screen.getByText("第二組織")).toBeInTheDocument();
   });
 });

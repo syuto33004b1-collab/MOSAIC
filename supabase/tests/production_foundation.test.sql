@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions, pg_catalog;
 
-select plan(62);
+select plan(65);
 
 -- Deterministic actors and tenants. The auth trigger creates matching profiles.
 insert into auth.users (id, email, raw_user_meta_data) values
@@ -261,7 +261,7 @@ select is(
         'get_my_context', 'create_organization', 'get_workspace', 'save_workspace',
         'invite_member', 'list_organization_invitations', 'revoke_organization_invitation',
         'accept_invitation', 'list_organization_members', 'manage_organization_member',
-        'list_audit_events'
+        'list_audit_events', 'update_my_profile'
       ]::text[])
       and not procedure.prosecdef
   ),
@@ -279,7 +279,7 @@ select is(
         'get_my_context', 'create_organization', 'get_workspace', 'save_workspace',
         'invite_member', 'list_organization_invitations', 'revoke_organization_invitation',
         'accept_invitation', 'list_organization_members', 'manage_organization_member',
-        'list_audit_events'
+        'list_audit_events', 'update_my_profile'
       ]::text[])
       and has_function_privilege('anon', procedure.oid, 'EXECUTE')
   ),
@@ -297,11 +297,11 @@ select is(
         'get_my_context', 'create_organization', 'get_workspace', 'save_workspace',
         'invite_member', 'list_organization_invitations', 'revoke_organization_invitation',
         'accept_invitation', 'list_organization_members', 'manage_organization_member',
-        'list_audit_events'
+        'list_audit_events', 'update_my_profile'
       ]::text[])
       and has_function_privilege('authenticated', procedure.oid, 'EXECUTE')
   ),
-  11::bigint,
+  12::bigint,
   'authenticated can execute every allowlisted RPC overload'
 ); -- 11
 
@@ -1000,6 +1000,29 @@ select ok(
   to_regprocedure('public.create_organization(text)') is null,
   'legacy organization creation overload cannot bypass request-id idempotency'
 ); -- 62
+
+set local role authenticated;
+set local request.jwt.claim.role = 'authenticated';
+set local request.jwt.claim.sub = '10000000-0000-4000-8000-000000000003';
+
+select is(
+  public.update_my_profile('計画 花子') ->> 'displayName',
+  '計画 花子',
+  'authenticated users can update their own display name'
+); -- 63
+
+select is(
+  (select display_name from app.profiles where id = '10000000-0000-4000-8000-000000000003'),
+  '計画 花子',
+  'profile display name persists after update_my_profile'
+); -- 64
+
+select throws_ok(
+  $sql$select public.update_my_profile('   ')$sql$,
+  '22023',
+  'a display name is required',
+  'blank display names are rejected'
+); -- 65
 
 select * from finish();
 rollback;

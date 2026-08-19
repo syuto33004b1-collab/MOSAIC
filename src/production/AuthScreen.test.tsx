@@ -88,3 +88,32 @@ describe("AuthScreen password recovery", () => {
     expect(resetResults.violations.filter((violation) => violation.impact === "serious" || violation.impact === "critical")).toEqual([]);
   });
 });
+
+describe("AuthScreen invite onboarding", () => {
+  it("completes first-time setup after matching confirmation", async () => {
+    const user = userEvent.setup();
+    const onCompleteOnboarding = vi.fn().mockResolvedValue(undefined);
+    renderAuth({ mode: "onboard", onCompleteOnboarding });
+
+    await user.type(screen.getByLabelText("表示名"), "招待 花子");
+    await user.type(screen.getByLabelText("新しいパスワード"), "NewPassword12");
+    await user.type(screen.getByLabelText("新しいパスワード（確認）"), "NewPassword12");
+    await user.click(screen.getByRole("button", { name: "登録を完了" }));
+
+    expect(onCompleteOnboarding).toHaveBeenCalledWith("招待 花子", "NewPassword12");
+  });
+
+  it("does not submit mismatched confirmation on the onboarding form", async () => {
+    const user = userEvent.setup();
+    const onCompleteOnboarding = vi.fn().mockResolvedValue(undefined);
+    renderAuth({ mode: "onboard", onCompleteOnboarding });
+
+    await user.type(screen.getByLabelText("表示名"), "招待 花子");
+    await user.type(screen.getByLabelText("新しいパスワード"), "NewPassword12");
+    await user.type(screen.getByLabelText("新しいパスワード（確認）"), "OtherPassword12");
+    await user.click(screen.getByRole("button", { name: "登録を完了" }));
+
+    expect(onCompleteOnboarding).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert")).toHaveTextContent("確認用パスワードが一致しません");
+  });
+});
