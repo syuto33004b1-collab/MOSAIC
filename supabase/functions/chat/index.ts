@@ -9,6 +9,7 @@ import {
   GeminiServiceError,
   normalizeModel,
 } from "./gemini.mjs";
+import { INTEGRATION_LIMITS } from "./integration-core.mjs";
 import { createBestEffortRateLimiter } from "./rate-limit.mjs";
 import {
   buildWorkspaceSaveRequest,
@@ -19,9 +20,12 @@ import {
   WORKSPACE_TOOL_DECLARATIONS,
 } from "./workspace-tools.mjs";
 
-const rateLimiter = createBestEffortRateLimiter();
-const MAX_TOOL_CALLS_PER_ROUND = 4;
-const MAX_TOOL_ROUNDS = 4;
+const rateLimiter = createBestEffortRateLimiter({
+  limit: INTEGRATION_LIMITS.chat.limit,
+  windowMs: INTEGRATION_LIMITS.chat.windowMs,
+});
+const MAX_TOOL_CALLS_PER_ROUND = INTEGRATION_LIMITS.maxToolCallsPerRound;
+const MAX_TOOL_ROUNDS = INTEGRATION_LIMITS.maxToolRounds;
 const ORGANIZATION_ROLES = new Set(["owner", "admin", "planner", "viewer"]);
 
 type UnknownRecord = Record<string, unknown>;
@@ -316,6 +320,7 @@ async function handleMessage(options: {
         plan = await planWorkspaceAction({
           snapshot: workspace.snapshot,
           role: access.role,
+          caller: { kind: "ai", role: access.role },
           toolName: tool.toolName,
           args: tool.args,
           uuid: () => crypto.randomUUID(),
@@ -332,7 +337,7 @@ async function handleMessage(options: {
     const results = parsed.map((entry: UnknownRecord) => {
       const tool = entry.tool as UnknownRecord;
       try {
-        return { call: entry.call as UnknownRecord, result: readWorkspaceTool(workspace!.snapshot, tool.toolName, tool.args) };
+        return { call: entry.call as UnknownRecord, result: readWorkspaceTool(workspace!.snapshot, tool.toolName, tool.args, { kind: "ai", role: access.role }) };
       } catch (error) {
         return { call: entry.call as UnknownRecord, result: safeToolFailure(error) };
       }

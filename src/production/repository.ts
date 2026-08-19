@@ -19,7 +19,12 @@ import {
   type SaveWorkspacePayload,
   type SaveWorkspaceResult,
   type RevokeInvitationResult,
+  type IntegrationClient,
+  type IntegrationScope,
+  type CreateIntegrationClientResult,
+  type RevokeIntegrationClientResult,
   type WorkspaceEnvelope,
+  INTEGRATION_SCOPES,
 } from "./types";
 
 type UnknownRecord = Record<string, unknown>;
@@ -837,6 +842,34 @@ function normalizeMember(value: unknown): OrganizationMember | undefined {
   };
 }
 
+function isIntegrationScope(value: unknown): value is IntegrationScope {
+  return typeof value === "string" && (INTEGRATION_SCOPES as readonly string[]).includes(value);
+}
+
+export function normalizeIntegrationClient(value: unknown): IntegrationClient | undefined {
+  const record = asRecord(value);
+  const id = readIdentifier(record, "id");
+  const organizationId = readString(record, "organization_id", "organizationId");
+  const name = readString(record, "name");
+  const keyPrefix = readString(record, "key_prefix", "keyPrefix");
+  if (!record || !id || !organizationId || !name || !keyPrefix) return undefined;
+  const scopes = (Array.isArray(record.scopes) ? record.scopes : []).filter(isIntegrationScope);
+  if (!scopes.includes("workspace:read")) return undefined;
+  return {
+    id,
+    organizationId,
+    name,
+    keyPrefix,
+    scopes,
+    status: record.status === "revoked" ? "revoked" : "active",
+    createdAt: readString(record, "created_at", "createdAt"),
+    createdByUserId: readString(record, "created_by_user_id", "createdByUserId"),
+    createdByName: readString(record, "created_by_name", "createdByName"),
+    revokedAt: readString(record, "revoked_at", "revokedAt"),
+    lastUsedAt: readString(record, "last_used_at", "lastUsedAt"),
+  };
+}
+
 function auditSummary(action: string, entityType: string, oldData?: UnknownRecord, newData?: UnknownRecord) {
   const entityLabels: Record<string, string> = {
     assignments: "アサイン",
@@ -851,6 +884,7 @@ function auditSummary(action: string, entityType: string, oldData?: UnknownRecor
     work_history: "業務経歴",
     opportunities: "受注前案件",
     opportunity_needs: "要員計画",
+    integration_clients: "外部連携",
   };
   const actionLabels: Record<string, string> = { delete: "削除", insert: "追加", update: "更新" };
   const source = newData ?? oldData;
@@ -881,6 +915,13 @@ export function normalizeAuditEvent(value: unknown, index: number): AuditEvent |
     workspaceRevision: readNumber(record, "workspace_revision", "workspaceRevision"),
     oldData,
     newData,
+    callerKind: readString(record, "caller_kind", "callerKind") === "ai"
+      ? "ai"
+      : readString(record, "caller_kind", "callerKind") === "integration"
+        ? "integration"
+        : "user",
+    integrationClientId: readString(record, "integration_client_id", "integrationClientId"),
+    integrationClientName: readString(record, "integration_client_name", "integrationClientName"),
   };
 }
 
@@ -1292,6 +1333,59 @@ export class ProductionRepository {
     return {
       events: values.map(normalizeAuditEvent).filter((item): item is AuditEvent => Boolean(item)),
       nextBefore: readIdentifier(record, "next_before", "nextBefore"),
+    };
+  }
+
+  async listIntegrationClients(organizationId: string): Promise<IntegrationClient[]> {
+    const { data, error } = await this.client.rpc("list_integration_clients", { p_organization_id: organizationId });
+    if (error) throw rpcError("外部連携を読み込み", error);
+    const values = Array.isArray(data) ? data : readArray(asRecord(unwrapRpcValue(data)), "clients", "items");
+    return values.map(normalizeIntegrationClient).filter((item): item is IntegrationClient => Boolean(item));
+  }
+
+  async createIntegrationClient(
+    organizationId: string,
+    name: string,
+    scopes: IntegrationScope[],
+    requestId = crypto.randomUUID(),
+  ): Promise<CreateIntegrationClientResult> {
+    const { data, error } = await this.client.rpc("create_integration_client", {
+      p_name: name.trim(),
+      p_organization_id: organizationId,
+      p_request_id: requestId,
+      p_scopes: scopes,
+    });
+    if (error) throw rpcError("外部連携を発行", error);
+    const result = asRecord(unwrapRpcValue(data));
+    const client = normalizeIntegrationClient(result?.client ?? result);
+    if (!client) throw new ProductionRepositoryError("発行した連携資格を確認できませんでした。", { code: "INVALID_INTEGRATION_CLIENT" });
+    const secret = readString(result, "secret");
+    return {
+      client,
+      secret: secret || undefined,
+      requestId: readString(result, "request_id", "requestId") ?? requestId,
+      replayed: result?.replayed === true,
+    };
+  }
+
+  async revokeIntegrationClient(
+    organizationId: string,
+    clientId: string,
+    requestId = crypto.randomUUID(),
+  ): Promise<RevokeIntegrationClientResult> {
+    const { data, error } = await this.client.rpc("revoke_integration_client", {
+      p_client_id: clientId,
+      p_organization_id: organizationId,
+      p_request_id: requestId,
+    });
+    if (error) throw rpcError("外部連携を失効", error);
+    const result = asRecord(unwrapRpcValue(data));
+    const client = normalizeIntegrationClient(result?.client ?? result);
+    if (!client) throw new ProductionRepositoryError("失効後の連携資格を確認できませんでした。", { code: "INVALID_INTEGRATION_CLIENT" });
+    return {
+      changed: result?.changed === true,
+      requestId: readString(result, "request_id", "requestId") ?? requestId,
+      client,
     };
   }
 

@@ -786,3 +786,33 @@ test("reads organization units and plans admin-only hierarchy changes", async ()
   assert.equal(assigned.payload.orgMemberships.upsert[0].personId, ids.bob);
   assert.equal(assigned.payload.orgMemberships.upsert[0].isPrimary, true);
 });
+
+
+test("authorizes integration callers by scope instead of a human organization role", async () => {
+  await assert.rejects(
+    () => planWorkspaceAction(plannerOptions("create_member", {
+      name: "D",
+      role: "QA",
+      department: "品質",
+      location: "東京",
+      capacity: 100,
+      skills: [],
+    }, { caller: { kind: "integration", scopes: ["workspace:read"] } })),
+    (error) => error.code === "FORBIDDEN",
+  );
+  const plan = await planWorkspaceAction(plannerOptions("create_assignment", {
+    personId: ids.bob,
+    projectId: ids.secondProject,
+    startDate: "2026-08-10",
+    endDate: "2026-08-20",
+    allocation: 20,
+  }, { caller: { kind: "integration", scopes: ["workspace:read", "assignments:write"] }, role: undefined }));
+  assert.equal(plan.caller.kind, "integration");
+  assert.equal(plan.role, "integration");
+  assert.equal(readWorkspaceTool(snapshot(), "read_workspace", { resource: "summary" }, { kind: "ai", role: "viewer" }).resource, "summary");
+  assert.equal(readWorkspaceTool(snapshot(), "read_workspace", { resource: "summary" }, { kind: "integration", scopes: ["workspace:read"] }).resource, "summary");
+  assert.throws(
+    () => readWorkspaceTool(snapshot(), "read_workspace", { resource: "members" }, { kind: "integration", scopes: ["assignments:write"] }),
+    (error) => error instanceof WorkspaceToolError && error.code === "FORBIDDEN",
+  );
+});

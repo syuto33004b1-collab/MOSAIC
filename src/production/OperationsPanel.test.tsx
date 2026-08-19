@@ -18,6 +18,7 @@ function repositoryWithInvitation(invitation: OrganizationInvitation) {
     listOrganizationInvitations: vi.fn()
       .mockResolvedValueOnce([invitation])
       .mockResolvedValue([]),
+    listIntegrationClients: vi.fn().mockResolvedValue([]),
     revokeOrganizationInvitation: vi.fn().mockResolvedValue({ changed: true }),
   } as unknown as ProductionRepository;
 }
@@ -27,6 +28,7 @@ function repositoryWithAuditEvent(event: AuditEvent) {
     listOrganizationMembers: vi.fn().mockResolvedValue([]),
     listAuditEvents: vi.fn().mockResolvedValue({ events: [event], nextBefore: undefined }),
     listOrganizationInvitations: vi.fn().mockResolvedValue([]),
+    listIntegrationClients: vi.fn().mockResolvedValue([]),
   } as unknown as ProductionRepository;
 }
 
@@ -70,6 +72,7 @@ describe("OperationsPanel invitation administration", () => {
       listOrganizationMembers: vi.fn().mockResolvedValue([]),
       listAuditEvents: vi.fn().mockResolvedValue({ events: [], nextBefore: undefined }),
       listOrganizationInvitations: vi.fn().mockResolvedValue([]),
+      listIntegrationClients: vi.fn().mockResolvedValue([]),
     } as unknown as ProductionRepository;
 
     render(
@@ -92,6 +95,7 @@ describe("OperationsPanel invitation administration", () => {
       listOrganizationMembers: vi.fn().mockResolvedValue([]),
       listAuditEvents: vi.fn().mockResolvedValue({ events: [], nextBefore: undefined }),
       listOrganizationInvitations: vi.fn().mockResolvedValue([]),
+      listIntegrationClients: vi.fn().mockResolvedValue([]),
       inviteMember: vi.fn().mockResolvedValue({
         email: "new.member@example.jp",
         role: "planner",
@@ -163,6 +167,7 @@ describe("OperationsPanel keyboard navigation", () => {
       listOrganizationMembers: vi.fn().mockResolvedValue([]),
       listAuditEvents: vi.fn().mockResolvedValue({ events: [], nextBefore: undefined }),
       listOrganizationInvitations: vi.fn().mockResolvedValue([]),
+      listIntegrationClients: vi.fn().mockResolvedValue([]),
     } as unknown as ProductionRepository;
     const commonProps = {
       currentUserId: "00000000-0000-4000-8000-000000000001",
@@ -246,5 +251,99 @@ describe("OperationsPanel keyboard navigation", () => {
     await user.tab({ shift: true });
 
     expect(auditSummary).toHaveFocus();
+  });
+});
+
+describe("OperationsPanel integration credentials", () => {
+  it("issues a credential once and shows the secret", async () => {
+    const user = userEvent.setup();
+    const repository = {
+      listOrganizationMembers: vi.fn().mockResolvedValue([]),
+      listAuditEvents: vi.fn().mockResolvedValue({ events: [], nextBefore: undefined }),
+      listOrganizationInvitations: vi.fn().mockResolvedValue([]),
+      listIntegrationClients: vi.fn()
+        .mockResolvedValueOnce([])
+        .mockResolvedValue([{
+          id: "00000000-0000-4000-8000-000000000020",
+          organizationId: organization.id,
+          name: "社内 MCP",
+          keyPrefix: "abc123def456",
+          scopes: ["workspace:read", "assignments:write"],
+          status: "active",
+        }]),
+      createIntegrationClient: vi.fn().mockResolvedValue({
+        client: {
+          id: "00000000-0000-4000-8000-000000000020",
+          organizationId: organization.id,
+          name: "社内 MCP",
+          keyPrefix: "abc123def456",
+          scopes: ["workspace:read", "assignments:write"],
+          status: "active",
+        },
+        secret: "mosaic_sk_abc123def45600112233445566778899aabbccddeeff",
+        replayed: false,
+      }),
+    } as unknown as ProductionRepository;
+
+    render(
+      <OperationsPanel
+        currentUserId="00000000-0000-4000-8000-000000000001"
+        currentOrganization={organization}
+        organizations={[organization]}
+        repository={repository}
+        onClose={vi.fn()}
+        onSelectOrganization={vi.fn()}
+      />,
+    );
+
+    await user.type(await screen.findByLabelText("名前"), "社内 MCP");
+    await user.click(screen.getByRole("checkbox", { name: "アサインの登録・更新・取消" }));
+    await user.click(screen.getByRole("button", { name: "連携資格を発行する" }));
+
+    await waitFor(() => expect(repository.createIntegrationClient).toHaveBeenCalledWith(
+      organization.id,
+      "社内 MCP",
+      ["workspace:read", "assignments:write"],
+    ));
+    expect(await screen.findByText("mosaic_sk_abc123def45600112233445566778899aabbccddeeff")).toBeInTheDocument();
+    expect(screen.getByText("秘密鍵（再表示できません）")).toBeInTheDocument();
+  });
+
+  it("revokes an active integration client after confirmation", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const client = {
+      id: "00000000-0000-4000-8000-000000000021",
+      organizationId: organization.id,
+      name: "レポート連携",
+      keyPrefix: "fedcba987654",
+      scopes: ["workspace:read"],
+      status: "active" as const,
+    };
+    const repository = {
+      listOrganizationMembers: vi.fn().mockResolvedValue([]),
+      listAuditEvents: vi.fn().mockResolvedValue({ events: [], nextBefore: undefined }),
+      listOrganizationInvitations: vi.fn().mockResolvedValue([]),
+      listIntegrationClients: vi.fn()
+        .mockResolvedValueOnce([client])
+        .mockResolvedValue([{ ...client, status: "revoked" }]),
+      revokeIntegrationClient: vi.fn().mockResolvedValue({ changed: true, client: { ...client, status: "revoked" } }),
+    } as unknown as ProductionRepository;
+
+    render(
+      <OperationsPanel
+        currentUserId="00000000-0000-4000-8000-000000000001"
+        currentOrganization={organization}
+        organizations={[organization]}
+        repository={repository}
+        onClose={vi.fn()}
+        onSelectOrganization={vi.fn()}
+      />,
+    );
+
+    expect(await screen.findByText("レポート連携")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "失効" }));
+    await waitFor(() => expect(repository.revokeIntegrationClient).toHaveBeenCalledWith(organization.id, client.id));
+    expect(await screen.findByText("レポート連携の連携資格を失効しました。")).toBeInTheDocument();
   });
 });
