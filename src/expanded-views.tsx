@@ -40,7 +40,6 @@ import {
   type CustomFieldDefinition,
   type CustomFieldEntity,
   type CustomFieldType,
-  type Opportunity,
   type OpportunityStage,
   type Project,
   type SkillKind,

@@ -300,9 +300,9 @@ const opportunities: Opportunity[] = [
 ];
 
 const opportunityNeeds: OpportunityNeed[] = [
-  { id: "opp-need-northwind-fe", opportunityId: "opp-northwind", role: "Frontend Engineer", skills: ["React", "TypeScript"], skillRequirements: [{ name: "React", minProficiency: 3 }, { name: "TypeScript", minProficiency: 3 }], startDate: "2026-09-01", endDate: "2026-12-18", allocation: 60 },
+  { id: "opp-need-northwind-fe", opportunityId: "opp-northwind", role: "Frontend Engineer", skills: ["React", "TypeScript"], skillRequirements: [{ name: "React", minProficiency: 3 }, { name: "TypeScript", minProficiency: 3 }], startDate: "2026-11-02", endDate: "2026-12-18", allocation: 60 },
   { id: "opp-need-northwind-be", opportunityId: "opp-northwind", role: "Backend Engineer", skills: ["Java", "API"], skillRequirements: [{ name: "Java", minProficiency: 3 }, { name: "API", minProficiency: 3 }], startDate: "2026-09-07", endDate: "2026-12-18", allocation: 50 },
-  { id: "opp-need-harbor-mobile", opportunityId: "opp-harbor", role: "Mobile Engineer", skills: ["iOS", "Swift"], skillRequirements: [{ name: "iOS", minProficiency: 3 }, { name: "Swift", minProficiency: 3 }], startDate: "2026-10-05", endDate: "2027-01-22", allocation: 70 },
+  { id: "opp-need-harbor-mobile", opportunityId: "opp-harbor", role: "Mobile Engineer", skills: ["iOS", "Swift"], skillRequirements: [{ name: "iOS", minProficiency: 3 }, { name: "Swift", minProficiency: 3 }], startDate: "2026-10-05", endDate: "2027-01-22", allocation: 40 },
   { id: "opp-need-ledger-be", opportunityId: "opp-ledger", role: "Backend Engineer", skills: ["AWS", "API"], skillRequirements: [{ name: "AWS", minProficiency: 4 }, { name: "API", minProficiency: 3 }], startDate: "2026-08-24", endDate: "2026-11-20", allocation: 40 },
 ];
 
