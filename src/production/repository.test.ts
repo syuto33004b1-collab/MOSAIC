@@ -234,6 +234,28 @@ describe("production repository response adapters", () => {
     expect(() => workspaceChangesPayload(changed, previous, "planner")).toThrow("組織階層を保存できません");
   });
 
+  it("sends UUID search scene changes and rejects planner catalog edits", () => {
+    const sceneId = "11111111-0000-4000-8000-000000000031";
+    const previous = {
+      ...initialWorkspace,
+      searchScenes: [{ id: sceneId, name: "既存シーン", role: "QA Engineer" }],
+    };
+    const changed = {
+      ...previous,
+      searchScenes: [
+        { id: sceneId, name: "既存シーン", role: "QA Engineer" },
+        { id: "scene-demo", name: "デモシーン", role: "Frontend Engineer" },
+        { id: "22222222-0000-4000-8000-000000000032", name: "大阪バックエンド", role: "Backend Engineer", location: "大阪" },
+      ],
+    };
+
+    const payload = workspaceChangesPayload(changed, previous, "admin");
+    expect(payload.searchScenes?.upsert).toEqual([
+      { id: "22222222-0000-4000-8000-000000000032", name: "大阪バックエンド", role: "Backend Engineer", location: "大阪" },
+    ]);
+    expect(() => workspaceChangesPayload(changed, previous, "planner")).toThrow("検索シーンを保存できません");
+  });
+
   it("creates a deterministic lowercase SHA-256 payload hash", async () => {
     const first = await sha256Hex({ beta: [2, 1], alpha: { y: true, x: "value" } });
     const second = await sha256Hex({ alpha: { x: "value", y: true }, beta: [2, 1] });

@@ -1,5 +1,5 @@
 import type { AuthError, PostgrestError, SupabaseClient, User } from "@supabase/supabase-js";
-import type { Assignment, CustomFieldDefinition, CustomFieldEntity, CustomFieldType, Member, Opportunity, OpportunityNeed, OpportunityStage, OrgMembership, OrgUnit, Project, SkillDefinition, SkillKind, StaffingNeed, WorkHistoryEntry, WorkspaceState } from "../domain";
+import type { Assignment, CustomFieldDefinition, CustomFieldEntity, CustomFieldType, Member, Opportunity, OpportunityNeed, OpportunityStage, OrgMembership, OrgUnit, Project, SearchScene, SearchSkillFilter, SkillDefinition, SkillImportance, SkillKind, StaffingNeed, WorkHistoryEntry, WorkspaceState } from "../domain";
 import { hydrateWorkspaceSkills, OPPORTUNITY_STAGES, normalizeSkillProficiency, normalizeWorkHistory } from "../domain";
 import { appAuthRedirectUrl } from "./authRecovery";
 import {
@@ -32,6 +32,7 @@ const needStatuses = new Set<StaffingNeed["status"]>(["open", "planned", "filled
 const opportunityStages = new Set<OpportunityStage>(OPPORTUNITY_STAGES);
 const customFieldEntities = new Set<CustomFieldEntity>(["member", "project"]);
 const customFieldTypes = new Set<CustomFieldType>(["text", "number", "date", "select"]);
+const skillImportances = new Set<SkillImportance>(["must", "nice"]);
 const isoDatePattern = /^\d{4}-\d{2}-\d{2}$/;
 
 function asRecord(value: unknown): UnknownRecord | undefined {
@@ -163,6 +164,50 @@ function normalizeCustomFieldDefinition(value: unknown): CustomFieldDefinition |
     ...(record.showInDetail === false ? { showInDetail: false } : { showInDetail: true }),
     ...(record.searchable === false ? { searchable: false } : { searchable: true }),
     ...(sortOrder !== undefined ? { sortOrder } : {}),
+  };
+}
+
+function normalizeSearchSkillFilter(value: unknown): SearchSkillFilter | undefined {
+  const record = asRecord(value);
+  const name = readString(record, "name");
+  const importance = record?.importance;
+  const minProficiency = record ? normalizeSkillProficiency(record.minProficiency) : undefined;
+  if (!name || !skillImportances.has(importance as SkillImportance) || !minProficiency) return undefined;
+  return { name, minProficiency, importance: importance as SkillImportance };
+}
+
+function normalizeSearchScene(value: unknown): SearchScene | undefined {
+  const record = asRecord(value);
+  if (!record) return undefined;
+  const id = readString(record, "id");
+  const name = readString(record, "name");
+  if (!id || !name) return undefined;
+  const skillValues = record.skills === undefined ? [] : readArray(record, "skills").map(normalizeSearchSkillFilter);
+  if (skillValues.some((item) => !item)) return undefined;
+  const startDate = record.startDate === undefined || record.startDate === null || record.startDate === ""
+    ? undefined
+    : validDate(record.startDate) ? record.startDate : undefined;
+  const endDate = record.endDate === undefined || record.endDate === null || record.endDate === ""
+    ? undefined
+    : validDate(record.endDate) ? record.endDate : undefined;
+  if ((record.startDate && !startDate) || (record.endDate && !endDate)) return undefined;
+  if ((startDate && !endDate) || (!startDate && endDate) || (startDate && endDate && startDate > endDate)) return undefined;
+  const minAvailablePercent = finiteNumber(record, "minAvailablePercent");
+  if (record.minAvailablePercent !== undefined && record.minAvailablePercent !== null && (minAvailablePercent === undefined || minAvailablePercent < 0 || minAvailablePercent > 100)) {
+    return undefined;
+  }
+  const query = optionalString(record, "query");
+  const role = optionalString(record, "role");
+  const location = optionalString(record, "location");
+  return {
+    id,
+    name,
+    ...(query ? { query } : {}),
+    ...(role ? { role } : {}),
+    ...(location ? { location } : {}),
+    ...(skillValues.length ? { skills: skillValues as SearchSkillFilter[] } : {}),
+    ...(startDate ? { startDate, endDate } : {}),
+    ...(minAvailablePercent !== undefined ? { minAvailablePercent } : {}),
   };
 }
 
@@ -449,6 +494,8 @@ function normalizeWorkspaceState(value: unknown): WorkspaceState | undefined {
   if (orgUnitValues && orgUnitValues.some((item) => !item)) return undefined;
   const orgMembershipValues = record.orgMemberships === undefined ? undefined : readArray(record, "orgMemberships").map(normalizeOrgMembership);
   if (orgMembershipValues && orgMembershipValues.some((item) => !item)) return undefined;
+  const searchSceneValues = record.searchScenes === undefined ? undefined : readArray(record, "searchScenes").map(normalizeSearchScene);
+  if (searchSceneValues && searchSceneValues.some((item) => !item)) return undefined;
   return hydrateWorkspaceSkills({
     members: members as Member[],
     projects: projects as Project[],
@@ -460,6 +507,7 @@ function normalizeWorkspaceState(value: unknown): WorkspaceState | undefined {
     ...(customFieldValues ? { customFields: customFieldValues as CustomFieldDefinition[] } : {}),
     ...(orgUnitValues ? { orgUnits: orgUnitValues as OrgUnit[] } : {}),
     ...(orgMembershipValues ? { orgMemberships: orgMembershipValues as OrgMembership[] } : {}),
+    ...(searchSceneValues ? { searchScenes: searchSceneValues as SearchScene[] } : {}),
   });
 }
 
@@ -684,6 +732,7 @@ export function normalizeWorkspace(value: unknown): WorkspaceEnvelope {
     opportunityNeeds: record.opportunityNeeds,
     orgUnits: record.orgUnits,
     orgMemberships: record.orgMemberships,
+    searchScenes: record.searchScenes,
   } : value);
   const rawState = typeof stateCandidate === "string" ? JSON.parse(stateCandidate) as unknown : stateCandidate;
   const state = normalizeWorkspaceState(rawState);
@@ -877,6 +926,18 @@ export function workspaceChangesPayload(
     if (membershipUpsert.length || membershipArchiveIds.length) payload.orgMemberships = { upsert: membershipUpsert, archiveIds: membershipArchiveIds };
   } else if (membershipUpsert.length || membershipArchiveIds.length) {
     throw new ProductionRepositoryError("権限が変更されたため、組織階層を保存できません。未保存内容を確認して再読み込みしてください。", {
+      code: "FORBIDDEN",
+      retryable: false,
+    });
+  }
+  const nextScenes = (state.searchScenes ?? []).filter((item) => persistedId(item.id));
+  const previousScenes = (previous.searchScenes ?? []).filter((item) => persistedId(item.id));
+  const sceneUpsert = changedRows(nextScenes, previousScenes);
+  const sceneArchiveIds = removedIds(nextScenes, previousScenes);
+  if (role === "owner" || role === "admin") {
+    if (sceneUpsert.length || sceneArchiveIds.length) payload.searchScenes = { upsert: sceneUpsert, archiveIds: sceneArchiveIds };
+  } else if (sceneUpsert.length || sceneArchiveIds.length) {
+    throw new ProductionRepositoryError("権限が変更されたため、検索シーンを保存できません。未保存内容を確認して再読み込みしてください。", {
       code: "FORBIDDEN",
       retryable: false,
     });

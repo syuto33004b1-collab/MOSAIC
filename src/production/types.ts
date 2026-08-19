@@ -105,6 +105,7 @@ export type SaveWorkspacePayload = {
   opportunityNeeds?: { upsert: NonNullable<WorkspaceState["opportunityNeeds"]>; cancelIds: string[] };
   orgUnits?: { upsert: NonNullable<WorkspaceState["orgUnits"]>; archiveIds: string[] };
   orgMemberships?: { upsert: NonNullable<WorkspaceState["orgMemberships"]>; archiveIds: string[] };
+  searchScenes?: { upsert: NonNullable<WorkspaceState["searchScenes"]>; archiveIds: string[] };
 };
 
 export type InvitationResult = {

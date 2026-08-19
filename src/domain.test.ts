@@ -32,6 +32,9 @@ import {
   parseSkillInput,
   pipelineDemandForWeek,
   projectSearchText,
+  addSearchScene,
+  matchMembers,
+  searchSceneFromNeed,
   setMemberOrgMemberships,
   visibleCustomFields,
   type WorkspaceState,
@@ -312,5 +315,33 @@ describe("organization units", () => {
     const rows = orgUnitLoadRows(initialWorkspace, "2026-08-17");
     expect(rows.find((row) => row.id === "org-engineering")?.count).toBe(5);
     expect(rows.find((row) => row.id === "org-design")?.managers).toEqual(["佐伯 優斗"]);
+  });
+});
+
+describe("search scenes", () => {
+  it("scores must/nice skills and availability, and excludes failed musts", () => {
+    const frontend = (initialWorkspace.searchScenes ?? []).find((scene) => scene.id === "scene-frontend");
+    expect(frontend).toBeDefined();
+    const matches = matchMembers(initialWorkspace, frontend!);
+    expect(matches.map((match) => match.member.name)).toEqual(["中村 美咲"]);
+    expect(matches[0]).toMatchObject({ score: 60, availablePercent: 100, matchedMust: ["React"], matchedNice: ["A11y"] });
+  });
+
+  it("converts staffing needs into must-skill scenes and ranks remaining capacity", () => {
+    const need = initialWorkspace.needs[0];
+    const matches = matchMembers(initialWorkspace, searchSceneFromNeed(need));
+    expect(matches.map((match) => match.member.name)).toEqual(["松本 蓮"]);
+    expect(matches[0].score).toBe(24);
+    expect(matches[0].availablePercent).toBe(60);
+  });
+
+  it("adds uniquely named scenes and rejects duplicates", () => {
+    const scenes = addSearchScene(initialWorkspace.searchScenes ?? [], {
+      name: "大阪バックエンド",
+      role: "Backend Engineer",
+      location: "大阪",
+    });
+    expect(scenes.at(-1)).toMatchObject({ name: "大阪バックエンド", role: "Backend Engineer", location: "大阪" });
+    expect(() => addSearchScene(scenes, { name: "大阪バックエンド", role: "Backend Engineer" })).toThrow("同じ名前");
   });
 });

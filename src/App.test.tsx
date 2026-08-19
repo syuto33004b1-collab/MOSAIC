@@ -1054,6 +1054,40 @@ describe("role-aware workspace", () => {
     expect(saved.orgUnits?.some((unit) => unit.name === "モバイル推進")).toBe(true);
   });
 
+  it("applies a saved search scene, shows scores, and lets admins persist a new scene", async () => {
+    const user = userEvent.setup();
+    const adapter = sharedAdapter();
+    const save = vi.fn().mockResolvedValue({ revision: 10, savedAt: "2026-08-19T12:00:00Z" });
+    adapter.save = save;
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "admin@example.com", role: "admin" }} shared={adapter} />);
+    const navigation = within(screen.getByRole("navigation", { name: "メインナビゲーション" }));
+
+    await user.click(navigation.getByRole("button", { name: "メンバー" }));
+    const sceneSelect = screen.getByLabelText("保存した検索シーン");
+    await user.selectOptions(sceneSelect, within(sceneSelect).getByRole("option", { name: "フロントエンド候補" }));
+    expect(screen.getByRole("button", { name: /中村 美咲/ })).toBeInTheDocument();
+    expect(screen.getByText("60点")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /佐伯 優斗/ })).not.toBeInTheDocument();
+
+    await user.type(screen.getByPlaceholderText("フロントエンド候補"), "React実務者");
+    await user.type(screen.getByPlaceholderText("React:3, TypeScript:3"), "React:3");
+    await user.click(screen.getByRole("button", { name: "検索シーンを保存" }));
+    expect(screen.getByRole("option", { name: "React実務者" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "チームへ保存" }));
+    await waitFor(() => expect(save).toHaveBeenCalledOnce());
+    const saved = save.mock.calls[0][0] as WorkspaceState;
+    expect(saved.searchScenes?.some((scene) => scene.name === "React実務者" && scene.skills?.some((skill) => skill.name === "React" && skill.importance === "must"))).toBe(true);
+  });
+
+  it("lets planners apply a search scene but not save a new one", async () => {
+    const user = userEvent.setup();
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "計画 花子", email: "planner@example.com", role: "planner" }} shared={sharedAdapter()} />);
+    const navigation = within(screen.getByRole("navigation", { name: "メインナビゲーション" }));
+    await user.click(navigation.getByRole("button", { name: "メンバー" }));
+    expect(screen.getByLabelText("保存した検索シーン")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "検索シーンを保存" })).not.toBeInTheDocument();
+  });
+
   it("migrates legacy demo leave rows out of local storage", async () => {
     const member = initialWorkspace.members[0];
     const project = initialWorkspace.projects[0];

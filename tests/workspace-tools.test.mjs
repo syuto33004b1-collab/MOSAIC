@@ -24,6 +24,7 @@ const ids = {
   secondAssignment: "64000000-0000-4000-8000-000000000002",
   generated: "65000000-0000-4000-8000-000000000001",
   request: "40000000-0000-4000-8000-000000000001",
+  scene: "66000000-0000-4000-8000-000000000001",
 };
 
 function snapshot() {
@@ -151,6 +152,17 @@ function snapshot() {
         draftPersonId: null,
       },
     ],
+    searchScenes: [
+      {
+        id: ids.scene,
+        name: "Backend API",
+        role: "Backend Engineer",
+        skills: [
+          { name: "API", minProficiency: 3, importance: "must" },
+          { name: "AWS", minProficiency: 3, importance: "nice" },
+        ],
+      },
+    ],
   };
 }
 
@@ -167,8 +179,8 @@ function plannerOptions(toolName, args, overrides = {}) {
 }
 
 test("declares the allowlisted Gemini Interactions workspace tools and detects current function_call steps", () => {
-  assert.equal(WORKSPACE_TOOL_DECLARATIONS.length, 25);
-  assert.equal(new Set(WORKSPACE_TOOL_DECLARATIONS.map((tool) => tool.name)).size, 25);
+  assert.equal(WORKSPACE_TOOL_DECLARATIONS.length, 27);
+  assert.equal(new Set(WORKSPACE_TOOL_DECLARATIONS.map((tool) => tool.name)).size, 27);
   assert.ok(WORKSPACE_TOOL_DECLARATIONS.every((tool) => tool.type === "function" && tool.parameters.additionalProperties === false));
   assert.deepEqual(detectWorkspaceFunctionCalls({
     steps: [
@@ -559,6 +571,42 @@ test("rejects no-op updates instead of incrementing the workspace revision", asy
     () => planWorkspaceAction(plannerOptions("update_member", { memberId: ids.alice, patch: { name: "Alice A" } }, { role: "admin" })),
     (error) => error.code === "NO_WORKSPACE_CHANGES",
   );
+});
+
+test("reads search scenes and scores members with the same must/nice formula", () => {
+  const scenes = readWorkspaceTool(snapshot(), "read_workspace", { resource: "search_scenes" });
+  assert.equal(scenes.total, 1);
+  assert.equal(scenes.items[0].name, "Backend API");
+  const ranked = readWorkspaceTool(snapshot(), "read_workspace", { resource: "members", sceneId: ids.scene });
+  assert.equal(ranked.sceneName, "Backend API");
+  assert.equal(ranked.total, 1);
+  assert.deepEqual(ranked.items[0], {
+    id: ids.alice,
+    name: "Alice A",
+    role: "Backend Engineer",
+    department: "開発",
+    location: "東京",
+    skills: ["API", "AWS"],
+    capacity: 100,
+    score: 60,
+    availablePercent: 100,
+    matchedMust: ["API"],
+    matchedNice: ["AWS"],
+  });
+});
+
+test("plans search scene create and delete for owners and admins", async () => {
+  const created = await planWorkspaceAction(plannerOptions("create_search_scene", {
+    name: "大阪QA",
+    role: "QA Engineer",
+    location: "大阪",
+    skills: [{ name: "QA", minProficiency: 3, importance: "must" }],
+  }, { role: "admin" }));
+  assert.equal(created.payload.searchScenes.upsert[0].name, "大阪QA");
+  assert.equal(created.payload.searchScenes.upsert[0].id, ids.generated);
+
+  const deleted = await planWorkspaceAction(plannerOptions("delete_search_scene", { sceneId: ids.scene }, { role: "owner" }));
+  assert.deepEqual(deleted.payload.searchScenes.archiveIds, [ids.scene]);
 });
 
 test("stable hashing is independent of object key insertion order", async () => {

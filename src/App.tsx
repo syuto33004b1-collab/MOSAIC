@@ -35,6 +35,7 @@ import {
   addCustomField,
   addDays,
   addOrgUnit,
+  addSearchScene,
   addSkillCatalogEntry,
   archiveOrgUnit,
   assignmentGrid,
@@ -56,6 +57,7 @@ import {
   memberMatchesNeed,
   memberOrgMemberships,
   memberPeakLoad,
+  matchMembers,
   memberSearchText,
   memberSkillLevels,
   moveOrgUnit,
@@ -73,6 +75,7 @@ import {
   projectSearchText,
   projectTone,
   setMemberOrgMemberships,
+  searchSceneFromNeed,
   visibleCustomFields,
   weekEnd,
   type Assignment,
@@ -85,6 +88,7 @@ import {
   type OpportunityStage,
   type Project,
   type ProjectStatus,
+  type SearchSkillFilter,
   type SkillKind,
   type StaffingNeed,
   type Tone,
@@ -596,10 +600,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
   const activeNeeds = workspace.needs.filter((need) => need.status !== "filled");
   const displayNeed = activeNeeds[0];
   const selectedNeed = workspace.needs.find((need) => need.id === selectedNeedId);
-  const candidateMembers = selectedNeed ? workspace.members.filter((member) => {
-    const available = member.capacity - memberPeakLoad(workspace, member.id, selectedNeed.startDate, selectedNeed.endDate);
-    return memberMatchesNeed(member, selectedNeed) && available >= selectedNeed.allocation;
-  }).slice(0, 3) : [];
+  const candidateMatches = selectedNeed ? matchMembers(workspace, searchSceneFromNeed(selectedNeed)).slice(0, 5) : [];
   const adjustmentCount = currentOverloads.length + (overloadPlanned ? 1 : 0) + activeNeeds.length;
   const page = pageMeta[activeNav];
   const selectedProject = projectById(workspace, selectedProjectId);
@@ -1824,6 +1825,30 @@ export default function Home({ mode = "demo", organizationId, organizationName =
     setToast("部門を削除しました");
   };
 
+  const handleAddSearchScene = (input: {
+    name: string;
+    query?: string;
+    role?: string;
+    location?: string;
+    skills?: SearchSkillFilter[];
+    startDate?: string;
+    endDate?: string;
+    minAvailablePercent?: number;
+  }) => {
+    if (!canManageMembers) throw new Error("検索シーンを変更する権限がありません");
+    const searchScenes = addSearchScene(workspace.searchScenes ?? [], input);
+    setWorkspace((current) => ({ ...current, searchScenes }));
+    markUnsaved();
+    setToast("検索シーンを保存しました");
+  };
+
+  const handleDeleteSearchScene = (sceneId: string) => {
+    if (!canManageMembers) return;
+    setWorkspace((current) => ({ ...current, searchScenes: (current.searchScenes ?? []).filter((scene) => scene.id !== sceneId) }));
+    markUnsaved();
+    setToast("検索シーンを削除しました");
+  };
+
   const primaryAction = () => {
     if (activeNav === "board" && canAddAssignment) openNewAssignment();
     if (activeNav === "projects" && canEdit) setDrawer("newProject");
@@ -1997,7 +2022,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
 
         {activeNav === "projects" && <ProjectsView state={workspace} weekOffset={weekOffset} onOpen={openProject} onCreate={() => setDrawer("newProject")} canEdit={canEdit} />}
         {activeNav === "opportunities" && <OpportunitiesView state={workspace} onOpen={openOpportunity} onCreate={() => setDrawer("newOpportunity")} canEdit={canEdit} />}
-        {activeNav === "members" && <MembersView state={workspace} weekOffset={weekOffset} onOpen={openMember} onAdd={() => setDrawer("newMember")} onAssign={openAssignmentFor} canEdit={canEdit} canManageMembers={canManageMembers} />}
+        {activeNav === "members" && <MembersView state={workspace} weekOffset={weekOffset} onOpen={openMember} onAdd={() => setDrawer("newMember")} onAssign={openAssignmentFor} onAddScene={handleAddSearchScene} onDeleteScene={handleDeleteSearchScene} canEdit={canEdit} canManageMembers={canManageMembers} canManageScenes={canManageMembers} />}
         {activeNav === "org" && <OrgView state={workspace} onAddUnit={handleAddOrgUnit} onMoveUnit={handleMoveOrgUnit} onArchiveUnit={handleArchiveOrgUnit} canManage={canManageMembers} />}
         {activeNav === "skills" && <SkillsView state={hydrateWorkspaceSkills(workspace)} onAddCatalogEntry={handleAddCatalogEntry} onOpenMember={openMember} onResolveNeed={openStaffingNeed} canEdit={canEdit} />}
         {activeNav === "fields" && <FieldsView state={workspace} onAddField={handleAddCustomField} canManage={canManageMembers} />}
@@ -2070,8 +2095,8 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                   <div className="planned-candidate"><CheckCircle2 size={20} /><span><strong>{memberById(workspace, selectedNeed.draftPersonId || "")?.name ?? "担当者"}{selectedNeed.status === "planned" ? "さんを仮置き済み" : "さんで充足済み"}</strong><small>{selectedNeed.allocation}% · {formatDate(selectedNeed.startDate)} — {formatDate(selectedNeed.endDate)}</small></span></div>
                 ) : (
                   <>
-                    <div className="candidate-label"><span>条件に合うメンバー</span><small>対象週の空きとスキルから算出</small></div>
-                    {candidateMembers.length > 0 ? <div className="candidate-list">{candidateMembers.map((member) => <article key={member.id}><span className={"avatar " + member.avatarTone}>{member.initials}</span><span><strong>{member.name}</strong><small>{member.role} · 要件期間の最小空き {member.capacity - memberPeakLoad(workspace, member.id, selectedNeed.startDate, selectedNeed.endDate)}%</small><em><Check size={10} />{selectedNeed.skills.length > 0 ? `${member.skills.filter((skill) => selectedNeed.skills.some((neededSkill) => neededSkill.toLocaleLowerCase() === skill.toLocaleLowerCase())).join("・")}に適合` : `${selectedNeed.role}に適合`}</em></span>{canEdit ? <button onClick={() => placeCandidate(member.id, selectedNeed)}>仮置き</button> : <span className="read-only-label">閲覧のみ</span>}</article>)}</div> : <div className="candidate-empty"><UsersRound size={18} /><span><strong>条件を満たす候補がいません</strong><small>メンバーのスキルまたは要件期間の配分を見直してください。</small></span></div>}
+                    <div className="candidate-label"><span>条件に合うメンバー</span><small>必須条件を満たす候補をスコア順に最大5名</small></div>
+                    {candidateMatches.length > 0 ? <div className="candidate-list">{candidateMatches.map((match) => <article key={match.member.id}><span className={"avatar " + match.member.avatarTone}>{match.member.initials}</span><span><strong>{match.member.name}</strong><small>{match.member.role} · 要件期間の最小空き {match.availablePercent}% · 適合 {match.score}点</small><em><Check size={10} />{match.matchedMust.length > 0 ? `${match.matchedMust.join("・")}に適合` : `${selectedNeed.role}に適合`}</em></span>{canEdit ? <button onClick={() => placeCandidate(match.member.id, selectedNeed)}>仮置き</button> : <span className="read-only-label">閲覧のみ</span>}</article>)}</div> : <div className="candidate-empty"><UsersRound size={18} /><span><strong>条件を満たす候補がいません</strong><small>メンバーのスキルまたは要件期間の配分を見直してください。</small></span></div>}
                   </>
                 )}
                 <p className="drawer-footnote">候補は対象週の稼働と登録スキルに基づく参考情報です。</p>
