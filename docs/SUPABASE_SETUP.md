@@ -46,6 +46,16 @@ Supabase AuthのSite URLと許可redirect URLを、実際に利用するURLへ�
 - Production redirect: `https://syuto33004b1-collab.github.io/MOSAIC/`
 - Local redirect: `http://127.0.0.1:5173/MOSAIC/`
 
+パスワード再設定メールの戻り先も、この許可リストのURLだけを使います。MOSAICは現在のoriginと`base`（`/MOSAIC/`）からredirect URLを組み立て、独自のpathは使いません。GitHub PagesのSPAでも同じトップURLへ戻します。
+
+接続後に次を確認します。
+
+1. Authentication > URL Configuration のSite URLとRedirect URLsが上表と一致する。
+2. Email providerが有効で、本番はSMTPが設定されている。
+3. ログイン画面の「パスワードを忘れた場合」から再設定メールが届く。
+4. 有効なリンクから新しいパスワードを設定してログインできる。
+5. 期限切れリンクは「有効期限が切れています」と案内し、providerの英語エラー文を出さない。
+
 不要なwildcardや第三者domainを追加しません。独自domainへ移行した場合は、切替期間を決めて旧URLを削除します。
 
 Authentication設定では、Email providerの`Allow new users to sign up`を無効にします。画面から登録導線を隠すだけでは招待制にならないため、publishable keyを使った`signUp`もserver側で拒否されることを接続後テストで確認します。`supabase/config.toml`もローカル環境で`auth.enable_signup = false`、`auth.email.enable_signup = false`に固定しています。

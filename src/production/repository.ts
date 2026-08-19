@@ -1,5 +1,6 @@
 import type { AuthError, PostgrestError, SupabaseClient, User } from "@supabase/supabase-js";
 import type { Assignment, Member, Project, StaffingNeed, WorkspaceState } from "../domain";
+import { appAuthRedirectUrl } from "./authRecovery";
 import {
   ProductionRepositoryError,
   WorkspaceConflictError,
@@ -534,6 +535,42 @@ export class ProductionRepository {
         retryable: true,
       });
     }
+  }
+
+  async requestPasswordReset(email: string) {
+    const { error } = await this.client.auth.resetPasswordForEmail(email.trim(), {
+      redirectTo: appAuthRedirectUrl(),
+    });
+    if (!error || error.code === "user_not_found") return;
+    if (error.code === "over_email_send_rate_limit" || error.status === 429) {
+      throw new ProductionRepositoryError("メールを連続して送れません。しばらくしてからもう一度お試しください。", {
+        cause: error,
+        code: "RATE_LIMITED",
+        retryable: true,
+      });
+    }
+    throw new ProductionRepositoryError("再設定メールを送れませんでした。通信状況を確認してください。", {
+      cause: error,
+      code: error.code ?? "RESET_EMAIL_ERROR",
+      retryable: true,
+    });
+  }
+
+  async updatePassword(password: string) {
+    const { error } = await this.client.auth.updateUser({ password });
+    if (!error) return;
+    if (error.code === "weak_password" || error.code === "same_password") {
+      throw new ProductionRepositoryError("パスワードは12文字以上で、英大文字・英小文字・数字を含めてください。", {
+        cause: error,
+        code: "WEAK_PASSWORD",
+        retryable: false,
+      });
+    }
+    throw new ProductionRepositoryError("パスワードを更新できませんでした。リンクの有効期限を確認してください。", {
+      cause: error,
+      code: error.code ?? "PASSWORD_UPDATE_ERROR",
+      retryable: false,
+    });
   }
 
   async getMyContext(user: User) {

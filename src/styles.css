@@ -1552,6 +1552,18 @@ button:focus-visible, a:focus-visible { outline: 3px solid rgba(86,104,232,.35);
 .production-card-body .drawer-primary,
 .production-card-body .drawer-secondary { min-height: 46px; font-size: 12px; }
 .production-auth-form { width: 100%; }
+.production-auth-link {
+  margin-top: 4px;
+  min-height: 40px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: #4a5bb8;
+  font-size: 12px;
+  font-weight: 700;
+  text-decoration: underline;
+  cursor: pointer;
+}
 .production-error { border: 1px solid #efc2be; background: #fff4f3; color: #a74740; }
 .production-invitation-notice { pointer-events: auto; }
 .production-invitation-notice span { min-width: 0; line-height: 1.5; }
