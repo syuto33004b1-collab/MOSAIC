@@ -323,3 +323,96 @@ describe("password recovery repository", () => {
     await expect(repository.updatePassword("short")).rejects.toSatisfy((error: unknown) => error instanceof Error && !error.message.includes("abcABC123"));
   });
 });
+
+describe("organization invite function", () => {
+  it("invites through the authenticated Edge Function with the app redirect URL", async () => {
+    const invoke = vi.fn().mockResolvedValue({
+      data: {
+        invitation: {
+          id: "00000000-0000-4000-8000-000000000010",
+          organizationId: "00000000-0000-4000-8000-000000000002",
+          email: "new.member@example.jp",
+          role: "planner",
+          expiresAt: "2026-08-26T10:00:00Z",
+        },
+        authInvite: "sent",
+      },
+      error: null,
+    });
+    const repository = new ProductionRepository({
+      functions: { invoke },
+    } as unknown as SupabaseClient);
+
+    await expect(repository.inviteMember("00000000-0000-4000-8000-000000000002", "  New.Member@example.jp  ", "planner")).resolves.toMatchObject({
+      email: "new.member@example.jp",
+      role: "planner",
+      authInvite: "sent",
+    });
+    expect(invoke).toHaveBeenCalledWith("invite", {
+      body: {
+        organizationId: "00000000-0000-4000-8000-000000000002",
+        email: "new.member@example.jp",
+        role: "planner",
+        redirectTo: expect.stringMatching(/\/$/),
+      },
+    });
+  });
+
+  it("surfaces existing Auth accounts without exposing provider text", async () => {
+    const invoke = vi.fn().mockResolvedValue({
+      data: {
+        invitation: { email: "owner@example.jp", role: "viewer" },
+        authInvite: "existing",
+      },
+      error: null,
+    });
+    const repository = new ProductionRepository({
+      functions: { invoke },
+    } as unknown as SupabaseClient);
+
+    await expect(repository.inviteMember("00000000-0000-4000-8000-000000000002", "owner@example.jp", "viewer")).resolves.toMatchObject({
+      authInvite: "existing",
+    });
+  });
+
+  it("maps function errors without repeating provider details", async () => {
+    const invoke = vi.fn().mockResolvedValue({
+      data: null,
+      error: {
+        context: {
+          status: 403,
+          json: vi.fn().mockResolvedValue({
+            error: { code: "FORBIDDEN", message: "この組織で招待する権限がありません。", retryable: false },
+          }),
+        },
+      },
+    });
+    const repository = new ProductionRepository({
+      functions: { invoke },
+    } as unknown as SupabaseClient);
+
+    await expect(repository.inviteMember("00000000-0000-4000-8000-000000000002", "new@example.jp", "planner")).rejects.toMatchObject({
+      code: "FORBIDDEN",
+    });
+    await expect(repository.inviteMember("00000000-0000-4000-8000-000000000002", "new@example.jp", "planner")).rejects.toSatisfy(
+      (error: unknown) => error instanceof Error && !error.message.includes("service_role"),
+    );
+  });
+
+  it("saves the display name then sets the first password during onboarding", async () => {
+    const rpc = vi.fn().mockResolvedValue({ data: { displayName: "招待 花子" }, error: null });
+    const updateUser = vi.fn().mockResolvedValue({ data: { user: {} }, error: null });
+    const repository = new ProductionRepository({
+      rpc,
+      auth: { updateUser },
+    } as unknown as SupabaseClient);
+
+    await repository.completeOnboarding("  招待 花子  ", "NewPassword12");
+
+    expect(rpc).toHaveBeenCalledWith("update_my_profile", { p_display_name: "招待 花子" });
+    expect(updateUser).toHaveBeenCalledWith({
+      password: "NewPassword12",
+      data: { mosaic_invite: false, full_name: "招待 花子" },
+    });
+  });
+});

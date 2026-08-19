@@ -46,7 +46,7 @@ Supabase AuthのSite URLと許可redirect URLを、実際に利用するURLへ�
 - Production redirect: `https://syuto33004b1-collab.github.io/MOSAIC/`
 - Local redirect: `http://127.0.0.1:5173/MOSAIC/`
 
-パスワード再設定メールの戻り先も、この許可リストのURLだけを使います。MOSAICは現在のoriginと`base`（`/MOSAIC/`）からredirect URLを組み立て、独自のpathは使いません。GitHub PagesのSPAでも同じトップURLへ戻します。
+パスワード再設定メールと招待メールの戻り先も、この許可リストのURLだけを使います。MOSAICは現在のoriginと`base`（`/MOSAIC/`）からredirect URLを組み立て、独自のpathは使いません。GitHub PagesのSPAでも同じトップURLへ戻します。
 
 接続後に次を確認します。
 
@@ -54,13 +54,24 @@ Supabase AuthのSite URLと許可redirect URLを、実際に利用するURLへ�
 2. Email providerが有効で、本番はSMTPが設定されている。
 3. ログイン画面の「パスワードを忘れた場合」から再設定メールが届く。
 4. 有効なリンクから新しいパスワードを設定してログインできる。
-5. 期限切れリンクは「有効期限が切れています」と案内し、providerの英語エラー文を出さない。
+5. 運用パネルの「招待メールを送る」から招待メールが届く。
+6. 招待リンクから表示名と初回パスワードを設定すると、対象組織へ入れる。
+7. 期限切れの招待・再設定リンクは「有効期限が切れています」と案内し、providerの英語エラー文を出さない。
+8. 既存Authアカウントへの招待は組織招待だけを更新し、ログイン後に承認できる。
 
 不要なwildcardや第三者domainを追加しません。独自domainへ移行した場合は、切替期間を決めて旧URLを削除します。
 
 Authentication設定では、Email providerの`Allow new users to sign up`を無効にします。画面から登録導線を隠すだけでは招待制にならないため、publishable keyを使った`signUp`もserver側で拒否されることを接続後テストで確認します。`supabase/config.toml`もローカル環境で`auth.enable_signup = false`、`auth.email.enable_signup = false`に固定しています。
 
-初期ownerと招待先のAuth userは、Supabase DashboardのAuthentication > Usersから招待メールを送るか、secretを保持できる信頼済みbackendからAdmin APIで作成します。Admin APIや`service_role`をMOSAICのブラウザへ追加してはいけません。招待メールを使う場合は本番SMTP、送信元domain、リンク期限、password resetを先に検証します。MOSAIC内の組織招待は同じメールアドレスに対する所属・roleの承認であり、Auth user作成やメール送信そのものではありません。
+初期ownerは、Supabase DashboardのAuthentication > Usersから招待するか、secretを保持できる信頼済みbackendからAdmin APIで作成します。2人目以降はMOSAICの運用パネルから招待します。招待Edge Function `invite` が組織RPC `invite_member` を実行したあと、サーバー側のAdmin APIでAuth招待メールを送ります。Admin APIや`service_role`をMOSAICのブラウザへ追加してはいけません。公開の自己サインアップは無効のままです。
+
+招待メールを使う場合は本番SMTP、送信元domain、リンク期限、password resetを先に検証します。GitHub Pagesのデプロイはフロントエンドだけを更新するため、Function本体は別にデプロイします。`--no-verify-jwt`は付けません。
+
+```powershell
+npm exec supabase -- functions deploy invite --project-ref PROJECT_REF
+```
+
+hosted Functionには`SUPABASE_URL`と`SUPABASE_SERVICE_ROLE_KEY`が自動で入ります。値をlogやartifactへ出しません。
 
 ## Migration適用
 
@@ -96,6 +107,7 @@ RealtimeのRLS評価に必要な例外として、`authenticated`には`app.orga
 - `get_workspace`
 - `save_workspace`
 - `invite_member`
+- `update_my_profile`
 - `accept_invitation`
 - `list_organization_members`
 - `manage_organization_member`
@@ -130,7 +142,7 @@ UIでbuttonを隠すだけでは認可になりません。全ての書込みを
 
 ## 初期利用者
 
-最初のownerは認証済み利用者が`create_organization`を実行して作成します。以後はowner/adminが`invite_member`を実行し、招待先メールで認証した本人が`get_my_context`に表示されたpending invitationを`accept_invitation`で承認します。誤った宛先は運用パネルまたは`revoke_organization_invitation`で取り消します。現時点では招待メール送信サービスを持たないため、別の社内経路で招待先へ連絡します。メールアドレスだけを根拠にroleを直接付与しません。
+最初のownerは認証済み利用者が`create_organization`を実行して作成します。以後はowner/adminが運用パネルから招待し、Edge Functionが`invite_member`とAuth招待メールを同じ操作で実行します。招待先はメールのリンクから表示名と初回パスワードを設定し、保留中の組織招待を承認して対象組織へ入ります。誤った宛先は運用パネルの取消、または`revoke_organization_invitation`で取り消します。再送は同じ招待操作の再実行です。メールアドレスだけを根拠にroleを直接付与しません。既存のAuthアカウントには新しいAuth userを作らず、組織招待の承認へ誘導します。
 
 退職・長期休職時は、最後のownerでないことを確認して`manage_organization_member`でmembershipを`suspended`へ変更し、保留中の同一メール招待が取り消されたことを確認します。その後、Supabase Auth側でsessionを失効します。所属履歴が残るAuth userの物理削除はFKで拒否されるため、membershipを直接DELETEしません。owner本人の変更は別のactive ownerが実施します。
 

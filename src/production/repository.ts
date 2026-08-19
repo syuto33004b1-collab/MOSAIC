@@ -302,6 +302,62 @@ function authError(error: AuthError) {
   });
 }
 
+function passwordUpdateError(error: AuthError) {
+  if (error.code === "weak_password" || error.code === "same_password") {
+    return new ProductionRepositoryError("パスワードは12文字以上で、英大文字・英小文字・数字を含めてください。", {
+      cause: error,
+      code: "WEAK_PASSWORD",
+      retryable: false,
+    });
+  }
+  return new ProductionRepositoryError("パスワードを更新できませんでした。リンクの有効期限を確認してください。", {
+    cause: error,
+    code: error.code ?? "PASSWORD_UPDATE_ERROR",
+    retryable: false,
+  });
+}
+
+async function functionError(error: unknown) {
+  let status: number | undefined;
+  let payload: unknown;
+  const record = asRecord(error);
+  const context = asRecord(record?.context);
+  if (context) {
+    status = typeof context.status === "number" ? context.status : undefined;
+    if (typeof context.json === "function") {
+      try {
+        payload = await (context.json as () => Promise<unknown>)();
+      } catch {
+        payload = undefined;
+      }
+    }
+  }
+  const bodyError = asRecord(asRecord(payload)?.error);
+  const message = typeof bodyError?.message === "string" ? bodyError.message : "";
+  const code = typeof bodyError?.code === "string" ? bodyError.code : "";
+  const retryable = typeof bodyError?.retryable === "boolean"
+    ? bodyError.retryable
+    : status === 429 || (status !== undefined && status >= 500);
+  if (message) {
+    return new ProductionRepositoryError(message, {
+      cause: error,
+      code: code || "INVITE_ERROR",
+      retryable,
+    });
+  }
+  if (status === 401) {
+    return new ProductionRepositoryError("ログイン状態を確認できませんでした。再度ログインしてください。", {
+      cause: error,
+      code: "UNAUTHORIZED",
+    });
+  }
+  return new ProductionRepositoryError("招待を完了できませんでした。通信状況を確認してください。", {
+    cause: error,
+    code: "INVITE_UNAVAILABLE",
+    retryable: true,
+  });
+}
+
 function normalizeOrganization(value: unknown): OrganizationSummary | undefined {
   const record = asRecord(value);
   const nested = asRecord(record?.organization);
@@ -559,18 +615,21 @@ export class ProductionRepository {
   async updatePassword(password: string) {
     const { error } = await this.client.auth.updateUser({ password });
     if (!error) return;
-    if (error.code === "weak_password" || error.code === "same_password") {
-      throw new ProductionRepositoryError("パスワードは12文字以上で、英大文字・英小文字・数字を含めてください。", {
-        cause: error,
-        code: "WEAK_PASSWORD",
-        retryable: false,
-      });
+    throw passwordUpdateError(error);
+  }
+
+  async completeOnboarding(displayName: string, password: string) {
+    const name = displayName.trim();
+    if (!name) {
+      throw new ProductionRepositoryError("表示名を入力してください。", { code: "VALIDATION_FAILED" });
     }
-    throw new ProductionRepositoryError("パスワードを更新できませんでした。リンクの有効期限を確認してください。", {
-      cause: error,
-      code: error.code ?? "PASSWORD_UPDATE_ERROR",
-      retryable: false,
+    const { error: profileError } = await this.client.rpc("update_my_profile", { p_display_name: name });
+    if (profileError) throw rpcError("表示名を保存", profileError);
+    const { error } = await this.client.auth.updateUser({
+      password,
+      data: { mosaic_invite: false, full_name: name },
     });
+    if (error) throw passwordUpdateError(error);
   }
 
   async getMyContext(user: User) {
@@ -632,12 +691,15 @@ export class ProductionRepository {
   }
 
   async inviteMember(organizationId: string, email: string, role: Exclude<OrganizationRole, "owner">): Promise<InvitationResult> {
-    const { data, error } = await this.client.rpc("invite_member", {
-      p_email: email.trim().toLowerCase(),
-      p_organization_id: organizationId,
-      p_role: role,
+    const { data, error } = await this.client.functions.invoke("invite", {
+      body: {
+        organizationId,
+        email: email.trim().toLowerCase(),
+        role,
+        redirectTo: appAuthRedirectUrl(),
+      },
     });
-    if (error) throw rpcError("メンバーを招待", error);
+    if (error) throw await functionError(error);
     const result = asRecord(unwrapRpcValue(data));
     const record = asRecord(result?.invitation) ?? result;
     const returnedRole = normalizeRole(record?.role ?? role);
@@ -646,6 +708,7 @@ export class ProductionRepository {
       email: readString(record, "email") ?? email.trim().toLowerCase(),
       role: returnedRole === "owner" ? role : returnedRole,
       expiresAt: readString(record, "expires_at", "expiresAt"),
+      authInvite: result?.authInvite === "existing" ? "existing" : "sent",
     };
   }
 

@@ -33,6 +33,7 @@ describe("password recovery callback helpers", () => {
   it("detects recovery callback parameters before the session is ready", () => {
     expect(hasAuthCallbackParams("?code=pkce-code", "")).toBe(true);
     expect(hasAuthCallbackParams("", "#type=recovery&access_token=token")).toBe(true);
+    expect(hasAuthCallbackParams("?type=invite&code=pkce-code", "")).toBe(true);
     expect(hasAuthCallbackParams("?invitation=abc", "")).toBe(false);
   });
 });

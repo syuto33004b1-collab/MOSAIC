@@ -85,6 +85,73 @@ describe("OperationsPanel invitation administration", () => {
 
     expect(await screen.findByRole("option", { name: /admin/ })).toBeInTheDocument();
   });
+
+  it("sends an invite email from the operations form", async () => {
+    const user = userEvent.setup();
+    const repository = {
+      listOrganizationMembers: vi.fn().mockResolvedValue([]),
+      listAuditEvents: vi.fn().mockResolvedValue({ events: [], nextBefore: undefined }),
+      listOrganizationInvitations: vi.fn().mockResolvedValue([]),
+      inviteMember: vi.fn().mockResolvedValue({
+        email: "new.member@example.jp",
+        role: "planner",
+        authInvite: "sent",
+      }),
+    } as unknown as ProductionRepository;
+
+    render(
+      <OperationsPanel
+        currentUserId="00000000-0000-4000-8000-000000000001"
+        currentOrganization={organization}
+        organizations={[organization]}
+        repository={repository}
+        onClose={vi.fn()}
+        onSelectOrganization={vi.fn()}
+      />,
+    );
+
+    await user.type(await screen.findByLabelText("メールアドレス"), "new.member@example.jp");
+    await user.click(screen.getByRole("button", { name: "招待メールを送る" }));
+
+    await waitFor(() => expect(repository.inviteMember).toHaveBeenCalledWith(organization.id, "new.member@example.jp", "planner"));
+    expect(await screen.findByRole("status")).toHaveTextContent("招待メールを送りました");
+  });
+
+  it("resends a pending invitation with the same email and role", async () => {
+    const user = userEvent.setup();
+    const invitation: OrganizationInvitation = {
+      id: "00000000-0000-4000-8000-000000000010",
+      organizationId: organization.id,
+      email: "new.member@example.jp",
+      role: "planner",
+      status: "pending",
+      expiresAt: "2026-08-24T10:00:00Z",
+    };
+    const repository = {
+      ...repositoryWithInvitation(invitation),
+      inviteMember: vi.fn().mockResolvedValue({
+        email: invitation.email,
+        role: invitation.role,
+        authInvite: "existing",
+      }),
+    } as unknown as ProductionRepository;
+
+    render(
+      <OperationsPanel
+        currentUserId="00000000-0000-4000-8000-000000000001"
+        currentOrganization={organization}
+        organizations={[organization]}
+        repository={repository}
+        onClose={vi.fn()}
+        onSelectOrganization={vi.fn()}
+      />,
+    );
+
+    await user.click(await screen.findByRole("button", { name: /再送/ }));
+
+    await waitFor(() => expect(repository.inviteMember).toHaveBeenCalledWith(organization.id, invitation.email, invitation.role));
+    expect(await screen.findByRole("status")).toHaveTextContent("すでにアカウントがあるため");
+  });
 });
 
 describe("OperationsPanel keyboard navigation", () => {

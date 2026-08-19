@@ -106,6 +106,7 @@ export type InvitationResult = {
   email: string;
   role: Exclude<OrganizationRole, "owner">;
   expiresAt?: string;
+  authInvite?: "sent" | "existing";
 };
 
 export type OrganizationInvitation = {

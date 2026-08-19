@@ -100,3 +100,15 @@ test("audits skill links and rejects dangling workspace references", async () =>
   const commitLedgerWrite = sql.indexOf("insert into app.workspace_commits", finalIntegrityCheck);
   assert.ok(finalIntegrityCheck > 0 && commitLedgerWrite > finalIntegrityCheck, "final integrity checks must precede the commit ledger write");
 });
+
+test("lets authenticated users update only their own display name", async () => {
+  const sql = await readFile(path.join(migrations, "20260819034515_update_my_profile.sql"), "utf8");
+  assert.match(sql, /create or replace function public\.update_my_profile\(p_display_name text\)/);
+  assert.match(sql, /security definer/);
+  assert.match(sql, /v_user_id uuid := auth\.uid\(\)/);
+  assert.match(sql, /where profile\.id = v_user_id/);
+  assert.match(sql, /revoke all on function public\.update_my_profile\(text\) from public, anon, authenticated/);
+  assert.match(sql, /grant execute on function public\.update_my_profile\(text\) to authenticated/);
+  assert.doesNotMatch(sql, /grant execute on function public\.update_my_profile\(text\) to anon/);
+  assert.doesNotMatch(sql, /grant execute on function public\.update_my_profile\(text\) to public/);
+});
