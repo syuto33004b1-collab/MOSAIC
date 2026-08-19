@@ -647,7 +647,7 @@ export function readWorkspaceTool(snapshot, name, args) {
           const peakAllocation = memberPeakLoad(state, member.id, filters.startDate, filters.endDate);
           return { peakAllocation, availablePercent: Math.max(0, Number(member.capacity) - peakAllocation) };
         })() : {};
-        return { id: member.id, name: member.name, role: member.role, department: member.department, location: member.location, skills: member.skills ?? [], skillLevels: member.skillLevels ?? [], capacity: Number(member.capacity), ...availability };
+        return { id: member.id, name: member.name, role: member.role, department: member.department, location: member.location, skills: member.skills ?? [], ...(Array.isArray(member.skillLevels) && member.skillLevels.length ? { skillLevels: member.skillLevels } : {}), capacity: Number(member.capacity), ...availability };
       })
       .filter((member) => filters.minAvailablePercent === undefined || member.availablePercent >= filters.minAvailablePercent);
     return { resource: filters.resource, revision: state.revision, ...bounded(values, filters.limit) };
@@ -679,7 +679,7 @@ export function readWorkspaceTool(snapshot, name, args) {
     .filter((need) => !filters.statuses?.length || filters.statuses.includes(need.status))
     .filter((need) => includesSkills(need.skills, filters.skills))
     .filter((need) => overlaps(need, filters.startDate, filters.endDate))
-    .map((need) => ({ id: need.id, projectId: need.projectId, projectName: projects.get(need.projectId)?.name ?? null, role: need.role, skills: need.skills ?? [], skillRequirements: need.skillRequirements ?? [], startDate: need.startDate, endDate: need.endDate, allocation: Number(need.allocation), status: need.status, draftPersonId: need.draftPersonId ?? null, draftPersonName: members.get(need.draftPersonId)?.name ?? null }));
+    .map((need) => ({ id: need.id, projectId: need.projectId, projectName: projects.get(need.projectId)?.name ?? null, role: need.role, skills: need.skills ?? [], ...(Array.isArray(need.skillRequirements) && need.skillRequirements.length ? { skillRequirements: need.skillRequirements } : {}), startDate: need.startDate, endDate: need.endDate, allocation: Number(need.allocation), status: need.status, draftPersonId: need.draftPersonId ?? null, draftPersonName: members.get(need.draftPersonId)?.name ?? null }));
   return { resource: filters.resource, revision: state.revision, ...bounded(values, filters.limit) };
 }
 
