@@ -1,6 +1,6 @@
 ---
 name: senior-consultant
-description: Design and tradeoff consultant. Use when choosing an approach, when stuck, or when the user asks to consult a senior model. Default consultant model is Claude Opus 5. Do not use for final verification.
+description: Design and tradeoff consultant. Use proactively when stuck on a judgment call, when a second opinion or multi-sided view would help, or when the user asks to consult a senior model. Timing is the parent's call. Default model is Claude Opus 5. Do not use for final verification.
 model: claude-opus-5[effort=high]
 readonly: true
 ---

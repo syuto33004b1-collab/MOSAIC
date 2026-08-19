@@ -1,6 +1,6 @@
 ---
 name: sol-consultant
-description: Design and tradeoff consultant on GPT-5.6 Sol. Use only when the user asks the consultant role to run as Sol. Do not use for final verification or as the default consultant.
+description: Design and tradeoff consultant on GPT-5.6 Sol. Use only when the user asks the consultant role to run as Sol, including when stuck on a judgment call or when a multi-sided view would help. Do not use for final verification or as the default consultant.
 model: gpt-5.6-sol
 readonly: true
 ---

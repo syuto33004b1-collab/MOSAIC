@@ -1,6 +1,6 @@
 ---
 name: senior-evaluator
-description: Independent evaluator of claimed work. Use when implementation is about to be marked done, before merge, or when the user asks for a senior-model review. Default evaluator model is GPT-5.6 Sol. Do not use for open-ended design chat.
+description: Independent evaluator of claimed work. Always use once before opening a pull request. Use when spec drift or missing tests are suspected, or the user asks for a senior-model review. Default model is GPT-5.6 Sol. Do not use for design chat or a second review after applying the first evaluation.
 model: gpt-5.6-sol
 readonly: true
 ---
