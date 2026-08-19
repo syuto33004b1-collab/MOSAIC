@@ -167,8 +167,8 @@ function plannerOptions(toolName, args, overrides = {}) {
 }
 
 test("declares the allowlisted Gemini Interactions workspace tools and detects current function_call steps", () => {
-  assert.equal(WORKSPACE_TOOL_DECLARATIONS.length, 21);
-  assert.equal(new Set(WORKSPACE_TOOL_DECLARATIONS.map((tool) => tool.name)).size, 21);
+  assert.equal(WORKSPACE_TOOL_DECLARATIONS.length, 25);
+  assert.equal(new Set(WORKSPACE_TOOL_DECLARATIONS.map((tool) => tool.name)).size, 25);
   assert.ok(WORKSPACE_TOOL_DECLARATIONS.every((tool) => tool.type === "function" && tool.parameters.additionalProperties === false));
   assert.deepEqual(detectWorkspaceFunctionCalls({
     steps: [
@@ -636,4 +636,40 @@ test("converts an active opportunity into a project and open needs without assig
     })),
     (error) => error.code === "OPPORTUNITY_NOT_CONVERTIBLE",
   );
+});
+
+test("reads organization units and plans admin-only hierarchy changes", async () => {
+  const engineering = "71000000-0000-4000-8000-000000000001";
+  const product = "71000000-0000-4000-8000-000000000002";
+  const orgSnapshot = {
+    ...snapshot(),
+    orgUnits: [
+      { id: engineering, name: "開発本部", sortOrder: 10 },
+      { id: product, name: "プロダクト開発", parentId: engineering, sortOrder: 10 },
+    ],
+    orgMemberships: [
+      { id: "72000000-0000-4000-8000-000000000001", personId: ids.alice, orgUnitId: product, isPrimary: true, isManager: true },
+    ],
+  };
+  const units = readWorkspaceTool(orgSnapshot, "read_workspace", { resource: "org_units", query: "プロダクト" });
+  assert.equal(units.total, 1);
+  assert.equal(units.items[0].primaryMemberCount, 1);
+  const memberships = readWorkspaceTool(orgSnapshot, "read_workspace", { resource: "org_memberships", personId: ids.alice });
+  assert.equal(memberships.items[0].isPrimary, true);
+
+  await assert.rejects(
+    () => planWorkspaceAction(plannerOptions("create_org_unit", { name: "品質保証" }, { snapshot: orgSnapshot })),
+    (error) => error.code === "FORBIDDEN",
+  );
+  const plan = await planWorkspaceAction(plannerOptions("create_org_unit", { name: "品質保証", parentId: engineering }, { role: "admin", snapshot: orgSnapshot }));
+  assert.equal(plan.payload.orgUnits.upsert[0].name, "品質保証");
+  assert.equal(plan.payload.orgUnits.upsert[0].parentId, engineering);
+
+  const assigned = await planWorkspaceAction(plannerOptions("set_member_org_memberships", {
+    memberId: ids.bob,
+    primaryUnitId: product,
+    managerUnitIds: [product],
+  }, { role: "admin", snapshot: orgSnapshot }));
+  assert.equal(assigned.payload.orgMemberships.upsert[0].personId, ids.bob);
+  assert.equal(assigned.payload.orgMemberships.upsert[0].isPrimary, true);
 });

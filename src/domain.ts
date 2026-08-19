@@ -67,6 +67,31 @@ export type WorkHistoryEntry = {
   description?: string;
 };
 
+export type OrgUnit = {
+  id: string;
+  name: string;
+  parentId?: string | null;
+  sortOrder?: number;
+};
+
+export type OrgMembership = {
+  id: string;
+  personId: string;
+  orgUnitId: string;
+  isPrimary: boolean;
+  isManager: boolean;
+};
+
+export type OrgUnitLoadRow = {
+  id: string;
+  name: string;
+  path: string[];
+  depth: number;
+  count: number;
+  average: number;
+  managers: string[];
+};
+
 export const PROFICIENCY_LABELS: Record<SkillProficiency, string> = {
   1: "初級",
   2: "基礎",
@@ -183,6 +208,8 @@ export type WorkspaceState = {
   customFields?: CustomFieldDefinition[];
   opportunities?: Opportunity[];
   opportunityNeeds?: OpportunityNeed[];
+  orgUnits?: OrgUnit[];
+  orgMemberships?: OrgMembership[];
 };
 
 export type WeekDay = {
@@ -210,6 +237,31 @@ const customFields: CustomFieldDefinition[] = [
   { id: "field-english", entityType: "member", key: "english", label: "英語", fieldType: "select", options: ["不要", "日常会話", "ビジネス", "ネイティブ"], showInList: true, showInDetail: true, searchable: true, sortOrder: 30 },
   { id: "field-client", entityType: "project", key: "client_name", label: "顧客名", fieldType: "text", showInList: true, showInDetail: true, searchable: true, sortOrder: 10 },
   { id: "field-contract", entityType: "project", key: "contract_type", label: "契約形態", fieldType: "select", options: ["準委任", "請負", "派遣"], showInDetail: true, searchable: true, sortOrder: 20 },
+];
+
+const orgUnits: OrgUnit[] = [
+  { id: "org-engineering", name: "開発本部", sortOrder: 10 },
+  { id: "org-product", name: "プロダクト開発", parentId: "org-engineering", sortOrder: 10 },
+  { id: "org-platform", name: "プラットフォーム", parentId: "org-engineering", sortOrder: 20 },
+  { id: "org-quality", name: "品質保証", parentId: "org-engineering", sortOrder: 30 },
+  { id: "org-design-div", name: "デザイン本部", sortOrder: 20 },
+  { id: "org-design", name: "デザイン", parentId: "org-design-div", sortOrder: 10 },
+  { id: "org-corporate", name: "コーポレート", sortOrder: 30 },
+  { id: "org-business", name: "事業推進", parentId: "org-corporate", sortOrder: 10 },
+  { id: "org-data", name: "データ戦略", parentId: "org-corporate", sortOrder: 20 },
+];
+
+const orgMemberships: OrgMembership[] = [
+  { id: "om-saeki-design", personId: "saeki", orgUnitId: "org-design", isPrimary: true, isManager: true },
+  { id: "om-saeki-product", personId: "saeki", orgUnitId: "org-product", isPrimary: false, isManager: false },
+  { id: "om-nakamura", personId: "nakamura", orgUnitId: "org-product", isPrimary: true, isManager: true },
+  { id: "om-suzuki", personId: "suzuki", orgUnitId: "org-platform", isPrimary: true, isManager: true },
+  { id: "om-hayashi", personId: "hayashi", orgUnitId: "org-business", isPrimary: true, isManager: true },
+  { id: "om-matsumoto", personId: "matsumoto", orgUnitId: "org-quality", isPrimary: true, isManager: false },
+  { id: "om-ito", personId: "ito", orgUnitId: "org-data", isPrimary: true, isManager: true },
+  { id: "om-morita", personId: "morita", orgUnitId: "org-design", isPrimary: true, isManager: false },
+  { id: "om-takahashi", personId: "takahashi", orgUnitId: "org-product", isPrimary: true, isManager: false },
+  { id: "om-okada", personId: "okada", orgUnitId: "org-quality", isPrimary: true, isManager: true },
 ];
 
 const skillCatalog: SkillDefinition[] = [
@@ -306,7 +358,7 @@ const opportunityNeeds: OpportunityNeed[] = [
   { id: "opp-need-ledger-be", opportunityId: "opp-ledger", role: "Backend Engineer", skills: ["AWS", "API"], skillRequirements: [{ name: "AWS", minProficiency: 4 }, { name: "API", minProficiency: 3 }], startDate: "2026-08-24", endDate: "2026-11-20", allocation: 40 },
 ];
 
-export const initialWorkspace: WorkspaceState = { members, projects, assignments, needs, skillCatalog, customFields, opportunities, opportunityNeeds };
+export const initialWorkspace: WorkspaceState = { members, projects, assignments, needs, skillCatalog, customFields, opportunities, opportunityNeeds, orgUnits, orgMemberships };
 
 function isoDate(date: Date) {
   return date.toISOString().slice(0, 10);
@@ -579,7 +631,7 @@ export function inferSkillCatalog(state: Pick<WorkspaceState, "members" | "needs
 
 export function hydrateWorkspaceSkills(state: WorkspaceState): WorkspaceState {
   const skillCatalog = inferSkillCatalog(state);
-  return {
+  return hydrateWorkspaceOrg({
     ...state,
     skillCatalog,
     members: state.members.map((member) => {
@@ -594,7 +646,7 @@ export function hydrateWorkspaceSkills(state: WorkspaceState): WorkspaceState {
       const skillRequirements = needSkillRequirements(need);
       return { ...need, skillRequirements, skills: skillRequirements.map((requirement) => requirement.name) };
     }),
-  };
+  });
 }
 
 export function skillCatalogTree(catalog: SkillDefinition[]): SkillDefinition[] {
@@ -923,12 +975,12 @@ export function entitySearchText(
   return [...extra, ...searchable, ...history].join(" ").toLocaleLowerCase();
 }
 
-export function memberSearchText(state: Pick<WorkspaceState, "customFields">, member: Member) {
+export function memberSearchText(state: Pick<WorkspaceState, "customFields" | "orgUnits" | "orgMemberships">, member: Member) {
   return entitySearchText(
     state.customFields,
     "member",
     member.customValues,
-    [member.name, member.role, member.department, member.location, ...(member.skills ?? [])],
+    [member.name, member.role, member.department, member.location, ...(member.skills ?? []), ...memberOrgSearchLabels(state, member.id)],
     member.workHistory,
   );
 }
@@ -1024,5 +1076,225 @@ export function convertOpportunityToProject(
     opportunities: (state.opportunities ?? []).map((item) => item.id === opportunity.id
       ? { ...item, stage: "won", convertedProjectId: projectId }
       : item),
+  });
+}
+
+function orgNameKey(name: string) {
+  return name.trim().toLocaleLowerCase();
+}
+
+export function orgUnitById(units: OrgUnit[] | undefined, id: string) {
+  return (units ?? []).find((unit) => unit.id === id);
+}
+
+export function orgUnitPath(units: OrgUnit[] | undefined, id: string) {
+  const byId = new Map((units ?? []).map((unit) => [unit.id, unit]));
+  const path: string[] = [];
+  const seen = new Set<string>();
+  let current = byId.get(id);
+  while (current) {
+    if (seen.has(current.id)) throw new Error("組織階層に循環があります");
+    seen.add(current.id);
+    path.unshift(current.name);
+    current = current.parentId ? byId.get(current.parentId) : undefined;
+  }
+  return path;
+}
+
+export function orgUnitTree(units: OrgUnit[] | undefined) {
+  const catalog = units ?? [];
+  const byParent = new Map<string | null, OrgUnit[]>();
+  catalog.forEach((item) => {
+    const parentId = item.parentId ?? null;
+    const siblings = byParent.get(parentId) ?? [];
+    siblings.push(item);
+    byParent.set(parentId, siblings);
+  });
+  byParent.forEach((siblings) => siblings.sort((left, right) => (left.sortOrder ?? 0) - (right.sortOrder ?? 0) || left.name.localeCompare(right.name, "ja")));
+  const ordered: OrgUnit[] = [];
+  const walk = (parentId: string | null) => {
+    (byParent.get(parentId) ?? []).forEach((item) => {
+      ordered.push(item);
+      walk(item.id);
+    });
+  };
+  walk(null);
+  catalog.forEach((item) => {
+    if (!ordered.some((candidate) => candidate.id === item.id)) ordered.push(item);
+  });
+  return ordered;
+}
+
+export function orgUnitDescendantIds(units: OrgUnit[] | undefined, id: string) {
+  const ids = new Set<string>();
+  const children = new Map<string | null, string[]>();
+  (units ?? []).forEach((unit) => {
+    const parentId = unit.parentId ?? null;
+    children.set(parentId, [...(children.get(parentId) ?? []), unit.id]);
+  });
+  const walk = (unitId: string) => {
+    if (ids.has(unitId)) return;
+    ids.add(unitId);
+    (children.get(unitId) ?? []).forEach(walk);
+  };
+  walk(id);
+  return ids;
+}
+
+export function assertOrgUnitAcyclic(units: OrgUnit[]) {
+  units.forEach((unit) => {
+    orgUnitPath(units, unit.id);
+    if (unit.parentId === unit.id) throw new Error("組織階層に循環があります");
+    if (unit.parentId && orgUnitDescendantIds(units, unit.id).has(unit.parentId) && unit.parentId !== unit.id) {
+      throw new Error("組織階層に循環があります");
+    }
+  });
+}
+
+export function addOrgUnit(units: OrgUnit[], input: { name: string; parentId?: string | null; id?: string }) {
+  const name = input.name.trim();
+  if (!name || name.length > 80) throw new Error("部門名は1〜80文字で入力してください");
+  if (units.some((unit) => orgNameKey(unit.name) === orgNameKey(name))) throw new Error("同じ名前の部門がすでにあります");
+  const parentId = input.parentId || null;
+  if (parentId && !units.some((unit) => unit.id === parentId)) throw new Error("親部門が見つかりません");
+  const next = [
+    ...units,
+    {
+      id: input.id ?? (typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `org:${orgNameKey(name)}`),
+      name,
+      parentId,
+      sortOrder: units.length + 1,
+    },
+  ];
+  assertOrgUnitAcyclic(next);
+  return next;
+}
+
+export function moveOrgUnit(units: OrgUnit[], id: string, parentId: string | null) {
+  const current = units.find((unit) => unit.id === id);
+  if (!current) throw new Error("部門が見つかりません");
+  if (parentId && !units.some((unit) => unit.id === parentId)) throw new Error("親部門が見つかりません");
+  if (parentId === id || (parentId && orgUnitDescendantIds(units, id).has(parentId))) throw new Error("部門を自分の配下へは移せません");
+  const next = units.map((unit) => unit.id === id ? { ...unit, parentId } : unit);
+  assertOrgUnitAcyclic(next);
+  return next;
+}
+
+export function archiveOrgUnit(state: WorkspaceState, id: string): WorkspaceState {
+  const unit = orgUnitById(state.orgUnits, id);
+  if (!unit) throw new Error("部門が見つかりません");
+  if ((state.orgUnits ?? []).some((item) => item.parentId === id)) throw new Error("配下の部門を先に移すか削除してください");
+  if ((state.orgMemberships ?? []).some((item) => item.orgUnitId === id)) throw new Error("所属メンバーを先に別部門へ移してください");
+  return {
+    ...state,
+    orgUnits: (state.orgUnits ?? []).filter((item) => item.id !== id),
+  };
+}
+
+export function memberOrgMemberships(state: Pick<WorkspaceState, "orgMemberships">, personId: string) {
+  return (state.orgMemberships ?? []).filter((item) => item.personId === personId);
+}
+
+export function memberPrimaryOrgUnit(state: Pick<WorkspaceState, "orgUnits" | "orgMemberships">, personId: string) {
+  const primary = memberOrgMemberships(state, personId).find((item) => item.isPrimary);
+  return primary ? orgUnitById(state.orgUnits, primary.orgUnitId) : undefined;
+}
+
+export function memberOrgSearchLabels(state: Pick<WorkspaceState, "orgUnits" | "orgMemberships">, personId: string) {
+  return memberOrgMemberships(state, personId).flatMap((item) => orgUnitPath(state.orgUnits, item.orgUnitId));
+}
+
+export function membersInOrgSubtree(
+  state: Pick<WorkspaceState, "members" | "orgUnits" | "orgMemberships">,
+  unitId: string,
+  mode: "primary" | "any" = "any",
+) {
+  const ids = orgUnitDescendantIds(state.orgUnits, unitId);
+  const personIds = new Set(
+    (state.orgMemberships ?? [])
+      .filter((item) => ids.has(item.orgUnitId) && (mode === "any" || item.isPrimary))
+      .map((item) => item.personId),
+  );
+  return state.members.filter((member) => personIds.has(member.id));
+}
+
+export function orgManagers(state: Pick<WorkspaceState, "members" | "orgMemberships">, unitId: string) {
+  const managerIds = new Set((state.orgMemberships ?? []).filter((item) => item.orgUnitId === unitId && item.isManager).map((item) => item.personId));
+  return state.members.filter((member) => managerIds.has(member.id));
+}
+
+export function setMemberOrgMemberships(
+  state: WorkspaceState,
+  personId: string,
+  input: { primaryUnitId?: string | null; extraUnitIds?: string[]; managerUnitIds?: string[] },
+): WorkspaceState {
+  if (!state.members.some((member) => member.id === personId)) throw new Error("メンバーが見つかりません");
+  const units = state.orgUnits ?? [];
+  const extra = [...new Set(input.extraUnitIds ?? [])].filter((id) => id && id !== input.primaryUnitId);
+  const managerIds = new Set(input.managerUnitIds ?? []);
+  const unitIds = [...new Set([input.primaryUnitId, ...extra].filter((id): id is string => Boolean(id)))];
+  unitIds.forEach((id) => {
+    if (!orgUnitById(units, id)) throw new Error("部門が見つかりません");
+  });
+  const remaining = (state.orgMemberships ?? []).filter((item) => item.personId !== personId);
+  const nextMemberships: OrgMembership[] = [
+    ...remaining,
+    ...unitIds.map((orgUnitId, index) => ({
+      id: memberOrgMemberships(state, personId).find((item) => item.orgUnitId === orgUnitId)?.id
+        ?? (typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `om:${personId}:${orgUnitId}:${index}`),
+      personId,
+      orgUnitId,
+      isPrimary: orgUnitId === input.primaryUnitId,
+      isManager: managerIds.has(orgUnitId),
+    })),
+  ];
+  if (nextMemberships.filter((item) => item.personId === personId && item.isPrimary).length > 1) {
+    throw new Error("主所属は1つだけ設定できます");
+  }
+  return hydrateWorkspaceOrg({ ...state, orgMemberships: nextMemberships });
+}
+
+export function hydrateWorkspaceOrg(state: WorkspaceState): WorkspaceState {
+  const units = state.orgUnits ?? [];
+  const members = state.members;
+  const memberIds = new Set(members.map((member) => member.id));
+  const unitIds = new Set(units.map((unit) => unit.id));
+  if (units.length) assertOrgUnitAcyclic(units);
+  const seenPrimary = new Set<string>();
+  const orgMemberships = (state.orgMemberships ?? [])
+    .filter((item) => memberIds.has(item.personId) && unitIds.has(item.orgUnitId))
+    .map((item) => {
+      if (!item.isPrimary) return item;
+      if (seenPrimary.has(item.personId)) return { ...item, isPrimary: false };
+      seenPrimary.add(item.personId);
+      return item;
+    });
+  return {
+    ...state,
+    orgUnits: units,
+    orgMemberships,
+    members: members.map((member) => {
+      const primary = orgMemberships.find((item) => item.personId === member.id && item.isPrimary);
+      const unit = primary ? orgUnitById(units, primary.orgUnitId) : undefined;
+      return unit ? { ...member, department: unit.name } : member;
+    }),
+  };
+}
+
+export function orgUnitLoadRows(state: WorkspaceState, weekStart: string): OrgUnitLoadRow[] {
+  const weekClose = addDays(weekStart, 4);
+  return orgUnitTree(state.orgUnits).map((unit) => {
+    const people = membersInOrgSubtree(state, unit.id, "primary");
+    const capacity = people.reduce((sum, member) => sum + member.capacity, 0) * 5;
+    const load = people.reduce((sum, member) => sum + memberDailyLoads(state, member.id, weekStart, weekClose).reduce((dailySum, day) => dailySum + day.load, 0), 0);
+    return {
+      id: unit.id,
+      name: unit.name,
+      path: orgUnitPath(state.orgUnits, unit.id),
+      depth: Math.max(0, orgUnitPath(state.orgUnits, unit.id).length - 1),
+      count: people.length,
+      average: capacity > 0 ? Math.round(load / capacity * 100) : 0,
+      managers: orgManagers(state, unit.id).map((member) => member.name),
+    };
   });
 }

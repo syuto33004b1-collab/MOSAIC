@@ -4,6 +4,7 @@ import {
   ArrowRight,
   Bell,
   BriefcaseBusiness,
+  Building2,
   CalendarDays,
   ChartNoAxesCombined,
   Check,
@@ -27,13 +28,15 @@ import {
   UsersRound,
   X,
 } from "lucide-react";
-import { CustomFieldFacts, CustomFieldInputs, FieldsView, MembersView, OpportunitiesView, ProjectsView, ReportsView, SkillsView, WorkHistoryEditor, WorkHistoryList } from "./expanded-views";
+import { CustomFieldFacts, CustomFieldInputs, FieldsView, MemberOrgFields, MembersView, OpportunitiesView, OrgFacts, OrgView, ProjectsView, ReportsView, SkillsView, WorkHistoryEditor, WorkHistoryList } from "./expanded-views";
 import { AiChat } from "./components/ai-chat/AiChat";
 import type { ChatTransport } from "./lib/ai/chatClient";
 import {
   addCustomField,
   addDays,
+  addOrgUnit,
   addSkillCatalogEntry,
+  archiveOrgUnit,
   assignmentGrid,
   canConvertOpportunity,
   convertOpportunityToProject,
@@ -51,21 +54,25 @@ import {
   memberDailyLoads,
   memberLoad,
   memberMatchesNeed,
+  memberOrgMemberships,
   memberPeakLoad,
   memberSearchText,
   memberSkillLevels,
+  moveOrgUnit,
   needSkillRequirements,
   normalizeCustomValues,
   normalizeWorkHistory,
   OPPORTUNITY_STAGE_LABELS,
   opportunityById,
   opportunityNeedsFor,
+  orgUnitTree,
   overlaps,
   parseSkillInput,
   projectById,
   projectMembers,
   projectSearchText,
   projectTone,
+  setMemberOrgMemberships,
   visibleCustomFields,
   weekEnd,
   type Assignment,
@@ -126,6 +133,9 @@ type MemberForm = {
   capacity: string;
   customValues: Record<string, string>;
   workHistory: WorkHistoryEntry[];
+  primaryUnitId: string;
+  extraUnitIds: string[];
+  managerUnitIds: string[];
 };
 
 type ProjectEditForm = {
@@ -198,6 +208,7 @@ const navItems = [
   { id: "projects", label: "プロジェクト", icon: FolderKanban },
   { id: "opportunities", label: "受注前", icon: Inbox },
   { id: "members", label: "メンバー", icon: UsersRound },
+  { id: "org", label: "組織", icon: Building2 },
   { id: "skills", label: "スキルマップ", icon: Layers3 },
   { id: "fields", label: "項目定義", icon: SlidersHorizontal },
   { id: "reports", label: "レポート", icon: ChartNoAxesCombined },
@@ -208,6 +219,7 @@ const pageMeta = {
   projects: { eyebrow: "PORTFOLIO CONTROL", title: "プロジェクト・ポートフォリオ", description: "案件ごとの充足と次の節目を横断して管理します。" },
   opportunities: { eyebrow: "PRE-AWARD PIPELINE", title: "受注前案件", description: "引き合いから商談までの要員計画を、確定プロジェクトと分けて検討します。" },
   members: { eyebrow: "TEAM AVAILABILITY", title: "メンバーと空き状況", description: "スキルと4週間の余白から、次の担当者を探します。" },
+  org: { eyebrow: "ORGANIZATION TREE", title: "組織階層", description: "部門の階層、責任者、兼務を管理し、検索とレポートへ使います。" },
   skills: { eyebrow: "SKILL TAXONOMY", title: "スキルマップ", description: "分類、習熟度、不足領域を組織全体で確認します。" },
   fields: { eyebrow: "FIELD DEFINITIONS", title: "項目と経歴", description: "独自項目の配置と、メンバーの業務経歴を管理します。" },
   reports: { eyebrow: "CAPACITY FORECAST", title: "キャパシティ予測", description: "需給の変化と、判断が必要な例外を見通します。" },
@@ -260,6 +272,51 @@ function newId() {
   return crypto.randomUUID();
 }
 
+function emptyMemberForm(state: WorkspaceState): MemberForm {
+  const primaryUnitId = state.orgUnits?.find((unit) => unit.name === "プロダクト開発")?.id
+    ?? orgUnitTree(state.orgUnits)[0]?.id
+    ?? "";
+  return {
+    name: "",
+    role: "Frontend Engineer",
+    department: orgUnitTree(state.orgUnits).find((unit) => unit.id === primaryUnitId)?.name ?? "プロダクト開発",
+    location: "東京",
+    skills: "",
+    capacity: "100",
+    customValues: {},
+    workHistory: [],
+    primaryUnitId,
+    extraUnitIds: [],
+    managerUnitIds: [],
+  };
+}
+
+function memberFormFrom(state: WorkspaceState, member: Member): MemberForm {
+  const memberships = memberOrgMemberships(state, member.id);
+  return {
+    name: member.name,
+    role: member.role,
+    department: member.department,
+    location: member.location,
+    skills: formatSkillInput(memberSkillLevels(member)),
+    capacity: String(member.capacity),
+    customValues: { ...(member.customValues ?? {}) },
+    workHistory: member.workHistory ? member.workHistory.map((entry) => ({ ...entry })) : [],
+    primaryUnitId: memberships.find((item) => item.isPrimary)?.orgUnitId ?? "",
+    extraUnitIds: memberships.filter((item) => !item.isPrimary).map((item) => item.orgUnitId),
+    managerUnitIds: memberships.filter((item) => item.isManager).map((item) => item.orgUnitId),
+  };
+}
+
+function applyMemberOrg(state: WorkspaceState, personId: string, form: MemberForm) {
+  if (!(state.orgUnits ?? []).length) return state;
+  return setMemberOrgMemberships(state, personId, {
+    primaryUnitId: form.primaryUnitId || null,
+    extraUnitIds: form.extraUnitIds,
+    managerUnitIds: form.managerUnitIds,
+  });
+}
+
 export default function Home({ mode = "demo", organizationId, organizationName = "MOSAIC デモ", identity, shared, onSignOut, onOpenOperations, onAccessInvalidated, aiChatTransport }: AppProps) {
   const startingWorkspace = shared?.initialState ?? initialWorkspace;
   const [workspace, setWorkspace] = useState<WorkspaceState>(() => cloneState(startingWorkspace));
@@ -285,8 +342,8 @@ export default function Home({ mode = "demo", organizationId, organizationName =
   const [syncRetryable, setSyncRetryable] = useState(true);
   const [form, setForm] = useState({ personId: startingWorkspace.members[0]?.id ?? "", projectId: startingWorkspace.projects[0]?.id ?? "", startDate: getWeekStart(0), endDate: addDays(getWeekStart(0), 4), allocation: "40" });
   const [projectForm, setProjectForm] = useState({ name: "", status: "準備中" as ProjectStatus, endDate: addDays(getWeekStart(0), 90), ownerId: startingWorkspace.members[0]?.id ?? "" });
-  const [memberForm, setMemberForm] = useState<MemberForm>({ name: "", role: "Frontend Engineer", department: "プロダクト開発", location: "東京", skills: "", capacity: "100", customValues: {}, workHistory: [] });
-  const [memberEditForm, setMemberEditForm] = useState<MemberForm>({ name: "", role: "Frontend Engineer", department: "プロダクト開発", location: "東京", skills: "", capacity: "100", customValues: {}, workHistory: [] });
+  const [memberForm, setMemberForm] = useState<MemberForm>(() => emptyMemberForm(startingWorkspace));
+  const [memberEditForm, setMemberEditForm] = useState<MemberForm>(() => emptyMemberForm(startingWorkspace));
   const [projectEditForm, setProjectEditForm] = useState<ProjectEditForm>({ name: "", summary: "", status: "準備中", ownerId: "", startDate: "", endDate: "", nextMilestone: "", nextMilestoneDate: "", progress: "0", demand: "1", customValues: {} });
   const [needForm, setNeedForm] = useState<NeedForm>({ projectId: startingWorkspace.projects[0]?.id ?? "", role: "Frontend Engineer", skills: "", startDate: getWeekStart(0), endDate: addDays(getWeekStart(0), 4), allocation: "40" });
   const [editingNeedId, setEditingNeedId] = useState<string | null>(null);
@@ -710,16 +767,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
   const openMemberEditor = (member: Member) => {
     if (!canManageMembers) return;
     setSelectedMemberId(member.id);
-    setMemberEditForm({
-      name: member.name,
-      role: member.role,
-      department: member.department,
-      location: member.location,
-      skills: formatSkillInput(memberSkillLevels(member)),
-      capacity: String(member.capacity),
-      customValues: { ...(member.customValues ?? {}) },
-      workHistory: member.workHistory ? member.workHistory.map((entry) => ({ ...entry })) : [],
-    });
+    setMemberEditForm(memberFormFrom(workspace, member));
     setDrawer("editMember");
   };
 
@@ -1183,27 +1231,33 @@ export default function Home({ mode = "demo", organizationId, organizationName =
       setToast(caught instanceof Error ? caught.message : "入力内容を確認してください");
       return;
     }
-    setWorkspace((current) => hydrateWorkspaceSkills({
-      ...current,
-      members: [...current.members, {
-        id,
-        initials: makeInitials(name),
-        name,
-        role: memberForm.role,
-        department: memberForm.department,
-        avatarTone: "lavender",
-        skills: skillLevels.map((level) => level.name),
-        skillLevels,
-        location: memberForm.location,
-        capacity,
-        customValues,
-        workHistory,
-      }],
-    }));
+    const primaryUnit = (workspace.orgUnits ?? []).find((unit) => unit.id === memberForm.primaryUnitId);
+    try {
+      setWorkspace((current) => applyMemberOrg(hydrateWorkspaceSkills({
+        ...current,
+        members: [...current.members, {
+          id,
+          initials: makeInitials(name),
+          name,
+          role: memberForm.role,
+          department: primaryUnit?.name ?? memberForm.department,
+          avatarTone: "lavender",
+          skills: skillLevels.map((level) => level.name),
+          skillLevels,
+          location: memberForm.location,
+          capacity,
+          customValues,
+          workHistory,
+        }],
+      }), id, memberForm));
+    } catch (caught) {
+      setToast(caught instanceof Error ? caught.message : "所属を保存できませんでした");
+      return;
+    }
     setForm((current) => ({ ...current, personId: memberById(workspace, current.personId)?.id ?? id }));
     setProjectForm((current) => ({ ...current, ownerId: memberById(workspace, current.ownerId)?.id ?? id }));
     markUnsaved();
-    setMemberForm({ name: "", role: "Frontend Engineer", department: "プロダクト開発", location: "東京", skills: "", capacity: "100", customValues: {}, workHistory: [] });
+    setMemberForm(emptyMemberForm(workspace));
     closeDrawer();
     setToast("新しいメンバーを追加しました");
   };
@@ -1231,12 +1285,13 @@ export default function Home({ mode = "demo", organizationId, organizationName =
       setToast(caught instanceof Error ? caught.message : "入力内容を確認してください");
       return;
     }
+    const primaryUnit = (workspace.orgUnits ?? []).find((unit) => unit.id === memberEditForm.primaryUnitId);
     const updatedMember: Member = {
       ...selectedMember,
       initials: makeInitials(name),
       name,
       role: memberEditForm.role.trim(),
-      department: memberEditForm.department.trim(),
+      department: primaryUnit?.name ?? memberEditForm.department.trim(),
       location: memberEditForm.location.trim(),
       skills: skillLevels.map((level) => level.name),
       skillLevels,
@@ -1245,7 +1300,13 @@ export default function Home({ mode = "demo", organizationId, organizationName =
       workHistory,
     };
     const members = workspace.members.map((member) => member.id === updatedMember.id ? updatedMember : member);
-    const memberState = hydrateWorkspaceSkills({ ...workspace, members });
+    let memberState: WorkspaceState;
+    try {
+      memberState = applyMemberOrg(hydrateWorkspaceSkills({ ...workspace, members }), updatedMember.id, memberEditForm);
+    } catch (caught) {
+      setToast(caught instanceof Error ? caught.message : "所属を保存できませんでした");
+      return;
+    }
     const reopenedNeedIds = new Set<string>();
     workspace.needs.forEach((need) => {
       if (need.draftPersonId === updatedMember.id && (!memberMatchesNeed(updatedMember, need) || capacity < need.allocation)) {
@@ -1740,6 +1801,29 @@ export default function Home({ mode = "demo", organizationId, organizationName =
     setToast("要員計画を取消予定にしました");
   };
 
+  const handleAddOrgUnit = (input: { name: string; parentId?: string | null }) => {
+    if (!canManageMembers) throw new Error("組織階層を変更する権限がありません");
+    const orgUnits = addOrgUnit(workspace.orgUnits ?? [], input);
+    setWorkspace((current) => ({ ...current, orgUnits }));
+    markUnsaved();
+    setToast("部門を追加しました");
+  };
+
+  const handleMoveOrgUnit = (id: string, parentId: string | null) => {
+    if (!canManageMembers) throw new Error("組織階層を変更する権限がありません");
+    const orgUnits = moveOrgUnit(workspace.orgUnits ?? [], id, parentId);
+    setWorkspace((current) => ({ ...current, orgUnits }));
+    markUnsaved();
+    setToast("部門の所属を更新しました");
+  };
+
+  const handleArchiveOrgUnit = (id: string) => {
+    if (!canManageMembers) throw new Error("組織階層を変更する権限がありません");
+    setWorkspace((current) => archiveOrgUnit(current, id));
+    markUnsaved();
+    setToast("部門を削除しました");
+  };
+
   const primaryAction = () => {
     if (activeNav === "board" && canAddAssignment) openNewAssignment();
     if (activeNav === "projects" && canEdit) setDrawer("newProject");
@@ -1748,6 +1832,9 @@ export default function Home({ mode = "demo", organizationId, organizationName =
     if (activeNav === "skills") {
       const openNeed = workspace.needs.find((need) => need.status !== "filled");
       if (openNeed) openStaffingNeed(openNeed.id);
+    }
+    if (activeNav === "org") {
+      setActiveNav("members");
     }
     if (activeNav === "fields") {
       setActiveNav("members");
@@ -1812,8 +1899,8 @@ export default function Home({ mode = "demo", organizationId, organizationName =
               )}
             </div>
             <button className="primary-button" onClick={primaryAction} disabled={activeNav === "board" ? !canAddAssignment : activeNav === "projects" || activeNav === "opportunities" ? !canEdit : activeNav === "members" ? !canManageMembers : activeNav === "skills" ? workspace.needs.every((need) => need.status === "filled") : false}>
-              {activeNav === "board" && <Plus size={16} />}{activeNav === "projects" && <BriefcaseBusiness size={16} />}{activeNav === "opportunities" && <Inbox size={16} />}{activeNav === "members" && <UserRoundPlus size={16} />}{activeNav === "skills" && <Layers3 size={16} />}{activeNav === "fields" && <UsersRound size={16} />}{activeNav === "reports" && <LayoutDashboard size={16} />}
-              {activeNav === "board" ? "アサインを追加" : activeNav === "projects" ? "プロジェクトを追加" : activeNav === "opportunities" ? "受注前案件を追加" : activeNav === "members" ? "メンバーを追加" : activeNav === "skills" ? "不足ロールを確認" : activeNav === "fields" ? "メンバーを確認" : "ボードで調整"}
+              {activeNav === "board" && <Plus size={16} />}{activeNav === "projects" && <BriefcaseBusiness size={16} />}{activeNav === "opportunities" && <Inbox size={16} />}{activeNav === "members" && <UserRoundPlus size={16} />}{activeNav === "skills" && <Layers3 size={16} />}{(activeNav === "fields" || activeNav === "org") && <UsersRound size={16} />}{activeNav === "reports" && <LayoutDashboard size={16} />}
+              {activeNav === "board" ? "アサインを追加" : activeNav === "projects" ? "プロジェクトを追加" : activeNav === "opportunities" ? "受注前案件を追加" : activeNav === "members" ? "メンバーを追加" : activeNav === "skills" ? "不足ロールを確認" : activeNav === "fields" || activeNav === "org" ? "メンバーを確認" : "ボードで調整"}
             </button>
           </div>
         </header>
@@ -1911,6 +1998,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
         {activeNav === "projects" && <ProjectsView state={workspace} weekOffset={weekOffset} onOpen={openProject} onCreate={() => setDrawer("newProject")} canEdit={canEdit} />}
         {activeNav === "opportunities" && <OpportunitiesView state={workspace} onOpen={openOpportunity} onCreate={() => setDrawer("newOpportunity")} canEdit={canEdit} />}
         {activeNav === "members" && <MembersView state={workspace} weekOffset={weekOffset} onOpen={openMember} onAdd={() => setDrawer("newMember")} onAssign={openAssignmentFor} canEdit={canEdit} canManageMembers={canManageMembers} />}
+        {activeNav === "org" && <OrgView state={workspace} onAddUnit={handleAddOrgUnit} onMoveUnit={handleMoveOrgUnit} onArchiveUnit={handleArchiveOrgUnit} canManage={canManageMembers} />}
         {activeNav === "skills" && <SkillsView state={hydrateWorkspaceSkills(workspace)} onAddCatalogEntry={handleAddCatalogEntry} onOpenMember={openMember} onResolveNeed={openStaffingNeed} canEdit={canEdit} />}
         {activeNav === "fields" && <FieldsView state={workspace} onAddField={handleAddCustomField} canManage={canManageMembers} />}
         {activeNav === "reports" && <ReportsView state={workspace} onOpenWeek={openWeekFromReport} onResolveNeed={openStaffingNeed} onOpenOpportunity={openOpportunity} canEdit={canEdit} />}
@@ -2015,6 +2103,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
               <div className="drawer-content">
                 <div className="profile-hero"><span className={"avatar profile-avatar " + selectedMember.avatarTone}>{selectedMember.initials}</span><div><h2>{selectedMember.name}</h2><p>{selectedMember.role} · {selectedMember.department}</p><small>{selectedMember.location}</small></div><strong>{memberLoad(workspace, selectedMember.id, weekStart)}%</strong></div>
                 <div className="profile-skills">{memberSkillLevels(selectedMember).map((level) => <span key={level.name}>{level.name}<small>{level.proficiency}</small></span>)}</div>
+                <OrgFacts state={workspace} personId={selectedMember.id} />
                 <CustomFieldFacts fields={visibleCustomFields(workspace.customFields, "member", "detail")} values={selectedMember.customValues} />
                 <div className="drawer-section-title"><span>業務経歴</span><small>{(selectedMember.workHistory ?? []).length}件</small></div>
                 <WorkHistoryList entries={selectedMember.workHistory} />
@@ -2033,7 +2122,16 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                 <label>氏名<input required value={memberEditForm.name} onChange={(event) => setMemberEditForm({ ...memberEditForm, name: event.target.value })} /></label>
                 <label>職種<input required value={memberEditForm.role} onChange={(event) => setMemberEditForm({ ...memberEditForm, role: event.target.value })} /></label>
                 <label>スキル（カンマ区切り）<input value={memberEditForm.skills} onChange={(event) => setMemberEditForm({ ...memberEditForm, skills: event.target.value })} placeholder="React:4, TypeScript:3, A11y" /></label>
-                <div className="form-grid"><label>部署<input required value={memberEditForm.department} onChange={(event) => setMemberEditForm({ ...memberEditForm, department: event.target.value })} /></label><label>勤務地<input required value={memberEditForm.location} onChange={(event) => setMemberEditForm({ ...memberEditForm, location: event.target.value })} /></label></div>
+                {(workspace.orgUnits ?? []).length > 0
+                  ? <MemberOrgFields
+                      units={workspace.orgUnits ?? []}
+                      primaryUnitId={memberEditForm.primaryUnitId}
+                      extraUnitIds={memberEditForm.extraUnitIds}
+                      managerUnitIds={memberEditForm.managerUnitIds}
+                      onChange={(org) => setMemberEditForm({ ...memberEditForm, ...org, department: (workspace.orgUnits ?? []).find((unit) => unit.id === org.primaryUnitId)?.name ?? memberEditForm.department })}
+                    />
+                  : <div className="form-grid"><label>部署<input required value={memberEditForm.department} onChange={(event) => setMemberEditForm({ ...memberEditForm, department: event.target.value })} /></label><label>勤務地<input required value={memberEditForm.location} onChange={(event) => setMemberEditForm({ ...memberEditForm, location: event.target.value })} /></label></div>}
+                {(workspace.orgUnits ?? []).length > 0 && <label>勤務地<input required value={memberEditForm.location} onChange={(event) => setMemberEditForm({ ...memberEditForm, location: event.target.value })} /></label>}
                 <label>稼働上限（%）<input required type="number" min="0" max="100" step="1" value={memberEditForm.capacity} onChange={(event) => setMemberEditForm({ ...memberEditForm, capacity: event.target.value })} /></label>
                 <CustomFieldInputs fields={visibleCustomFields(workspace.customFields, "member", "detail")} values={memberEditForm.customValues} onChange={(customValues) => setMemberEditForm({ ...memberEditForm, customValues })} />
                 <WorkHistoryEditor entries={memberEditForm.workHistory} onChange={(workHistory) => setMemberEditForm({ ...memberEditForm, workHistory })} />
@@ -2186,7 +2284,16 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                 <div className="drawer-heading"><span className="drawer-icon mint"><UserRoundPlus size={19} /></span><div><h2>メンバーを追加</h2><p>職種と所属を登録します。</p></div></div>
                 <label>氏名<input required value={memberForm.name} onChange={(event) => setMemberForm({ ...memberForm, name: event.target.value })} placeholder="例：山田 花子" /></label>
                 <label htmlFor="member-new-role">職種<select id="member-new-role" aria-label="職種" value={memberForm.role} onChange={(event) => setMemberForm({ ...memberForm, role: event.target.value })}>{["Frontend Engineer", "Backend Engineer", "QA Engineer", "Product Designer", "Project Manager", "Data Analyst"].map((role) => <option key={role}>{role}</option>)}</select></label>
-                <label htmlFor="member-new-department">部署<select id="member-new-department" aria-label="部署" value={memberForm.department} onChange={(event) => setMemberForm({ ...memberForm, department: event.target.value })}>{["プロダクト開発", "プラットフォーム", "品質保証", "デザイン", "事業推進", "データ戦略"].map((department) => <option key={department}>{department}</option>)}</select></label>
+                {(workspace.orgUnits ?? []).length === 0 && (
+                  <label htmlFor="member-new-department">部署<select id="member-new-department" aria-label="部署" value={memberForm.department} onChange={(event) => setMemberForm({ ...memberForm, department: event.target.value })}>{["プロダクト開発", "プラットフォーム", "品質保証", "デザイン", "事業推進", "データ戦略"].map((department) => <option key={department}>{department}</option>)}</select></label>
+                )}
+                <MemberOrgFields
+                  units={workspace.orgUnits ?? []}
+                  primaryUnitId={memberForm.primaryUnitId}
+                  extraUnitIds={memberForm.extraUnitIds}
+                  managerUnitIds={memberForm.managerUnitIds}
+                  onChange={(org) => setMemberForm({ ...memberForm, ...org, department: (workspace.orgUnits ?? []).find((unit) => unit.id === org.primaryUnitId)?.name ?? memberForm.department })}
+                />
                 <label htmlFor="member-new-location">勤務地<select id="member-new-location" aria-label="勤務地" value={memberForm.location} onChange={(event) => setMemberForm({ ...memberForm, location: event.target.value })}>{["東京", "大阪", "福岡", "リモート"].map((location) => <option key={location}>{location}</option>)}</select></label>
                 <label>スキル（カンマ区切り）<input value={memberForm.skills} onChange={(event) => setMemberForm({ ...memberForm, skills: event.target.value })} placeholder="React:4, TypeScript:3, A11y" /></label>
                 <label>稼働上限（%）<input required type="number" min="0" max="100" step="1" value={memberForm.capacity} onChange={(event) => setMemberForm({ ...memberForm, capacity: event.target.value })} /></label>

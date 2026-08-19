@@ -103,6 +103,8 @@ export type SaveWorkspacePayload = {
   customFields?: { upsert: NonNullable<WorkspaceState["customFields"]>; archiveIds: string[] };
   opportunities?: { upsert: NonNullable<WorkspaceState["opportunities"]>; archiveIds: string[] };
   opportunityNeeds?: { upsert: NonNullable<WorkspaceState["opportunityNeeds"]>; cancelIds: string[] };
+  orgUnits?: { upsert: NonNullable<WorkspaceState["orgUnits"]>; archiveIds: string[] };
+  orgMemberships?: { upsert: NonNullable<WorkspaceState["orgMemberships"]>; archiveIds: string[] };
 };
 
 export type InvitationResult = {

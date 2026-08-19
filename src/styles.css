@@ -3593,7 +3593,8 @@ h1 {
   .ai-chat-proposal-actions button svg { animation: none !important; }
 }
 
-.skills-view .skill-catalog-form {
+.skills-view .skill-catalog-form,
+.org-view .org-catalog-form {
   margin: 0 0 14px;
   padding: 14px 16px;
   border: 1px solid #dfe4ed;
@@ -3604,6 +3605,24 @@ h1 {
   gap: 10px;
   align-items: end;
 }
+.org-view .org-catalog-form {
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1.4fr) auto;
+}
+.org-view .skill-map-table select {
+  max-width: 180px;
+  height: 32px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f7f9fc;
+  font: inherit;
+}
+.member-org-fields,
+.org-flag-set { display: grid; gap: 8px; }
+.org-flag-set { border: 1px solid #e6eaf2; border-radius: 12px; padding: 10px 12px; }
+.org-flag-set legend { color: #7b8496; font-size: 8px; font-weight: 700; }
+.org-flag-set .field-flag { display: flex; align-items: center; gap: 8px; font-size: 11px; }
+.org-flag-empty { margin: 0; color: #939bb0; font-size: 10px; }
 .skill-catalog-form label { display: grid; gap: 5px; color: #7b8496; font-size: 8px; font-weight: 700; }
 .skill-catalog-form input,
 .skill-catalog-form select {

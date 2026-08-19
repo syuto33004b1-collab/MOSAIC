@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import {
   ArrowRight,
   BriefcaseBusiness,
+  Building2,
   CalendarClock,
   ChevronRight,
   CircleAlert,
@@ -12,12 +13,15 @@ import {
   Search,
   SlidersHorizontal,
   Sparkles,
+  Trash2,
   UserRoundPlus,
   UsersRound,
 } from "lucide-react";
 import {
   addDays,
+  addOrgUnit,
   addSkillCatalogEntry,
+  archiveOrgUnit,
   buildSkillMap,
   customValue,
   formatCustomValue,
@@ -26,12 +30,19 @@ import {
   isActiveOpportunity,
   memberDailyLoads,
   memberLoad,
+  memberOrgMemberships,
   memberSearchText,
   memberSkillLevels,
   OPPORTUNITY_STAGE_LABELS,
   opportunityNeedsFor,
   opportunitySearchText,
   pipelineDemandForWeek,
+  membersInOrgSubtree,
+  moveOrgUnit,
+  orgManagers,
+  orgUnitLoadRows,
+  orgUnitPath,
+  orgUnitTree,
   PROFICIENCY_LABELS,
   projectMembers,
   projectSearchText,
@@ -41,6 +52,7 @@ import {
   type CustomFieldEntity,
   type CustomFieldType,
   type OpportunityStage,
+  type OrgUnit,
   type Project,
   type SkillKind,
   type WorkHistoryEntry,
@@ -102,6 +114,22 @@ type FieldsViewProps = {
     searchable?: boolean;
   }) => void;
   canManage?: boolean;
+};
+
+type OrgViewProps = {
+  state: WorkspaceState;
+  onAddUnit: (input: { name: string; parentId?: string | null }) => void;
+  onMoveUnit: (id: string, parentId: string | null) => void;
+  onArchiveUnit: (id: string) => void;
+  canManage?: boolean;
+};
+
+type MemberOrgFieldsProps = {
+  units: OrgUnit[];
+  primaryUnitId: string;
+  extraUnitIds: string[];
+  managerUnitIds: string[];
+  onChange: (next: { primaryUnitId: string; extraUnitIds: string[]; managerUnitIds: string[] }) => void;
 };
 
 const statusClass: Record<Project["status"], string> = {
@@ -308,10 +336,13 @@ export function OpportunitiesView({ state, onOpen, onCreate, canEdit = true }: O
 export function MembersView({ state, weekOffset, onOpen, onAdd, onAssign, canEdit = true, canManageMembers = true }: MembersViewProps) {
   const [query, setQuery] = useState("");
   const [role, setRole] = useState("すべて");
+  const [orgFilter, setOrgFilter] = useState("");
   const weekStart = getWeekStart(weekOffset);
   const roles = ["すべて", ...Array.from(new Set(state.members.map((member) => member.role)))];
+  const orgUnits = orgUnitTree(state.orgUnits);
   const queryNeedle = query.toLowerCase();
-  const filtered = state.members.filter((member) => {
+  const scopedMembers = orgFilter ? membersInOrgSubtree(state, orgFilter, "any") : state.members;
+  const filtered = scopedMembers.filter((member) => {
     const textMatch = memberSearchText(state, member).includes(queryNeedle);
     return textMatch && (role === "すべて" || member.role === role);
   }).sort((a, b) => {
@@ -340,6 +371,12 @@ export function MembersView({ state, weekOffset, onOpen, onAdd, onAssign, canEdi
       <div className="view-toolbar">
         <div className="inline-search"><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="名前・スキル・経歴を検索" aria-label="メンバーを検索" /></div>
         <label className="view-filter"><Filter size={14} /><select value={role} onChange={(event) => setRole(event.target.value)} aria-label="職種で絞り込み">{roles.map((option) => <option key={option}>{option}</option>)}</select></label>
+        {orgUnits.length > 0 && (
+          <label className="view-filter"><Building2 size={14} /><select value={orgFilter} onChange={(event) => setOrgFilter(event.target.value)} aria-label="組織で絞り込み">
+            <option value="">すべての部門</option>
+            {orgUnits.map((unit) => <option value={unit.id} key={unit.id}>{orgUnitPath(state.orgUnits, unit.id).join(" / ")}</option>)}
+          </select></label>
+        )}
         <span className="toolbar-result">空き率の高い順</span>
         {canManageMembers && <button className="view-add-button" onClick={onAdd}><Plus size={15} />メンバーを追加</button>}
       </div>
@@ -355,7 +392,7 @@ export function MembersView({ state, weekOffset, onOpen, onAdd, onAssign, canEdi
               const loadRatio = member.capacity > 0 ? load / member.capacity * 100 : load > 0 ? 100 : 0;
               return (
                 <tr key={member.id}>
-                  <td><button className="member-name-cell" onClick={() => onOpen(member.id)}><span className={"avatar " + member.avatarTone}>{member.initials}</span><span><strong>{member.name}</strong><small>{member.role} · {member.department}</small></span></button></td>
+                  <td><button className="member-name-cell" onClick={() => onOpen(member.id)}><span className={"avatar " + member.avatarTone}>{member.initials}</span><span><strong>{member.name}</strong><small>{member.role} · {member.department}{memberOrgMemberships(state, member.id).some((item) => !item.isPrimary) ? " · 兼務あり" : ""}</small></span></button></td>
                   <td><div className="member-skills">{memberSkillLevels(member).slice(0, 3).map((level) => <span key={level.name}>{level.name}<small>{level.proficiency}</small></span>)}</div></td>
                   {listFields.map((field) => <td key={field.id}><span className="custom-field-cell">{formatCustomValue(field, customValue(member.customValues, field.id))}</span></td>)}
                   <td><span className={"load-ring " + (load > member.capacity ? "over" : member.capacity > 0 && load <= member.capacity * .6 ? "open" : "")} style={{ "--load": Math.min(100, loadRatio) } as React.CSSProperties}><strong>{load}%</strong></span><small className="capacity-limit">上限 {member.capacity}%</small></td>
@@ -383,13 +420,15 @@ export function ReportsView({ state, onOpenWeek, onResolveNeed, onOpenOpportunit
     const draft = state.assignments.filter((assignment) => assignment.status === "draft" && assignment.startDate <= addDays(weekStart, 4) && assignment.endDate >= weekStart).length;
     return { offset, weekStart, average: capacity > 0 ? Math.round(load / capacity * 100) : 0, confirmed, draft, pipelineDemand: pipelineDemandForWeek(state, weekStart) };
   });
-  const departments = Array.from(new Set(state.members.map((member) => member.department))).map((department) => {
-    const people = state.members.filter((member) => member.department === department);
-    const weekStart = getWeekStart(0);
-    const capacity = people.reduce((sum, member) => sum + member.capacity, 0) * 5;
-    const load = people.reduce((sum, member) => sum + memberDailyLoads(state, member.id, weekStart, addDays(weekStart, 4)).reduce((dailySum, day) => dailySum + day.load, 0), 0);
-    return { department, count: people.length, average: capacity > 0 ? Math.round(load / capacity * 100) : 0 };
-  }).sort((a, b) => b.average - a.average);
+  const orgRows = (state.orgUnits ?? []).length > 0
+    ? orgUnitLoadRows(state, getWeekStart(0))
+    : Array.from(new Set(state.members.map((member) => member.department))).map((department) => {
+      const people = state.members.filter((member) => member.department === department);
+      const weekStart = getWeekStart(0);
+      const capacity = people.reduce((sum, member) => sum + member.capacity, 0) * 5;
+      const load = people.reduce((sum, member) => sum + memberDailyLoads(state, member.id, weekStart, addDays(weekStart, 4)).reduce((dailySum, day) => dailySum + day.load, 0), 0);
+      return { id: department, name: department, path: [department], depth: 0, count: people.length, average: capacity > 0 ? Math.round(load / capacity * 100) : 0, managers: [] as string[] };
+    }).sort((a, b) => b.average - a.average);
   const currentOverloads = state.members.filter((member) => memberLoad(state, member.id, getWeekStart(0)) > member.capacity);
   const activeNeeds = state.needs.filter((need) => need.status !== "filled");
   const activeOpportunities = (state.opportunities ?? []).filter(isActiveOpportunity);
@@ -420,8 +459,8 @@ export function ReportsView({ state, onOpenWeek, onResolveNeed, onOpenOpportunit
 
       <div className="report-lower-grid">
         <section className="balance-card">
-          <div className="card-heading"><div><small>BY DEPARTMENT</small><h3>部署別の需給</h3></div><Gauge size={18} /></div>
-          <div className="department-list">{departments.map((item) => <div key={item.department}><span><strong>{item.department}</strong><small>{item.count}名</small></span><i><b className={item.average > 100 ? "over" : ""} style={{ width: Math.min(100, item.average) + "%" }} /></i><em>{item.average}%</em></div>)}</div>
+          <div className="card-heading"><div><small>BY ORGANIZATION</small><h3>{(state.orgUnits ?? []).length > 0 ? "組織別の需給" : "部署別の需給"}</h3></div><Gauge size={18} /></div>
+          <div className="department-list">{orgRows.map((item) => <div key={item.id}><span><strong>{item.name}</strong><small>{item.count}名{item.managers.length ? ` · ${item.managers[0]}` : ""}</small></span><i><b className={item.average > 100 ? "over" : ""} style={{ width: Math.min(100, item.average) + "%" }} /></i><em>{item.average}%</em></div>)}</div>
         </section>
 
         <section className="exceptions-card">
@@ -759,6 +798,222 @@ export function FieldsView({ state, onAddField, canManage = false }: FieldsViewP
           </tbody>
         </table>
         {fields.length === 0 && <div className="view-empty"><SlidersHorizontal size={22} /><strong>条件に合う項目がありません</strong><p>検索語または対象を変更してください。</p></div>}
+      </div>
+    </section>
+  );
+}
+
+export function OrgFacts({ state, personId }: { state: WorkspaceState; personId: string }) {
+  const memberships = memberOrgMemberships(state, personId);
+  if (memberships.length === 0) return null;
+  const primary = memberships.find((item) => item.isPrimary);
+  const extras = memberships.filter((item) => !item.isPrimary);
+  const managed = memberships.filter((item) => item.isManager);
+  return (
+    <div className="detail-facts custom-field-facts">
+      <div><span>主所属</span><strong>{primary ? orgUnitPath(state.orgUnits, primary.orgUnitId).join(" / ") : "未設定"}</strong></div>
+      {extras.length > 0 && <div><span>兼務</span><strong>{extras.map((item) => orgUnitPath(state.orgUnits, item.orgUnitId).join(" / ")).join("、")}</strong></div>}
+      {managed.length > 0 && <div><span>責任者</span><strong>{managed.map((item) => orgUnitByName(state, item.orgUnitId)).join("、")}</strong></div>}
+    </div>
+  );
+}
+
+function orgUnitByName(state: WorkspaceState, id: string) {
+  return orgUnitTree(state.orgUnits).find((unit) => unit.id === id)?.name ?? id;
+}
+
+export function MemberOrgFields({ units, primaryUnitId, extraUnitIds, managerUnitIds, onChange }: MemberOrgFieldsProps) {
+  if (units.length === 0) return null;
+  const tree = orgUnitTree(units);
+  const affiliated = new Set([primaryUnitId, ...extraUnitIds].filter(Boolean));
+  const toggle = (list: string[], id: string, enabled: boolean) => enabled ? [...new Set([...list, id])] : list.filter((item) => item !== id);
+  return (
+    <div className="member-org-fields">
+      <label htmlFor="member-primary-org">主所属
+        <select
+          id="member-primary-org"
+          aria-label="主所属"
+          required
+          value={primaryUnitId}
+          onChange={(event) => onChange({
+            primaryUnitId: event.target.value,
+            extraUnitIds: extraUnitIds.filter((id) => id !== event.target.value),
+            managerUnitIds: managerUnitIds.filter((id) => id === event.target.value || extraUnitIds.includes(id)),
+          })}
+        >
+          <option value="">未設定</option>
+          {tree.map((unit) => <option value={unit.id} key={unit.id}>{orgUnitPath(units, unit.id).join(" / ")}</option>)}
+        </select>
+      </label>
+      <fieldset className="org-flag-set">
+        <legend>兼務</legend>
+        {tree.filter((unit) => unit.id !== primaryUnitId).map((unit) => (
+          <label className="field-flag" key={unit.id}>
+            <input
+              type="checkbox"
+              checked={extraUnitIds.includes(unit.id)}
+              onChange={(event) => onChange({
+                primaryUnitId,
+                extraUnitIds: toggle(extraUnitIds, unit.id, event.target.checked),
+                managerUnitIds: event.target.checked ? managerUnitIds : managerUnitIds.filter((id) => id !== unit.id),
+              })}
+            />
+            {orgUnitPath(units, unit.id).join(" / ")}
+          </label>
+        ))}
+      </fieldset>
+      <fieldset className="org-flag-set">
+        <legend>責任者</legend>
+        {tree.filter((unit) => affiliated.has(unit.id)).map((unit) => (
+          <label className="field-flag" key={unit.id}>
+            <input
+              type="checkbox"
+              aria-label={`${unit.name}の責任者`}
+              checked={managerUnitIds.includes(unit.id)}
+              onChange={(event) => onChange({
+                primaryUnitId,
+                extraUnitIds,
+                managerUnitIds: toggle(managerUnitIds, unit.id, event.target.checked),
+              })}
+            />
+            {orgUnitPath(units, unit.id).join(" / ")}
+          </label>
+        ))}
+        {affiliated.size === 0 && <p className="org-flag-empty">所属を選ぶと責任者を設定できます。</p>}
+      </fieldset>
+    </div>
+  );
+}
+
+export function OrgView({ state, onAddUnit, onMoveUnit, onArchiveUnit, canManage = false }: OrgViewProps) {
+  const [query, setQuery] = useState("");
+  const [name, setName] = useState("");
+  const [parentId, setParentId] = useState("");
+  const [error, setError] = useState("");
+  const units = orgUnitTree(state.orgUnits);
+  const filtered = units.filter((unit) => orgUnitPath(state.orgUnits, unit.id).join(" ").toLowerCase().includes(query.toLowerCase()));
+  const roots = units.filter((unit) => !unit.parentId).length;
+  const managers = new Set((state.orgMemberships ?? []).filter((item) => item.isManager).map((item) => item.personId)).size;
+  const concurrent = new Set((state.orgMemberships ?? []).filter((item) => !item.isPrimary).map((item) => item.personId)).size;
+
+  const submit = () => {
+    try {
+      addOrgUnit(state.orgUnits ?? [], { name, parentId: parentId || null });
+      onAddUnit({ name, parentId: parentId || null });
+      setName("");
+      setError("");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "部門を追加できませんでした");
+    }
+  };
+
+  return (
+    <section className="section-view org-view" aria-labelledby="org-heading">
+      <h2 id="org-heading" className="sr-only">組織階層</h2>
+      <div className="member-ribbon">
+        <div className="ribbon-lead"><span className="ribbon-icon mint"><Building2 size={18} /></span><div><small>ORGANIZATION TREE</small><strong>部門階層・責任者・兼務を同じツリーで管理</strong></div></div>
+        <div className="ribbon-stat"><strong>{units.length}</strong><span>部門</span></div>
+        <div className="ribbon-divider" />
+        <div className="ribbon-stat"><strong>{roots}</strong><span>最上位</span></div>
+        <div className="ribbon-divider" />
+        <div className="ribbon-stat"><strong>{managers}</strong><span>責任者</span></div>
+        <div className="ribbon-divider" />
+        <div className="ribbon-stat"><strong>{concurrent}</strong><span>兼務あり</span></div>
+      </div>
+
+      <div className="view-toolbar">
+        <div className="inline-search"><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="部門名を検索" aria-label="部門を検索" /></div>
+        <span className="toolbar-result">{filtered.length}件を表示</span>
+      </div>
+
+      {canManage && (
+        <form className="skill-catalog-form org-catalog-form" onSubmit={(event) => { event.preventDefault(); submit(); }}>
+          <label>部門名<input value={name} onChange={(event) => setName(event.target.value)} placeholder="新規チーム" aria-label="部門名" /></label>
+          <label>親部門<select value={parentId} onChange={(event) => setParentId(event.target.value)} aria-label="親部門">
+            <option value="">なし（最上位）</option>
+            {units.map((unit) => <option value={unit.id} key={unit.id}>{orgUnitPath(state.orgUnits, unit.id).join(" / ")}</option>)}
+          </select></label>
+          <button type="submit" className="view-add-button"><Plus size={15} />部門を追加</button>
+          {error && <p className="skill-catalog-error" role="alert">{error}</p>}
+        </form>
+      )}
+
+      <div className="skill-map-wrap">
+        <table className="skill-map-table">
+          <thead>
+            <tr>
+              <th>部門</th>
+              <th>主所属</th>
+              <th>兼務</th>
+              <th>責任者</th>
+              {canManage && <th>親部門</th>}
+              {canManage && <th><span className="sr-only">操作</span></th>}
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.map((unit) => {
+              const depth = Math.max(0, orgUnitPath(state.orgUnits, unit.id).length - 1);
+              const primaryCount = membersInOrgSubtree(state, unit.id, "primary").length;
+              const concurrentCount = membersInOrgSubtree(state, unit.id, "any").length - primaryCount;
+              const managerNames = orgManagers(state, unit.id).map((member) => member.name);
+              return (
+                <tr key={unit.id} className={depth === 0 ? "category-row" : ""}>
+                  <td>
+                    <span className={"skill-tree-name depth-" + Math.min(3, depth)}>
+                      <strong>{unit.name}</strong>
+                      <small>{orgUnitPath(state.orgUnits, unit.id).slice(0, -1).join(" / ") || "最上位"}</small>
+                    </span>
+                  </td>
+                  <td><strong>{primaryCount}</strong><small>名</small></td>
+                  <td>{concurrentCount > 0 ? `${concurrentCount}名` : "—"}</td>
+                  <td>{managerNames.join(" / ") || "未設定"}</td>
+                  {canManage && (
+                    <td>
+                      <select
+                        aria-label={`${unit.name}の親部門`}
+                        value={unit.parentId ?? ""}
+                        onChange={(event) => {
+                          try {
+                            moveOrgUnit(state.orgUnits ?? [], unit.id, event.target.value || null);
+                            onMoveUnit(unit.id, event.target.value || null);
+                            setError("");
+                          } catch (caught) {
+                            setError(caught instanceof Error ? caught.message : "部門を移せませんでした");
+                          }
+                        }}
+                      >
+                        <option value="">なし（最上位）</option>
+                        {units.filter((candidate) => candidate.id !== unit.id).map((candidate) => (
+                          <option value={candidate.id} key={candidate.id}>{orgUnitPath(state.orgUnits, candidate.id).join(" / ")}</option>
+                        ))}
+                      </select>
+                    </td>
+                  )}
+                  {canManage && (
+                    <td>
+                      <button
+                        type="button"
+                        className="drawer-danger compact"
+                        onClick={() => {
+                          try {
+                            archiveOrgUnit(state, unit.id);
+                            onArchiveUnit(unit.id);
+                            setError("");
+                          } catch (caught) {
+                            setError(caught instanceof Error ? caught.message : "部門を削除できませんでした");
+                          }
+                        }}
+                      >
+                        <Trash2 size={13} />削除
+                      </button>
+                    </td>
+                  )}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+        {filtered.length === 0 && <div className="view-empty"><Building2 size={22} /><strong>条件に合う部門がありません</strong><p>検索語を変更するか、部門を追加してください。</p></div>}
       </div>
     </section>
   );
