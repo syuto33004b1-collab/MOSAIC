@@ -1011,11 +1011,17 @@ select is(
   'authenticated users can update their own display name'
 ); -- 63
 
+reset role;
+
 select is(
   (select display_name from app.profiles where id = '10000000-0000-4000-8000-000000000003'),
   '計画 花子',
   'profile display name persists after update_my_profile'
 ); -- 64
+
+set local role authenticated;
+set local request.jwt.claim.role = 'authenticated';
+set local request.jwt.claim.sub = '10000000-0000-4000-8000-000000000003';
 
 select throws_ok(
   $sql$select public.update_my_profile('   ')$sql$,
