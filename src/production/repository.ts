@@ -23,8 +23,13 @@ import {
   type IntegrationScope,
   type CreateIntegrationClientResult,
   type RevokeIntegrationClientResult,
+  type WebhookEndpoint,
+  type WebhookEvent,
+  type CreateWebhookEndpointResult,
+  type RevokeWebhookEndpointResult,
   type WorkspaceEnvelope,
   INTEGRATION_SCOPES,
+  WEBHOOK_EVENTS,
 } from "./types";
 
 type UnknownRecord = Record<string, unknown>;
@@ -870,6 +875,31 @@ export function normalizeIntegrationClient(value: unknown): IntegrationClient | 
   };
 }
 
+function isWebhookEvent(value: unknown): value is WebhookEvent {
+  return typeof value === "string" && (WEBHOOK_EVENTS as readonly string[]).includes(value);
+}
+
+export function normalizeWebhookEndpoint(value: unknown): WebhookEndpoint | undefined {
+  const record = asRecord(value);
+  const id = readIdentifier(record, "id");
+  const organizationId = readString(record, "organization_id", "organizationId");
+  const name = readString(record, "name");
+  const url = readString(record, "url");
+  if (!record || !id || !organizationId || !name || !url) return undefined;
+  const events = (Array.isArray(record.events) ? record.events : []).filter(isWebhookEvent);
+  if (events.length === 0) return undefined;
+  return {
+    id,
+    organizationId,
+    name,
+    url,
+    events,
+    status: record.status === "revoked" ? "revoked" : "active",
+    createdAt: readString(record, "created_at", "createdAt"),
+    revokedAt: readString(record, "revoked_at", "revokedAt"),
+  };
+}
+
 function auditSummary(action: string, entityType: string, oldData?: UnknownRecord, newData?: UnknownRecord) {
   const entityLabels: Record<string, string> = {
     assignments: "アサイン",
@@ -885,6 +915,7 @@ function auditSummary(action: string, entityType: string, oldData?: UnknownRecor
     opportunities: "受注前案件",
     opportunity_needs: "要員計画",
     integration_clients: "外部連携",
+    webhook_endpoints: "Webhook",
   };
   const actionLabels: Record<string, string> = { delete: "削除", insert: "追加", update: "更新" };
   const source = newData ?? oldData;
@@ -1386,6 +1417,61 @@ export class ProductionRepository {
       changed: result?.changed === true,
       requestId: readString(result, "request_id", "requestId") ?? requestId,
       client,
+    };
+  }
+
+  async listWebhookEndpoints(organizationId: string): Promise<WebhookEndpoint[]> {
+    const { data, error } = await this.client.rpc("list_webhook_endpoints", { p_organization_id: organizationId });
+    if (error) throw rpcError("Webhookを読み込み", error);
+    const values = Array.isArray(data) ? data : readArray(asRecord(unwrapRpcValue(data)), "endpoints", "items");
+    return values.map(normalizeWebhookEndpoint).filter((item): item is WebhookEndpoint => Boolean(item));
+  }
+
+  async createWebhookEndpoint(
+    organizationId: string,
+    name: string,
+    url: string,
+    events: WebhookEvent[],
+    requestId = crypto.randomUUID(),
+  ): Promise<CreateWebhookEndpointResult> {
+    const { data, error } = await this.client.rpc("create_webhook_endpoint", {
+      p_events: events,
+      p_name: name.trim(),
+      p_organization_id: organizationId,
+      p_request_id: requestId,
+      p_url: url.trim(),
+    });
+    if (error) throw rpcError("Webhookを登録", error);
+    const result = asRecord(unwrapRpcValue(data));
+    const endpoint = normalizeWebhookEndpoint(result?.endpoint ?? result);
+    if (!endpoint) throw new ProductionRepositoryError("登録したWebhookを確認できませんでした。", { code: "INVALID_WEBHOOK_ENDPOINT" });
+    const secret = readString(result, "secret");
+    return {
+      endpoint,
+      secret: secret || undefined,
+      requestId: readString(result, "request_id", "requestId") ?? requestId,
+      replayed: result?.replayed === true,
+    };
+  }
+
+  async revokeWebhookEndpoint(
+    organizationId: string,
+    endpointId: string,
+    requestId = crypto.randomUUID(),
+  ): Promise<RevokeWebhookEndpointResult> {
+    const { data, error } = await this.client.rpc("revoke_webhook_endpoint", {
+      p_endpoint_id: endpointId,
+      p_organization_id: organizationId,
+      p_request_id: requestId,
+    });
+    if (error) throw rpcError("Webhookを失効", error);
+    const result = asRecord(unwrapRpcValue(data));
+    const endpoint = normalizeWebhookEndpoint(result?.endpoint ?? result);
+    if (!endpoint) throw new ProductionRepositoryError("失効後のWebhookを確認できませんでした。", { code: "INVALID_WEBHOOK_ENDPOINT" });
+    return {
+      changed: result?.changed === true,
+      requestId: readString(result, "request_id", "requestId") ?? requestId,
+      endpoint,
     };
   }
 

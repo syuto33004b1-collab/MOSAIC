@@ -186,6 +186,40 @@ export type RevokeIntegrationClientResult = {
   client: IntegrationClient;
 };
 
+export const WEBHOOK_EVENTS = [
+  "workspace.committed",
+  "member.changed",
+  "project.changed",
+  "assignment.changed",
+  "staffing_need.changed",
+] as const;
+export type WebhookEvent = (typeof WEBHOOK_EVENTS)[number];
+export type WebhookEndpointStatus = "active" | "revoked";
+
+export type WebhookEndpoint = {
+  id: string;
+  organizationId: string;
+  name: string;
+  url: string;
+  events: WebhookEvent[];
+  status: WebhookEndpointStatus;
+  createdAt?: string;
+  revokedAt?: string;
+};
+
+export type CreateWebhookEndpointResult = {
+  endpoint: WebhookEndpoint;
+  secret?: string;
+  requestId?: string;
+  replayed: boolean;
+};
+
+export type RevokeWebhookEndpointResult = {
+  changed: boolean;
+  requestId?: string;
+  endpoint: WebhookEndpoint;
+};
+
 export class ProductionRepositoryError extends Error {
   readonly code: string;
   readonly retryable: boolean;

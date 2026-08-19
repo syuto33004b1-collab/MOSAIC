@@ -262,7 +262,8 @@ select is(
         'invite_member', 'list_organization_invitations', 'revoke_organization_invitation',
         'accept_invitation', 'list_organization_members', 'manage_organization_member',
         'list_audit_events', 'update_my_profile',
-        'create_integration_client', 'list_integration_clients', 'revoke_integration_client'
+        'create_integration_client', 'list_integration_clients', 'revoke_integration_client',
+        'create_webhook_endpoint', 'list_webhook_endpoints', 'revoke_webhook_endpoint'
       ]::text[])
       and not procedure.prosecdef
   ),
@@ -281,7 +282,8 @@ select is(
         'invite_member', 'list_organization_invitations', 'revoke_organization_invitation',
         'accept_invitation', 'list_organization_members', 'manage_organization_member',
         'list_audit_events', 'update_my_profile',
-        'create_integration_client', 'list_integration_clients', 'revoke_integration_client'
+        'create_integration_client', 'list_integration_clients', 'revoke_integration_client',
+        'create_webhook_endpoint', 'list_webhook_endpoints', 'revoke_webhook_endpoint'
       ]::text[])
       and has_function_privilege('anon', procedure.oid, 'EXECUTE')
   ),
@@ -300,11 +302,12 @@ select is(
         'invite_member', 'list_organization_invitations', 'revoke_organization_invitation',
         'accept_invitation', 'list_organization_members', 'manage_organization_member',
         'list_audit_events', 'update_my_profile',
-        'create_integration_client', 'list_integration_clients', 'revoke_integration_client'
+        'create_integration_client', 'list_integration_clients', 'revoke_integration_client',
+        'create_webhook_endpoint', 'list_webhook_endpoints', 'revoke_webhook_endpoint'
       ]::text[])
       and has_function_privilege('authenticated', procedure.oid, 'EXECUTE')
   ),
-  15::bigint,
+  18::bigint,
   'authenticated can execute every allowlisted RPC overload'
 ); -- 11
 
