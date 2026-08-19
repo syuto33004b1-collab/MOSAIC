@@ -108,8 +108,36 @@ test("rejects write tools until the confirmation stage exists", async () => {
     params: { name: "create_member", arguments: { name: "Dana" } },
   }), { rpc });
   const payload = await response.json();
+  assert.equal(payload.id, 4);
   assert.equal(payload.result.isError, true);
   assert.match(payload.result.content[0].text, /read-only|参照のみ|書込/);
+});
+
+test("keeps JSON-RPC ids on tool validation errors and lists resources", async () => {
+  const { rpc } = rpcMap();
+  const invalid = await handleMcpRequest(mcpRequest({
+    jsonrpc: "2.0",
+    id: 9,
+    method: "tools/call",
+    params: { name: "read_workspace", arguments: { resource: "not-a-resource" } },
+  }), { rpc });
+  const invalidPayload = await invalid.json();
+  assert.equal(invalidPayload.id, 9);
+  assert.equal(invalidPayload.result.isError, true);
+
+  const resources = await handleMcpRequest(mcpRequest({ jsonrpc: "2.0", id: 10, method: "resources/list" }), { rpc });
+  assert.deepEqual((await resources.json()).result.resources.map((item) => item.uri), [
+    "mosaic://members",
+    "mosaic://projects",
+    "mosaic://assignments",
+    "mosaic://staffing-needs",
+  ]);
+
+  const notification = await handleMcpRequest(mcpRequest({ jsonrpc: "2.0", method: "notifications/initialized" }), { rpc });
+  assert.equal(notification.status, 202);
+
+  const browser = await handleMcpRequest(mcpRequest({ jsonrpc: "2.0", id: 11, method: "ping" }, { origin: "https://evil.example" }), { rpc });
+  assert.equal(browser.status, 403);
 });
 
 test("rejects missing credentials and stays off the chat and api URLs", async () => {
