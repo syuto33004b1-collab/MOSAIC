@@ -1,6 +1,6 @@
 ---
 name: evaluating-with-senior
-description: Use when about to open a pull request after implementation work, when spec drift or missing tests are suspected, or the user asks Opus or Sol to review. Do not use for design brainstorming, routine one-line edits, or a second review of the same change after applying the first evaluation.
+description: Use when about to open a pull request after implementation work, when spec drift or missing tests are suspected, or the user asks Opus or Sol to review. Do not use for design brainstorming, one-line edits that will not become a pull request, or a second review of the same change after applying the first evaluation.
 ---
 
 # 評価者（senior evaluator）
