@@ -522,6 +522,7 @@ function workspaceSnapshot(value) {
     collections[key] = structuredClone(state[key]);
   }
   collections.skillCatalog = Array.isArray(state.skillCatalog) ? structuredClone(state.skillCatalog) : [];
+  collections.customFields = Array.isArray(state.customFields) ? structuredClone(state.customFields) : [];
   return { organizationId: organizationId.toLowerCase(), revision, ...collections };
 }
 
@@ -638,7 +639,15 @@ export function readWorkspaceTool(snapshot, name, args) {
   }
 
   if (filters.resource === "members") {
-    const values = state.members.filter((member) => containsQuery([member.name, member.role, member.department, member.location, ...(member.skills ?? [])], filters.query))
+    const values = state.members.filter((member) => containsQuery([
+      member.name,
+      member.role,
+      member.department,
+      member.location,
+      ...(member.skills ?? []),
+      ...Object.values(member.customValues ?? {}),
+      ...(member.workHistory ?? []).flatMap((entry) => [entry.title, entry.organization, entry.description ?? ""]),
+    ], filters.query))
       .filter((member) => !filters.role || lower(member.role) === lower(filters.role))
       .filter((member) => !filters.location || lower(member.location) === lower(filters.location))
       .filter((member) => includesSkills(member.skills, filters.skills))
@@ -647,18 +656,18 @@ export function readWorkspaceTool(snapshot, name, args) {
           const peakAllocation = memberPeakLoad(state, member.id, filters.startDate, filters.endDate);
           return { peakAllocation, availablePercent: Math.max(0, Number(member.capacity) - peakAllocation) };
         })() : {};
-        return { id: member.id, name: member.name, role: member.role, department: member.department, location: member.location, skills: member.skills ?? [], ...(Array.isArray(member.skillLevels) && member.skillLevels.length ? { skillLevels: member.skillLevels } : {}), capacity: Number(member.capacity), ...availability };
+        return { id: member.id, name: member.name, role: member.role, department: member.department, location: member.location, skills: member.skills ?? [], ...(Array.isArray(member.skillLevels) && member.skillLevels.length ? { skillLevels: member.skillLevels } : {}), ...(member.customValues && Object.keys(member.customValues).length ? { customValues: member.customValues } : {}), ...(Array.isArray(member.workHistory) && member.workHistory.length ? { workHistory: member.workHistory } : {}), capacity: Number(member.capacity), ...availability };
       })
       .filter((member) => filters.minAvailablePercent === undefined || member.availablePercent >= filters.minAvailablePercent);
     return { resource: filters.resource, revision: state.revision, ...bounded(values, filters.limit) };
   }
 
   if (filters.resource === "projects") {
-    const values = state.projects.filter((project) => containsQuery([project.code, project.name, project.summary, project.ownerName], filters.query))
+    const values = state.projects.filter((project) => containsQuery([project.code, project.name, project.summary, project.ownerName, ...Object.values(project.customValues ?? {})], filters.query))
       .filter((project) => !filters.ownerPersonId || project.ownerPersonId === filters.ownerPersonId)
       .filter((project) => !filters.statuses?.length || filters.statuses.includes(project.status))
       .filter((project) => overlaps(project, filters.startDate, filters.endDate))
-      .map((project) => ({ id: project.id, code: project.code, name: project.name, summary: project.summary, status: project.status, ownerPersonId: project.ownerPersonId ?? null, ownerName: project.ownerName ?? null, startDate: project.startDate, endDate: project.endDate, nextMilestone: project.nextMilestone, nextMilestoneDate: project.nextMilestoneDate ?? null, progress: Number(project.progress), demand: Number(project.demand) }));
+      .map((project) => ({ id: project.id, code: project.code, name: project.name, summary: project.summary, status: project.status, ownerPersonId: project.ownerPersonId ?? null, ownerName: project.ownerName ?? null, startDate: project.startDate, endDate: project.endDate, nextMilestone: project.nextMilestone, nextMilestoneDate: project.nextMilestoneDate ?? null, progress: Number(project.progress), demand: Number(project.demand), ...(project.customValues && Object.keys(project.customValues).length ? { customValues: project.customValues } : {}) }));
     return { resource: filters.resource, revision: state.revision, ...bounded(values, filters.limit) };
   }
 
@@ -730,7 +739,7 @@ function assignmentMatchesNeed(state, assignment, need) {
 }
 
 function cloneState(state) {
-  return { members: structuredClone(state.members), projects: structuredClone(state.projects), assignments: structuredClone(state.assignments), needs: structuredClone(state.needs), skillCatalog: structuredClone(state.skillCatalog ?? []) };
+  return { members: structuredClone(state.members), projects: structuredClone(state.projects), assignments: structuredClone(state.assignments), needs: structuredClone(state.needs), skillCatalog: structuredClone(state.skillCatalog ?? []), customFields: structuredClone(state.customFields ?? []) };
 }
 
 export function stableStringify(value) {
@@ -772,6 +781,9 @@ function workspacePayload(next, previous) {
   const catalogUpsert = changedRows(next.skillCatalog ?? [], previous.skillCatalog ?? []);
   const catalogArchive = removedIds(next.skillCatalog ?? [], previous.skillCatalog ?? []);
   if (catalogUpsert.length || catalogArchive.length) payload.skillCatalog = { upsert: catalogUpsert, archiveIds: catalogArchive };
+  const fieldUpsert = changedRows(next.customFields ?? [], previous.customFields ?? []);
+  const fieldArchive = removedIds(next.customFields ?? [], previous.customFields ?? []);
+  if (fieldUpsert.length || fieldArchive.length) payload.customFields = { upsert: fieldUpsert, archiveIds: fieldArchive };
   return payload;
 }
 

@@ -1,6 +1,6 @@
 import type { AuthError, PostgrestError, SupabaseClient, User } from "@supabase/supabase-js";
-import type { Assignment, Member, Project, SkillDefinition, SkillKind, StaffingNeed, WorkspaceState } from "../domain";
-import { hydrateWorkspaceSkills, normalizeSkillProficiency } from "../domain";
+import type { Assignment, CustomFieldDefinition, CustomFieldEntity, CustomFieldType, Member, Project, SkillDefinition, SkillKind, StaffingNeed, WorkHistoryEntry, WorkspaceState } from "../domain";
+import { hydrateWorkspaceSkills, normalizeSkillProficiency, normalizeWorkHistory } from "../domain";
 import { appAuthRedirectUrl } from "./authRecovery";
 import {
   ProductionRepositoryError,
@@ -29,6 +29,8 @@ const projectTones = new Set<Project["tone"]>(["blue", "mint", "orange", "plum",
 const projectStatuses = new Set<Project["status"]>(["進行中", "要注意", "準備中", "完了間近", "完了"]);
 const assignmentStatuses = new Set<Assignment["status"]>(["confirmed", "draft"]);
 const needStatuses = new Set<StaffingNeed["status"]>(["open", "planned", "filled"]);
+const customFieldEntities = new Set<CustomFieldEntity>(["member", "project"]);
+const customFieldTypes = new Set<CustomFieldType>(["text", "number", "date", "select"]);
 const isoDatePattern = /^\d{4}-\d{2}-\d{2}$/;
 
 function asRecord(value: unknown): UnknownRecord | undefined {
@@ -97,6 +99,72 @@ function validDate(value: unknown): value is string {
   return typeof value === "string" && isoDatePattern.test(value) && !Number.isNaN(Date.parse(`${value}T00:00:00Z`));
 }
 
+function normalizeIncomingCustomValues(value: unknown): Record<string, string> | null {
+  const record = asRecord(value);
+  if (!record) return null;
+  const next: Record<string, string> = {};
+  for (const [key, raw] of Object.entries(record)) {
+    if (typeof raw !== "string") return null;
+    const trimmed = raw.trim();
+    if (trimmed) next[key] = trimmed;
+  }
+  return next;
+}
+
+function normalizeIncomingWorkHistory(value: unknown): WorkHistoryEntry[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value)) return undefined;
+  try {
+    return normalizeWorkHistory(value.map((entry) => {
+      const record = asRecord(entry);
+      const id = readString(record, "id");
+      const title = readString(record, "title");
+      const organization = readString(record, "organization");
+      if (!id || !title || !organization || !record || !validDate(record.startDate)) {
+        throw new Error("invalid work history");
+      }
+      return {
+        id,
+        title,
+        organization,
+        startDate: record.startDate,
+        endDate: record.endDate === null || record.endDate === undefined || record.endDate === "" ? null : validDate(record.endDate) ? record.endDate : undefined,
+        description: optionalString(record, "description"),
+      };
+    }));
+  } catch {
+    return undefined;
+  }
+}
+
+function normalizeCustomFieldDefinition(value: unknown): CustomFieldDefinition | undefined {
+  const record = asRecord(value);
+  if (!record) return undefined;
+  const id = readString(record, "id");
+  const key = readString(record, "key");
+  const label = readString(record, "label");
+  const entityType = record.entityType;
+  const fieldType = record.fieldType;
+  if (!id || !key || !label || !customFieldEntities.has(entityType as CustomFieldEntity) || !customFieldTypes.has(fieldType as CustomFieldType)) {
+    return undefined;
+  }
+  const options = readArray(record, "options").flatMap((option) => typeof option === "string" && option.trim() ? [option.trim()] : []);
+  const sortOrder = finiteNumber(record, "sortOrder");
+  return {
+    id,
+    entityType: entityType as CustomFieldEntity,
+    key,
+    label,
+    fieldType: fieldType as CustomFieldType,
+    ...(record.required === true ? { required: true } : {}),
+    ...(options.length ? { options } : {}),
+    ...(record.showInList === true ? { showInList: true } : {}),
+    ...(record.showInDetail === false ? { showInDetail: false } : { showInDetail: true }),
+    ...(record.searchable === false ? { searchable: false } : { searchable: true }),
+    ...(sortOrder !== undefined ? { sortOrder } : {}),
+  };
+}
+
 function normalizeWorkspaceMember(value: unknown): Member | undefined {
   const record = asRecord(value);
   if (!record) return undefined;
@@ -118,6 +186,10 @@ function normalizeWorkspaceMember(value: unknown): Member | undefined {
     const proficiency = level ? normalizeSkillProficiency(level.proficiency) : undefined;
     return skillName && proficiency ? [{ name: skillName, proficiency }] : [];
   });
+  const customValues = record.customValues === undefined ? undefined : normalizeIncomingCustomValues(record.customValues);
+  if (record.customValues !== undefined && customValues === null) return undefined;
+  const workHistory = record.workHistory === undefined ? undefined : normalizeIncomingWorkHistory(record.workHistory);
+  if (record.workHistory !== undefined && workHistory === undefined) return undefined;
   return {
     id,
     initials,
@@ -129,6 +201,8 @@ function normalizeWorkspaceMember(value: unknown): Member | undefined {
     avatarTone: avatarTone as Member["avatarTone"],
     skills: skills as string[],
     ...(skillLevels.length ? { skillLevels } : {}),
+    ...(customValues && Object.keys(customValues).length ? { customValues } : {}),
+    ...(workHistory ? { workHistory } : {}),
   };
 }
 
@@ -149,6 +223,8 @@ function normalizeWorkspaceProject(value: unknown): Project | undefined {
   if (typeof tone !== "string" || !projectTones.has(tone as Project["tone"])) return undefined;
   if (!validDate(record.startDate) || !validDate(record.endDate) || record.startDate > record.endDate) return undefined;
   if (record.nextMilestoneDate !== null && record.nextMilestoneDate !== undefined && !validDate(record.nextMilestoneDate)) return undefined;
+  const customValues = record.customValues === undefined ? undefined : normalizeIncomingCustomValues(record.customValues);
+  if (record.customValues !== undefined && customValues === null) return undefined;
   return {
     id,
     code,
@@ -165,6 +241,7 @@ function normalizeWorkspaceProject(value: unknown): Project | undefined {
     nextMilestoneDate: record.nextMilestoneDate as string | null | undefined,
     progress,
     demand,
+    ...(customValues && Object.keys(customValues).length ? { customValues } : {}),
   };
 }
 
@@ -260,12 +337,15 @@ function normalizeWorkspaceState(value: unknown): WorkspaceState | undefined {
   if ((needs as StaffingNeed[]).some((need) => !projectIds.has(need.projectId))) return undefined;
   const catalogValues = record.skillCatalog === undefined ? undefined : readArray(record, "skillCatalog").map(normalizeSkillDefinition);
   if (catalogValues && catalogValues.some((item) => !item)) return undefined;
+  const customFieldValues = record.customFields === undefined ? undefined : readArray(record, "customFields").map(normalizeCustomFieldDefinition);
+  if (customFieldValues && customFieldValues.some((item) => !item)) return undefined;
   return hydrateWorkspaceSkills({
     members: members as Member[],
     projects: projects as Project[],
     assignments: assignments as Assignment[],
     needs: needs as StaffingNeed[],
     ...(catalogValues ? { skillCatalog: catalogValues as SkillDefinition[] } : {}),
+    ...(customFieldValues ? { customFields: customFieldValues as CustomFieldDefinition[] } : {}),
   });
 }
 
@@ -485,6 +565,7 @@ export function normalizeWorkspace(value: unknown): WorkspaceEnvelope {
     needs: record.needs,
     projects: record.projects,
     skillCatalog: record.skillCatalog,
+    customFields: record.customFields,
   } : value);
   const rawState = typeof stateCandidate === "string" ? JSON.parse(stateCandidate) as unknown : stateCandidate;
   const state = normalizeWorkspaceState(rawState);
@@ -532,6 +613,9 @@ function auditSummary(action: string, entityType: string, oldData?: UnknownRecor
     people: "メンバー",
     projects: "プロジェクト",
     staffing_needs: "要員要件",
+    custom_fields: "カスタム項目",
+    custom_field_values: "カスタム項目値",
+    work_history: "業務経歴",
   };
   const actionLabels: Record<string, string> = { delete: "削除", insert: "追加", update: "更新" };
   const source = newData ?? oldData;
@@ -624,6 +708,18 @@ export function workspaceChangesPayload(
   const catalogUpsert = changedRows(nextCatalog, previousCatalog);
   const catalogArchiveIds = removedIds(nextCatalog, previousCatalog);
   if (catalogUpsert.length || catalogArchiveIds.length) payload.skillCatalog = { upsert: catalogUpsert, archiveIds: catalogArchiveIds };
+  const nextFields = (state.customFields ?? []).filter((item) => persistedId(item.id));
+  const previousFields = (previous.customFields ?? []).filter((item) => persistedId(item.id));
+  const fieldUpsert = changedRows(nextFields, previousFields);
+  const fieldArchiveIds = removedIds(nextFields, previousFields);
+  if (role === "owner" || role === "admin") {
+    if (fieldUpsert.length || fieldArchiveIds.length) payload.customFields = { upsert: fieldUpsert, archiveIds: fieldArchiveIds };
+  } else if (fieldUpsert.length || fieldArchiveIds.length) {
+    throw new ProductionRepositoryError("権限が変更されたため、項目定義を保存できません。未保存内容を確認して再読み込みしてください。", {
+      code: "FORBIDDEN",
+      retryable: false,
+    });
+  }
   return payload;
 }
 

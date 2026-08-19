@@ -10,6 +10,7 @@ import {
   Layers3,
   Plus,
   Search,
+  SlidersHorizontal,
   Sparkles,
   UserRoundPlus,
   UsersRound,
@@ -18,14 +19,25 @@ import {
   addDays,
   addSkillCatalogEntry,
   buildSkillMap,
+  customValue,
+  formatCustomValue,
+  formatWorkHistoryPeriod,
   getWeekStart,
   memberDailyLoads,
   memberLoad,
+  memberSearchText,
   memberSkillLevels,
   PROFICIENCY_LABELS,
   projectMembers,
+  projectSearchText,
+  sortedWorkHistory,
+  visibleCustomFields,
+  type CustomFieldDefinition,
+  type CustomFieldEntity,
+  type CustomFieldType,
   type Project,
   type SkillKind,
+  type WorkHistoryEntry,
   type WorkspaceState,
 } from "./domain";
 
@@ -62,6 +74,22 @@ type SkillsViewProps = {
   canEdit?: boolean;
 };
 
+type FieldsViewProps = {
+  state: WorkspaceState;
+  onAddField: (input: {
+    entityType: CustomFieldEntity;
+    key: string;
+    label: string;
+    fieldType: CustomFieldType;
+    required?: boolean;
+    options?: string[];
+    showInList?: boolean;
+    showInDetail?: boolean;
+    searchable?: boolean;
+  }) => void;
+  canManage?: boolean;
+};
+
 const statusClass: Record<Project["status"], string> = {
   "進行中": "active",
   "要注意": "risk",
@@ -81,12 +109,14 @@ export function ProjectsView({ state, weekOffset, onOpen, onCreate, canEdit = tr
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("すべて");
   const weekStart = getWeekStart(weekOffset);
+  const queryNeedle = query.toLowerCase();
   const filtered = state.projects.filter((project) => {
     const need = state.needs.some((item) => item.projectId === project.id && item.status !== "filled");
-    const textMatch = (project.name + " " + project.summary + " " + project.ownerName).toLowerCase().includes(query.toLowerCase());
+    const textMatch = projectSearchText(state, project).includes(queryNeedle);
     const statusMatch = status === "すべて" || project.status === status || (status === "欠員あり" && need);
     return textMatch && statusMatch;
   });
+  const listFields = visibleCustomFields(state.customFields, "project", "list");
 
   const portfolioRisks = state.projects.filter((project) => project.status === "要注意").length;
   const openNeeds = state.needs.filter((need) => need.status !== "filled").length;
@@ -119,7 +149,7 @@ export function ProjectsView({ state, weekOffset, onOpen, onCreate, canEdit = tr
       <div className="portfolio-table-wrap">
         <table className="portfolio-table">
           <thead>
-            <tr><th>プロジェクト</th><th>状態</th><th>4週間の充足</th><th>進捗</th><th>次の節目</th><th>責任者</th><th><span className="sr-only">詳細</span></th></tr>
+            <tr><th>プロジェクト</th><th>状態</th>{listFields.map((field) => <th key={field.id}>{field.label}</th>)}<th>4週間の充足</th><th>進捗</th><th>次の節目</th><th>責任者</th><th><span className="sr-only">詳細</span></th></tr>
           </thead>
           <tbody>
             {filtered.map((project) => {
@@ -135,6 +165,7 @@ export function ProjectsView({ state, weekOffset, onOpen, onCreate, canEdit = tr
                     </button>
                   </td>
                   <td><span className={"status-pill " + statusClass[project.status]}><i />{project.status}</span>{need && <small className={"need-note " + (need.status === "planned" ? "planned" : "")}>{need.status === "planned" ? "解消予定" : need.role + " 不足"}</small>}</td>
+                  {listFields.map((field) => <td key={field.id}><span className="custom-field-cell">{formatCustomValue(field, customValue(project.customValues, field.id))}</span></td>)}
                   <td>
                     <div className="four-week-rail" aria-label={project.name + "の4週間の充足人数"}>
                       {weeks.map((count, index) => <i key={index} title={project.demand === 0 ? (index + 1) + "週目: 必要人数未設定" : (index + 1) + "週目: " + count + "/" + project.demand + "名"}><b className={project.demand > 0 && count < project.demand ? "short" : ""} style={{ width: (project.demand === 0 ? 100 : Math.min(100, count / project.demand * 100)) + "%" }} /></i>)}
@@ -161,8 +192,9 @@ export function MembersView({ state, weekOffset, onOpen, onAdd, onAssign, canEdi
   const [role, setRole] = useState("すべて");
   const weekStart = getWeekStart(weekOffset);
   const roles = ["すべて", ...Array.from(new Set(state.members.map((member) => member.role)))];
+  const queryNeedle = query.toLowerCase();
   const filtered = state.members.filter((member) => {
-    const textMatch = (member.name + " " + member.role + " " + member.skills.join(" ")).toLowerCase().includes(query.toLowerCase());
+    const textMatch = memberSearchText(state, member).includes(queryNeedle);
     return textMatch && (role === "すべて" || member.role === role);
   }).sort((a, b) => {
     const aUtilization = a.capacity > 0 ? memberLoad(state, a.id, weekStart) / a.capacity : Number.POSITIVE_INFINITY;
@@ -172,6 +204,7 @@ export function MembersView({ state, weekOffset, onOpen, onAdd, onAssign, canEdi
 
   const available = state.members.filter((member) => member.capacity > 0 && memberLoad(state, member.id, weekStart) <= member.capacity * .6).length;
   const overloaded = state.members.filter((member) => memberLoad(state, member.id, weekStart) > member.capacity).length;
+  const listFields = visibleCustomFields(state.customFields, "member", "list");
 
   return (
     <section className="section-view members-view" aria-labelledby="members-heading">
@@ -187,7 +220,7 @@ export function MembersView({ state, weekOffset, onOpen, onAdd, onAssign, canEdi
       </div>
 
       <div className="view-toolbar">
-        <div className="inline-search"><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="名前・スキルを検索" aria-label="メンバーを検索" /></div>
+        <div className="inline-search"><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="名前・スキル・経歴を検索" aria-label="メンバーを検索" /></div>
         <label className="view-filter"><Filter size={14} /><select value={role} onChange={(event) => setRole(event.target.value)} aria-label="職種で絞り込み">{roles.map((option) => <option key={option}>{option}</option>)}</select></label>
         <span className="toolbar-result">空き率の高い順</span>
         {canManageMembers && <button className="view-add-button" onClick={onAdd}><Plus size={15} />メンバーを追加</button>}
@@ -195,7 +228,7 @@ export function MembersView({ state, weekOffset, onOpen, onAdd, onAssign, canEdi
 
       <div className="member-table-wrap">
         <table className="member-table">
-          <thead><tr><th>メンバー</th><th>スキル</th><th>今週</th><th>4週間のキャパシティ</th><th>次の空き</th><th><span className="sr-only">操作</span></th></tr></thead>
+          <thead><tr><th>メンバー</th><th>スキル</th>{listFields.map((field) => <th key={field.id}>{field.label}</th>)}<th>今週</th><th>4週間のキャパシティ</th><th>次の空き</th><th><span className="sr-only">操作</span></th></tr></thead>
           <tbody>
             {filtered.map((member) => {
               const load = memberLoad(state, member.id, weekStart);
@@ -206,6 +239,7 @@ export function MembersView({ state, weekOffset, onOpen, onAdd, onAssign, canEdi
                 <tr key={member.id}>
                   <td><button className="member-name-cell" onClick={() => onOpen(member.id)}><span className={"avatar " + member.avatarTone}>{member.initials}</span><span><strong>{member.name}</strong><small>{member.role} · {member.department}</small></span></button></td>
                   <td><div className="member-skills">{memberSkillLevels(member).slice(0, 3).map((level) => <span key={level.name}>{level.name}<small>{level.proficiency}</small></span>)}</div></td>
+                  {listFields.map((field) => <td key={field.id}><span className="custom-field-cell">{formatCustomValue(field, customValue(member.customValues, field.id))}</span></td>)}
                   <td><span className={"load-ring " + (load > member.capacity ? "over" : member.capacity > 0 && load <= member.capacity * .6 ? "open" : "")} style={{ "--load": Math.min(100, loadRatio) } as React.CSSProperties}><strong>{load}%</strong></span><small className="capacity-limit">上限 {member.capacity}%</small></td>
                   <td><div className="member-week-rail">{weeklyLoads.map((value, index) => { const ratio = member.capacity > 0 ? value / member.capacity * 100 : value > 0 ? 100 : 0; return <i className={value > member.capacity ? "over" : member.capacity > 0 && value <= member.capacity * .6 ? "open" : ""} key={index}><b style={{ height: Math.max(12, Math.min(100, ratio)) + "%" }} /><small>{value}%</small></i>; })}</div></td>
                   <td><span className="next-open">{member.capacity === 0 ? "稼働不可 · 上限0%" : nextOpen === -1 ? "4週先まで満員" : nextOpen === 0 ? "今週 " + Math.max(0, member.capacity - load) + "%空き" : (nextOpen + 1) + "週目から"}<small>{member.location}</small></span></td>
@@ -392,6 +426,214 @@ export function SkillsView({ state, onAddCatalogEntry, onOpenMember, onResolveNe
         <span><Sparkles size={17} /></span>
         <div><strong>スキルマップの見方</strong><p>習熟度は初級から指導までの5段階です。未充足の要員要件より保有者が少ないスキルを不足として表示します。</p></div>
         {state.members[0] && <button onClick={() => onOpenMember(state.members[0].id)}>メンバーを確認 <ArrowRight size={13} /></button>}
+      </div>
+    </section>
+  );
+}
+
+export function CustomFieldFacts({ fields, values }: { fields: CustomFieldDefinition[]; values?: Record<string, string> }) {
+  if (fields.length === 0) return null;
+  return (
+    <div className="detail-facts custom-field-facts">
+      {fields.map((field) => (
+        <div key={field.id}><span>{field.label}</span><strong>{formatCustomValue(field, customValue(values, field.id))}</strong></div>
+      ))}
+    </div>
+  );
+}
+
+export function WorkHistoryList({ entries }: { entries?: WorkHistoryEntry[] }) {
+  const history = sortedWorkHistory(entries);
+  if (history.length === 0) return <div className="candidate-empty"><BriefcaseBusiness size={18} /><span><strong>業務経歴はまだありません</strong><small>担当した案件や所属を時系列で残せます。</small></span></div>;
+  return (
+    <div className="work-history-list">
+      {history.map((entry) => (
+        <article key={entry.id}>
+          <span><strong>{entry.title}</strong><small>{entry.organization}</small></span>
+          <em>{formatWorkHistoryPeriod(entry)}</em>
+          {entry.description && <p>{entry.description}</p>}
+        </article>
+      ))}
+    </div>
+  );
+}
+
+export function CustomFieldInputs({
+  fields,
+  values,
+  onChange,
+}: {
+  fields: CustomFieldDefinition[];
+  values: Record<string, string>;
+  onChange: (values: Record<string, string>) => void;
+}) {
+  if (fields.length === 0) return null;
+  return (
+    <div className="custom-field-inputs">
+      {fields.map((field) => {
+        const value = values[field.id] ?? "";
+        const setValue = (next: string) => onChange({ ...values, [field.id]: next });
+        const label = field.label + (field.required ? "（必須）" : "");
+        if (field.fieldType === "select") {
+          return (
+            <label key={field.id}>{label}
+              <select aria-label={field.label} value={value} onChange={(event) => setValue(event.target.value)}>
+                <option value="">未設定</option>
+                {(field.options ?? []).map((option) => <option key={option}>{option}</option>)}
+              </select>
+            </label>
+          );
+        }
+        return (
+          <label key={field.id}>{label}
+            <input
+              aria-label={field.label}
+              required={field.required}
+              type={field.fieldType === "number" ? "number" : field.fieldType === "date" ? "date" : "text"}
+              value={value}
+              onChange={(event) => setValue(event.target.value)}
+            />
+          </label>
+        );
+      })}
+    </div>
+  );
+}
+
+export function WorkHistoryEditor({
+  entries,
+  onChange,
+}: {
+  entries: WorkHistoryEntry[];
+  onChange: (entries: WorkHistoryEntry[]) => void;
+}) {
+  const update = (index: number, patch: Partial<WorkHistoryEntry>) => {
+    onChange(entries.map((entry, current) => current === index ? { ...entry, ...patch } : entry));
+  };
+  return (
+    <div className="work-history-editor">
+      <div className="drawer-section-title"><span>業務経歴</span><small>{entries.length}件</small></div>
+      {entries.map((entry, index) => (
+        <div className="work-history-form" key={entry.id}>
+          <label>役割<input aria-label={`経歴${index + 1}の役割`} value={entry.title} onChange={(event) => update(index, { title: event.target.value })} /></label>
+          <label>所属・案件<input aria-label={`経歴${index + 1}の所属`} value={entry.organization} onChange={(event) => update(index, { organization: event.target.value })} /></label>
+          <div className="form-grid">
+            <label>開始日<input aria-label={`経歴${index + 1}の開始日`} type="date" value={entry.startDate} onChange={(event) => update(index, { startDate: event.target.value })} /></label>
+            <label>終了日<input aria-label={`経歴${index + 1}の終了日`} type="date" value={entry.endDate ?? ""} onChange={(event) => update(index, { endDate: event.target.value || null })} /></label>
+          </div>
+          <label>概要<textarea aria-label={`経歴${index + 1}の概要`} rows={2} value={entry.description ?? ""} onChange={(event) => update(index, { description: event.target.value })} /></label>
+          <button type="button" className="drawer-danger compact" onClick={() => onChange(entries.filter((_, current) => current !== index))}>この経歴を削除</button>
+        </div>
+      ))}
+      <button type="button" className="drawer-secondary" onClick={() => onChange([...entries, { id: crypto.randomUUID(), title: "", organization: "", startDate: "", endDate: null, description: "" }])}>
+        <Plus size={15} />経歴を追加
+      </button>
+    </div>
+  );
+}
+
+export function FieldsView({ state, onAddField, canManage = false }: FieldsViewProps) {
+  const [query, setQuery] = useState("");
+  const [entityType, setEntityType] = useState<CustomFieldEntity | "すべて">("すべて");
+  const [formEntity, setFormEntity] = useState<CustomFieldEntity>("member");
+  const [key, setKey] = useState("");
+  const [label, setLabel] = useState("");
+  const [fieldType, setFieldType] = useState<CustomFieldType>("text");
+  const [options, setOptions] = useState("");
+  const [required, setRequired] = useState(false);
+  const [showInList, setShowInList] = useState(false);
+  const [showInDetail, setShowInDetail] = useState(true);
+  const [searchable, setSearchable] = useState(true);
+  const [error, setError] = useState("");
+  const fields = (state.customFields ?? []).filter((field) => {
+    const text = (field.label + " " + field.key).toLowerCase();
+    return text.includes(query.toLowerCase()) && (entityType === "すべて" || field.entityType === entityType);
+  });
+  const memberCount = (state.customFields ?? []).filter((field) => field.entityType === "member").length;
+  const projectCount = (state.customFields ?? []).filter((field) => field.entityType === "project").length;
+
+  const submit = () => {
+    try {
+      onAddField({
+        entityType: formEntity,
+        key,
+        label,
+        fieldType,
+        required,
+        options: fieldType === "select" ? options.split(/[、,]/) : [],
+        showInList,
+        showInDetail,
+        searchable,
+      });
+      setKey("");
+      setLabel("");
+      setOptions("");
+      setError("");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "項目を追加できませんでした");
+    }
+  };
+
+  return (
+    <section className="section-view fields-view" aria-labelledby="fields-heading">
+      <h2 id="fields-heading" className="sr-only">項目定義</h2>
+      <div className="member-ribbon">
+        <div className="ribbon-lead"><span className="ribbon-icon mint"><SlidersHorizontal size={18} /></span><div><small>FIELD DEFINITIONS</small><strong>一覧・詳細・検索で使う独自項目を定義</strong></div></div>
+        <div className="ribbon-stat"><strong>{memberCount}</strong><span>メンバー項目</span></div>
+        <div className="ribbon-divider" />
+        <div className="ribbon-stat"><strong>{projectCount}</strong><span>案件項目</span></div>
+        <div className="ribbon-divider" />
+        <div className="ribbon-stat"><strong>{(state.members.filter((member) => (member.workHistory ?? []).length > 0).length)}</strong><span>経歴あり</span></div>
+      </div>
+
+      <div className="view-toolbar">
+        <div className="inline-search"><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="項目名・キーを検索" aria-label="項目を検索" /></div>
+        <label className="view-filter"><Filter size={14} /><select value={entityType} onChange={(event) => setEntityType(event.target.value as typeof entityType)} aria-label="項目の対象">
+          {(["すべて", "member", "project"] as const).map((option) => <option value={option} key={option}>{option === "すべて" ? "すべて" : option === "member" ? "メンバー" : "プロジェクト"}</option>)}
+        </select></label>
+        <span className="toolbar-result">{fields.length}件を表示</span>
+      </div>
+
+      {canManage && (
+        <form className="field-catalog-form" onSubmit={(event) => { event.preventDefault(); submit(); }}>
+          <label>対象<select aria-label="項目の対象エンティティ" value={formEntity} onChange={(event) => setFormEntity(event.target.value as CustomFieldEntity)}><option value="member">メンバー</option><option value="project">プロジェクト</option></select></label>
+          <label>項目名<input value={label} onChange={(event) => setLabel(event.target.value)} placeholder="雇用形態" /></label>
+          <label>キー<input value={key} onChange={(event) => setKey(event.target.value)} placeholder="employment_type" /></label>
+          <label>形式<select aria-label="項目の入力形式" value={fieldType} onChange={(event) => setFieldType(event.target.value as CustomFieldType)}><option value="text">テキスト</option><option value="number">数値</option><option value="date">日付</option><option value="select">選択</option></select></label>
+          {fieldType === "select" && <label className="field-options">選択肢<input value={options} onChange={(event) => setOptions(event.target.value)} placeholder="正社員, 契約, 業務委託" /></label>}
+          <label className="field-flag"><input type="checkbox" checked={required} onChange={(event) => setRequired(event.target.checked)} />必須</label>
+          <label className="field-flag"><input type="checkbox" checked={showInList} onChange={(event) => setShowInList(event.target.checked)} />一覧</label>
+          <label className="field-flag"><input type="checkbox" checked={showInDetail} onChange={(event) => setShowInDetail(event.target.checked)} />詳細</label>
+          <label className="field-flag"><input type="checkbox" checked={searchable} onChange={(event) => setSearchable(event.target.checked)} />検索</label>
+          <button type="submit" className="view-add-button"><Plus size={15} />項目を追加</button>
+          {error && <p className="skill-catalog-error" role="alert">{error}</p>}
+        </form>
+      )}
+
+      <div className="skill-map-wrap">
+        <table className="skill-map-table">
+          <thead>
+            <tr>
+              <th>項目</th>
+              <th>対象</th>
+              <th>形式</th>
+              <th>画面</th>
+              <th>必須</th>
+            </tr>
+          </thead>
+          <tbody>
+            {fields.map((field) => (
+              <tr key={field.id}>
+                <td><span className="skill-tree-name"><strong>{field.label}</strong><small>{field.key}</small></span></td>
+                <td>{field.entityType === "member" ? "メンバー" : "プロジェクト"}</td>
+                <td>{field.fieldType === "select" ? `選択（${(field.options ?? []).join(" / ")}）` : field.fieldType === "number" ? "数値" : field.fieldType === "date" ? "日付" : "テキスト"}</td>
+                <td><span className="field-surfaces">{field.showInList ? "一覧" : ""}{field.showInDetail !== false ? " 詳細" : ""}{field.searchable !== false ? " 検索" : ""}</span></td>
+                <td>{field.required ? "必須" : "任意"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {fields.length === 0 && <div className="view-empty"><SlidersHorizontal size={22} /><strong>条件に合う項目がありません</strong><p>検索語または対象を変更してください。</p></div>}
       </div>
     </section>
   );
