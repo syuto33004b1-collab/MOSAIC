@@ -1044,6 +1044,117 @@ button:focus-visible, a:focus-visible { outline: 3px solid rgba(86,104,232,.35);
   font-weight: 700;
 }
 .view-add-button:hover { border-color: #9ba7e8; background: #f7f8ff; }
+.view-add-button.ghost { margin-left: 0; color: #687285; }
+.view-add-button:disabled { opacity: .52; cursor: not-allowed; }
+.view-toggle {
+  height: 34px;
+  padding: 0 9px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  color: #747e90;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 9px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.view-toggle input { accent-color: #5967c0; }
+.favorite-star {
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #c5cad6;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.favorite-star:hover { background: #f7f4ea; color: #c4a35a; }
+.favorite-star.is-on { color: #d4a017; }
+.member-row-actions { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
+.quick-assign.quiet { color: #687285; }
+.proposal-layout {
+  display: grid;
+  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+.proposal-picker {
+  padding: 12px;
+  border: 1px solid #dfe4ed;
+  border-radius: 15px;
+  background: #fff;
+  display: grid;
+  gap: 12px;
+}
+.proposal-picker-group { display: grid; gap: 6px; }
+.proposal-picker-group > small { color: #929aaa; font-size: 8px; letter-spacing: .08em; }
+.proposal-picker-item {
+  min-height: 44px;
+  padding: 6px 8px;
+  border: 1px solid #e6eaf2;
+  border-radius: 10px;
+  background: #fafbfc;
+  color: inherit;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-align: left;
+}
+.proposal-picker-item:hover { border-color: #9ba7e8; background: #f7f8ff; }
+.proposal-picker-item:disabled { opacity: .52; cursor: not-allowed; }
+.proposal-picker-item .avatar { width: 28px; height: 28px; font-size: 9px; }
+.proposal-picker-item span { min-width: 0; flex: 1; display: grid; }
+.proposal-picker-item strong { font-size: 10px; }
+.proposal-picker-item small { color: #7b8494; font-size: 8px; }
+.proposal-picker-empty { margin: 0; color: #929aaa; font-size: 9px; }
+.proposal-cards { display: grid; gap: 12px; }
+.proposal-card {
+  padding: 16px;
+  border: 1px solid #dfe4ed;
+  border-radius: 17px;
+  background: #fff;
+  box-shadow: 0 6px 22px rgba(36,48,78,.04);
+  display: grid;
+  gap: 12px;
+}
+.proposal-card header { display: flex; align-items: flex-start; gap: 10px; }
+.proposal-card header div { min-width: 0; flex: 1; }
+.proposal-card h3 { margin: 0; font-size: 16px; }
+.proposal-card header p { margin: 2px 0 0; color: #687285; font-size: 11px; }
+.proposal-card header small { color: #929aaa; font-size: 10px; }
+.proposal-remove,
+.proposal-open {
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid #dce2eb;
+  border-radius: 8px;
+  background: #fff;
+  color: #687285;
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 700;
+}
+.proposal-weeks { display: grid; gap: 7px; }
+.proposal-weeks > div { display: grid; grid-template-columns: 52px minmax(0, 1fr) 72px; gap: 8px; align-items: center; font-size: 10px; }
+.proposal-weeks i { height: 8px; border-radius: 99px; background: #eef1f6; overflow: hidden; }
+.proposal-weeks b { display: block; height: 100%; background: #8c99ed; }
+.proposal-weeks b.over { background: #ec847b; }
+.proposal-empty { border: 1px solid #dfe4ed; border-radius: 17px; background: #fff; }
+.entity-action-row .favorite-star {
+  width: 100%;
+  min-height: 43px;
+  border: 1px solid #dce2eb;
+  border-radius: 9px;
+}
+.profile-hero .favorite-star { flex: 0 0 auto; }
+@media (max-width: 820px) {
+  .proposal-layout { grid-template-columns: 1fr; }
+}
 .portfolio-table-wrap,
 .member-table-wrap {
   width: 100%;
@@ -1756,6 +1867,7 @@ button:focus-visible, a:focus-visible { outline: 3px solid rgba(86,104,232,.35);
 .search-box,
 .inline-search,
 .view-filter,
+.view-toggle,
 .view-add-button { min-height: 40px; }
 .search-box button,
 .popover-head button,

@@ -1,5 +1,6 @@
 import type { WorkspaceState } from "../domain";
 import type { ChatTransport } from "../lib/ai/chatClient";
+import type { Favorite, FavoriteKind } from "../collaboration";
 
 export type OrganizationRole = "owner" | "admin" | "planner" | "viewer";
 
@@ -51,6 +52,8 @@ export type SharedWorkspaceAdapter = {
   save: (state: WorkspaceState, expectedRevision: number, requestId: string) => Promise<SaveWorkspaceResult>;
   reload: () => Promise<{ state: WorkspaceState; revision: number }>;
   subscribe: (onRevision: (revision?: number) => void) => () => void;
+  listFavorites?: () => Promise<Favorite[]>;
+  setFavorite?: (kind: FavoriteKind, targetId: string, favorite: boolean) => Promise<Favorite[]>;
   submitProfileRequest?: (
     requestId: string,
     proposed: { skills: string; workHistory: NonNullable<WorkspaceState["members"][number]["workHistory"]> },

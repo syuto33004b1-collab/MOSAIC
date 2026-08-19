@@ -594,4 +594,30 @@ describe("organization invite function", () => {
       data: { mosaic_invite: false, full_name: "招待 花子" },
     });
   });
+
+  it("lists and updates personal favorites through dedicated RPCs", async () => {
+    const rpc = vi.fn()
+      .mockResolvedValueOnce({
+        data: { favorites: [{ kind: "member", targetId: "00000000-0000-4000-8000-000000000021" }] },
+        error: null,
+      })
+      .mockResolvedValueOnce({
+        data: { favorites: [] },
+        error: null,
+      });
+    const repository = new ProductionRepository({ rpc } as unknown as SupabaseClient);
+
+    await expect(repository.listFavorites("00000000-0000-4000-8000-000000000010")).resolves.toEqual([
+      { kind: "member", targetId: "00000000-0000-4000-8000-000000000021" },
+    ]);
+    await expect(repository.setFavorite("00000000-0000-4000-8000-000000000010", "project", "00000000-0000-4000-8000-000000000022", false)).resolves.toEqual([]);
+
+    expect(rpc).toHaveBeenNthCalledWith(1, "list_favorites", { p_organization_id: "00000000-0000-4000-8000-000000000010" });
+    expect(rpc).toHaveBeenNthCalledWith(2, "set_favorite", {
+      p_favorite: false,
+      p_kind: "project",
+      p_organization_id: "00000000-0000-4000-8000-000000000010",
+      p_target_id: "00000000-0000-4000-8000-000000000022",
+    });
+  });
 });

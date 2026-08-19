@@ -16,6 +16,7 @@ import { OperationsPanel } from "./OperationsPanel";
 import { OrganizationSetup } from "./OrganizationSetup";
 import { ProductionFrame, ProductionState } from "./ProductionFrame";
 import { ProductionRepository } from "./repository";
+import type { FavoriteKind } from "../collaboration";
 import type {
   MyContext,
   OrganizationSummary,
@@ -167,11 +168,13 @@ function SharedWorkspaceRoute({
   const shared = useMemo(() => workspace ? {
     initialRevision: workspace.revision,
     initialState: workspace.state,
+    listFavorites: () => repository.listFavorites(currentOrganization.id),
     reload: sharedController.reload,
     save: sharedController.save,
+    setFavorite: (kind: FavoriteKind, targetId: string, favorite: boolean) => repository.setFavorite(currentOrganization.id, kind, targetId, favorite),
     submitProfileRequest: sharedController.submitProfileRequest,
     subscribe: sharedController.subscribe,
-  } : undefined, [sharedController, workspace]);
+  } : undefined, [currentOrganization.id, repository, sharedController, workspace]);
 
   if (loading) {
     return <ProductionState eyebrow="SHARED WORKSPACE" title="共有データを読み込み中" description={`${currentOrganization.name}の最新アサインを確認しています。`} />;

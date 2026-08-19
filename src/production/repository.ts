@@ -1,6 +1,7 @@
 import type { AuthError, PostgrestError, SupabaseClient, User } from "@supabase/supabase-js";
 import type { Assignment, CustomFieldDefinition, CustomFieldEntity, CustomFieldType, Member, Opportunity, OpportunityNeed, OpportunityStage, OrgMembership, OrgUnit, ProfileRequest, ProfileRequestScope, ProfileRequestStatus, Project, ReportGroupBy, ReportMetric, ReportSource, SavedReport, SearchScene, SearchSkillFilter, SkillDefinition, SkillImportance, SkillKind, StaffingNeed, WorkHistoryEntry, WorkspaceState } from "../domain";
 import { hydrateWorkspaceSkills, OPPORTUNITY_STAGES, normalizeSkillProficiency, normalizeWorkHistory, parseSkillInput, PROFILE_REQUEST_SCOPES, PROFILE_REQUEST_STATUSES } from "../domain";
+import { normalizeFavorites, type Favorite, type FavoriteKind } from "../collaboration";
 import { appAuthRedirectUrl } from "./authRecovery";
 import {
   ProductionRepositoryError,
@@ -1171,6 +1172,25 @@ export class ProductionRepository {
       revision,
       savedAt: readString(record, "saved_at", "savedAt", "updated_at") ?? new Date().toISOString(),
     };
+  }
+
+  async listFavorites(organizationId: string): Promise<Favorite[]> {
+    const { data, error } = await this.client.rpc("list_favorites", { p_organization_id: organizationId });
+    if (error) throw rpcError("お気に入りを読み込み", error);
+    const record = asRecord(unwrapRpcValue(data));
+    return normalizeFavorites(Array.isArray(data) ? data : readArray(record, "favorites", "items"));
+  }
+
+  async setFavorite(organizationId: string, kind: FavoriteKind, targetId: string, favorite: boolean): Promise<Favorite[]> {
+    const { data, error } = await this.client.rpc("set_favorite", {
+      p_favorite: favorite,
+      p_kind: kind,
+      p_organization_id: organizationId,
+      p_target_id: targetId,
+    });
+    if (error) throw rpcError("お気に入りを更新", error);
+    const record = asRecord(unwrapRpcValue(data));
+    return normalizeFavorites(Array.isArray(data) ? data : readArray(record, "favorites", "items"));
   }
 
   async inviteMember(organizationId: string, email: string, role: Exclude<OrganizationRole, "owner">): Promise<InvitationResult> {
