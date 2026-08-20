@@ -27,15 +27,17 @@ const ASSIGNMENT_STATUSES = ["draft", "confirmed"];
 const NEED_STATUSES = ["open", "planned", "filled"];
 const OPPORTUNITY_STAGES = ["inquiry", "proposal", "negotiation", "won", "lost"];
 const ACTIVE_OPPORTUNITY_STAGES = ["inquiry", "proposal", "negotiation"];
-const READ_RESOURCES = ["summary", "members", "projects", "assignments", "staffing_needs", "opportunities", "opportunity_needs"];
+const READ_RESOURCES = ["summary", "members", "projects", "assignments", "staffing_needs", "opportunities", "opportunity_needs", "org_units", "org_memberships"];
 const MAX_READ_RESULTS = 25;
 const DEFAULT_READ_RESULTS = 10;
 const MAX_SKILLS = 20;
 
 const READ_TOOL = "read_workspace";
 const MEMBER_TOOLS = new Set(["create_member", "update_member", "delete_member"]);
+const ORG_TOOLS = new Set(["create_org_unit", "update_org_unit", "delete_org_unit", "set_member_org_memberships"]);
 const WRITE_TOOLS = new Set([
   ...MEMBER_TOOLS,
+  ...ORG_TOOLS,
   "create_project",
   "update_project",
   "delete_project",
@@ -200,6 +202,15 @@ export const WORKSPACE_TOOL_DECLARATIONS = Object.freeze([
   declaration("update_opportunity_need", "受注前の要員計画を編集する。", updateParameters("opportunityNeedId", opportunityNeedFields)),
   declaration("delete_opportunity_need", "受注前の要員計画を取り消す。", createParameters({ opportunityNeedId: uuidSchema }, ["opportunityNeedId"])),
   declaration("convert_opportunity", "受注前案件と要員計画を確定プロジェクトと未充足の要員要件へ引き継ぐ。", createParameters({ opportunityId: uuidSchema }, ["opportunityId"])),
+  declaration("create_org_unit", "組織内の部門を追加する。", createParameters({ name: { type: "string" }, parentId: { ...uuidSchema, nullable: true }, sortOrder: { type: "integer", minimum: 0, maximum: 10000 } }, ["name"])),
+  declaration("update_org_unit", "部門名または親部門を変更する。", updateParameters("orgUnitId", { name: { type: "string" }, parentId: { ...uuidSchema, nullable: true }, sortOrder: { type: "integer", minimum: 0, maximum: 10000 } })),
+  declaration("delete_org_unit", "配下部門と所属がない部門を削除する。", createParameters({ orgUnitId: uuidSchema }, ["orgUnitId"])),
+  declaration("set_member_org_memberships", "メンバーの主所属・兼務・責任者を設定する。", createParameters({
+    memberId: uuidSchema,
+    primaryUnitId: { ...uuidSchema, nullable: true },
+    extraUnitIds: { type: "array", items: uuidSchema, maxItems: 40 },
+    managerUnitIds: { type: "array", items: uuidSchema, maxItems: 40 },
+  }, ["memberId"])),
 ]);
 
 const TOOL_NAMES = new Set(WORKSPACE_TOOL_DECLARATIONS.map((tool) => tool.name));
@@ -334,6 +345,17 @@ function optionalStringArray(value, field, options = {}) {
   return value === undefined ? undefined : stringArray(value, field, options);
 }
 
+function uuidArray(value, field, options = {}) {
+  return stringArray(value, field, { max: options.max ?? 40, itemMax: 36 }).map((item) => {
+    if (!UUID_PATTERN.test(item)) fail("INVALID_TOOL_ARGUMENTS", `${field}のID形式が正しくありません。`);
+    return item.toLowerCase();
+  });
+}
+
+function optionalUuidArray(value, field, options = {}) {
+  return value === undefined ? undefined : uuidArray(value, field, options);
+}
+
 function ensureDateRange(startDate, endDate, label = "期間") {
   if (startDate && endDate && startDate > endDate) fail("INVALID_TOOL_ARGUMENTS", `${label}の終了日は開始日以降にしてください。`);
 }
@@ -459,6 +481,8 @@ const READ_ALLOWED = {
   staffing_needs: ["resource", "projectId", "statuses", "skills", "startDate", "endDate", "limit"],
   opportunities: ["resource", "query", "ownerPersonId", "statuses", "startDate", "endDate", "limit"],
   opportunity_needs: ["resource", "query", "skills", "startDate", "endDate", "limit"],
+  org_units: ["resource", "query", "limit"],
+  org_memberships: ["resource", "query", "personId", "limit"],
 };
 
 function parseReadArgs(value) {
@@ -581,6 +605,41 @@ export function parseWorkspaceToolCall(name, args) {
       allowedKeys(input, ["opportunityId"]);
       normalized = { opportunityId: uuidValue(input.opportunityId, "受注前案件ID") };
       break;
+    case "create_org_unit":
+      allowedKeys(input, ["name", "parentId", "sortOrder"]);
+      normalized = compact({
+        name: requiredString(input.name, "部門名", { max: 80 }),
+        parentId: optionalUuid(input.parentId, "親部門ID", { nullable: true }),
+        sortOrder: optionalNumber(input.sortOrder, "並び順", 0, 10000, { integer: true }),
+      });
+      break;
+    case "update_org_unit":
+      allowedKeys(input, ["orgUnitId", "patch"]);
+      {
+        const patchInput = record(input.patch, "部門変更");
+        allowedKeys(patchInput, ["name", "parentId", "sortOrder"]);
+        const patch = compact({
+          name: optionalString(patchInput.name, "部門名", { max: 80 }),
+          parentId: optionalUuid(patchInput.parentId, "親部門ID", { nullable: true }),
+          sortOrder: optionalNumber(patchInput.sortOrder, "並び順", 0, 10000, { integer: true }),
+        });
+        if (Object.keys(patch).length === 0) fail("INVALID_TOOL_ARGUMENTS", "部門の変更項目を1つ以上指定してください。");
+        normalized = { orgUnitId: uuidValue(input.orgUnitId, "部門ID"), patch };
+      }
+      break;
+    case "delete_org_unit":
+      allowedKeys(input, ["orgUnitId"]);
+      normalized = { orgUnitId: uuidValue(input.orgUnitId, "部門ID") };
+      break;
+    case "set_member_org_memberships":
+      allowedKeys(input, ["memberId", "primaryUnitId", "extraUnitIds", "managerUnitIds"]);
+      normalized = compact({
+        memberId: uuidValue(input.memberId, "メンバーID"),
+        primaryUnitId: optionalUuid(input.primaryUnitId, "主所属ID", { nullable: true }),
+        extraUnitIds: optionalUuidArray(input.extraUnitIds, "兼務部門"),
+        managerUnitIds: optionalUuidArray(input.managerUnitIds, "責任者部門"),
+      });
+      break;
     default:
       fail("UNKNOWN_WORKSPACE_TOOL", "許可されていないAI操作です。");
   }
@@ -625,6 +684,8 @@ function workspaceSnapshot(value) {
   collections.customFields = Array.isArray(state.customFields) ? structuredClone(state.customFields) : [];
   collections.opportunities = Array.isArray(state.opportunities) ? structuredClone(state.opportunities) : [];
   collections.opportunityNeeds = Array.isArray(state.opportunityNeeds) ? structuredClone(state.opportunityNeeds) : [];
+  collections.orgUnits = Array.isArray(state.orgUnits) ? structuredClone(state.orgUnits) : [];
+  collections.orgMemberships = Array.isArray(state.orgMemberships) ? structuredClone(state.orgMemberships) : [];
   return { organizationId: organizationId.toLowerCase(), revision, ...collections };
 }
 
@@ -715,6 +776,51 @@ function bounded(items, limit) {
   return { items: items.slice(0, limit), total: items.length, truncated: items.length > limit };
 }
 
+function orgUnitPath(units, id) {
+  const byId = new Map((units ?? []).map((unit) => [unit.id, unit]));
+  const path = [];
+  const seen = new Set();
+  let current = byId.get(id);
+  while (current && !seen.has(current.id)) {
+    seen.add(current.id);
+    path.unshift(current.name);
+    current = current.parentId ? byId.get(current.parentId) : undefined;
+  }
+  return path;
+}
+
+function orgDescendantIds(units, id) {
+  const ids = new Set();
+  const children = new Map();
+  (units ?? []).forEach((unit) => {
+    const parentId = unit.parentId ?? null;
+    children.set(parentId, [...(children.get(parentId) ?? []), unit.id]);
+  });
+  const walk = (unitId) => {
+    if (ids.has(unitId)) return;
+    ids.add(unitId);
+    (children.get(unitId) ?? []).forEach(walk);
+  };
+  walk(id);
+  return ids;
+}
+
+function membersInOrgSubtree(state, unitId, primaryOnly) {
+  const ids = orgDescendantIds(state.orgUnits, unitId);
+  const personIds = new Set(
+    (state.orgMemberships ?? [])
+      .filter((item) => ids.has(item.orgUnitId) && (!primaryOnly || item.isPrimary))
+      .map((item) => item.personId),
+  );
+  return state.members.filter((member) => personIds.has(member.id));
+}
+
+function orgSearchLabels(state, personId) {
+  return (state.orgMemberships ?? [])
+    .filter((item) => item.personId === personId)
+    .flatMap((item) => orgUnitPath(state.orgUnits, item.orgUnitId));
+}
+
 export function readWorkspaceTool(snapshot, name, args) {
   const parsed = parseWorkspaceToolCall(name, args);
   if (parsed.mode !== "read") fail("INVALID_TOOL_MODE", "参照toolではありません。");
@@ -752,6 +858,7 @@ export function readWorkspaceTool(snapshot, name, args) {
       ...(member.skills ?? []),
       ...Object.values(member.customValues ?? {}),
       ...(member.workHistory ?? []).flatMap((entry) => [entry.title, entry.organization, entry.description ?? ""]),
+      ...orgSearchLabels(state, member.id),
     ], filters.query))
       .filter((member) => !filters.role || lower(member.role) === lower(filters.role))
       .filter((member) => !filters.location || lower(member.location) === lower(filters.location))
@@ -807,6 +914,43 @@ export function readWorkspaceTool(snapshot, name, args) {
 
   const members = new Map(state.members.map((member) => [member.id, member]));
   const projects = new Map(state.projects.map((project) => [project.id, project]));
+  if (filters.resource === "org_units") {
+    const values = (state.orgUnits ?? []).filter((unit) => containsQuery([unit.name, ...(orgUnitPath(state.orgUnits, unit.id))], filters.query))
+      .map((unit) => ({
+        id: unit.id,
+        name: unit.name,
+        parentId: unit.parentId ?? null,
+        path: orgUnitPath(state.orgUnits, unit.id),
+        sortOrder: Number(unit.sortOrder ?? 0),
+        primaryMemberCount: membersInOrgSubtree(state, unit.id, true).length,
+        anyMemberCount: membersInOrgSubtree(state, unit.id, false).length,
+        managers: (state.orgMemberships ?? []).filter((item) => item.orgUnitId === unit.id && item.isManager).map((item) => ({
+          personId: item.personId,
+          name: members.get(item.personId)?.name ?? null,
+        })),
+      }));
+    return { resource: filters.resource, revision: state.revision, ...bounded(values, filters.limit) };
+  }
+  if (filters.resource === "org_memberships") {
+    const units = new Map((state.orgUnits ?? []).map((unit) => [unit.id, unit]));
+    const values = (state.orgMemberships ?? []).filter((item) => !filters.personId || item.personId === filters.personId)
+      .filter((item) => containsQuery([
+        members.get(item.personId)?.name,
+        units.get(item.orgUnitId)?.name,
+        ...(orgUnitPath(state.orgUnits, item.orgUnitId)),
+      ], filters.query))
+      .map((item) => ({
+        id: item.id,
+        personId: item.personId,
+        personName: members.get(item.personId)?.name ?? null,
+        orgUnitId: item.orgUnitId,
+        orgUnitName: units.get(item.orgUnitId)?.name ?? null,
+        path: orgUnitPath(state.orgUnits, item.orgUnitId),
+        isPrimary: Boolean(item.isPrimary),
+        isManager: Boolean(item.isManager),
+      }));
+    return { resource: filters.resource, revision: state.revision, ...bounded(values, filters.limit) };
+  }
   const values = state.needs.filter((need) => !filters.projectId || need.projectId === filters.projectId)
     .filter((need) => !filters.statuses?.length || filters.statuses.includes(need.status))
     .filter((need) => includesSkills(need.skills, filters.skills))
@@ -871,7 +1015,18 @@ function assignmentMatchesNeed(state, assignment, need) {
 }
 
 function cloneState(state) {
-  return { members: structuredClone(state.members), projects: structuredClone(state.projects), assignments: structuredClone(state.assignments), needs: structuredClone(state.needs), skillCatalog: structuredClone(state.skillCatalog ?? []), customFields: structuredClone(state.customFields ?? []), opportunities: structuredClone(state.opportunities ?? []), opportunityNeeds: structuredClone(state.opportunityNeeds ?? []) };
+  return {
+    members: structuredClone(state.members),
+    projects: structuredClone(state.projects),
+    assignments: structuredClone(state.assignments),
+    needs: structuredClone(state.needs),
+    skillCatalog: structuredClone(state.skillCatalog ?? []),
+    customFields: structuredClone(state.customFields ?? []),
+    opportunities: structuredClone(state.opportunities ?? []),
+    opportunityNeeds: structuredClone(state.opportunityNeeds ?? []),
+    orgUnits: structuredClone(state.orgUnits ?? []),
+    orgMemberships: structuredClone(state.orgMemberships ?? []),
+  };
 }
 
 export function stableStringify(value) {
@@ -922,6 +1077,12 @@ function workspacePayload(next, previous) {
   const opportunityNeedUpsert = changedRows(next.opportunityNeeds ?? [], previous.opportunityNeeds ?? []);
   const opportunityNeedCancel = removedIds(next.opportunityNeeds ?? [], previous.opportunityNeeds ?? []);
   if (opportunityNeedUpsert.length || opportunityNeedCancel.length) payload.opportunityNeeds = { upsert: opportunityNeedUpsert, cancelIds: opportunityNeedCancel };
+  const unitUpsert = changedRows(next.orgUnits ?? [], previous.orgUnits ?? []);
+  const unitArchive = removedIds(next.orgUnits ?? [], previous.orgUnits ?? []);
+  if (unitUpsert.length || unitArchive.length) payload.orgUnits = { upsert: unitUpsert, archiveIds: unitArchive };
+  const membershipUpsert = changedRows(next.orgMemberships ?? [], previous.orgMemberships ?? []);
+  const membershipArchive = removedIds(next.orgMemberships ?? [], previous.orgMemberships ?? []);
+  if (membershipUpsert.length || membershipArchive.length) payload.orgMemberships = { upsert: membershipUpsert, archiveIds: membershipArchive };
   return payload;
 }
 
@@ -950,16 +1111,19 @@ function actionPermission(role, toolName) {
   if (!ROLE_VALUES.has(role)) fail("FORBIDDEN", "組織権限を確認できません。", { status: 403 });
   if (role === "viewer") fail("FORBIDDEN", "閲覧者はデータを変更できません。", { status: 403 });
   if (role === "planner" && MEMBER_TOOLS.has(toolName)) fail("FORBIDDEN", "メンバー変更はオーナーまたは管理者だけが実行できます。", { status: 403 });
+  if (role === "planner" && ORG_TOOLS.has(toolName)) fail("FORBIDDEN", "組織階層の変更はオーナーまたは管理者だけが実行できます。", { status: 403 });
 }
 
 function payloadIsDestructive(payload) {
   return Boolean(
     payload.members?.archiveIds.length
-    || payload.projects?.archiveIds.length
+    ||     payload.projects?.archiveIds.length
     || payload.assignments?.cancelIds.length
     || payload.needs?.cancelIds.length
     || payload.opportunities?.archiveIds.length
-    || payload.opportunityNeeds?.cancelIds.length,
+    || payload.opportunityNeeds?.cancelIds.length
+    || payload.orgUnits?.archiveIds.length
+    || payload.orgMemberships?.archiveIds.length,
   );
 }
 
@@ -992,6 +1156,10 @@ function actionLabels(toolName) {
     update_opportunity_need: ["要員計画を更新", "更新する"],
     delete_opportunity_need: ["要員計画を取消", "取り消す"],
     convert_opportunity: ["受注前案件をプロジェクトへ引き継ぐ", "引き継ぐ"],
+    create_org_unit: ["部門を登録", "登録する"],
+    update_org_unit: ["部門を更新", "更新する"],
+    delete_org_unit: ["部門を削除", "削除する"],
+    set_member_org_memberships: ["所属を更新", "更新する"],
   };
   return labels[toolName];
 }
@@ -1089,6 +1257,7 @@ function applyAction(state, toolName, args, newUuid, requestId) {
     const reopened = new Set(assignments.flatMap((assignment) => assignment.staffingNeedId ? [assignment.staffingNeedId] : []));
     next.needs.forEach((need) => { if (need.draftPersonId === member.id) reopened.add(need.id); });
     next.members = next.members.filter((candidate) => candidate.id !== member.id);
+    next.orgMemberships = (next.orgMemberships ?? []).filter((item) => item.personId !== member.id);
     next.assignments = next.assignments.filter((assignment) => assignment.personId !== member.id);
     next.needs = next.needs.map((need) => reopened.has(need.id) ? { ...need, status: "open", draftPersonId: null } : need);
     subject = member.name;
@@ -1367,6 +1536,66 @@ function applyAction(state, toolName, args, newUuid, requestId) {
     subject = opportunity.name;
     details.push(`プロジェクト「${project.name}」へ引き継ぎます。`);
     if (planNeeds.length) impacts.push(`${planNeeds.length}件の要員計画を未充足の要員要件として複製します。`);
+  } else if (toolName === "create_org_unit") {
+    if ((next.orgUnits ?? []).some((unit) => lower(unit.name) === lower(args.name))) fail("WORKSPACE_VALIDATION_FAILED", "同じ名前の部門がすでにあります。");
+    if (args.parentId) byId(next.orgUnits, args.parentId, "親部門");
+    const unit = { id: newUuid(), name: args.name, parentId: args.parentId ?? null, sortOrder: args.sortOrder ?? (next.orgUnits.length + 1) };
+    next.orgUnits.push(unit);
+    subject = unit.name;
+    details.push(args.parentId ? `親部門: ${orgUnitPath(next.orgUnits, args.parentId).join(" / ")}` : "最上位部門");
+  } else if (toolName === "update_org_unit") {
+    const current = byId(next.orgUnits, args.orgUnitId, "部門");
+    const parentId = args.patch.parentId === undefined ? current.parentId ?? null : args.patch.parentId;
+    if (parentId) {
+      byId(next.orgUnits, parentId, "親部門");
+      if (parentId === current.id || orgDescendantIds(next.orgUnits, current.id).has(parentId)) {
+        fail("WORKSPACE_VALIDATION_FAILED", "部門を自分の配下へは移せません。");
+      }
+    }
+    const name = args.patch.name ?? current.name;
+    if ((next.orgUnits ?? []).some((unit) => unit.id !== current.id && lower(unit.name) === lower(name))) {
+      fail("WORKSPACE_VALIDATION_FAILED", "同じ名前の部門がすでにあります。");
+    }
+    const updated = { ...current, ...args.patch, parentId };
+    next.orgUnits = next.orgUnits.map((unit) => unit.id === updated.id ? updated : unit);
+    if (args.patch.name && args.patch.name !== current.name) {
+      next.members = next.members.map((member) => {
+        const primary = (next.orgMemberships ?? []).find((item) => item.personId === member.id && item.isPrimary);
+        return primary?.orgUnitId === updated.id ? { ...member, department: updated.name } : member;
+      });
+    }
+    subject = updated.name;
+    addPreviewChange(details, "部門名", current.name, updated.name);
+    addPreviewChange(details, "親部門", current.parentId ?? null, updated.parentId ?? null, (value) => value ? orgUnitPath(next.orgUnits, value).join(" / ") : "最上位");
+  } else if (toolName === "delete_org_unit") {
+    const unit = byId(next.orgUnits, args.orgUnitId, "部門");
+    if ((next.orgUnits ?? []).some((item) => item.parentId === unit.id)) fail("WORKSPACE_VALIDATION_FAILED", "配下の部門を先に移すか削除してください。");
+    if ((next.orgMemberships ?? []).some((item) => item.orgUnitId === unit.id)) fail("WORKSPACE_VALIDATION_FAILED", "所属メンバーを先に別部門へ移してください。");
+    next.orgUnits = next.orgUnits.filter((item) => item.id !== unit.id);
+    subject = unit.name;
+    details.push("部門を削除します。");
+  } else if (toolName === "set_member_org_memberships") {
+    const member = byId(next.members, args.memberId, "メンバー");
+    const extra = [...new Set(args.extraUnitIds ?? [])].filter((id) => id && id !== args.primaryUnitId);
+    const managerIds = new Set(args.managerUnitIds ?? []);
+    const unitIds = [...new Set([args.primaryUnitId, ...extra].filter(Boolean))];
+    unitIds.forEach((id) => byId(next.orgUnits, id, "部門"));
+    const remaining = (next.orgMemberships ?? []).filter((item) => item.personId !== member.id);
+    next.orgMemberships = [
+      ...remaining,
+      ...unitIds.map((orgUnitId) => ({
+        id: (state.orgMemberships ?? []).find((item) => item.personId === member.id && item.orgUnitId === orgUnitId)?.id ?? newUuid(),
+        personId: member.id,
+        orgUnitId,
+        isPrimary: orgUnitId === args.primaryUnitId,
+        isManager: managerIds.has(orgUnitId),
+      })),
+    ];
+    const primary = next.orgUnits.find((unit) => unit.id === args.primaryUnitId);
+    if (primary) next.members = next.members.map((item) => item.id === member.id ? { ...item, department: primary.name } : item);
+    subject = member.name;
+    details.push(primary ? `主所属: ${orgUnitPath(next.orgUnits, primary.id).join(" / ")}` : "主所属なし");
+    if (extra.length) details.push(`兼務: ${extra.map((id) => orgUnitPath(next.orgUnits, id).join(" / ")).join("、")}`);
   }
 
   if (relevantAssignment) {

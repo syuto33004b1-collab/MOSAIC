@@ -1019,6 +1019,41 @@ describe("role-aware workspace", () => {
     expect(within(screen.getByRole("dialog", { name: "詳細パネル" })).getByText("引き合い")).toBeInTheDocument();
   });
 
+  it("shows organization hierarchy, concurrent posts, and lets admins add a unit", async () => {
+    const user = userEvent.setup();
+    const adapter = sharedAdapter();
+    const save = vi.fn().mockResolvedValue({ revision: 10, savedAt: "2026-08-19T12:00:00Z" });
+    adapter.save = save;
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "admin@example.com", role: "admin" }} shared={adapter} />);
+    const navigation = within(screen.getByRole("navigation", { name: "メインナビゲーション" }));
+
+    await user.click(navigation.getByRole("button", { name: "組織" }));
+    expect(screen.getByRole("heading", { level: 1, name: "組織階層" })).toBeInTheDocument();
+    expect(screen.getAllByText("開発本部").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("プロダクト開発").length).toBeGreaterThan(0);
+    await user.type(screen.getByPlaceholderText("新規チーム"), "モバイル推進");
+    await user.selectOptions(screen.getByLabelText("親部門"), "org-product");
+    await user.click(screen.getByRole("button", { name: "部門を追加" }));
+    expect(screen.getByText("モバイル推進")).toBeInTheDocument();
+
+    await user.click(navigation.getByRole("button", { name: "メンバー" }));
+    await user.type(screen.getByPlaceholderText("名前・スキル・経歴を検索"), "デザイン本部");
+    expect(screen.getByRole("button", { name: /佐伯 優斗/ })).toBeInTheDocument();
+    await user.clear(screen.getByPlaceholderText("名前・スキル・経歴を検索"));
+    await user.selectOptions(screen.getByLabelText("組織で絞り込み"), "org-engineering");
+    expect(screen.getByRole("button", { name: /佐伯 優斗/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /中村 美咲/ })).toBeInTheDocument();
+
+    await user.click(navigation.getByRole("button", { name: "レポート" }));
+    const engineering = screen.getByText("開発本部").closest("div");
+    expect(engineering).toHaveTextContent("5名");
+
+    await user.click(screen.getByRole("button", { name: "チームへ保存" }));
+    await waitFor(() => expect(save).toHaveBeenCalledOnce());
+    const saved = save.mock.calls[0][0] as WorkspaceState;
+    expect(saved.orgUnits?.some((unit) => unit.name === "モバイル推進")).toBe(true);
+  });
+
   it("migrates legacy demo leave rows out of local storage", async () => {
     const member = initialWorkspace.members[0];
     const project = initialWorkspace.projects[0];

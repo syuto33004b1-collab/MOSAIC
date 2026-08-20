@@ -1,5 +1,5 @@
 import type { AuthError, PostgrestError, SupabaseClient, User } from "@supabase/supabase-js";
-import type { Assignment, CustomFieldDefinition, CustomFieldEntity, CustomFieldType, Member, Opportunity, OpportunityNeed, OpportunityStage, Project, SkillDefinition, SkillKind, StaffingNeed, WorkHistoryEntry, WorkspaceState } from "../domain";
+import type { Assignment, CustomFieldDefinition, CustomFieldEntity, CustomFieldType, Member, Opportunity, OpportunityNeed, OpportunityStage, OrgMembership, OrgUnit, Project, SkillDefinition, SkillKind, StaffingNeed, WorkHistoryEntry, WorkspaceState } from "../domain";
 import { hydrateWorkspaceSkills, OPPORTUNITY_STAGES, normalizeSkillProficiency, normalizeWorkHistory } from "../domain";
 import { appAuthRedirectUrl } from "./authRecovery";
 import {
@@ -382,6 +382,39 @@ function normalizeSkillDefinition(value: unknown): SkillDefinition | undefined {
   };
 }
 
+function normalizeOrgUnit(value: unknown): OrgUnit | undefined {
+  const record = asRecord(value);
+  if (!record) return undefined;
+  const id = readString(record, "id");
+  const name = readString(record, "name");
+  if (!id || !name || name.length > 80) return undefined;
+  const parentId = nullableString(record, "parentId");
+  const sortOrder = finiteNumber(record, "sortOrder");
+  return {
+    id,
+    name,
+    ...(parentId ? { parentId } : {}),
+    ...(sortOrder !== undefined ? { sortOrder } : {}),
+  };
+}
+
+function normalizeOrgMembership(value: unknown): OrgMembership | undefined {
+  const record = asRecord(value);
+  if (!record) return undefined;
+  const id = readString(record, "id");
+  const personId = readString(record, "personId");
+  const orgUnitId = readString(record, "orgUnitId");
+  if (!id || !personId || !orgUnitId) return undefined;
+  if (typeof record.isPrimary !== "boolean" || typeof record.isManager !== "boolean") return undefined;
+  return {
+    id,
+    personId,
+    orgUnitId,
+    isPrimary: record.isPrimary,
+    isManager: record.isManager,
+  };
+}
+
 function normalizeWorkspaceState(value: unknown): WorkspaceState | undefined {
   const record = asRecord(value);
   if (!record || !Array.isArray(record.members) || !Array.isArray(record.projects) || !Array.isArray(record.assignments) || !Array.isArray(record.needs)) return undefined;
@@ -412,6 +445,10 @@ function normalizeWorkspaceState(value: unknown): WorkspaceState | undefined {
   if (catalogValues && catalogValues.some((item) => !item)) return undefined;
   const customFieldValues = record.customFields === undefined ? undefined : readArray(record, "customFields").map(normalizeCustomFieldDefinition);
   if (customFieldValues && customFieldValues.some((item) => !item)) return undefined;
+  const orgUnitValues = record.orgUnits === undefined ? undefined : readArray(record, "orgUnits").map(normalizeOrgUnit);
+  if (orgUnitValues && orgUnitValues.some((item) => !item)) return undefined;
+  const orgMembershipValues = record.orgMemberships === undefined ? undefined : readArray(record, "orgMemberships").map(normalizeOrgMembership);
+  if (orgMembershipValues && orgMembershipValues.some((item) => !item)) return undefined;
   return hydrateWorkspaceSkills({
     members: members as Member[],
     projects: projects as Project[],
@@ -421,6 +458,8 @@ function normalizeWorkspaceState(value: unknown): WorkspaceState | undefined {
     opportunityNeeds,
     ...(catalogValues ? { skillCatalog: catalogValues as SkillDefinition[] } : {}),
     ...(customFieldValues ? { customFields: customFieldValues as CustomFieldDefinition[] } : {}),
+    ...(orgUnitValues ? { orgUnits: orgUnitValues as OrgUnit[] } : {}),
+    ...(orgMembershipValues ? { orgMemberships: orgMembershipValues as OrgMembership[] } : {}),
   });
 }
 
@@ -643,6 +682,8 @@ export function normalizeWorkspace(value: unknown): WorkspaceEnvelope {
     customFields: record.customFields,
     opportunities: record.opportunities,
     opportunityNeeds: record.opportunityNeeds,
+    orgUnits: record.orgUnits,
+    orgMemberships: record.orgMemberships,
   } : value);
   const rawState = typeof stateCandidate === "string" ? JSON.parse(stateCandidate) as unknown : stateCandidate;
   const state = normalizeWorkspaceState(rawState);
@@ -808,6 +849,37 @@ export function workspaceChangesPayload(
   const opportunityNeedCancelIds = removedIds(state.opportunityNeeds ?? [], previous.opportunityNeeds ?? []);
   if (opportunityNeedUpsert.length || opportunityNeedCancelIds.length) {
     payload.opportunityNeeds = { upsert: opportunityNeedUpsert, cancelIds: opportunityNeedCancelIds };
+  }
+  const nextUnits = (state.orgUnits ?? []).filter((item) => persistedId(item.id));
+  const previousUnits = (previous.orgUnits ?? []).filter((item) => persistedId(item.id));
+  const unitUpsert = changedRows(nextUnits, previousUnits);
+  const unitArchiveIds = removedIds(nextUnits, previousUnits);
+  if (role === "owner" || role === "admin") {
+    if (unitUpsert.length || unitArchiveIds.length) payload.orgUnits = { upsert: unitUpsert, archiveIds: unitArchiveIds };
+  } else if (unitUpsert.length || unitArchiveIds.length) {
+    throw new ProductionRepositoryError("権限が変更されたため、組織階層を保存できません。未保存内容を確認して再読み込みしてください。", {
+      code: "FORBIDDEN",
+      retryable: false,
+    });
+  }
+  const nextMemberships = (state.orgMemberships ?? []).filter((item) => persistedId(item.id) && persistedId(item.orgUnitId));
+  const previousMemberships = (previous.orgMemberships ?? []).filter((item) => persistedId(item.id) && persistedId(item.orgUnitId));
+  const changedPersonIds = new Set([
+    ...changedRows(nextMemberships, previousMemberships).map((item) => item.personId),
+    ...removedIds(nextMemberships, previousMemberships).flatMap((id) => {
+      const previousItem = previousMemberships.find((item) => item.id === id);
+      return previousItem ? [previousItem.personId] : [];
+    }),
+  ]);
+  const membershipUpsert = nextMemberships.filter((item) => changedPersonIds.has(item.personId));
+  const membershipArchiveIds = previousMemberships.filter((item) => changedPersonIds.has(item.personId) && !nextMemberships.some((candidate) => candidate.id === item.id)).map((item) => item.id);
+  if (role === "owner" || role === "admin") {
+    if (membershipUpsert.length || membershipArchiveIds.length) payload.orgMemberships = { upsert: membershipUpsert, archiveIds: membershipArchiveIds };
+  } else if (membershipUpsert.length || membershipArchiveIds.length) {
+    throw new ProductionRepositoryError("権限が変更されたため、組織階層を保存できません。未保存内容を確認して再読み込みしてください。", {
+      code: "FORBIDDEN",
+      retryable: false,
+    });
   }
   return payload;
 }

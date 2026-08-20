@@ -204,6 +204,36 @@ describe("production repository response adapters", () => {
     expect(payload.assignments).toBeUndefined();
   });
 
+  it("sends UUID organization unit and membership changes and rejects planner catalog edits", () => {
+    const unitId = "11111111-0000-4000-8000-000000000031";
+    const membershipId = "11111111-0000-4000-8000-000000000041";
+    const previous = {
+      ...initialWorkspace,
+      orgUnits: [{ id: unitId, name: "開発本部" }],
+      orgMemberships: [],
+    };
+    const changed = {
+      ...previous,
+      orgUnits: [
+        { id: unitId, name: "開発本部" },
+        { id: "org:local", name: "ローカル部門" },
+        { id: "22222222-0000-4000-8000-000000000032", name: "プロダクト開発", parentId: unitId },
+      ],
+      orgMemberships: [
+        { id: membershipId, personId: previous.members[0].id, orgUnitId: "22222222-0000-4000-8000-000000000032", isPrimary: true, isManager: true },
+      ],
+    };
+
+    const payload = workspaceChangesPayload(changed, previous, "admin");
+    expect(payload.orgUnits?.upsert).toEqual([
+      { id: "22222222-0000-4000-8000-000000000032", name: "プロダクト開発", parentId: unitId },
+    ]);
+    expect(payload.orgMemberships?.upsert).toEqual([
+      { id: membershipId, personId: previous.members[0].id, orgUnitId: "22222222-0000-4000-8000-000000000032", isPrimary: true, isManager: true },
+    ]);
+    expect(() => workspaceChangesPayload(changed, previous, "planner")).toThrow("組織階層を保存できません");
+  });
+
   it("creates a deterministic lowercase SHA-256 payload hash", async () => {
     const first = await sha256Hex({ beta: [2, 1], alpha: { y: true, x: "value" } });
     const second = await sha256Hex({ alpha: { x: "value", y: true }, beta: [2, 1] });

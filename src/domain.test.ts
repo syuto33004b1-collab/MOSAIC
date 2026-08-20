@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   addCustomField,
+  addOrgUnit,
   addSkillCatalogEntry,
+  archiveOrgUnit,
   assignmentGrid,
   buildSkillMap,
   canConvertOpportunity,
@@ -20,11 +22,17 @@ import {
   memberMatchesNeed,
   memberPeakLoad,
   memberSearchText,
+  membersInOrgSubtree,
+  moveOrgUnit,
   normalizeCustomValues,
   normalizeWorkHistory,
+  orgManagers,
+  orgUnitLoadRows,
+  orgUnitPath,
   parseSkillInput,
   pipelineDemandForWeek,
   projectSearchText,
+  setMemberOrgMemberships,
   visibleCustomFields,
   type WorkspaceState,
 } from "./domain";
@@ -262,5 +270,47 @@ describe("pre-award opportunities", () => {
     const plan = (initialWorkspace.opportunityNeeds ?? []).find((need) => need.id === "opp-need-harbor-mobile")!;
     expect(memberMatchesNeed(initialWorkspace.members.find((member) => member.id === "takahashi")!, plan)).toBe(true);
     expect(memberMatchesNeed(initialWorkspace.members.find((member) => member.id === "nakamura")!, plan)).toBe(false);
+  });
+});
+
+describe("organization units", () => {
+  it("exposes hierarchy paths, concurrent posts, and descendant members", () => {
+    expect(orgUnitPath(initialWorkspace.orgUnits, "org-product")).toEqual(["開発本部", "プロダクト開発"]);
+    expect(membersInOrgSubtree(initialWorkspace, "org-product", "primary").map((member) => member.id).sort()).toEqual(["nakamura", "takahashi"]);
+    expect(membersInOrgSubtree(initialWorkspace, "org-product").map((member) => member.id).sort()).toEqual(["nakamura", "saeki", "takahashi"]);
+    expect(membersInOrgSubtree(initialWorkspace, "org-engineering", "primary").some((member) => member.id === "suzuki")).toBe(true);
+    expect(orgManagers(initialWorkspace, "org-design").map((member) => member.id)).toEqual(["saeki"]);
+    expect(memberSearchText(initialWorkspace, initialWorkspace.members[0])).toContain("デザイン本部");
+    expect(memberSearchText(initialWorkspace, initialWorkspace.members[0])).toContain("プロダクト開発");
+  });
+
+  it("rejects cycles, keeps one primary affiliation, and blocks unsafe archives", () => {
+    expect(() => moveOrgUnit(initialWorkspace.orgUnits ?? [], "org-engineering", "org-product")).toThrow("自分の配下");
+    expect(() => archiveOrgUnit(initialWorkspace, "org-product")).toThrow("所属メンバー");
+    expect(() => archiveOrgUnit(initialWorkspace, "org-engineering")).toThrow("配下の部門");
+    const added = addOrgUnit(initialWorkspace.orgUnits ?? [], { name: "新規チーム", parentId: "org-product", id: "org-new" });
+    expect(added.some((unit) => unit.id === "org-new")).toBe(true);
+    expect(() => addOrgUnit(added, { name: "プロダクト開発", parentId: "org-engineering" })).toThrow("同じ名前");
+    const emptied = {
+      ...initialWorkspace,
+      orgMemberships: (initialWorkspace.orgMemberships ?? []).filter((item) => item.orgUnitId !== "org-data"),
+    };
+    expect(archiveOrgUnit(emptied, "org-data").orgUnits?.some((unit) => unit.id === "org-data")).toBe(false);
+  });
+
+  it("syncs department from the primary unit and reports subtree utilization", () => {
+    const moved = setMemberOrgMemberships(initialWorkspace, "saeki", {
+      primaryUnitId: "org-product",
+      extraUnitIds: ["org-design"],
+      managerUnitIds: ["org-product"],
+    });
+    expect(moved.members.find((member) => member.id === "saeki")?.department).toBe("プロダクト開発");
+    expect(moved.orgMemberships?.filter((item) => item.personId === "saeki")).toEqual(expect.arrayContaining([
+      expect.objectContaining({ orgUnitId: "org-product", isPrimary: true, isManager: true }),
+      expect.objectContaining({ orgUnitId: "org-design", isPrimary: false, isManager: false }),
+    ]));
+    const rows = orgUnitLoadRows(initialWorkspace, "2026-08-17");
+    expect(rows.find((row) => row.id === "org-engineering")?.count).toBe(5);
+    expect(rows.find((row) => row.id === "org-design")?.managers).toEqual(["佐伯 優斗"]);
   });
 });
