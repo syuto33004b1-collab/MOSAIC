@@ -1,10 +1,11 @@
 import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from "react";
-import { Check, Clock3, History, KeyRound, MailPlus, MailX, Radio, RefreshCw, ShieldCheck, UsersRound, X } from "lucide-react";
+import { Check, Clock3, History, KeyRound, MailPlus, MailX, Plug, Radio, RefreshCw, ShieldCheck, UsersRound, X } from "lucide-react";
 import { ProductionRepository } from "./repository";
 import type {
   AuditEvent,
   IntegrationClient,
   IntegrationScope,
+  McpServer,
   OrganizationInvitation,
   OrganizationMember,
   OrganizationRole,
@@ -12,7 +13,7 @@ import type {
   WebhookEndpoint,
   WebhookEvent,
 } from "./types";
-import { INTEGRATION_SCOPES, WEBHOOK_EVENTS } from "./types";
+import { INTEGRATION_SCOPES, MCP_SERVER_LIMITS, WEBHOOK_EVENTS } from "./types";
 
 type OperationsPanelProps = {
   currentUserId: string;
@@ -89,6 +90,7 @@ export function OperationsPanel({
   const [invitations, setInvitations] = useState<OrganizationInvitation[]>([]);
   const [clients, setClients] = useState<IntegrationClient[]>([]);
   const [webhooks, setWebhooks] = useState<WebhookEndpoint[]>([]);
+  const [mcpServers, setMcpServers] = useState<McpServer[]>([]);
   const [events, setEvents] = useState<AuditEvent[]>([]);
   const [nextBefore, setNextBefore] = useState<string>();
   const [loading, setLoading] = useState(true);
@@ -111,6 +113,12 @@ export function OperationsPanel({
   const [issuingEndpoint, setIssuingEndpoint] = useState(false);
   const [endpointAction, setEndpointAction] = useState("");
   const [issuedWebhookSecret, setIssuedWebhookSecret] = useState("");
+  const [mcpKey, setMcpKey] = useState("");
+  const [mcpName, setMcpName] = useState("");
+  const [mcpUrl, setMcpUrl] = useState("");
+  const [mcpTools, setMcpTools] = useState("");
+  const [registeringMcp, setRegisteringMcp] = useState(false);
+  const [mcpAction, setMcpAction] = useState("");
   const panelRef = useRef<HTMLElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
   const onCloseRef = useRef(onClose);
@@ -131,8 +139,9 @@ export function OperationsPanel({
       canInvite ? repository.listOrganizationInvitations(currentOrganization.id) : Promise.resolve([] as OrganizationInvitation[]),
       canInvite ? repository.listIntegrationClients(currentOrganization.id) : Promise.resolve([] as IntegrationClient[]),
       canInvite ? repository.listWebhookEndpoints(currentOrganization.id) : Promise.resolve([] as WebhookEndpoint[]),
+      canInvite ? repository.listMcpServers(currentOrganization.id) : Promise.resolve([] as McpServer[]),
     ]);
-    const [memberResult, auditResult, invitationResult, clientResult, webhookResult] = results;
+    const [memberResult, auditResult, invitationResult, clientResult, webhookResult, mcpResult] = results;
     if (memberResult.status === "fulfilled") setMembers(memberResult.value);
     if (auditResult.status === "fulfilled") {
       setEvents(auditResult.value.events);
@@ -141,6 +150,7 @@ export function OperationsPanel({
     if (invitationResult.status === "fulfilled") setInvitations(invitationResult.value);
     if (clientResult.status === "fulfilled") setClients(clientResult.value);
     if (webhookResult.status === "fulfilled") setWebhooks(webhookResult.value);
+    if (mcpResult.status === "fulfilled") setMcpServers(mcpResult.value);
     const rejected = results.find((result): result is PromiseRejectedResult => result.status === "rejected");
     if (rejected) setError(messageFrom(rejected.reason));
     setLoading(false);
@@ -154,9 +164,10 @@ export function OperationsPanel({
       canInvite ? repository.listOrganizationInvitations(currentOrganization.id) : Promise.resolve([] as OrganizationInvitation[]),
       canInvite ? repository.listIntegrationClients(currentOrganization.id) : Promise.resolve([] as IntegrationClient[]),
       canInvite ? repository.listWebhookEndpoints(currentOrganization.id) : Promise.resolve([] as WebhookEndpoint[]),
+      canInvite ? repository.listMcpServers(currentOrganization.id) : Promise.resolve([] as McpServer[]),
     ]).then((results) => {
       if (!active) return;
-      const [memberResult, auditResult, invitationResult, clientResult, webhookResult] = results;
+      const [memberResult, auditResult, invitationResult, clientResult, webhookResult, mcpResult] = results;
       if (memberResult.status === "fulfilled") setMembers(memberResult.value);
       if (auditResult.status === "fulfilled") {
         setEvents(auditResult.value.events);
@@ -165,6 +176,7 @@ export function OperationsPanel({
       if (invitationResult.status === "fulfilled") setInvitations(invitationResult.value);
       if (clientResult.status === "fulfilled") setClients(clientResult.value);
       if (webhookResult.status === "fulfilled") setWebhooks(webhookResult.value);
+    if (mcpResult.status === "fulfilled") setMcpServers(mcpResult.value);
       const rejected = results.find((result): result is PromiseRejectedResult => result.status === "rejected");
       if (rejected) setError(messageFrom(rejected.reason));
       setLoading(false);
@@ -370,6 +382,47 @@ export function OperationsPanel({
       setInviteStatus("署名シークレットをコピーしました。受信側の検証設定へ保存してください。");
     } catch {
       setError("コピーできませんでした。表示中のシークレットを手動で控えてください。");
+    }
+  };
+
+  const registerMcpServer = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!canInvite || registeringMcp) return;
+    setRegisteringMcp(true);
+    setInviteStatus("");
+    setError("");
+    try {
+      const tools = mcpTools.split(/[\s,、]+/u).map((tool) => tool.trim()).filter(Boolean);
+      const result = await repository.createMcpServer(currentOrganization.id, mcpKey, mcpName, mcpUrl, tools);
+      setMcpServers(await repository.listMcpServers(currentOrganization.id));
+      setInviteStatus(result.replayed
+        ? `${result.server.name}は既に同じ内容で登録済みです。`
+        : `${result.server.name}を承認済みの外部MCPサーバーとして登録しました。認証が必要な場合は MCP_SECRET_${result.server.serverKey.toUpperCase()} をFunctionのsecretへ設定してください。`);
+      setMcpKey("");
+      setMcpName("");
+      setMcpUrl("");
+      setMcpTools("");
+    } catch (caught) {
+      setError(messageFrom(caught));
+    } finally {
+      setRegisteringMcp(false);
+    }
+  };
+
+  const revokeMcpServer = async (server: McpServer) => {
+    if (!canInvite || mcpAction) return;
+    if (!window.confirm(`${server.name}への接続を停止します。AI秘書はこのサーバーを参照できなくなります。続けますか？`)) return;
+    setMcpAction(server.id);
+    setInviteStatus("");
+    setError("");
+    try {
+      await repository.revokeMcpServer(currentOrganization.id, server.id);
+      setMcpServers(await repository.listMcpServers(currentOrganization.id));
+      setInviteStatus(`${server.name}への接続を停止しました。`);
+    } catch (caught) {
+      setError(messageFrom(caught));
+    } finally {
+      setMcpAction("");
     }
   };
 
@@ -651,6 +704,51 @@ export function OperationsPanel({
               </fieldset>
               <div className="form-note"><ShieldCheck size={15} /><span>署名は <code>X-MOSAIC-Signature: sha256=…</code> です。受信側でHMACを検証してください。</span></div>
               <button className="drawer-primary" type="submit" disabled={issuingEndpoint || !endpointName.trim() || !endpointUrl.trim()}><Radio size={15} />{issuingEndpoint ? "登録中…" : "Webhookを登録する"}</button>
+            </form>
+            <div className="drawer-section-title"><span>外部MCPサーバー</span><small>{loading ? "読込中" : `${mcpServers.length}件`}</small></div>
+            <div className="form-note"><Plug size={15} /><span>AI秘書がここで承認したサーバーの、承認したtoolだけを参照します。今段は参照のみで、外部への書込みは行いません。localhostやプライベートIPは登録できません。最大{MCP_SERVER_LIMITS.maxServersPerOrg}件です。</span></div>
+            <div className="allocation-list production-integration-list">
+              {mcpServers.map((server) => (
+                <div key={server.id}>
+                  <span className={`notice-icon ${server.status === "revoked" ? "danger" : "info"}`}><Plug size={14} /></span>
+                  <span>
+                    <strong>{server.name}</strong>
+                    <small>
+                      {server.status === "revoked" ? "停止済み" : "接続中"}
+                      {` · ${server.serverKey}`}
+                      {` · ${server.url}`}
+                      {` · ${server.allowedTools.join(" / ")}`}
+                    </small>
+                  </span>
+                  {server.status === "active" ? (
+                    <button className="row-open invitation-revoke-button" type="button" disabled={Boolean(mcpAction)} onClick={() => void revokeMcpServer(server)}>
+                      {mcpAction === server.id ? "停止中" : "接続停止"}
+                    </button>
+                  ) : <b>停止</b>}
+                </div>
+              ))}
+              {!loading && mcpServers.length === 0 && <div><Plug size={16} /><span><strong>承認済みの外部MCPサーバーはありません</strong><small>owner / admin が接続先と利用するtoolを承認します。</small></span></div>}
+            </div>
+            <form className="assignment-form production-invite-form" onSubmit={registerMcpServer}>
+              <div className="drawer-section-title"><span>外部MCPサーバーを承認</span><small>最大{MCP_SERVER_LIMITS.maxServersPerOrg}件</small></div>
+              <label>
+                サーバーキー
+                <input required maxLength={16} value={mcpKey} onChange={(event) => setMcpKey(event.target.value)} placeholder="acme_hr" />
+              </label>
+              <label>
+                表示名
+                <input required maxLength={80} value={mcpName} onChange={(event) => setMcpName(event.target.value)} placeholder="ACME人事" />
+              </label>
+              <label>
+                接続先URL
+                <input required type="url" value={mcpUrl} onChange={(event) => setMcpUrl(event.target.value)} placeholder="https://mcp.example.com/mcp" />
+              </label>
+              <label>
+                承認するtool（カンマ区切り）
+                <input required value={mcpTools} onChange={(event) => setMcpTools(event.target.value)} placeholder="search_employee, get_attendance" />
+              </label>
+              <div className="form-note"><ShieldCheck size={15} /><span>外部の秘密鍵はMOSAICに保存しません。必要な場合は <code>MCP_SECRET_サーバーキー（大文字）</code> をFunctionのsecretへ設定します。承認したtoolの結果は社外由来の未信頼データとして扱われます。</span></div>
+              <button className="drawer-primary" type="submit" disabled={registeringMcp || !mcpKey.trim() || !mcpName.trim() || !mcpUrl.trim() || !mcpTools.trim()}><Plug size={15} />{registeringMcp ? "登録中…" : "外部MCPサーバーを承認する"}</button>
             </form>
           </>
         )}

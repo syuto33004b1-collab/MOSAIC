@@ -31,6 +31,19 @@ export const INTEGRATION_LIMITS = Object.freeze({
   secretHexLength: 48,
   chat: Object.freeze({ limit: 12, windowMs: 60_000 }),
   integration: Object.freeze({ limit: 60, windowMs: 60_000 }),
+  // Outbound calls from the AI secretary to administrator-approved external MCP
+  // servers. The execution path is separate from the inbound MCP Server; only
+  // the credential and audit foundation is shared.
+  mcpClient: Object.freeze({
+    limit: 20,
+    windowMs: 60_000,
+    maxServersPerOrg: 5,
+    maxToolsPerServer: 8,
+    maxDeclarations: 12,
+    maxArgumentBytes: 2_048,
+    maxResponseBytes: 32_768,
+    timeoutMs: 10_000,
+  }),
 });
 
 const ROLE_RANK = Object.freeze({

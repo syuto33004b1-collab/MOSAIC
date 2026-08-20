@@ -20,6 +20,7 @@ function repositoryWithInvitation(invitation: OrganizationInvitation) {
       .mockResolvedValue([]),
     listIntegrationClients: vi.fn().mockResolvedValue([]),
     listWebhookEndpoints: vi.fn().mockResolvedValue([]),
+    listMcpServers: vi.fn().mockResolvedValue([]),
     revokeOrganizationInvitation: vi.fn().mockResolvedValue({ changed: true }),
   } as unknown as ProductionRepository;
 }
@@ -31,6 +32,7 @@ function repositoryWithAuditEvent(event: AuditEvent) {
     listOrganizationInvitations: vi.fn().mockResolvedValue([]),
     listIntegrationClients: vi.fn().mockResolvedValue([]),
     listWebhookEndpoints: vi.fn().mockResolvedValue([]),
+    listMcpServers: vi.fn().mockResolvedValue([]),
   } as unknown as ProductionRepository;
 }
 
@@ -76,6 +78,7 @@ describe("OperationsPanel invitation administration", () => {
       listOrganizationInvitations: vi.fn().mockResolvedValue([]),
       listIntegrationClients: vi.fn().mockResolvedValue([]),
     listWebhookEndpoints: vi.fn().mockResolvedValue([]),
+    listMcpServers: vi.fn().mockResolvedValue([]),
     } as unknown as ProductionRepository;
 
     render(
@@ -100,6 +103,7 @@ describe("OperationsPanel invitation administration", () => {
       listOrganizationInvitations: vi.fn().mockResolvedValue([]),
       listIntegrationClients: vi.fn().mockResolvedValue([]),
     listWebhookEndpoints: vi.fn().mockResolvedValue([]),
+    listMcpServers: vi.fn().mockResolvedValue([]),
       inviteMember: vi.fn().mockResolvedValue({
         email: "new.member@example.jp",
         role: "planner",
@@ -173,6 +177,7 @@ describe("OperationsPanel keyboard navigation", () => {
       listOrganizationInvitations: vi.fn().mockResolvedValue([]),
       listIntegrationClients: vi.fn().mockResolvedValue([]),
     listWebhookEndpoints: vi.fn().mockResolvedValue([]),
+    listMcpServers: vi.fn().mockResolvedValue([]),
     } as unknown as ProductionRepository;
     const commonProps = {
       currentUserId: "00000000-0000-4000-8000-000000000001",
@@ -277,6 +282,7 @@ describe("OperationsPanel integration credentials", () => {
           status: "active",
         }]),
       listWebhookEndpoints: vi.fn().mockResolvedValue([]),
+      listMcpServers: vi.fn().mockResolvedValue([]),
       createIntegrationClient: vi.fn().mockResolvedValue({
         client: {
           id: "00000000-0000-4000-8000-000000000020",
@@ -334,6 +340,7 @@ describe("OperationsPanel integration credentials", () => {
         .mockResolvedValueOnce([client])
         .mockResolvedValue([{ ...client, status: "revoked" }]),
       listWebhookEndpoints: vi.fn().mockResolvedValue([]),
+      listMcpServers: vi.fn().mockResolvedValue([]),
       revokeIntegrationClient: vi.fn().mockResolvedValue({ changed: true, client: { ...client, status: "revoked" } }),
     } as unknown as ProductionRepository;
 
@@ -373,6 +380,7 @@ describe("OperationsPanel webhook endpoints", () => {
           events: ["workspace.committed"],
           status: "active",
         }]),
+      listMcpServers: vi.fn().mockResolvedValue([]),
       createWebhookEndpoint: vi.fn().mockResolvedValue({
         endpoint: {
           id: "00000000-0000-4000-8000-000000000040",
@@ -410,5 +418,91 @@ describe("OperationsPanel webhook endpoints", () => {
     ));
     expect(await screen.findByText("ab".repeat(32))).toBeInTheDocument();
     expect(screen.getByText("署名シークレット（再表示できません）")).toBeInTheDocument();
+  });
+});
+
+describe("OperationsPanel external mcp servers", () => {
+  const organization = { id: "00000000-0000-4000-8000-000000000010", name: "共有ワークスペース", role: "owner" as const };
+  const approved = {
+    id: "00000000-0000-4000-8000-000000000050",
+    organizationId: organization.id,
+    serverKey: "acme_hr",
+    name: "ACME人事",
+    url: "https://mcp.example.com/mcp",
+    allowedTools: ["search_employee"],
+    status: "active" as const,
+  };
+
+  it("approves a server with its tool list and points at the function secret", async () => {
+    const user = userEvent.setup();
+    const repository = {
+      listOrganizationMembers: vi.fn().mockResolvedValue([]),
+      listAuditEvents: vi.fn().mockResolvedValue({ events: [], nextBefore: undefined }),
+      listOrganizationInvitations: vi.fn().mockResolvedValue([]),
+      listIntegrationClients: vi.fn().mockResolvedValue([]),
+      listWebhookEndpoints: vi.fn().mockResolvedValue([]),
+      listMcpServers: vi.fn().mockResolvedValueOnce([]).mockResolvedValue([approved]),
+      createMcpServer: vi.fn().mockResolvedValue({ server: approved, replayed: false }),
+    } as unknown as ProductionRepository;
+
+    render(
+      <OperationsPanel
+        currentUserId="00000000-0000-4000-8000-000000000001"
+        currentOrganization={organization}
+        organizations={[organization]}
+        repository={repository}
+        onClose={vi.fn()}
+        onSelectOrganization={vi.fn()}
+      />,
+    );
+
+    await user.type(await screen.findByLabelText("サーバーキー"), "acme_hr");
+    await user.type(screen.getByLabelText("表示名"), "ACME人事");
+    await user.type(screen.getByLabelText("接続先URL"), "https://mcp.example.com/mcp");
+    await user.type(screen.getByLabelText("承認するtool（カンマ区切り）"), "search_employee, get_attendance");
+    await user.click(screen.getByRole("button", { name: "外部MCPサーバーを承認する" }));
+
+    await waitFor(() => expect(repository.createMcpServer).toHaveBeenCalledWith(
+      organization.id,
+      "acme_hr",
+      "ACME人事",
+      "https://mcp.example.com/mcp",
+      ["search_employee", "get_attendance"],
+    ));
+    // The outbound secret never reaches MOSAIC, so the panel names the env var instead.
+    expect(await screen.findByText(/MCP_SECRET_ACME_HR/u)).toBeInTheDocument();
+    expect(await screen.findByText("ACME人事")).toBeInTheDocument();
+  });
+
+  it("stops an approved server after confirmation", async () => {
+    const user = userEvent.setup();
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const repository = {
+      listOrganizationMembers: vi.fn().mockResolvedValue([]),
+      listAuditEvents: vi.fn().mockResolvedValue({ events: [], nextBefore: undefined }),
+      listOrganizationInvitations: vi.fn().mockResolvedValue([]),
+      listIntegrationClients: vi.fn().mockResolvedValue([]),
+      listWebhookEndpoints: vi.fn().mockResolvedValue([]),
+      listMcpServers: vi.fn()
+        .mockResolvedValueOnce([approved])
+        .mockResolvedValue([{ ...approved, status: "revoked" as const }]),
+      revokeMcpServer: vi.fn().mockResolvedValue({ changed: true, server: { ...approved, status: "revoked" as const } }),
+    } as unknown as ProductionRepository;
+
+    render(
+      <OperationsPanel
+        currentUserId="00000000-0000-4000-8000-000000000001"
+        currentOrganization={organization}
+        organizations={[organization]}
+        repository={repository}
+        onClose={vi.fn()}
+        onSelectOrganization={vi.fn()}
+      />,
+    );
+
+    await user.click(await screen.findByRole("button", { name: "接続停止" }));
+    await waitFor(() => expect(repository.revokeMcpServer).toHaveBeenCalledWith(organization.id, approved.id));
+    expect(await screen.findByText(/接続を停止しました/u)).toBeInTheDocument();
+    confirmSpy.mockRestore();
   });
 });

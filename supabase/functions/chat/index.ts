@@ -10,6 +10,13 @@ import {
   normalizeModel,
 } from "./gemini.mjs";
 import { INTEGRATION_LIMITS } from "./integration-core.mjs";
+import {
+  callExternalTool,
+  externalToolDeclarations,
+  isExternalToolName,
+  McpClientError,
+  parseExternalToolName,
+} from "./mcp-client.mjs";
 import { createBestEffortRateLimiter } from "./rate-limit.mjs";
 import {
   buildWorkspaceSaveRequest,
@@ -181,6 +188,7 @@ async function continueWithToolResults(options: {
   model: string;
   results: Array<{ call: UnknownRecord; result: unknown }>;
   toolChoice: "auto" | "none";
+  tools?: UnknownRecord[];
 }) {
   return createGeminiInteraction({
     apiKey: options.apiKey,
@@ -188,8 +196,61 @@ async function continueWithToolResults(options: {
     model: options.model,
     previousInteractionId: options.interactionId,
     toolChoice: options.toolChoice,
-    tools: WORKSPACE_TOOL_DECLARATIONS,
+    tools: options.tools ?? WORKSPACE_TOOL_DECLARATIONS,
   });
+}
+
+/**
+ * Approved external MCP tools, or none when the registry cannot be read. The AI
+ * secretary fails closed: an unreadable registry simply offers no external tool.
+ */
+async function loadExternalTools(client: RpcClient, organizationId: string) {
+  try {
+    const { data, error } = await client.rpc("list_mcp_tools", { p_organization_id: organizationId });
+    if (error) return [];
+    const record = unwrapRpcValue(data);
+    if (!isRecord(record) || !Array.isArray(record.servers)) return [];
+    return externalToolDeclarations(record.servers) as UnknownRecord[];
+  } catch {
+    return [];
+  }
+}
+
+function externalRpc(client: RpcClient) {
+  return async (name: string, args: UnknownRecord) => {
+    const { data, error } = await client.rpc(name, args);
+    if (error) {
+      const code = rpcCode(error);
+      if (code === "54000") {
+        throw new McpClientError("EXTERNAL_RATE_LIMITED", "社外システムへの参照が短時間に多すぎます。少し待ってからお試しください。");
+      }
+      if (code === "42501" || code === "P0002") {
+        throw new McpClientError("EXTERNAL_NOT_APPROVED", "この社外ツールは管理者に承認されていません。");
+      }
+      throw new McpClientError("EXTERNAL_UNAVAILABLE", "社外システムへの参照を記録できませんでした。");
+    }
+    return unwrapRpcValue(data);
+  };
+}
+
+async function resolveHostAddresses(hostname: string) {
+  const addresses: string[] = [];
+  for (const recordType of ["A", "AAAA"] as const) {
+    try {
+      addresses.push(...await globalThis.Deno.resolveDns(hostname, recordType));
+    } catch {
+      // Missing A or AAAA records are not an error until both fail.
+    }
+  }
+  return addresses;
+}
+
+function safeExternalFailure(error: unknown) {
+  const code = error instanceof McpClientError ? error.code : "EXTERNAL_FAILED";
+  const message = error instanceof McpClientError && error.message.length <= 300
+    ? error.message
+    : "社外システムを参照できませんでした。";
+  return { ok: false, untrusted: true, code, message };
 }
 
 async function responseForInteraction(interaction: UnknownRecord, userId: string, organizationId: string, apiKey: string, fallback: string) {
@@ -275,7 +336,12 @@ async function handleMessage(options: {
     options.chat.previousInteractionId = verified;
   }
 
-  let interaction = await createGeminiInteraction({ apiKey: options.apiKey, chat: options.chat, model: options.model, tools: WORKSPACE_TOOL_DECLARATIONS });
+  const externalTools = await loadExternalTools(options.client, organizationId);
+  const tools = externalTools.length > 0
+    ? [...WORKSPACE_TOOL_DECLARATIONS, ...externalTools]
+    : WORKSPACE_TOOL_DECLARATIONS;
+
+  let interaction = await createGeminiInteraction({ apiKey: options.apiKey, chat: options.chat, model: options.model, tools });
   let workspace: Awaited<ReturnType<typeof loadWorkspace>> | undefined;
 
   for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
@@ -285,8 +351,41 @@ async function handleMessage(options: {
     }
     if (calls.length > MAX_TOOL_CALLS_PER_ROUND) {
       const results = calls.slice(0, MAX_TOOL_CALLS_PER_ROUND).map((call: UnknownRecord) => ({ call, result: { ok: false, code: "TOO_MANY_TOOL_CALLS", message: "一度に確認できる操作数を超えました。条件を絞ってください。" } }));
-      interaction = await continueWithToolResults({ apiKey: options.apiKey, interactionId: interaction.interactionId, model: options.model, results, toolChoice: "none" });
+      interaction = await continueWithToolResults({ apiKey: options.apiKey, interactionId: interaction.interactionId, model: options.model, results, toolChoice: "none", tools });
       return responseForInteraction(interaction, options.userId, organizationId, options.apiKey, "一度に確認できる範囲を超えました。依頼を分けてください。");
+    }
+
+    const externalCalls = calls.filter((call: UnknownRecord) => isExternalToolName(call.name));
+    if (externalCalls.length > 0) {
+      const call = externalCalls[0] as UnknownRecord;
+      if (calls.length !== 1) {
+        const result = { ok: false, code: "EXTERNAL_CALL_NOT_ALONE", message: "社外システムの参照は1回につき1件だけ依頼してください。" };
+        interaction = await continueWithToolResults({ apiKey: options.apiKey, interactionId: interaction.interactionId, model: options.model, results: calls.map((entry: UnknownRecord) => ({ call: entry, result })), toolChoice: "none", tools });
+        return responseForInteraction(interaction, options.userId, organizationId, options.apiKey, result.message);
+      }
+      const target = parseExternalToolName(call.name as string);
+      let result: unknown;
+      if (!target) {
+        result = { ok: false, untrusted: true, code: "EXTERNAL_NOT_APPROVED", message: "この社外ツールは管理者に承認されていません。" };
+      } else {
+        try {
+          result = await callExternalTool({
+            organizationId,
+            serverKey: target.serverKey,
+            toolName: target.toolName,
+            args: isRecord(call.arguments) ? call.arguments.arguments : undefined,
+            fetchImpl: fetch,
+            resolveHost: resolveHostAddresses,
+            rpc: externalRpc(options.client),
+            env: (name: string) => globalThis.Deno.env.get(name) ?? "",
+          });
+        } catch (error) {
+          result = safeExternalFailure(error);
+        }
+      }
+      // toolChoice "none": external text is data and must not start another round.
+      interaction = await continueWithToolResults({ apiKey: options.apiKey, interactionId: interaction.interactionId, model: options.model, results: [{ call, result }], toolChoice: "none", tools });
+      return responseForInteraction(interaction, options.userId, organizationId, options.apiKey, "社外システムの参照結果を確認してください。");
     }
 
     const parsed = calls.map((call: UnknownRecord) => {
@@ -298,7 +397,7 @@ async function handleMessage(options: {
     });
     if (parsed.some((entry: UnknownRecord) => entry.error)) {
       const results = parsed.map((entry: UnknownRecord) => ({ call: entry.call as UnknownRecord, result: entry.error ? safeToolFailure(entry.error) : { ok: false, code: "TOOL_REQUEST_INVALID", message: "同じ依頼内の操作を確認できませんでした。" } }));
-      interaction = await continueWithToolResults({ apiKey: options.apiKey, interactionId: interaction.interactionId, model: options.model, results, toolChoice: "none" });
+      interaction = await continueWithToolResults({ apiKey: options.apiKey, interactionId: interaction.interactionId, model: options.model, results, toolChoice: "none", tools });
       return responseForInteraction(interaction, options.userId, organizationId, options.apiKey, "対象と変更内容を確認してください。");
     }
 
@@ -308,7 +407,7 @@ async function handleMessage(options: {
         const result = options.chat.hasLocalChanges === true
           ? { ok: false, code: "LOCAL_CHANGES_PRESENT", message: "画面に未保存の変更があります。先に保存または取り消してから、もう一度ご依頼ください。" }
           : { ok: false, code: "MULTIPLE_WRITES_NOT_ALLOWED", message: "書込みは1回につき1件ずつ依頼してください。" };
-        interaction = await continueWithToolResults({ apiKey: options.apiKey, interactionId: interaction.interactionId, model: options.model, results: parsed.map((entry: UnknownRecord) => ({ call: entry.call as UnknownRecord, result })), toolChoice: "none" });
+        interaction = await continueWithToolResults({ apiKey: options.apiKey, interactionId: interaction.interactionId, model: options.model, results: parsed.map((entry: UnknownRecord) => ({ call: entry.call as UnknownRecord, result })), toolChoice: "none", tools });
         return responseForInteraction(interaction, options.userId, organizationId, options.apiKey, result.message);
       }
 
@@ -327,7 +426,7 @@ async function handleMessage(options: {
           requestId: crypto.randomUUID(),
         });
       } catch (error) {
-        interaction = await continueWithToolResults({ apiKey: options.apiKey, interactionId: interaction.interactionId, model: options.model, results: [{ call: entry.call as UnknownRecord, result: safeToolFailure(error) }], toolChoice: "none" });
+        interaction = await continueWithToolResults({ apiKey: options.apiKey, interactionId: interaction.interactionId, model: options.model, results: [{ call: entry.call as UnknownRecord, result: safeToolFailure(error) }], toolChoice: "none", tools });
         return responseForInteraction(interaction, options.userId, organizationId, options.apiKey, "対象と変更内容を確認してください。");
       }
       return proposalResponse({ accessRevision: access.accessRevision, apiKey: options.apiKey, call: entry.call as UnknownRecord, interaction, organizationId, plan, role: access.role, userId: options.userId });
@@ -343,7 +442,7 @@ async function handleMessage(options: {
       }
     });
     const limitReached = round + 1 >= MAX_TOOL_ROUNDS;
-    interaction = await continueWithToolResults({ apiKey: options.apiKey, interactionId: interaction.interactionId, model: options.model, results, toolChoice: limitReached ? "none" : "auto" });
+    interaction = await continueWithToolResults({ apiKey: options.apiKey, interactionId: interaction.interactionId, model: options.model, results, toolChoice: limitReached ? "none" : "auto", tools });
     if (limitReached) {
       return responseForInteraction(interaction, options.userId, organizationId, options.apiKey, "確認できる範囲を超えました。依頼を分けてください。");
     }

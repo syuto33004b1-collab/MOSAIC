@@ -138,15 +138,23 @@ function isPrivateIPv6(host) {
   return false;
 }
 
-export function assertPublicHttpsWebhookUrl(value) {
+/**
+ * Shared https/SSRF guard for every outbound address MOSAIC dials: webhook
+ * endpoints and administrator-approved external MCP servers. Callers pass their
+ * own error code and wording so the message matches the feature.
+ */
+export function assertPublicHttpsUrl(value, options) {
+  const code = options?.code ?? "INVALID_URL";
+  const formatMessage = options?.formatMessage ?? "httpsの公開アドレスを指定してください。";
+  const privateMessage = options?.privateMessage ?? "プライベートまたはループバック宛てのアドレスは使用できません。";
   let parsed;
   try {
     parsed = new URL(String(value ?? "").trim());
   } catch {
-    throw new ApiContractError("INVALID_WEBHOOK_URL", "Webhook URLはhttpsの公開アドレスを指定してください。");
+    throw new ApiContractError(code, formatMessage);
   }
   if (parsed.protocol !== "https:" || parsed.username || parsed.password) {
-    throw new ApiContractError("INVALID_WEBHOOK_URL", "Webhook URLはhttpsの公開アドレスを指定してください。");
+    throw new ApiContractError(code, formatMessage);
   }
   const host = parsed.hostname.toLowerCase();
   if (
@@ -156,15 +164,23 @@ export function assertPublicHttpsWebhookUrl(value) {
     || host.endsWith(".internal")
     || host === "metadata.google.internal"
   ) {
-    throw new ApiContractError("INVALID_WEBHOOK_URL", "プライベートまたはループバック宛てのWebhookは登録できません。");
+    throw new ApiContractError(code, privateMessage);
   }
   if (/^\d{1,3}(?:\.\d{1,3}){3}$/u.test(host) && isPrivateIPv4(host)) {
-    throw new ApiContractError("INVALID_WEBHOOK_URL", "プライベートまたはループバック宛てのWebhookは登録できません。");
+    throw new ApiContractError(code, privateMessage);
   }
   if (host.includes(":") && isPrivateIPv6(host)) {
-    throw new ApiContractError("INVALID_WEBHOOK_URL", "プライベートまたはループバック宛てのWebhookは登録できません。");
+    throw new ApiContractError(code, privateMessage);
   }
   return parsed.toString();
+}
+
+export function assertPublicHttpsWebhookUrl(value) {
+  return assertPublicHttpsUrl(value, {
+    code: "INVALID_WEBHOOK_URL",
+    formatMessage: "Webhook URLはhttpsの公開アドレスを指定してください。",
+    privateMessage: "プライベートまたはループバック宛てのWebhookは登録できません。",
+  });
 }
 
 export function isPrivateIpAddress(address) {

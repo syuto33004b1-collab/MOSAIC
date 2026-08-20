@@ -1,7 +1,7 @@
 import type { SupabaseClient, User } from "@supabase/supabase-js";
 import { describe, expect, it, vi } from "vitest";
 import { convertOpportunityToProject, initialWorkspace } from "../domain";
-import { normalizeAuditEvent, normalizeMyContext, normalizeOrganizationInvitation, normalizeWorkspace, ProductionRepository, sha256Hex, workspaceChangesPayload } from "./repository";
+import { normalizeAuditEvent, normalizeMcpServer, normalizeMyContext, normalizeOrganizationInvitation, normalizeWorkspace, ProductionRepository, sha256Hex, workspaceChangesPayload } from "./repository";
 
 const user = {
   id: "00000000-0000-4000-8000-000000000001",
@@ -765,5 +765,55 @@ describe("role permissions over the shared workspace", () => {
     expect(payload.rolePermissions?.upsert).toEqual([changed.rolePermissions[0]]);
     expect(workspaceChangesPayload(previous, previous, "admin").rolePermissions).toBeUndefined();
     expect(() => workspaceChangesPayload(changed, previous, "planner")).toThrow("権限設定を保存できません");
+  });
+});
+
+describe("approved external mcp servers", () => {
+  const row = {
+    id: "31000000-0000-4000-8000-000000000101",
+    organization_id: "21000000-0000-4000-8000-000000000101",
+    server_key: "acme_hr",
+    name: "ACME人事",
+    url: "https://mcp.example.com/mcp",
+    allowed_tools: ["search_employee", "get-attendance"],
+    status: "active",
+  };
+
+  it("reads a registry row and rejects an address or key it cannot trust", () => {
+    expect(normalizeMcpServer(row)).toMatchObject({
+      serverKey: "acme_hr",
+      url: "https://mcp.example.com/mcp",
+      allowedTools: ["search_employee", "get-attendance"],
+      status: "active",
+    });
+    expect(normalizeMcpServer({ ...row, url: "http://mcp.example.com/mcp" })).toBeUndefined();
+    expect(normalizeMcpServer({ ...row, server_key: "Acme-HR" })).toBeUndefined();
+    expect(normalizeMcpServer({ ...row, allowed_tools: ["has space"] })).toBeUndefined();
+    expect(normalizeMcpServer({ ...row, allowed_tools: [] })).toBeUndefined();
+  });
+
+  it("refuses a bad key or tool list before reaching the database", async () => {
+    const rpc = vi.fn();
+    const repository = new ProductionRepository({ rpc } as unknown as SupabaseClient);
+    await expect(repository.createMcpServer(row.organization_id, "Acme-HR", "n", row.url, ["ok"])).rejects.toThrow("サーバーキー");
+    await expect(repository.createMcpServer(row.organization_id, "acme_hr", "n", row.url, [])).rejects.toThrow("1件以上");
+    await expect(repository.createMcpServer(row.organization_id, "acme_hr", "n", row.url, ["has space"])).rejects.toThrow("使用できません");
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it("sends the deduplicated tool list and reports a replayed registration", async () => {
+    const rpc = vi.fn().mockResolvedValue({ data: { server: row, replayed: true, requestId: "00000000-0000-4000-8000-000000000ab1" }, error: null });
+    const repository = new ProductionRepository({ rpc } as unknown as SupabaseClient);
+    const result = await repository.createMcpServer(row.organization_id, " ACME_HR ", " ACME人事 ", ` ${row.url} `, ["search_employee", "search_employee", " get-attendance "], "00000000-0000-4000-8000-000000000ab1");
+    expect(rpc).toHaveBeenCalledWith("create_mcp_server", {
+      p_allowed_tools: ["search_employee", "get-attendance"],
+      p_name: "ACME人事",
+      p_organization_id: row.organization_id,
+      p_request_id: "00000000-0000-4000-8000-000000000ab1",
+      p_server_key: "acme_hr",
+      p_url: row.url,
+    });
+    expect(result.replayed).toBe(true);
+    expect(result.server.serverKey).toBe("acme_hr");
   });
 });

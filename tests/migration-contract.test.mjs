@@ -161,3 +161,68 @@ test("keeps the role permission feature allow list on the table too", async () =
     assert.ok(sql.includes(`'${feature}'`), `expected ${feature} in the allow list`);
   }
 });
+
+test("keeps the outbound mcp client on approved addresses with its own audit trail", async () => {
+  const sql = await readFile(path.join(migrations, "20260820150000_external_mcp_client.sql"), "utf8");
+  assert.match(sql, /create table app\.mcp_servers/);
+  assert.match(sql, /create table app\.mcp_call_logs/);
+  assert.match(sql, /server_key text not null check \(server_key ~ '\^\[a-z\]\[a-z0-9_\]\{0,15\}\$'\)/);
+  assert.match(sql, /url like 'https:\/\/%'/);
+  assert.match(sql, /revoke all on table app\.mcp_servers from public, anon, authenticated, service_role/);
+  assert.match(sql, /revoke all on table app\.mcp_call_logs from public, anon, authenticated, service_role/);
+  assert.match(sql, /create trigger mcp_servers_audit/);
+  // No outbound secret may be stored: the plaintext lives in the function environment.
+  assert.doesNotMatch(sql, /secret_hash|signing_secret|auth_token|secret text/);
+  assert.match(sql, /MCP_SECRET_<SERVER_KEY uppercased>/);
+  // begin_mcp_call is the only source of an address, and it gates the tool too.
+  assert.match(sql, /'url', v_server\.url/);
+  assert.match(sql, /this tool is not approved for the mcp server/);
+  assert.match(sql, /external mcp calls are limited to 20 per minute/);
+  assert.match(sql, /mcp server url must not target a private or loopback host/);
+  assert.match(sql, /mcp server url must not embed credentials/);
+  assert.match(sql, /mcp server url must use a hostname, not an IP literal/);
+  // Range checks only apply to a full dotted quad, so fe8-api.example.com survives.
+  assert.match(sql, /v_host ~ '\^\[0-9\]\{1,3\}\(\\.\[0-9\]\{1,3\}\)\{3\}\$'/);
+  assert.match(sql, /active mcp servers are limited to 5 per organization/);
+  // list_mcp_tools is the member-facing surface and must not leak the address.
+  const listTools = sql.match(/create or replace function public\.list_mcp_tools[\s\S]*?\$function\$;/)?.[0] ?? "";
+  assert.ok(listTools.length > 0, "expected list_mcp_tools in the migration");
+  assert.doesNotMatch(listTools, /server\.url/);
+  assert.match(sql, /grant execute on function public\.begin_mcp_call\(uuid, text, text\) to authenticated/);
+  assert.doesNotMatch(sql, /grant execute on function private\./);
+});
+
+test("every comment, revoke, and grant names a signature the migration declares", async () => {
+  // A mismatched arity makes `comment on function` fail at apply time and aborts
+  // the whole migration. Catch it here instead of in CI's database job.
+  const files = (await readdir(migrations)).filter((name) => name.endsWith(".sql")).sort();
+  const declared = new Set([
+    // Created by renaming public.save_workspace in 20260819061800_skill_taxonomy.sql.
+    "private.save_workspace_core(uuid, bigint, uuid, jsonb, text)",
+  ]);
+  const referenced = [];
+
+  const parameterTypes = (params) => params
+    .split(",")
+    .map((part) => part.replace(/\s+/gu, " ").trim())
+    .filter(Boolean)
+    .map((part) => part.replace(/\s+default\s+.*$/iu, "").split(" ").slice(1).join(" "))
+    .filter(Boolean);
+
+  for (const file of files) {
+    const sql = await readFile(path.join(migrations, file), "utf8");
+    const declarations = /create or replace function\s+((?:public|private)\.\w+)\(([\s\S]*?)\)\s*returns/gi;
+    for (const match of sql.matchAll(declarations)) {
+      declared.add(`${match[1]}(${parameterTypes(match[2]).join(", ")})`);
+    }
+    const references = /^(?:comment on function|revoke all on function|grant execute on function)\s+((?:public|private)\.\w+)\(([^)]*)\)/gim;
+    for (const match of sql.matchAll(references)) {
+      referenced.push(`${file}: ${match[1]}(${match[2].replace(/\s+/gu, " ").trim()})`);
+    }
+  }
+
+  assert.ok(declared.size >= 30, `expected the migrations to declare many functions, saw ${declared.size}`);
+  assert.ok(referenced.length >= 40, `expected many signature references, saw ${referenced.length}`);
+  const unknown = referenced.filter((entry) => !declared.has(entry.slice(entry.indexOf(": ") + 2)));
+  assert.deepEqual(unknown, []);
+});
