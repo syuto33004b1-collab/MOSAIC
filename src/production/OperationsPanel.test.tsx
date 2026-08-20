@@ -465,7 +465,8 @@ describe("OperationsPanel external mcp servers", () => {
     serverKey: "acme_hr",
     name: "ACME人事",
     url: "https://mcp.example.com/mcp",
-    allowedTools: ["search_employee"],
+    allowedTools: ["search_employee", "create_ticket"],
+    writeTools: ["create_ticket"],
     status: "active" as const,
   };
 
@@ -495,7 +496,8 @@ describe("OperationsPanel external mcp servers", () => {
     await user.type(await screen.findByLabelText("サーバーキー"), "acme_hr");
     await user.type(screen.getByLabelText("表示名"), "ACME人事");
     await user.type(screen.getByLabelText("接続先URL"), "https://mcp.example.com/mcp");
-    await user.type(screen.getByLabelText("承認するtool（カンマ区切り）"), "search_employee, get_attendance");
+    await user.type(screen.getByLabelText("承認するtool（カンマ区切り）"), "search_employee, create_ticket");
+    await user.type(screen.getByLabelText("書込を行うtool（任意・カンマ区切り）"), "create_ticket");
     await user.click(screen.getByRole("button", { name: "外部MCPサーバーを承認する" }));
 
     await waitFor(() => expect(repository.createMcpServer).toHaveBeenCalledWith(
@@ -503,11 +505,13 @@ describe("OperationsPanel external mcp servers", () => {
       "acme_hr",
       "ACME人事",
       "https://mcp.example.com/mcp",
-      ["search_employee", "get_attendance"],
+      ["search_employee", "create_ticket"],
+      ["create_ticket"],
     ));
     // The outbound secret never reaches MOSAIC, so the panel names the env var instead.
     expect(await screen.findByText(/MCP_SECRET_ACME_HR/u)).toBeInTheDocument();
     expect(await screen.findByText("ACME人事")).toBeInTheDocument();
+    expect(await screen.findByText(/書込: create_ticket/u)).toBeInTheDocument();
   });
 
   it("stops an approved server after confirmation", async () => {

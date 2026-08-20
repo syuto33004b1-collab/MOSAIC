@@ -117,6 +117,7 @@ export function OperationsPanel({
   const [mcpName, setMcpName] = useState("");
   const [mcpUrl, setMcpUrl] = useState("");
   const [mcpTools, setMcpTools] = useState("");
+  const [mcpWriteTools, setMcpWriteTools] = useState("");
   const [registeringMcp, setRegisteringMcp] = useState(false);
   const [mcpAction, setMcpAction] = useState("");
   const panelRef = useRef<HTMLElement>(null);
@@ -393,7 +394,8 @@ export function OperationsPanel({
     setError("");
     try {
       const tools = mcpTools.split(/[\s,、]+/u).map((tool) => tool.trim()).filter(Boolean);
-      const result = await repository.createMcpServer(currentOrganization.id, mcpKey, mcpName, mcpUrl, tools);
+      const writeTools = mcpWriteTools.split(/[\s,、]+/u).map((tool) => tool.trim()).filter(Boolean);
+      const result = await repository.createMcpServer(currentOrganization.id, mcpKey, mcpName, mcpUrl, tools, writeTools);
       setMcpServers(await repository.listMcpServers(currentOrganization.id));
       setInviteStatus(result.replayed
         ? `${result.server.name}は既に同じ内容で登録済みです。`
@@ -402,6 +404,7 @@ export function OperationsPanel({
       setMcpName("");
       setMcpUrl("");
       setMcpTools("");
+      setMcpWriteTools("");
     } catch (caught) {
       setError(messageFrom(caught));
     } finally {
@@ -722,6 +725,7 @@ export function OperationsPanel({
                       {` · ${server.serverKey}`}
                       {` · ${server.url}`}
                       {` · ${server.allowedTools.join(" / ")}`}
+                      {server.writeTools.length > 0 ? ` · 書込: ${server.writeTools.join(" / ")}` : " · 参照のみ"}
                     </small>
                   </span>
                   {server.status === "active" ? (
@@ -751,7 +755,11 @@ export function OperationsPanel({
                 承認するtool（カンマ区切り）
                 <input required value={mcpTools} onChange={(event) => setMcpTools(event.target.value)} placeholder="search_employee, get_attendance" />
               </label>
-              <div className="form-note"><ShieldCheck size={15} /><span>外部の秘密鍵はMOSAICに保存しません。必要な場合は <code>MCP_SECRET_サーバーキー（大文字）</code> をFunctionのsecretへ設定します。承認したtoolの結果は社外由来の未信頼データとして扱われます。</span></div>
+              <label>
+                書込を行うtool（任意・カンマ区切り）
+                <input value={mcpWriteTools} onChange={(event) => setMcpWriteTools(event.target.value)} placeholder="create_ticket" />
+              </label>
+              <div className="form-note"><ShieldCheck size={15} /><span>外部の秘密鍵はMOSAICに保存しません。必要な場合は <code>MCP_SECRET_サーバーキー（大文字）</code> をFunctionのsecretへ設定します。承認したtoolの結果は社外由来の未信頼データとして扱われます。書込toolは上の承認リストに含めたものだけ指定でき、AI秘書が呼ぶと変更案が作られ、利用者が確認するまで実行されません。</span></div>
               <button className="drawer-primary" type="submit" disabled={registeringMcp || !mcpKey.trim() || !mcpName.trim() || !mcpUrl.trim() || !mcpTools.trim()}><Plug size={15} />{registeringMcp ? "登録中…" : "外部MCPサーバーを承認する"}</button>
             </form>
           </>

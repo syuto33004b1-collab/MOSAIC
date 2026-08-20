@@ -12,10 +12,14 @@ import {
 import { INTEGRATION_LIMITS } from "./integration-core.mjs";
 import {
   callExternalTool,
+  cancelExternalWrite,
   externalToolDeclarations,
   isExternalToolName,
+  isWriteTool,
   McpClientError,
   parseExternalToolName,
+  proposeExternalWrite,
+  runConfirmedExternalWrite,
 } from "./mcp-client.mjs";
 import { createBestEffortRateLimiter } from "./rate-limit.mjs";
 import {
@@ -204,13 +208,13 @@ async function continueWithToolResults(options: {
  * Approved external MCP tools, or none when the registry cannot be read. The AI
  * secretary fails closed: an unreadable registry simply offers no external tool.
  */
-async function loadExternalTools(client: RpcClient, organizationId: string) {
+async function loadExternalServers(client: RpcClient, organizationId: string) {
   try {
     const { data, error } = await client.rpc("list_mcp_tools", { p_organization_id: organizationId });
     if (error) return [];
     const record = unwrapRpcValue(data);
     if (!isRecord(record) || !Array.isArray(record.servers)) return [];
-    return externalToolDeclarations(record.servers) as UnknownRecord[];
+    return record.servers as UnknownRecord[];
   } catch {
     return [];
   }
@@ -321,6 +325,81 @@ async function proposalResponse(options: {
   };
 }
 
+/**
+ * Signs the confirmation for an external write. The preview is mechanical: it
+ * lists the exact arguments that will be sent, because MOSAIC cannot describe
+ * what an external tool does. The arguments travel inside the signed token, so
+ * the confirmed call sends what the person actually saw.
+ */
+async function externalWriteProposalResponse(options: {
+  accessRevision: number;
+  apiKey: string;
+  call: UnknownRecord;
+  interaction: UnknownRecord;
+  organizationId: string;
+  proposal: UnknownRecord;
+  role: string;
+  userId: string;
+}) {
+  if (typeof options.call.id !== "string" || typeof options.call.name !== "string" || typeof options.interaction.interactionId !== "string") {
+    throw new ChatContractError("INVALID_ACTION_PLAN", "変更内容を確認できませんでした。もう一度ご依頼ください。", 500);
+  }
+  const action = {
+    version: 1,
+    kind: "externalMcpWrite",
+    accessRevision: options.accessRevision,
+    role: options.role,
+    interactionId: options.interaction.interactionId,
+    callId: options.call.id,
+    toolName: options.call.name,
+    external: {
+      callId: options.proposal.callId,
+      serverKey: options.proposal.serverKey,
+      toolName: options.proposal.toolName,
+      args: options.proposal.args,
+    },
+  };
+  const signed = await createActionToken(action, { userId: options.userId, organizationId: options.organizationId, secret: options.apiKey });
+  if (signed.token.length > CHAT_LIMITS.actionTokenCharacters) {
+    throw new ChatContractError("ACTION_TOO_LARGE", "一度に送れる内容を超えました。引数を減らしてご依頼ください。", 413);
+  }
+  const preview = isRecord(options.proposal.preview) ? options.proposal.preview : {};
+  return {
+    reply: typeof preview.summary === "string" ? preview.summary : "社外システムへの書込内容を確認してください。",
+    interactionId: await createContinuationToken(options.interaction.interactionId, options.userId, options.organizationId, options.apiKey),
+    proposal: { token: signed.token, ...preview, expectedRevision: 0, expiresAt: signed.expiresAt },
+  };
+}
+
+type ExternalWriteState = UnknownRecord & {
+  version: 1;
+  kind: "externalMcpWrite";
+  interactionId: string;
+  callId: string;
+  toolName: string;
+  role: string;
+  accessRevision: number;
+  external: { callId: string; serverKey: string; toolName: string; args: UnknownRecord };
+};
+
+function externalWriteState(value: unknown): ExternalWriteState | null {
+  if (!isRecord(value) || value.version !== 1 || value.kind !== "externalMcpWrite") return null;
+  const external = isRecord(value.external) ? value.external : undefined;
+  if (
+    typeof value.interactionId !== "string"
+    || typeof value.callId !== "string"
+    || typeof value.toolName !== "string"
+    || typeof value.role !== "string"
+    || !Number.isSafeInteger(value.accessRevision)
+    || !external
+    || typeof external.callId !== "string"
+    || typeof external.serverKey !== "string"
+    || typeof external.toolName !== "string"
+    || !isRecord(external.args)
+  ) return null;
+  return value as ExternalWriteState;
+}
+
 async function handleMessage(options: {
   apiKey: string;
   chat: UnknownRecord;
@@ -336,7 +415,8 @@ async function handleMessage(options: {
     options.chat.previousInteractionId = verified;
   }
 
-  const externalTools = await loadExternalTools(options.client, organizationId);
+  const externalServers = await loadExternalServers(options.client, organizationId);
+  const externalTools = externalToolDeclarations(externalServers) as UnknownRecord[];
   const tools = externalTools.length > 0
     ? [...WORKSPACE_TOOL_DECLARATIONS, ...externalTools]
     : WORKSPACE_TOOL_DECLARATIONS;
@@ -364,16 +444,40 @@ async function handleMessage(options: {
         return responseForInteraction(interaction, options.userId, organizationId, options.apiKey, result.message);
       }
       const target = parseExternalToolName(call.name as string);
+      const callArgs = isRecord(call.arguments) ? call.arguments.arguments : undefined;
       let result: unknown;
       if (!target) {
         result = { ok: false, untrusted: true, code: "EXTERNAL_NOT_APPROVED", message: "この社外ツールは管理者に承認されていません。" };
+      } else if (isWriteTool(externalServers, target.serverKey, target.toolName)) {
+        // Nothing reaches the external server yet: the person confirms first.
+        try {
+          const proposal = await proposeExternalWrite({
+            organizationId,
+            serverKey: target.serverKey,
+            toolName: target.toolName,
+            args: callArgs,
+            rpc: externalRpc(options.client),
+          });
+          return externalWriteProposalResponse({
+            accessRevision: access.accessRevision,
+            apiKey: options.apiKey,
+            call,
+            interaction,
+            organizationId,
+            proposal,
+            role: access.role,
+            userId: options.userId,
+          });
+        } catch (error) {
+          result = safeExternalFailure(error);
+        }
       } else {
         try {
           result = await callExternalTool({
             organizationId,
             serverKey: target.serverKey,
             toolName: target.toolName,
-            args: isRecord(call.arguments) ? call.arguments.arguments : undefined,
+            args: callArgs,
             fetchImpl: fetch,
             resolveHost: resolveHostAddresses,
             rpc: externalRpc(options.client),
@@ -450,6 +554,74 @@ async function handleMessage(options: {
   throw new GeminiServiceError("TOOL_LOOP_LIMIT", "Gemini exceeded the tool loop limit.", { status: 502 });
 }
 
+/**
+ * The confirmed external write. resume_mcp_call refuses a replayed confirmation
+ * and a withdrawn approval, so this path cannot run twice or against a tool the
+ * administrator has since removed.
+ */
+async function handleExternalWriteAction(options: {
+  apiKey: string;
+  client: RpcClient;
+  model: string;
+  organizationId: string;
+  request: UnknownRecord;
+  state: ExternalWriteState;
+  userId: string;
+}) {
+  const { organizationId, state } = options;
+  const call = { id: state.callId, name: state.toolName };
+  const rpc = externalRpc(options.client);
+
+  if (options.request.decision === "cancel") {
+    await cancelExternalWrite({ organizationId, callId: state.external.callId, rpc });
+    const interaction = await continueWithToolResults({
+      apiKey: options.apiKey,
+      interactionId: state.interactionId,
+      model: options.model,
+      results: [{ call, result: { ok: false, cancelled: true, code: "USER_CANCELLED", message: "利用者が社外システムへの書込みをキャンセルしました。" } }],
+      toolChoice: "none",
+    });
+    return responseForInteraction(interaction, options.userId, organizationId, options.apiKey, "社外システムへの書込みはキャンセルしました。");
+  }
+
+  const access = await loadAccess(options.client, organizationId);
+  if (access.accessRevision !== state.accessRevision || access.role !== state.role) {
+    throw new ChatContractError("ACCESS_CHANGED", "操作権限が変更されました。最新状態で内容をもう一度ご依頼ください。", 409);
+  }
+
+  let result: unknown;
+  try {
+    result = await runConfirmedExternalWrite({
+      organizationId,
+      serverKey: state.external.serverKey,
+      toolName: state.external.toolName,
+      callId: state.external.callId,
+      args: state.external.args,
+      fetchImpl: fetch,
+      resolveHost: resolveHostAddresses,
+      rpc,
+      env: (name: string) => globalThis.Deno.env.get(name) ?? "",
+    });
+  } catch (error) {
+    result = safeExternalFailure(error);
+  }
+  const executed = isRecord(result) && result.ok === true;
+  const interaction = await continueWithToolResults({
+    apiKey: options.apiKey,
+    interactionId: state.interactionId,
+    model: options.model,
+    results: [{ call, result }],
+    toolChoice: "none",
+  });
+  return responseForInteraction(
+    interaction,
+    options.userId,
+    organizationId,
+    options.apiKey,
+    executed ? "社外システムでの実行結果を確認してください。" : "社外システムでの実行に失敗しました。",
+  );
+}
+
 function actionState(value: unknown): ActionState | null {
   if (!isRecord(value) || value.version !== 1 || !isRecord(value.plan)) return null;
   if (
@@ -491,6 +663,10 @@ async function handleAction(options: {
 }) {
   const organizationId = String(options.request.organizationId);
   const verified = await verifyActionToken(options.request.actionToken, { userId: options.userId, organizationId, secret: options.apiKey });
+  const externalWrite = externalWriteState(verified?.action);
+  if (externalWrite) {
+    return handleExternalWriteAction({ ...options, organizationId, state: externalWrite });
+  }
   const state = actionState(verified?.action);
   if (!state) throw new ChatContractError("INVALID_ACTION_TOKEN", "確認の有効期限が切れたか、内容を確認できません。もう一度ご依頼ください。", 409);
 

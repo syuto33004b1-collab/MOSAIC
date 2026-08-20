@@ -246,6 +246,8 @@ export type McpServer = {
   name: string;
   url: string;
   allowedTools: string[];
+  /** Approved tools that change something outside MOSAIC. Always a subset of allowedTools. */
+  writeTools: string[];
   status: McpServerStatus;
   createdAt?: string;
   createdByName?: string;

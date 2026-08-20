@@ -40,6 +40,7 @@ select lives_ok(
       'ACME人事',
       'https://mcp.example.com/mcp',
       array['search_employee', 'get_attendance']::text[],
+      '{}'::text[],
       '91000000-0000-4000-8000-000000000101'
     )$$,
   'an owner may approve an external mcp server'
@@ -83,6 +84,7 @@ select throws_ok(
       '内部',
       'https://127.0.0.1/mcp',
       array['ping']::text[],
+      '{}'::text[],
       '91000000-0000-4000-8000-000000000102'
     )$$,
   '22023',
@@ -97,6 +99,7 @@ select throws_ok(
       '平文',
       'http://mcp.example.com/mcp',
       array['ping']::text[],
+      '{}'::text[],
       '91000000-0000-4000-8000-000000000103'
     )$$,
   '22023',
@@ -111,6 +114,7 @@ select throws_ok(
       '資格入り',
       'https://user:pass@mcp.example.com/mcp',
       array['ping']::text[],
+      '{}'::text[],
       '91000000-0000-4000-8000-000000000104'
     )$$,
   '22023',
@@ -125,6 +129,7 @@ select throws_ok(
       '多すぎ',
       'https://mcp.example.com/mcp',
       array['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i']::text[],
+      '{}'::text[],
       '91000000-0000-4000-8000-000000000105'
     )$$,
   '22023',
@@ -139,6 +144,7 @@ select throws_ok(
       'IPv6',
       'https://[::1]/mcp',
       array['ping']::text[],
+      '{}'::text[],
       '91000000-0000-4000-8000-000000000106'
     )$$,
   '22023',
@@ -153,6 +159,7 @@ select lives_ok(
       '紛らわしいホスト名',
       'https://fe8-api.example.com/mcp',
       array['ping']::text[],
+      '{}'::text[],
       '91000000-0000-4000-8000-000000000107'
     )$$,
   'a hostname that merely looks like a private range is still approved'

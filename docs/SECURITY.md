@@ -32,6 +32,7 @@ MOSAICのsourceと静的フロントエンドはpublicです。source、schema�
 - 社外MCPサーバー向けの秘密鍵はDBへ保存せず、Functionのsecret（`MCP_SECRET_<サーバーキー大文字>`）で管理する。
 - 社外MCPの応答は未信頼データとして扱う。指示として解釈せず、応答から次のツール呼び出しへ進まない。テキスト以外のブロックはモデルへ渡さない。
 - 社外へ送る引数はバイト数を制限し、1呼び出しごとに接続先・tool・依頼者・送受信バイト数を`app.mcp_call_logs`へ記録する。引数の値は記録しない。
+- 社外MCPの書込みは`app.mcp_servers.write_tools`へ管理者が登録したtoolだけとし、`propose_mcp_call`で提案を作った時点では社外へ送信しない。接続先は利用者の明示確認後に`resume_mcp_call`だけが返す。確認画面には実際に送る引数をそのまま出し、モデルの文章を混ぜない。確認は一度しか使えず、承認が取り消されていれば拒否する。参照経路は書込toolを拒否する。
 - 社外MCPの参照可否はrole別権限の`externalMcp`で制御する。拒否は`begin_mcp_call`が接続先の解決前かつ監査行の作成前に行い、`list_mcp_tools`が空を返すのでモデルへtoolを見せない。ownerは常に無制限。
 - 外部連携資格は発行した利用者としてだけ動く。発行者がactiveなowner/admin/plannerを外れた資格は、別の管理者へ昇格させず`42501`で停止する。停止理由は保有者へ返さず、owner/adminだけが`list_integration_clients`の`actorEligible`で判別する。失効と再発行はowner/adminの判断とし、自動失効はしない。
 

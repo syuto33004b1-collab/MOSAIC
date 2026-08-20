@@ -260,3 +260,26 @@ test("makes external mcp access switchable by role permissions", async () => {
   // Hidden from the model entirely, not merely refused on call.
   assert.match(sql, /return jsonb_build_object\('servers', '\[\]'::jsonb\)/);
 });
+
+test("holds an external write until a person confirms it", async () => {
+  const sql = await readFile(path.join(migrations, "20260820220000_external_mcp_confirmed_writes.sql"), "utf8");
+  assert.match(sql, /add column write_tools text\[\] not null default '\{\}'::text\[\]/);
+  assert.match(sql, /check \(write_tools <@ allowed_tools\)/);
+  assert.match(sql, /add column is_write boolean not null default false/);
+  // The read path must not be a way into a write.
+  assert.match(sql, /this tool writes and needs an explicit confirmation/);
+  // Proposing must not return an address; only resume does.
+  const propose = sql.match(/create or replace function public\.propose_mcp_call[\s\S]*?\$function\$;/)?.[0] ?? "";
+  const resume = sql.match(/create or replace function public\.resume_mcp_call[\s\S]*?\$function\$;/)?.[0] ?? "";
+  assert.ok(propose.length > 0 && resume.length > 0, "expected both write RPCs in the migration");
+  assert.doesNotMatch(propose, /'url'/);
+  assert.match(resume, /'url', v_server\.url/);
+  // Single use, and a withdrawn approval stops a stale confirmation.
+  assert.match(resume, /call_log\.status = 'pending'/);
+  assert.match(resume, /call_log\.actor_user_id = v_actor_id/);
+  assert.match(resume, /no pending external write for this confirmation/);
+  assert.match(resume, /this tool is no longer approved for writing on the mcp server/);
+  // The six-argument create is replaced, not left behind alongside the new one.
+  assert.match(sql, /drop function if exists public\.create_mcp_server\(uuid, text, text, text, text\[\], uuid\)/);
+  assert.doesNotMatch(sql, /grant execute on function private\./);
+});

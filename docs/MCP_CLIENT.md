@@ -1,6 +1,6 @@
 # MOSAIC 外部MCP Client
 
-MOSAICのAI秘書から、管理者が承認した社外MCPサーバーを参照するための出口です。外部AIがMOSAICを利用する入口（[MCP Server](MCP_SERVER.md)）とは別実装で、URLもコードも共有しません。今段は**参照のみ**です。
+MOSAICのAI秘書から、管理者が承認した社外MCPサーバーを利用するための出口です。外部AIがMOSAICを利用する入口（[MCP Server](MCP_SERVER.md)）とは別実装で、URLもコードも共有しません。参照は即時、書込みは利用者の明示確認後に実行します。
 
 ## 実装の分離
 
@@ -39,6 +39,19 @@ npm exec supabase -- secrets set MCP_SECRET_ACME_HR=...
 - 応答テキストから次のツール呼び出しへは進みません（`toolChoice: "none"`）。プロンプトインジェクションの連鎖を止めます
 - テキストブロック以外（埋め込みリソース、バイナリ）はモデルへ渡しません
 
+## 書込みの確認フロー
+
+`write_tools` に登録された tool は、AI 秘書が呼んでも即時実行されません。
+
+1. AI が書込 tool を呼ぶ → `propose_mcp_call` が `app.mcp_call_logs` に pending 行を作る。**この時点で社外へは1バイトも送りません**（`initialize` も送りません）。接続先も返しません
+2. 利用者へ確認画面を出す。内容は**実際に送信する引数の key / value をそのまま列挙**します。社外 tool の意味を MOSAIC は説明できないので、モデルの文章は混ぜません
+3. 利用者が確認 → `resume_mcp_call` が接続先を返し、**プレビューと同一の引数**で実行します
+4. 利用者がキャンセル → pending 行を `USER_CANCELLED` で閉じます
+
+確認は**一度しか使えません**。`resume_mcp_call` は pending かつ呼出者本人の行だけを受け付けるので、action token を再送しても2回目は `P0002` になります。提案から確認までの間に管理者が承認を取り消した場合も拒否します。
+
+引数は署名付き action token に載るので、確認後に送られる内容は利用者が見たものと一致します。参照経路（`begin_mcp_call`）は書込 tool を拒否するので、確認を迂回できません。
+
 ## ロール別権限
 
 `app.role_permissions.disabled_features` に `externalMcp` を設定したロールは、承認済みサーバーへ到達できません。
@@ -66,10 +79,11 @@ npm exec supabase -- secrets set MCP_SECRET_ACME_HR=...
 
 ## 監査
 
-`app.mcp_call_logs` に1呼び出し1行を残します。接続先、tool、依頼した利用者、成否、エラーコード、送受信バイト数、所要時間を記録し、**引数の値は保存しません**。同じテーブルが毎分のレート制限窓も兼ねます。レジストリ自体の変更は `app.audit_events` に載ります。
+`app.mcp_call_logs` に1呼び出し1行を残します。接続先、tool、依頼した利用者、参照か書込みか（`is_write`）、成否、エラーコード、送受信バイト数、所要時間を記録し、**引数の値は保存しません**。同じテーブルが毎分のレート制限窓も兼ねます。レジストリ自体の変更は `app.audit_events` に載ります。
 
 ## 今段の対象外
 
-- 社外への書込み。確認フロー付きで次段に回します。今段は管理者が参照専用と確認した tool を承認する運用です → [#56](https://github.com/syuto33004b1-collab/MOSAIC/issues/56)
+- 社外側の冪等キー送信、失敗時の自動リトライ、補償処理（未起票）
+- 引数の人間可読なラベル付け（key をそのまま出します。未起票）
 - OAuth / Authorization Server、SSE、セッションの永続化（未起票）
 - `resources/list` / `resources/read`（toolのみ。未起票）
