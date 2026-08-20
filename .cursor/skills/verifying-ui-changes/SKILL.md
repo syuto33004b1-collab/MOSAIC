@@ -86,7 +86,59 @@ getComputedStyle(document.querySelector('.role-permission-form')).gridTemplateCo
 - `horizontalOverflow` が `true` → **ページ全体が横スクロールしている。不具合**
 - `horizontalOverflow` が `false` で `outOfBounds` に要素がある → **自前スクロールのコンテナかもしれない。** 親が `overflow-x: auto` かを確認してから判断する
 
-検出できるのは左右のはみ出しと対象コンテナの clip だけ。**要素同士の重なり、文字の切詰め、意図しない clipping は検出できない。** それらはスクリーンショットの目視で見る。
+### テキスト同士の矩形の交差を洗い出す
+
+これで #75 と #96 が見つかった。ただし**これは不具合の検出ではなく、目視すべき候補の抽出**である。
+
+```javascript
+const vis = el => { const r = el.getBoundingClientRect(); const cs = getComputedStyle(el);
+  return r.width >= 1 && r.height >= 1 && cs.visibility !== 'hidden' && cs.display !== 'none' && +cs.opacity > 0; };
+const own = el => [...el.childNodes].filter(n => n.nodeType === 3).map(n => n.textContent.trim()).join(' ').trim();
+const where = el => { const b = []; for (let n = el; n && b.length < 3; n = n.parentElement)
+  b.unshift(n.tagName.toLowerCase() + (typeof n.className === 'string' && n.className ? '.' + n.className.trim().split(/\s+/)[0] : '')); return b.join('>'); };
+const root = document.querySelector('<対象コンテナ>');
+const nodes = [...root.querySelectorAll('*')].filter(el => vis(el) && own(el));   // 件数で切らない
+const hits = [];
+for (let i = 0; i < nodes.length; i++) for (let j = i + 1; j < nodes.length; j++) {
+  const a = nodes[i], b = nodes[j];
+  if (a.contains(b) || b.contains(a)) continue;   // 親子は重なって当然
+  const ra = a.getBoundingClientRect(), rb = b.getBoundingClientRect();
+  const ox = Math.min(ra.right, rb.right) - Math.max(ra.left, rb.left);
+  const oy = Math.min(ra.bottom, rb.bottom) - Math.max(ra.top, rb.top);
+  if (ox > 3 && oy > 3) hits.push({ a: own(a).slice(0, 16), aw: where(a), b: own(b).slice(0, 16), bw: where(b), overlap: `${Math.round(ox)}x${Math.round(oy)}` });
+}
+({ candidates: hits.length, hits })   // 出力も切らない。切ると分類できない
+```
+
+**候補は全件、意図的／不具合に分類してから件数を報告する。** 「重なり0件」と書くなら候補が0件だったということ。「N件」と書くならN件すべてを見て不具合だと判断したということ。
+
+分類が必要な理由 — これは**軸平行な外接矩形の比較にすぎない**ので、次を拾う。
+
+- 複数行に折り返したインライン要素、`transform` が掛かった要素、padding を含む箱（実際には文字が触れていない）
+- 意図した重ね合わせ（絶対配置のバッジ、sticky ヘッダー、ダイアログ、装飾）
+
+**取り落とすものもある。** 対象は「自前のテキストノードを持つ要素どうし」なので、`input` の値、画像、SVG、アイコン、疑似要素、子要素の中にだけ文字を持つコンポーネントとの重なりは見ていない。`aria-hidden` は視覚的には見えるので除外していない。**何を対象にしたかを報告に書く。**
+
+**`nodes` も出力も `.slice(0, N)` で切らない。** 切ると範囲外を「0件」と報告することになる（#96 でそれをやった）。O(n²) が重いなら、件数ではなく**全候補ペアを覆えると説明できる単位に分割**し、その範囲を報告に書く。「隣接する要素だけ」のような絞り方は、絶対配置・`transform`・`rowspan`・極端に長い内容で非隣接の重なりを取り落とす。
+
+### 幅0のカラムを洗い出す（可変カラムのテーブルでは必須）
+
+上のスニペットは `r.width >= 1` で絞るので、**幅0の要素は入らない。** 別に測る。
+
+```javascript
+const t = document.querySelector('<テーブルのセレクタ>');
+const head = t.querySelector('thead tr:last-child');
+[...head.children].map((th, i) => {
+  const w = Math.round(th.getBoundingClientRect().width);
+  const sample = [...t.querySelectorAll('tbody tr')].slice(0, 3)
+    .map(r => (r.children[i]?.textContent || '').trim()).find(Boolean) || '';
+  return { col: th.textContent.trim() || '(sr-only)', w, starved: w < 24 && sample.length > 0, sample: sample.slice(0, 20) };
+}).filter(c => c.starved)
+```
+
+**中身があるのに幅が0（または極端に狭い）カラムが1つでもあれば不具合。** `table-layout` と幅指定の組み合わせで起きる（#75）。`<th>` の数が実行時に変わるテーブルでは、**一覧に出す独自項目を0件／1件／複数件にして測り直す。**
+
+**この測定の限界を理解しておく。** 測れるのは、はみ出し、対象コンテナの clip、矩形の交差の候補、幅0のカラム、寸法、コントラストまで。**文字が切れて困るのかどうか、視覚的な階層・整列の良し悪しは測れない。** それらはスクリーンショットの目視で見る。
 
 ### ラベルから到達できるか
 
