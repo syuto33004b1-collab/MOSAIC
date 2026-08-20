@@ -71,7 +71,7 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .primary-button { height: 40px; padding: 0 16px; border-color: var(--cobalt); border-radius: 11px; background: var(--cobalt); color: #fff; font-size: 11px; font-weight: 700; box-shadow: 0 8px 18px rgba(86,104,232,.2); }
 .primary-button span { margin-right: 5px; font-size: 16px; font-weight: 400; }
 
-.pulse-strip { min-height: 82px; margin-bottom: 18px; padding: 14px 18px; border: 1px solid #dfe4ed; border-radius: 17px; background: var(--paper); box-shadow: 0 6px 22px rgba(36,48,78,.04); display: flex; align-items: center; gap: 25px; overflow: hidden; }
+.pulse-strip { min-height: 82px; margin-bottom: 18px; padding: 14px 18px; border: 1px solid #dfe4ed; border-radius: 17px; background: var(--paper); box-shadow: 0 6px 22px rgba(36,48,78,.04); display: flex; flex-wrap: wrap; align-items: center; gap: 25px; overflow: hidden; }
 .pulse-heading { min-width: 185px; display: flex; align-items: center; gap: 11px; }
 .live-dot { width: 10px; height: 10px; border: 3px solid #dfe4ff; border-radius: 50%; background: var(--cobalt); box-shadow: 0 0 0 5px #f1f3ff; }
 .pulse-heading small, .pulse-heading strong { display: block; }
@@ -148,7 +148,7 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 
 @media (max-width: 1280px) { .board-layout { grid-template-columns: minmax(0, 1fr); }.attention-panel { display: grid; grid-template-columns: auto 1fr 1fr; gap: 10px; }.attention-title { align-self: start; margin: 0 8px 0 0; }.all-alerts { display: none; } }
 @media (max-width: 820px) { .app-shell { grid-template-columns: 74px minmax(0,1fr); }.sidebar { padding-inline: 13px; }.brand { padding-inline: 10px; }.brand > span:last-child { display: none; }.nav-item { justify-content: center; padding: 0; font-size: 0; }.nav-icon { font-size: 18px; }.nav-count, .month-card, .profile-row > span:not(.avatar), .profile-row button { display: none; }.profile-row { justify-content: center; }.workspace { padding: 24px 18px; }.pulse-mini-bars { display: none; }.board-layout { overflow-x: auto; }.schedule-card { min-width: 720px; } }
-@media (max-width: 620px) { .topbar { flex-direction: column; }.topbar-actions { width: 100%; }.primary-button { margin-left: auto; }.pulse-strip { flex-wrap: wrap; gap: 16px; }.pulse-heading { width: 100%; }.pulse-rule { display: none; }.attention-panel { display: block; }.alert-card { margin-bottom: 10px; } }
+@media (max-width: 620px) { .topbar { flex-direction: column; }.topbar-actions { width: 100%; }.primary-button { margin-left: auto; }.pulse-strip { gap: 16px; }.pulse-heading { width: 100%; }.pulse-rule { display: none; }.attention-panel { display: block; }.alert-card { margin-bottom: 10px; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; animation: none !important; } }
 
 /* Interaction layer */
@@ -991,11 +991,19 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   border-radius: 15px 15px 0 0;
   background: #fff;
   display: flex;
+  /* wrap, not nowrap: this row stopped fitting around 1100px, but only got
+     flex-wrap at the 620px breakpoint, so between the two the add button was
+     cut off entirely — 213px of it at 820px. wrap costs nothing while it fits. */
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
 }
 .inline-search {
-  width: 235px;
+  /* 200px, not 235px. The member toolbar's seven controls came to 1067px in a
+     1064px row, and flex wraps before it shrinks, so those 3px cost the add
+     button its place on the first line. Shrinkable as well, for narrow widths. */
+  flex: 0 1 200px;
+  min-width: 150px;
   height: 34px;
   padding: 0 10px;
   border: 1px solid var(--line);
@@ -1599,7 +1607,7 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   .portfolio-ribbon, .member-ribbon { padding: 14px; gap: 12px; }
   .ribbon-stat { min-width: 58px; }
   .ribbon-stat strong { font-size: 19px; }
-  .view-toolbar { align-items: stretch; flex-wrap: wrap; }
+  .view-toolbar { align-items: stretch; }
   .inline-search { width: 100%; }
   .view-filter { flex: 1; }
   .view-add-button { margin-left: 0; }
@@ -3950,7 +3958,11 @@ h1 {
   border-radius: 16px;
   background: #fff;
   display: grid;
-  grid-template-columns: 120px minmax(0, 1fr) 160px 120px;
+  /* Named tracks, not auto-fit. auto-fit equalises, which turned this into
+     eight 120px columns at 1425px and squeezed the free-text fields that are
+     meant to be wide. The narrow case is handled by dropping the column count
+     further down, where the four tracks stop fitting at all. */
+  grid-template-columns: minmax(0, 120px) minmax(0, 1fr) minmax(0, 160px) minmax(0, 120px);
   gap: 10px;
   align-items: end;
 }
@@ -4040,7 +4052,25 @@ h1 {
 }
 .role-permission-card { margin: 0 0 18px; }
 .role-permission-note { margin: 0 0 10px; color: var(--muted-readable); font-size: 11px; font-weight: 600; }
-.role-permission-form { grid-template-columns: 180px 200px; }
+/* minmax, not fixed: 180 + 200 + 10px gap came to 390px inside a ~330px
+   container at a 390px viewport, and the full-width fieldsets inherited that
+   380px span, so their checkboxes hung 56px outside the card. */
+.role-permission-form { grid-template-columns: minmax(0, 180px) minmax(0, 200px); }
+
+/* The four named tracks need 400px of track plus 30px of gap plus the card's
+   own padding. Below that the flexible one collapses to 0 and its input
+   overflows a zero-width cell, and dropping the column count is the only way a
+   grid can shed columns.
+   Keyed off the container, not the viewport: these forms sit at different
+   depths — the report one is nested inside a card — so the same viewport width
+   leaves them different amounts of room. A 620px media query left the report
+   form at `120px 0px 147px 120px` while the others still fitted. */
+.section-view,
+.balance-card { container-type: inline-size; }
+@container (max-width: 470px) {
+  .field-catalog-form { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }
+  .role-permission-form { grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); }
+}
 .role-permission-features,
 .role-permission-fields {
   grid-column: 1 / -1;
