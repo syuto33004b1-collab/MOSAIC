@@ -177,6 +177,28 @@ describe("role-aware workspace", () => {
     expect(await screen.findByText("共有データに接続できません")).toBeInTheDocument();
   });
 
+  /**
+   * The header carries one primary-action button whose label and handler change
+   * per screen. On four screens the view rendered its own button calling the
+   * same handler, so the same action had two entry points and no way to tell
+   * them apart. Counting accessible names is the direct check.
+   */
+  it("offers each screen's primary action from one place only", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    const navigation = within(screen.getByRole("navigation", { name: "メインナビゲーション" }));
+    const cases = [
+      { nav: "プロジェクト", action: "プロジェクトを追加" },
+      { nav: "受注前", action: "受注前案件を追加" },
+      { nav: "メンバー", action: "メンバーを追加" },
+      { nav: "提案", action: "提案リンクをコピー" },
+    ];
+    for (const { nav, action } of cases) {
+      await user.click(navigation.getByRole("button", { name: new RegExp(`^${nav}`, "u") }));
+      expect(screen.getAllByRole("button", { name: action })).toHaveLength(1);
+    }
+  });
+
   it("has no serious automatic accessibility violations", async () => {
     const { container } = render(<App />);
     const results = await axe.run(container, {
@@ -894,9 +916,12 @@ describe("role-aware workspace", () => {
     const navigation = within(screen.getByRole("navigation", { name: "メインナビゲーション" }));
 
     await user.click(navigation.getByRole("button", { name: "メンバー" }));
-    const memberToolbar = screen.getByText("空き率の高い順").closest<HTMLElement>(".view-toolbar");
-    expect(memberToolbar).not.toBeNull();
-    await user.click(within(memberToolbar!).getByRole("button", { name: "メンバーを追加" }));
+    // The add action lives in the header slot only. It used to be in the
+    // toolbar as well, calling the same handler, which is what #71 was about —
+    // so there must be exactly one button offering it.
+    const addButtons = screen.getAllByRole("button", { name: "メンバーを追加" });
+    expect(addButtons).toHaveLength(1);
+    await user.click(addButtons[0]);
     const dialog = within(screen.getByRole("dialog", { name: "詳細パネル" }));
     await user.type(dialog.getByLabelText("氏名"), "山田 花子");
     expect(dialog.getByLabelText("職種")).toHaveAttribute("id", "member-new-role");
