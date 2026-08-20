@@ -5,6 +5,8 @@ description: Use when stuck on a judgment call, when a second opinion or multi-s
 
 # 相談者（senior consultant）
 
+順序は [AGENTS.md](../../../AGENTS.md) が唯一の出典。相談は任意で、実装前に行う。評価は PR 前。役割を混ぜない。
+
 設計の第二意見を、readonly の相談者 Subagent に聞く。実装は主エージェントのまま。使うタイミングは主エージェントに任せる。
 
 ## When to Use
@@ -27,7 +29,9 @@ description: Use when stuck on a judgment call, when a second opinion or multi-s
 
 ## Model
 
-ユーザー指定が最優先。未指定なら Opus 5。
+**Cursor ではモデルを問わない。** ユーザー指定が最優先。未指定なら Opus 5。
+
+「評価者・相談者を codex にする」は Claude Code 側の決定であり、Cursor には適用しない。
 
 | 指定 | Subagent | model |
 | --- | --- | --- |

@@ -31,14 +31,11 @@ description: Use before creating a pull request in this repository — every tim
 
 ## 順序
 
+全体の順序は [AGENTS.md](../../../AGENTS.md) が唯一の出典。ここでは評価に直結する段階だけを書く。
+
 ```
-1. 実装
-2. 変更を全てコミットする          ← 評価対象を確定させる
-3. 機械的検証
-4. UI に影響するなら verifying-ui-changes
-5. 評価（このスキル）
-6. 指摘対応 → 3 と 4 をやり直す（5 はやり直さない）
-7. PR 作成
+実装 → コミット → 機械的検証 → UI 確認 → 評価（このスキル） → PR 作成
+指摘対応のあとは、機械的検証と UI 確認をやり直す。評価はやり直さない
 ```
 
 ### 2. 先にコミットする
