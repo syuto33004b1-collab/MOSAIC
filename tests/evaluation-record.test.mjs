@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { checkEvaluationRecord } from "../scripts/check-evaluation-record.mjs";
+import { checkEvaluationRecord, touchesOwnCheck } from "../scripts/check-evaluation-record.mjs";
 
 const A = "a".repeat(40);
 const B = "b".repeat(40);
@@ -108,4 +108,71 @@ test("treats a non-string body as missing rather than throwing", () => {
 test("ignores commit values that are not real shas when they come from the workflow", () => {
   const result = checkEvaluationRecord(body(), ["not-a-sha", A]);
   assert.equal(result.ok, true, result.problems.join(" "));
+});
+
+test("ignores a record that only appears inside a code fence", () => {
+  // AGENTS.md documents the bypass line inside a fence. Pasting the doc must not
+  // grant a bypass, and a fenced template must not satisfy the record either.
+  const fenced = [
+    "Closes #63",
+    "",
+    "```",
+    "評価なし承認: <利用者の指示内容と理由をここに書く>",
+    "評価者: codex gpt-5.6-sol",
+    "エフォート: high",
+    `評価対象コミット: ${A}`,
+    "```",
+  ].join("\n");
+  const result = checkEvaluationRecord(fenced, [A]);
+  assert.equal(result.bypass, false);
+  assert.equal(result.ok, false);
+});
+
+test("rejects a bypass whose reason is too short to mean anything", () => {
+  const terse = checkEvaluationRecord("評価なし承認: なし", [A]);
+  assert.equal(terse.ok, false);
+  assert.equal(terse.bypass, false);
+  assert.match(terse.problems.join(" "), /短すぎます/u);
+});
+
+test("warns loudly when a bypass is used, since nobody authenticated it", () => {
+  const long = checkEvaluationRecord(
+    `評価なし承認: codex の認証が切れており、利用者が評価なしで出すよう明示的に指示した`,
+    [A],
+  );
+  assert.equal(long.ok, true);
+  assert.equal(long.bypass, true);
+  assert.match(long.warnings.join(" "), /承認者の認証はありません/u);
+});
+
+test("counts the commits pushed after the evaluated one", () => {
+  // rev-list order is newest first.
+  const newest = "e".repeat(40);
+  const middle = "f".repeat(40);
+  const result = checkEvaluationRecord(body({ commit: A }), [newest, middle, A]);
+  assert.equal(result.ok, true, result.problems.join(" "));
+  assert.equal(result.record.commitsAfterEvaluation, 2);
+  assert.match(result.warnings.join(" "), /評価後に 2 件のコミットが追加/u);
+
+  const evaluatedHead = checkEvaluationRecord(body({ commit: newest }), [newest, middle, A]);
+  assert.equal(evaluatedHead.record.commitsAfterEvaluation, 0);
+  assert.deepEqual(evaluatedHead.warnings, []);
+});
+
+test("flags a diff that edits the check itself", () => {
+  assert.deepEqual(touchesOwnCheck(["src/App.tsx", "README.md"]), []);
+  assert.deepEqual(
+    touchesOwnCheck([".github/workflows/ci.yml", "scripts/check-evaluation-record.mjs"]),
+    [".github/workflows/ci.yml", "scripts/check-evaluation-record.mjs"],
+  );
+  assert.deepEqual(touchesOwnCheck(["scripts\\check-evaluation-record.mjs"]), ["scripts/check-evaluation-record.mjs"]);
+  assert.deepEqual(touchesOwnCheck(undefined), []);
+});
+
+test("does not backtrack catastrophically on a long run of asterisks", () => {
+  const hostile = `${"*".repeat(20000)}評価者 codex`;
+  const started = process.hrtime.bigint();
+  checkEvaluationRecord(hostile, [A]);
+  const ms = Number(process.hrtime.bigint() - started) / 1e6;
+  assert.ok(ms < 500, `field() took ${Math.round(ms)}ms on a hostile body`);
 });
