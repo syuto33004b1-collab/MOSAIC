@@ -281,18 +281,28 @@ begin
   if p_payload is null or jsonb_typeof(p_payload) <> 'object' then
     raise exception using errcode = '22023', message = 'p_payload must be a JSON object';
   end if;
-  if (p_payload ? 'members' or p_payload ? 'skillCatalog')
+  if (
+        p_payload ? 'members'
+        or p_payload ? 'skillCatalog'
+        or p_payload ? 'customFields'
+        or p_payload ? 'orgUnits'
+        or p_payload ? 'orgMemberships'
+        or p_payload ? 'searchScenes'
+        or p_payload ? 'savedReports'
+        or p_payload ? 'profileRequests'
+      )
      and not ('members:write' = any (p_client.scopes)) then
     raise exception using errcode = '42501', message = 'members:write is required';
   end if;
-  if (p_payload ? 'projects' or p_payload ? 'customFields')
-     and not ('projects:write' = any (p_client.scopes) or 'members:write' = any (p_client.scopes)) then
+  if (p_payload ? 'projects' or p_payload ? 'opportunities')
+     and not ('projects:write' = any (p_client.scopes)) then
     raise exception using errcode = '42501', message = 'projects:write is required';
   end if;
   if p_payload ? 'assignments' and not ('assignments:write' = any (p_client.scopes) or 'staffing:write' = any (p_client.scopes)) then
     raise exception using errcode = '42501', message = 'assignments:write is required';
   end if;
-  if p_payload ? 'needs' and not ('staffing:write' = any (p_client.scopes)) then
+  if (p_payload ? 'needs' or p_payload ? 'opportunityNeeds')
+     and not ('staffing:write' = any (p_client.scopes)) then
     raise exception using errcode = '42501', message = 'staffing:write is required';
   end if;
 end;

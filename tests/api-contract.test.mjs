@@ -370,5 +370,10 @@ test("keeps the API function unauthenticated at the gateway and separate from ch
   assert.match(sql, /member\.changed/);
   assert.match(sql, /grant execute on function public\.create_webhook_endpoint/);
   assert.doesNotMatch(sql, /grant execute on function public\.integration_get_workspace\(uuid\) to authenticated/);
+  assert.match(sql, /if \(p_payload \? 'projects' or p_payload \? 'opportunities'\)/);
+  assert.doesNotMatch(
+    sql,
+    /p_payload \? 'projects' or p_payload \? 'customFields'\)[\s\S]{0,80}or 'members:write' = any \(p_client.scopes\)/,
+  );
   assert.doesNotMatch(sql, /grant execute on function public\.claim_webhook_outbox[\s\S]+to authenticated/);
 });
