@@ -8,3 +8,6 @@ coverage/
 !.env.example
 .DS_Store
 Thumbs.db
+
+# Claude Code のローカル設定（スキルと launch 設定は追跡する）
+.claude/settings.local.json
