@@ -118,8 +118,18 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .person-copy small { margin-top: 4px; color: #929aab; font-family: var(--font-data); font-size: 7px; }
 .load { padding: 4px 7px; border-radius: 7px; background: #eef1f5; color: #6f788a; font-family: var(--font-data); font-size: 8px; font-weight: 700; }
 .load.over { background: #ffebe9; color: #d7584e; }
+/* No horizontal padding: it is what made the cell divide a different box from
+   the header. Deliberate consequence — the theme's later `.assignment` rule
+   sets margin-inline: 5px (search for `margin-inline: 5px`, it overrides the
+   `margin: 0 4px` two lines below), so the inset at the week's outer edges
+   goes from 8+5=13px to 5px, while the gap between two days stays 5+5=10px.
+   Every bar is now inset 5px from its own day boundary; before, the first and
+   last were 13px in from the cell edge and so did not line up at all. */
 .week-cell { position: relative; padding: 14px 0; display: grid; grid-template-columns: var(--schedule-day-tracks); grid-auto-rows: 23px; gap: 4px 0; overflow: hidden; }
-.day-grid { position: absolute; inset: 0; display: grid; grid-template-columns: repeat(5, 1fr); pointer-events: none; }
+/* The same day tracks as the header and the cell. This was `repeat(5, 1fr)`
+   over the cell's padding box, which agreed with the header by coincidence —
+   that is why the boundary lines looked right while the bars did not. */
+.day-grid { position: absolute; inset: 0; display: grid; grid-template-columns: var(--schedule-day-tracks); pointer-events: none; }
 .day-grid i { border-left: 1px solid #edf0f5; }
 .assignment { z-index: 1; min-width: 0; margin: 0 4px; padding: 6px 9px; border-radius: 7px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #4351aa; font-size: 8px; font-weight: 700; line-height: 1.4; }
 .assignment.blue { background: #e6e9ff; }.assignment.mint { background: #dcf2ea; color: #317463; }.assignment.orange { background: #ffeadf; color: #a75e3f; }
@@ -2306,8 +2316,11 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 }
 
 /* Wider label and days on very wide screens. This has to come after the :root
-   that defines them — a plain :root later in the file would win over a media
-   query earlier in it, which is how the old 1500px override was already dead. */
+   above: two :root declarations both weigh (0,1,0) and a media query adds no
+   specificity, so while the query matches the later declaration wins. The old
+   version of this override did work — it set .schedule-head's own
+   grid-template-columns, after the base rule — but in token form the order
+   matters and getting it wrong makes the override silently do nothing. */
 @media (min-width: 1500px) {
   :root {
     --schedule-label-col: 260px;

@@ -10,70 +10,143 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
  * The schedule header and each row's week cell draw the same five days, and
  * they used to compute the boundaries from different boxes: the header split
  * (width − label), the cell split (width − label − 16px of its own padding).
- * Measured at 1425px, the boundaries drifted +8.00 / +4.79 / +1.58 / −1.64 /
- * −4.83px across the week, so Thursday's bar sat under Wednesday's label.
+ * Measured at 1585px, the six boundaries of the week drifted
+ * +8.00 / +4.80 / +1.59 / −1.61 / −4.81 / −8.02px, so Thursday's bar sat under
+ * Wednesday's label.
  *
- * Both now read one pair of tokens. What this file pins is that they keep
- * reading them, that the cell adds no horizontal padding of its own, and that
- * the wide-screen override still comes after the definition — the old 1500px
- * override sat earlier in the file than the :root it meant to change, so it had
- * never applied at all.
+ * `.day-grid` draws the boundary lines and agreed with the header even on main,
+ * because `inset: 0` resolves against the cell's padding box and so absorbed
+ * the same 8px the cell was subtracting. That coincidence is why the lines
+ * looked right while the bars did not. All three now read one pair of tokens.
  *
- * Rendered boundaries were measured at 485, 805, 1425 and 1585 and are in the PR.
+ * ## What this file is
+ *
+ * A static heuristic over a flat stylesheet, not a cascade. It checks that the
+ * three grids declare the tokens and nothing later takes them away, that
+ * nothing gives the cell horizontal padding, and that the media override of the
+ * tokens comes after the `:root` that defines them.
+ *
+ * That last one is new debt, not an old bug: the previous override set
+ * `.schedule-head`'s own `grid-template-columns` after the base rule and did
+ * apply — verified on main at 1585px, where the header measured `260px` plus
+ * `128.594px` ×5. Only in token form does the order decide it, two `:root`
+ * declarations both weighing (0,1,0) with the media query adding nothing.
+ *
+ * ## What it does not prove
+ *
+ * Not the post-cascade value, not the rendered boundaries, and not any of it
+ * once this file adopts CSS nesting — the brace matching below is flat, so a
+ * nested `.week-cell` block would be attributed to its parent's selector. The
+ * rendered boundaries are the real evidence: measured at 390, 485, 805, 1085,
+ * 1425, 1499, 1500 and 1585 plus the width where the table stops being pinned
+ * to its 740px min-width, and recorded in the PR.
  */
 
 const read = () => readFile(path.join(root, "src", "styles.css"), "utf8");
 const withoutComments = (css) => css.replace(/\/\*[\s\S]*?\*\//gu, "");
 
-function rule(css, selector) {
-  const m = css.match(new RegExp(`(?:^|\\})\\s*${selector}\\s*\\{([^}]*)\\}`, "u"));
-  return m ? m[1] : null;
+/** Every rule whose selector mentions the class, media blocks included. */
+function allRules(css, className) {
+  return [...css.matchAll(/([^{}]+)\{([^{}]*)\}/gu)]
+    .filter(([, sel]) => new RegExp(`\\.${className}(?![\\w-])`, "u").test(sel))
+    .map(([, sel, body]) => ({ selector: sel.trim().replace(/\s+/gu, " "), body }));
 }
 
-test("header and week cell take their day columns from the same token", async () => {
+/**
+ * Every declaration of `prop` in a body, in source order. Taking only the first
+ * would pass `padding-inline: 0; padding-inline: 8px`, where the second wins.
+ */
+function declarations(body, prop) {
+  return [...body.matchAll(new RegExp(`(?:^|;)\\s*${prop}\\s*:\\s*([^;]+)`, "gu"))].map((m) => m[1].trim());
+}
+
+const DAY_GRIDS = {
+  // The header carries the label column first; the other two are days only.
+  "schedule-head": /^var\(--schedule-label-col\)\s+var\(--schedule-day-tracks\)$/u,
+  "week-cell": /^var\(--schedule-day-tracks\)$/u,
+  "day-grid": /^var\(--schedule-day-tracks\)$/u,
+};
+
+test("every grid that draws the days takes its columns from the same token", async () => {
   const css = withoutComments(await read()).replaceAll("\r\n", "\n");
-  const head = rule(css, "\\.schedule-head");
-  const cell = rule(css, "\\.week-cell");
-  assert.ok(head, ".schedule-head rule not found");
-  assert.ok(cell, ".week-cell rule not found");
-  for (const [name, body] of [[".schedule-head", head], [".week-cell", cell]]) {
-    assert.match(
-      body,
-      /grid-template-columns:[^;]*var\(--schedule-day-tracks\)/u,
-      `${name} must read --schedule-day-tracks, or the two grids can disagree again`,
+  for (const [className, expected] of Object.entries(DAY_GRIDS)) {
+    const decls = allRules(css, className)
+      .flatMap(({ selector, body }) => declarations(body, "grid-template-columns").map((value) => ({ selector, value })));
+    assert.ok(decls.length >= 1, `nothing sets grid-template-columns for .${className}`);
+    // Every declaration, not just the last: a media-query one that wins only at
+    // some widths is as much a divergence as a later unconditional one.
+    const rogue = decls
+      .filter((d) => !expected.test(d.value))
+      .map((d) => `${d.selector.slice(0, 60)} => ${d.value}`);
+    assert.deepEqual(
+      rogue,
+      [],
+      `.${className} must declare exactly ${expected.source}, or the grids can disagree again:\n  ` + rogue.join("\n  "),
     );
   }
-  assert.match(head, /var\(--schedule-label-col\)/u);
-  assert.match(rule(css, "\\.schedule-row"), /var\(--schedule-label-col\)/u);
+  assert.match(
+    allRules(css, "schedule-row").map((r) => r.body).join(";"),
+    /grid-template-columns:\s*var\(--schedule-label-col\)/u,
+    ".schedule-row must take its label column from the same token as the header",
+  );
 });
 
-test("the week cell adds no horizontal padding of its own", async () => {
+test("no rule gives the week cell horizontal padding", async () => {
   const css = withoutComments(await read()).replaceAll("\r\n", "\n");
-  const cell = rule(css, "\\.week-cell");
-  const padding = cell.match(/padding:\s*([^;]+)/u);
-  assert.ok(padding, ".week-cell declares no padding");
-  const parts = padding[1].trim().split(/\s+/u);
-  // `a b` or `a b c d` — the inline value is the second, and for four values the
-  // fourth as well. Anything non-zero shrinks the box the days are divided in.
-  const inline = parts.length === 1 ? [parts[0]] : [parts[1], parts[3] ?? parts[1]];
-  for (const value of inline) {
-    assert.match(value, /^0(?:px)?$/u,
-      `.week-cell has horizontal padding (${padding[1].trim()}); the day boundaries would drift from the header's`);
+  const rules = allRules(css, "week-cell");
+  assert.ok(rules.length >= 1, "no .week-cell rule found");
+  const zero = (value) => /^0(?:px|rem|em|%)?$/u.test(value.trim());
+  const offenders = [];
+  for (const { selector, body } of rules) {
+    // Shorthand: `a`, `a b`, `a b c`, `a b c d` — the inline values are the
+    // second (and fourth, when four are given), or the only one when there is one.
+    for (const value of declarations(body, "padding")) {
+      const parts = value.split(/\s+/u);
+      const inline = parts.length === 1 ? [parts[0]] : [parts[1], parts[3] ?? parts[1]];
+      if (!inline.every(zero)) offenders.push(`${selector.slice(0, 50)} => padding: ${value}`);
+    }
+    // And the longhands, which a shorthand check alone would miss.
+    for (const prop of ["padding-inline", "padding-inline-start", "padding-inline-end", "padding-left", "padding-right"]) {
+      for (const value of declarations(body, prop)) {
+        if (!value.split(/\s+/u).every(zero)) offenders.push(`${selector.slice(0, 50)} => ${prop}: ${value}`);
+      }
+    }
   }
+  assert.deepEqual(
+    offenders,
+    [],
+    "horizontal padding here makes the cell divide a narrower box than the header, and the day boundaries drift:\n  " + offenders.join("\n  "),
+  );
+});
+
+test("only :root sets the schedule tokens", async () => {
+  const css = withoutComments(await read()).replaceAll("\r\n", "\n");
+  // Reading the same custom property is no guarantee if a descendant redefines
+  // it: `.week-cell { --schedule-day-tracks: repeat(5, 1fr) }` would reinstate
+  // the whole bug while every check above still passed.
+  const setters = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/gu)]
+    .filter(([, , body]) => /--schedule-(?:label-col|day-tracks)\s*:/u.test(body))
+    .map(([, sel]) => sel.trim().replace(/\s+/gu, " "))
+    .filter((sel) => sel !== ":root");
+  assert.deepEqual(setters, [], `these redefine the schedule tokens outside :root: ${setters.join(", ")}`);
 });
 
 test("the wide-screen override comes after the tokens it overrides", async () => {
   const css = withoutComments(await read()).replaceAll("\r\n", "\n");
   // A plain :root later in the file beats a media query earlier in it, both
-  // being (0,1,0). The previous 1500px override lost that way and never applied.
-  const defined = css.search(/:root\s*\{[^}]*--schedule-day-tracks:/u);
-  assert.ok(defined > 0, "--schedule-day-tracks is not defined on :root");
-  const overrides = [...css.matchAll(/@media[^{]*\{\s*:root\s*\{[^}]*--schedule-day-tracks:[^}]*\}/gu)];
-  assert.ok(overrides.length >= 1, "no media override for --schedule-day-tracks");
-  for (const m of overrides) {
-    assert.ok(
-      m.index > defined,
-      `a media override at ${m.index} precedes the :root definition at ${defined}, so it never applies`,
-    );
+  // being (0,1,0). Column 0 distinguishes the base :root from the ones nested
+  // in media blocks, which this file indents; without that, an override moved
+  // above the base would be measured against its own inner :root.
+  for (const token of ["--schedule-label-col", "--schedule-day-tracks"]) {
+    const defined = css.search(new RegExp(`\\n:root\\s*\\{[^}]*${token}:`, "u"));
+    assert.ok(defined > 0, `${token} is not defined on a top-level :root`);
+    const overrides = [...css.matchAll(new RegExp(`@media[^{]*\\{\\s*:root\\s*\\{[^}]*${token}:[^}]*\\}`, "gu"))];
+    assert.ok(overrides.length >= 1, `no media override for ${token}`);
+    for (const m of overrides) {
+      assert.ok(
+        m.index > defined,
+        `a media override of ${token} at ${m.index} precedes the :root definition at ${defined}, so it never applies`,
+      );
+    }
   }
 });
