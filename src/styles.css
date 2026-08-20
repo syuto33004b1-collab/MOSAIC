@@ -1193,14 +1193,20 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .portfolio-table .col-progress,
 .portfolio-table .col-milestone,
 .portfolio-table .col-headcount { width: 110px; }
+/* min-width so widening the actions column cannot take space from here: the
+   week labels in this cell already collide when a member sits at 100% for four
+   weeks (#96), and at 820px the rail had 103px before. Do not make that worse. */
 .portfolio-table .col-rail,
-.member-table .col-rail { width: 124px; }
+.member-table .col-rail { width: 124px; min-width: 104px; }
 .member-table .col-skills { width: 140px; }
 .member-table .col-next { width: 120px; }
 .portfolio-table .col-owner,
 .member-table .col-score { width: 104px; }
 .portfolio-table .col-open { width: 56px; }
-.member-table .col-actions { width: 180px; }
+/* Measured: the two buttons need 150px of content, and the cell adds 24px of
+   padding. 172px left 2px of headroom and they wrapped; this leaves ~20px for
+   font rendering differences and for #72 raising the button padding. */
+.member-table .col-actions { width: 196px; }
 .portfolio-table .col-name,
 .member-table .col-name { width: 190px; }
 .portfolio-table .col-period { width: 150px; }

@@ -126,6 +126,25 @@ test("no width hint is small enough to be a typo", async () => {
   }
 });
 
+/**
+ * A floor with a measured reason, not a round number. The two buttons in the
+ * actions cell need 150px of content and the cell adds 24px of padding; under
+ * `auto` layout the declared width also compresses by roughly 9px at 1440.
+ * 172px left 2px of headroom and they wrapped, taking the row from 55px to
+ * 97px. This will not catch a font or label change that pushes the requirement
+ * past 150px — only a rendered check could — but it does catch the width being
+ * traded away again, which is how it broke.
+ */
+test("the actions column stays wide enough for its two buttons", async () => {
+  const css = withoutComments(await read("src/styles.css"));
+  const declared = css.match(/\.member-table \.col-actions\s*\{[^}]*width:\s*(\d+)px/u);
+  assert.ok(declared, ".member-table .col-actions must declare a px width");
+  assert.ok(
+    Number(declared[1]) >= 190,
+    `col-actions is ${declared[1]}px; below 190px the 提案へ/アサイン buttons wrap and the row doubles in height`,
+  );
+});
+
 test("the variable column has both a floor and a ceiling", async () => {
   const css = withoutComments(await read("src/styles.css"));
   const rule = css.match(/\.portfolio-table \.col-custom,\s*\n\.member-table \.col-custom\s*\{([^}]*)\}/u);
