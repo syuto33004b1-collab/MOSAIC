@@ -11,11 +11,10 @@ create table app.role_permissions (
   person_scope text not null default 'organization' check (
     person_scope in ('organization', 'unit_subtree', 'unit', 'self')
   ),
-  -- Array membership, overlap, and null-element checks live in
-  -- private.apply_role_permissions instead of here: the array operators
-  -- (&&, <@, array_position) are STABLE, and a CHECK constraint requires
-  -- IMMUTABLE. The apply function is the only writer, and the table is revoked
-  -- from every role, so the function is the boundary.
+  -- Overlap and null-element validation lives in
+  -- private.apply_role_permissions: it is the only writer for this table, and
+  -- the table is revoked from every role. The feature-key allow list is added as
+  -- a table constraint by 20260820120000_role_permission_feature_check.sql.
   hidden_field_keys text[] not null default '{}'::text[] check (cardinality(hidden_field_keys) <= 100),
   readonly_field_keys text[] not null default '{}'::text[] check (cardinality(readonly_field_keys) <= 100),
   disabled_features text[] not null default '{}'::text[] check (cardinality(disabled_features) <= 20),

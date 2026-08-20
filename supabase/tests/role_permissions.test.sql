@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions, pg_catalog;
 
-select plan(18);
+select plan(19);
 
 insert into auth.users (id, email, raw_user_meta_data) values
   ('11000000-0000-4000-8000-000000000091', 'perm-owner@test.local', '{"full_name":"Perm Owner"}'::jsonb),
@@ -366,6 +366,18 @@ select is(
   ),
   'B',
   'a hidden custom field keeps its stored value across a member edit'
+);
+
+select throws_ok(
+  $$insert into app.role_permissions (organization_id, role, disabled_features)
+    values (
+      '21000000-0000-4000-8000-000000000091',
+      'viewer',
+      array['aiChat']::text[]
+    )$$,
+  '23514',
+  null,
+  'an unsupported feature key is refused by the table constraint'
 );
 
 select * from finish();
