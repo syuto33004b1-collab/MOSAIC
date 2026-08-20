@@ -1396,12 +1396,29 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .load-ring.open { background: conic-gradient(#73bda5 calc(var(--load) * 1%), #edf0f4 0); }
 .load-ring.over { background: conic-gradient(#e9786e 100%, #edf0f4 0); }
 .load-ring.over strong { color: #c85f56; }
-.member-week-rail { height: 39px; display: grid; grid-template-columns: repeat(4, 1fr); align-items: end; gap: 5px; }
-.member-week-rail i { position: relative; height: 29px; border-radius: 5px 5px 3px 3px; background: #edf0f4; overflow: visible; }
+/* The bar and its label are separate items of the same grid, one column each.
+   Two things keep the four weeks apart, and both are needed:
+   - distinct tracks, so no box is placed over another. The label used to be
+     absolutely positioned inside its bar, and an out-of-flow box belongs to no
+     track at all, which is why repeat(4, 1fr) could not help it.
+   - `min-content` as the track floor. With `white-space: nowrap` on the label
+     that is the label's whole width, so a track never ends up narrower than the
+     text it has to show, and there is no pixel width to keep in step with
+     --text-min. Distinct tracks alone would not do it: the text would simply
+     overflow its own track into the next one.
+   Long values are absorbed by the column, not by overlapping — the cell grows
+   and the table scrolls. Measured: every label at 99999% takes the rail to
+   179.1px with the table still at its 960px min-width. */
+.member-week-rail { display: grid; grid-template-columns: repeat(4, minmax(min-content, 1fr)); grid-template-rows: 29px auto; grid-auto-flow: column; align-items: end; column-gap: 5px; row-gap: 3px; }
+/* Four bars and four labels exactly: the column flow pairs them up only while
+   that holds. src/App.test.tsx asserts it against a rendered tree, so a change
+   in the number of weeks fails there rather than silently adding an implicit
+   fifth column sized `auto` instead of the track above. */
+.member-week-rail i { position: relative; height: 29px; border-radius: 5px 5px 3px 3px; background: #edf0f4; }
 .member-week-rail b { position: absolute; left: 0; right: 0; bottom: 0; border-radius: inherit; background: #8a97e7; }
 .member-week-rail i.open b { background: #7bc0aa; }
 .member-week-rail i.over b { background: #e87970; }
-.member-week-rail small { position: absolute; bottom: -12px; left: 50%; transform: translateX(-50%); color: #a0a7b5; font-family: var(--font-data); font-size: 5.5px; }
+.member-week-rail small { text-align: center; white-space: nowrap; color: #a0a7b5; font-family: var(--font-data); font-size: 5.5px; }
 .next-open { font-size: 8px; }
 .next-open small { margin-top: 4px; display: block; color: #969eae; font-size: 7px; }
 .quick-assign {
