@@ -146,7 +146,6 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .all-alerts { width: 100%; padding: 8px 2px 1px; border: 0; background: transparent; color: #636d80; cursor: pointer; display: flex; justify-content: space-between; font-size: 8px; font-weight: 700; }
 .all-alerts span { color: var(--cobalt); font-size: 12px; }
 
-button:focus-visible, a:focus-visible { outline: 3px solid rgba(86,104,232,.35); outline-offset: 2px; }
 @media (max-width: 1280px) { .board-layout { grid-template-columns: minmax(0, 1fr); }.attention-panel { display: grid; grid-template-columns: auto 1fr 1fr; gap: 10px; }.attention-title { align-self: start; margin: 0 8px 0 0; }.all-alerts { display: none; } }
 @media (max-width: 820px) { .app-shell { grid-template-columns: 74px minmax(0,1fr); }.sidebar { padding-inline: 13px; }.brand { padding-inline: 10px; }.brand > span:last-child { display: none; }.nav-item { justify-content: center; padding: 0; font-size: 0; }.nav-icon { font-size: 18px; }.nav-count, .month-card, .profile-row > span:not(.avatar), .profile-row button { display: none; }.profile-row { justify-content: center; }.workspace { padding: 24px 18px; }.pulse-mini-bars { display: none; }.board-layout { overflow-x: auto; }.schedule-card { min-width: 720px; } }
 @media (max-width: 620px) { .topbar { flex-direction: column; }.topbar-actions { width: 100%; }.primary-button { margin-left: auto; }.pulse-strip { flex-wrap: wrap; gap: 16px; }.pulse-heading { width: 100%; }.pulse-rule { display: none; }.attention-panel { display: block; }.alert-card { margin-bottom: 10px; } }
@@ -201,7 +200,6 @@ button:focus-visible, a:focus-visible { outline: 3px solid rgba(86,104,232,.35);
   min-width: 0;
   flex: 1;
   border: 0;
-  outline: 0;
   background: transparent;
   color: var(--ink);
   font-size: 11px;
@@ -311,7 +309,6 @@ button:focus-visible, a:focus-visible { outline: 3px solid rgba(86,104,232,.35);
 .filter-select select {
   max-width: 126px;
   border: 0;
-  outline: 0;
   background: transparent;
   color: inherit;
   font-size: 9px;
@@ -552,7 +549,6 @@ button:focus-visible, a:focus-visible { outline: 3px solid rgba(86,104,232,.35);
   padding: 0 12px;
   border: 1px solid #dce2eb;
   border-radius: 10px;
-  outline: 0;
   background: #fbfcfd;
   color: var(--ink);
   font-size: 10px;
@@ -900,7 +896,6 @@ button:focus-visible, a:focus-visible { outline: 3px solid rgba(86,104,232,.35);
   padding: 0 12px;
   border: 1px solid #dce2eb;
   border-radius: 10px;
-  outline: 0;
   background: #fbfcfd;
   color: var(--ink);
   font-size: 10px;
@@ -1015,7 +1010,6 @@ button:focus-visible, a:focus-visible { outline: 3px solid rgba(86,104,232,.35);
   min-width: 0;
   flex: 1;
   border: 0;
-  outline: 0;
   background: transparent;
   color: var(--ink);
   font-size: 9px;
@@ -1030,7 +1024,7 @@ button:focus-visible, a:focus-visible { outline: 3px solid rgba(86,104,232,.35);
   align-items: center;
   gap: 5px;
 }
-.view-filter select { border: 0; outline: 0; background: transparent; color: inherit; font-size: 9px; }
+.view-filter select { border: 0; background: transparent; color: inherit; font-size: 9px; }
 .toolbar-result { margin-left: 4px; color: #929aaa; font-size: 8px; }
 .view-add-button {
   height: 34px;
@@ -1777,10 +1771,6 @@ button:focus-visible, a:focus-visible { outline: 3px solid rgba(86,104,232,.35);
 .production-organization-switcher { margin-bottom: 20px; }
 .production-runtime-info { margin: 24px 0 0; color: #99a2b2; font: 700 9px/1.5 var(--font-data); letter-spacing: .04em; text-align: center; }
 
-:where(button, input, select, textarea, a):focus-visible {
-  outline: 3px solid rgba(86, 104, 232, .34);
-  outline-offset: 2px;
-}
 @keyframes production-spin { to { transform: rotate(360deg); } }
 
 @media (max-width: 820px) {
@@ -1820,7 +1810,6 @@ button:focus-visible, a:focus-visible { outline: 3px solid rgba(86,104,232,.35);
   resize: vertical;
   border: 1px solid #dce2eb;
   border-radius: 10px;
-  outline: 0;
   background: #fbfcfd;
   color: var(--ink);
   font: inherit;
@@ -1864,19 +1853,28 @@ button:focus-visible, a:focus-visible { outline: 3px solid rgba(86,104,232,.35);
   --muted-readable: #667085;
   --muted-readable-dark: #555f73;
   --focus-ring: #4353ca;
+  --focus-ring-on-dark: #dfe4ff;
 }
 
 :where(button, input, select, textarea, summary, a) {
   touch-action: manipulation;
 }
 
+/* The only focus-visible rule. Four others used to exist; the one with element
+   specificity (`button:focus-visible`) beat every `:where()` version, so the
+   ring people actually saw was a leftover blue at 1.59:1 while --focus-ring sat
+   unused on buttons and links. */
 :where(button, input, select, textarea, summary, a):focus-visible {
   outline: 3px solid var(--focus-ring);
   outline-offset: 3px;
 }
+/* The ring sits outside the element, so on the dark bands it is measured
+   against --ink, where --focus-ring is 2.15:1. */
+:where(.pulse-strip, .member-ribbon, .portfolio-ribbon)
+  :where(button, input, select, textarea, summary, a):focus-visible {
+  outline-color: var(--focus-ring-on-dark);
+}
 
-.sidebar :where(button, a, input, select):focus-visible,
-.change-bar :where(button, a, input, select):focus-visible { outline-color: #c7f2e4; }
 
 :where(button):disabled {
   cursor: not-allowed;
@@ -2246,6 +2244,7 @@ button:focus-visible, a:focus-visible { outline: 3px solid rgba(86,104,232,.35);
   --sand: #e6d3a8;
   --rose: #eec2d2;
   --focus-ring: #8f321f;
+  --focus-ring-on-dark: #f8e2da;
   --shadow-float: 0 18px 55px rgba(52, 17, 3, .12);
   --ease-human: cubic-bezier(.16, .64, .32, 1);
 }
@@ -2965,9 +2964,6 @@ h1 {
 .production-audit-detail pre { border-radius: 3px; background: var(--canvas); }
 .production-runtime-info { color: var(--muted); }
 
-:where(button, input, select, textarea, summary, a):focus-visible { outline-color: var(--focus-ring); }
-.sidebar :where(button, a, input, select):focus-visible,
-.change-bar :where(button, a, input, select):focus-visible { outline-color: var(--coral); }
 
 .topbar,
 .pulse-strip,
@@ -3657,7 +3653,6 @@ h1 {
   resize: none;
   border: 1px solid var(--line-strong);
   border-radius: 3px;
-  outline: 0;
   background: var(--paper-pure);
   color: var(--text);
   font: 500 12px/1.55 var(--font-body), "Yu Gothic UI", sans-serif;
