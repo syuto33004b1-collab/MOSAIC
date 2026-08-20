@@ -694,3 +694,76 @@ describe("organization invite function", () => {
     expect(created.endpoint).toMatchObject({ name: "BI 通知", url: "https://hooks.example.com/mosaic" });
   });
 });
+
+describe("role permissions over the shared workspace", () => {
+  const snapshot = {
+    workspaceRevision: 7,
+    ...sharedWorkspace,
+    permissions: {
+      role: "planner",
+      personScope: "self",
+      hiddenFieldKeys: ["english"],
+      readonlyFieldKeys: ["joined_on"],
+      disabledFeatures: ["favorites", "favorites", "notAFeature"],
+    },
+    rolePermissions: [
+      { role: "planner", personScope: "self", hiddenFieldKeys: ["english"], readonlyFieldKeys: ["joined_on"], disabledFeatures: ["favorites"] },
+    ],
+  };
+
+  it("reads the resolved permissions and drops unsupported feature keys", () => {
+    const workspace = normalizeWorkspace(snapshot);
+    expect(workspace.permissions).toEqual({
+      personScope: "self",
+      hiddenFieldKeys: ["english"],
+      readonlyFieldKeys: ["joined_on"],
+      disabledFeatures: ["favorites"],
+    });
+  });
+
+  it("reads the stored rows and rejects a snapshot naming an unknown role", () => {
+    expect(normalizeWorkspace(snapshot).state.rolePermissions).toEqual([{
+      role: "planner",
+      personScope: "self",
+      hiddenFieldKeys: ["english"],
+      readonlyFieldKeys: ["joined_on"],
+      disabledFeatures: ["favorites"],
+    }]);
+    expect(() => normalizeWorkspace({
+      ...snapshot,
+      rolePermissions: [{ role: "nope", personScope: "self", hiddenFieldKeys: [], readonlyFieldKeys: [], disabledFeatures: [] }],
+    })).toThrow("共有ワークスペースのデータ形式が正しくありません");
+  });
+
+  it("reads canEdit false on a read-only custom field", () => {
+    const withReadOnly = {
+      workspaceRevision: 7,
+      ...sharedWorkspace,
+      customFields: (sharedWorkspace.customFields ?? []).map((field) => field.key === "english" ? { ...field, canEdit: false } : field),
+    };
+    const fields = normalizeWorkspace(withReadOnly).state.customFields ?? [];
+    expect(fields.find((field) => field.key === "english")?.canEdit).toBe(false);
+    expect(fields.find((field) => field.key === "joined_on")?.canEdit).toBeUndefined();
+  });
+
+  it("sends only the changed role rows and refuses them below admin", () => {
+    const previous = {
+      ...sharedWorkspace,
+      rolePermissions: [
+        { role: "planner" as const, personScope: "organization" as const, hiddenFieldKeys: [], readonlyFieldKeys: [], disabledFeatures: [] },
+        { role: "viewer" as const, personScope: "self" as const, hiddenFieldKeys: [], readonlyFieldKeys: [], disabledFeatures: [] },
+      ],
+    };
+    const changed = {
+      ...previous,
+      rolePermissions: [
+        { role: "planner" as const, personScope: "unit" as const, hiddenFieldKeys: [], readonlyFieldKeys: [], disabledFeatures: [] },
+        previous.rolePermissions[1],
+      ],
+    };
+    const payload = workspaceChangesPayload(changed, previous, "admin");
+    expect(payload.rolePermissions?.upsert).toEqual([changed.rolePermissions[0]]);
+    expect(workspaceChangesPayload(previous, previous, "admin").rolePermissions).toBeUndefined();
+    expect(() => workspaceChangesPayload(changed, previous, "planner")).toThrow("権限設定を保存できません");
+  });
+});

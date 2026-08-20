@@ -79,8 +79,10 @@ import {
   projectSearchText,
   projectTone,
   setMemberOrgMemberships,
+  setRolePermission,
   searchSceneFromNeed,
   submitProfileRequest,
+  editableCustomFields,
   visibleCustomFields,
   weekEnd,
   type Assignment,
@@ -91,12 +93,15 @@ import {
   type Opportunity,
   type OpportunityNeed,
   type OpportunityStage,
+  type PersonScope,
   type ProfileRequestScope,
   type Project,
   type ProjectStatus,
   type ReportGroupBy,
   type ReportMetric,
   type ReportSource,
+  type RestrictableFeature,
+  type RestrictableRole,
   type SearchSkillFilter,
   type SkillKind,
   type StaffingNeed,
@@ -120,11 +125,19 @@ import { applyMemberImport, type MemberImportAction } from "./csv";
 
 export type OrganizationRole = "owner" | "admin" | "planner" | "viewer";
 
+export type WorkspacePermissions = {
+  personScope: PersonScope;
+  hiddenFieldKeys: string[];
+  readonlyFieldKeys: string[];
+  disabledFeatures: RestrictableFeature[];
+};
+
 export type SharedWorkspaceAdapter = {
   initialState: WorkspaceState;
   initialRevision: number;
+  initialPermissions?: WorkspacePermissions;
   save: (state: WorkspaceState, expectedRevision: number, requestId: string) => Promise<{ revision: number; savedAt: string }>;
-  reload: () => Promise<{ state: WorkspaceState; revision: number }>;
+  reload: () => Promise<{ state: WorkspaceState; revision: number; permissions?: WorkspacePermissions }>;
   subscribe: (onRevision: (revision?: number) => void) => () => void;
   listFavorites?: () => Promise<Favorite[]>;
   setFavorite?: (kind: FavoriteKind, targetId: string, favorite: boolean) => Promise<Favorite[]>;
@@ -406,6 +419,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
   const [unsavedChanges, setUnsavedChanges] = useState(0);
   const [hydrated, setHydrated] = useState(mode === "shared");
   const [revision, setRevision] = useState(shared?.initialRevision ?? 0);
+  const [permissions, setPermissions] = useState<WorkspacePermissions | undefined>(shared?.initialPermissions);
   const [syncStatus, setSyncStatus] = useState<"idle" | "saving" | "refreshing" | "conflict" | "error">("idle");
   const [syncError, setSyncError] = useState("");
   const [syncRetryable, setSyncRetryable] = useState(true);
@@ -531,6 +545,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
 
   useEffect(() => {
     if (mode !== "shared" || !shared?.listFavorites) return;
+    if ((shared.initialPermissions?.disabledFeatures ?? []).includes("favorites")) return;
     let active = true;
     shared.listFavorites()
       .then((items) => {
@@ -615,6 +630,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
       setSyncError("");
       try {
         const latest = await shared.reload();
+        if (latest.permissions) setPermissions(latest.permissions);
         if (!active || latest.revision <= revisionRef.current) {
           if (active) setSyncStatus("idle");
           return;
@@ -713,6 +729,9 @@ export default function Home({ mode = "demo", organizationId, organizationName =
   const hasEditPermission = mode === "demo" || role !== "viewer";
   const canEdit = hasEditPermission && !operationLocked && !saveOutcomePending;
   const canManageMembers = (mode === "demo" || role === "owner" || role === "admin") && !operationLocked && !saveOutcomePending;
+  const disabledFeatures = new Set<RestrictableFeature>(permissions?.disabledFeatures ?? []);
+  const featureEnabled = (feature: RestrictableFeature) => !disabledFeatures.has(feature);
+  const visibleNavItems = navItems.filter((item) => item.id !== "opportunities" || featureEnabled("opportunities"));
   const accountActionLocked = operationLocked || saveOutcomePending || aiActionBusy;
   const roleLabel: Record<OrganizationRole, string> = { owner: "オーナー", admin: "管理者", planner: "プランナー", viewer: "閲覧者" };
   const displayName = identity?.name || "デモユーザー";
@@ -847,6 +866,10 @@ export default function Home({ mode = "demo", organizationId, organizationName =
   };
 
   const toggleFavoriteTarget = async (kind: FavoriteKind, targetId: string) => {
+    if ((permissions?.disabledFeatures ?? []).includes("favorites")) {
+      setToast("お気に入りはこの権限では利用できません");
+      return;
+    }
     const current = favoritesRef.current;
     const next = toggleFavorite(current, kind, targetId);
     const favorite = isFavorited(next, kind, targetId);
@@ -1283,6 +1306,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
     setSyncError("");
     try {
       const latest = await shared.reload();
+      if (latest.permissions) setPermissions(latest.permissions);
       revisionRef.current = latest.revision;
       setRevision(latest.revision);
       setWorkspace(cloneState(latest.state));
@@ -1994,6 +2018,21 @@ export default function Home({ mode = "demo", organizationId, organizationName =
     setToast("レポートを削除しました");
   };
 
+  const handleSaveRolePermission = (input: {
+    role: RestrictableRole;
+    personScope: PersonScope;
+    hiddenFieldKeys: string[];
+    readonlyFieldKeys: string[];
+    disabledFeatures: RestrictableFeature[];
+  }) => {
+    if (!canManageMembers) throw new Error("権限設定を変更する権限がありません");
+    if (input.role === "admin" && mode !== "demo" && role !== "owner") throw new Error("管理者の権限設定はオーナーだけが変更できます");
+    const rolePermissions = setRolePermission(workspace.rolePermissions ?? [], workspace.customFields ?? [], input);
+    setWorkspace((current) => ({ ...current, rolePermissions }));
+    markUnsaved();
+    setToast(`${input.role === "admin" ? "管理者" : input.role === "planner" ? "プランナー" : "閲覧者"}の権限を更新しました`);
+  };
+
   const handleCreateProfileRequests = (personIds: string[], input: { scope: ProfileRequestScope; note: string }) => {
     if (!canManageMembers) throw new Error("更新依頼を作成する権限がありません");
     const profileRequests = addProfileRequests(workspace, personIds, input);
@@ -2083,7 +2122,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
         <div className={"workspace-mode " + (mode === "shared" ? "shared" : "demo")}><span>{mode === "shared" ? "SHARED" : "DEMO"}</span><small>{organizationName}</small></div>
 
         <nav className="primary-nav" aria-label="メインナビゲーション">
-          {navItems.map((item) => {
+          {visibleNavItems.map((item) => {
             const Icon = item.icon;
             const active = activeNav === item.id;
             return (
@@ -2228,17 +2267,17 @@ export default function Home({ mode = "demo", organizationId, organizationName =
 
         {activeNav === "projects" && <ProjectsView state={workspace} weekOffset={weekOffset} onOpen={openProject} onCreate={() => setDrawer("newProject")} canEdit={canEdit} query={projectQuery} onQueryChange={setProjectQuery} favorites={favorites} favoritesOnly={favoritesOnly} onFavoritesOnlyChange={setFavoritesOnly} onToggleFavorite={(projectId) => void toggleFavoriteTarget("project", projectId)} onCopyQuery={() => void copyShareLink({ nav: "projects", q: projectQuery }, "検索リンクをコピーしました")} />}
         {activeNav === "opportunities" && <OpportunitiesView state={workspace} onOpen={openOpportunity} onCreate={() => setDrawer("newOpportunity")} canEdit={canEdit} />}
-        {activeNav === "members" && <MembersView state={workspace} weekOffset={weekOffset} onOpen={openMember} onAdd={() => setDrawer("newMember")} onAssign={openAssignmentFor} onAddScene={handleAddSearchScene} onDeleteScene={handleDeleteSearchScene} canEdit={canEdit} canManageMembers={canManageMembers} canManageScenes={canManageMembers} query={memberQuery} onQueryChange={setMemberQuery} favorites={favorites} favoritesOnly={favoritesOnly} onFavoritesOnlyChange={setFavoritesOnly} onToggleFavorite={(memberId) => void toggleFavoriteTarget("member", memberId)} onAddToProposal={addMemberToProposal} onCopyQuery={() => void copyShareLink({ nav: "members", q: memberQuery }, "検索リンクをコピーしました")} />}
+        {activeNav === "members" && <MembersView state={workspace} weekOffset={weekOffset} onOpen={openMember} onAdd={() => setDrawer("newMember")} onAssign={openAssignmentFor} onAddScene={handleAddSearchScene} onDeleteScene={handleDeleteSearchScene} canEdit={canEdit} canManageMembers={canManageMembers} canManageScenes={canManageMembers && featureEnabled("searchScenes")} query={memberQuery} onQueryChange={setMemberQuery} favorites={favorites} favoritesOnly={favoritesOnly} onFavoritesOnlyChange={setFavoritesOnly} onToggleFavorite={(memberId) => void toggleFavoriteTarget("member", memberId)} onAddToProposal={addMemberToProposal} onCopyQuery={() => void copyShareLink({ nav: "members", q: memberQuery }, "検索リンクをコピーしました")} />}
         {activeNav === "proposal" && <ProposalView state={workspace} weekOffset={weekOffset} selectedIds={visibleProposalIds} anonymous={proposalAnonymous} favorites={favorites} onSelectedIdsChange={setProposalMemberIds} onAnonymousChange={setProposalAnonymous} onOpenMember={openMember} onCopyLink={() => void copyShareLink({ nav: "proposal", memberIds: visibleProposalIds, anonymous: proposalAnonymous }, "提案リンクをコピーしました")} onToggleFavorite={(memberId) => void toggleFavoriteTarget("member", memberId)} />}
         {activeNav === "org" && <OrgView state={workspace} onAddUnit={handleAddOrgUnit} onMoveUnit={handleMoveOrgUnit} onArchiveUnit={handleArchiveOrgUnit} canManage={canManageMembers} />}
         {activeNav === "skills" && <SkillsView state={hydrateWorkspaceSkills(workspace)} onAddCatalogEntry={handleAddCatalogEntry} onOpenMember={openMember} onResolveNeed={openStaffingNeed} canEdit={canEdit} />}
         {activeNav === "fields" && (
           <>
-            <FieldsView state={workspace} onAddField={handleAddCustomField} canManage={canManageMembers} identity={identity} onCreateRequests={handleCreateProfileRequests} onSubmitRequest={handleSubmitProfileRequest} onCompleteRequest={handleCompleteProfileRequest} onCancelRequest={handleCancelProfileRequest} />
+            <FieldsView state={workspace} onAddField={handleAddCustomField} canManage={canManageMembers} canManageRequests={canManageMembers && featureEnabled("profileRequests")} canManageAdminPermissions={mode === "demo" || role === "owner"} onSaveRolePermission={handleSaveRolePermission} identity={identity} onCreateRequests={handleCreateProfileRequests} onSubmitRequest={handleSubmitProfileRequest} onCompleteRequest={handleCompleteProfileRequest} onCancelRequest={handleCancelProfileRequest} />
             <CsvTransferPanel state={workspace} organizationId={organizationId} canImport={canManageMembers} onImportMembers={handleImportMembers} />
           </>
         )}
-        {activeNav === "reports" && <ReportsView state={workspace} onOpenWeek={openWeekFromReport} onResolveNeed={openStaffingNeed} onOpenOpportunity={openOpportunity} onAddReport={handleAddSavedReport} onDeleteReport={handleDeleteSavedReport} canEdit={canEdit} canManageReports={canManageMembers} />}
+        {activeNav === "reports" && <ReportsView state={workspace} onOpenWeek={openWeekFromReport} onResolveNeed={openStaffingNeed} onOpenOpportunity={openOpportunity} onAddReport={handleAddSavedReport} onDeleteReport={handleDeleteSavedReport} canEdit={canEdit} canManageReports={canManageMembers && featureEnabled("savedReports")} />}
       </section>
 
       {unsavedChanges > 0 && (
@@ -2383,7 +2422,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                   : <div className="form-grid"><label>部署<input required value={memberEditForm.department} onChange={(event) => setMemberEditForm({ ...memberEditForm, department: event.target.value })} /></label><label>勤務地<input required value={memberEditForm.location} onChange={(event) => setMemberEditForm({ ...memberEditForm, location: event.target.value })} /></label></div>}
                 {(workspace.orgUnits ?? []).length > 0 && <label>勤務地<input required value={memberEditForm.location} onChange={(event) => setMemberEditForm({ ...memberEditForm, location: event.target.value })} /></label>}
                 <label>稼働上限（%）<input required type="number" min="0" max="100" step="1" value={memberEditForm.capacity} onChange={(event) => setMemberEditForm({ ...memberEditForm, capacity: event.target.value })} /></label>
-                <CustomFieldInputs fields={visibleCustomFields(workspace.customFields, "member", "detail")} values={memberEditForm.customValues} onChange={(customValues) => setMemberEditForm({ ...memberEditForm, customValues })} />
+                <CustomFieldInputs fields={editableCustomFields(workspace.customFields, "member", "detail")} values={memberEditForm.customValues} onChange={(customValues) => setMemberEditForm({ ...memberEditForm, customValues })} />
                 <WorkHistoryEditor entries={memberEditForm.workHistory} onChange={(workHistory) => setMemberEditForm({ ...memberEditForm, workHistory })} />
                 <div className="form-note"><SlidersHorizontal size={15} /><span>変更後に満たせない要員要件がある場合、紐づくアサインを取消予定にして要件を再オープンします。</span></div>
                 <button className="drawer-primary" type="submit" disabled={!canManageMembers}><Check size={16} />変更を仮置き</button>
@@ -2400,7 +2439,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                 <label>次のマイルストーン<input value={projectEditForm.nextMilestone} onChange={(event) => setProjectEditForm({ ...projectEditForm, nextMilestone: event.target.value })} /></label>
                 <label>マイルストーン日<input type="date" min={projectEditForm.startDate} max={projectEditForm.endDate} value={projectEditForm.nextMilestoneDate} onChange={(event) => setProjectEditForm({ ...projectEditForm, nextMilestoneDate: event.target.value })} /></label>
                 <div className="form-grid"><label>進捗（%）<input required type="number" min="0" max="100" value={projectEditForm.progress} onChange={(event) => setProjectEditForm({ ...projectEditForm, progress: event.target.value })} /></label><label>必要人数<input required type="number" min="0" max="10000" value={projectEditForm.demand} onChange={(event) => setProjectEditForm({ ...projectEditForm, demand: event.target.value })} /></label></div>
-                <CustomFieldInputs fields={visibleCustomFields(workspace.customFields, "project", "detail")} values={projectEditForm.customValues} onChange={(customValues) => setProjectEditForm({ ...projectEditForm, customValues })} />
+                <CustomFieldInputs fields={editableCustomFields(workspace.customFields, "project", "detail")} values={projectEditForm.customValues} onChange={(customValues) => setProjectEditForm({ ...projectEditForm, customValues })} />
                 <button className="drawer-primary" type="submit" disabled={!canEdit}><Check size={16} />変更を仮置き</button>
               </form>
             )}
@@ -2547,7 +2586,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                 <label htmlFor="member-new-location">勤務地<select id="member-new-location" aria-label="勤務地" value={memberForm.location} onChange={(event) => setMemberForm({ ...memberForm, location: event.target.value })}>{["東京", "大阪", "福岡", "リモート"].map((location) => <option key={location}>{location}</option>)}</select></label>
                 <label>スキル（カンマ区切り）<input value={memberForm.skills} onChange={(event) => setMemberForm({ ...memberForm, skills: event.target.value })} placeholder="React:4, TypeScript:3, A11y" /></label>
                 <label>稼働上限（%）<input required type="number" min="0" max="100" step="1" value={memberForm.capacity} onChange={(event) => setMemberForm({ ...memberForm, capacity: event.target.value })} /></label>
-                <CustomFieldInputs fields={visibleCustomFields(workspace.customFields, "member", "detail")} values={memberForm.customValues} onChange={(customValues) => setMemberForm({ ...memberForm, customValues })} />
+                <CustomFieldInputs fields={editableCustomFields(workspace.customFields, "member", "detail")} values={memberForm.customValues} onChange={(customValues) => setMemberForm({ ...memberForm, customValues })} />
                 <WorkHistoryEditor entries={memberForm.workHistory} onChange={(workHistory) => setMemberForm({ ...memberForm, workHistory })} />
                 <button className="drawer-primary" type="submit" disabled={!canManageMembers}><Check size={16} />メンバーを追加</button>
               </form>

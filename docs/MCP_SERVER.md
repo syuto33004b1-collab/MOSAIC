@@ -20,3 +20,7 @@ OAuth Authorization Server は今段の対象外です。
 - 書込 tool はエラーを返します。確認付き書込みは次段です。
 
 業務ルールは `workspace-tools` と `integration_get_workspace` を再利用します。
+
+## ロール別権限
+
+`integration_get_workspace` は `get_workspace` を呼ぶため、資格の発行者のロールに設定されたロール別権限（`app.role_permissions`）が `read_workspace` と Resource の両方へ効きます。非表示の独自項目、利用不可の機能セクション、参照範囲外の人はホストへ渡りません。制限を受けない参照が必要な場合は、制限のないロールの利用者が資格を発行します。

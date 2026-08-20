@@ -56,6 +56,8 @@ export type CustomFieldDefinition = {
   showInDetail?: boolean;
   searchable?: boolean;
   sortOrder?: number;
+  /** False when the caller's role may read this field but not change it. */
+  canEdit?: boolean;
 };
 
 export type WorkHistoryEntry = {
@@ -200,6 +202,30 @@ export type OpportunityNeed = {
   allocation: number;
 };
 
+export const RESTRICTABLE_ROLES = ["admin", "planner", "viewer"] as const;
+export type RestrictableRole = (typeof RESTRICTABLE_ROLES)[number];
+
+export const PERSON_SCOPES = ["organization", "unit_subtree", "unit", "self"] as const;
+export type PersonScope = (typeof PERSON_SCOPES)[number];
+
+export const RESTRICTABLE_FEATURES = [
+  "searchScenes",
+  "savedReports",
+  "profileRequests",
+  "opportunities",
+  "favorites",
+] as const;
+export type RestrictableFeature = (typeof RESTRICTABLE_FEATURES)[number];
+
+/** Per-role limits as stored. Owner is always unrestricted and never listed. */
+export type RolePermission = {
+  role: RestrictableRole;
+  personScope: PersonScope;
+  hiddenFieldKeys: string[];
+  readonlyFieldKeys: string[];
+  disabledFeatures: RestrictableFeature[];
+};
+
 export type WorkspaceState = {
   members: Member[];
   projects: Project[];
@@ -214,6 +240,7 @@ export type WorkspaceState = {
   searchScenes?: SearchScene[];
   savedReports?: SavedReport[];
   profileRequests?: ProfileRequest[];
+  rolePermissions?: RolePermission[];
 };
 
 export type ProfileRequestScope = "skills" | "workHistory" | "all";
@@ -925,6 +952,11 @@ export function visibleCustomFields(catalog: CustomFieldDefinition[] | undefined
   });
 }
 
+/** Fields the caller may change. Read-only fields stay visible in detail facts. */
+export function editableCustomFields(catalog: CustomFieldDefinition[] | undefined, entityType: CustomFieldEntity, surface: CustomFieldSurface) {
+  return visibleCustomFields(catalog, entityType, surface).filter((field) => field.canEdit !== false);
+}
+
 export function customValue(values: Record<string, string> | undefined, fieldId: string) {
   const value = values?.[fieldId];
   return typeof value === "string" ? value.trim() : "";
@@ -1017,6 +1049,50 @@ export function addCustomField(catalog: CustomFieldDefinition[], input: {
     searchable: input.searchable !== false,
     sortOrder: input.sortOrder ?? (siblings.length + 1) * 10,
   }];
+}
+
+/**
+ * Replaces one role's limits. Mirrors private.apply_role_permissions so the form
+ * reports the same refusals the database would; the database stays the boundary.
+ */
+export function setRolePermission(
+  permissions: RolePermission[],
+  customFields: CustomFieldDefinition[],
+  input: {
+    role: RestrictableRole;
+    personScope?: PersonScope;
+    hiddenFieldKeys?: string[];
+    readonlyFieldKeys?: string[];
+    disabledFeatures?: string[];
+  },
+): RolePermission[] {
+  if (!RESTRICTABLE_ROLES.includes(input.role)) throw new Error("対象は管理者・計画担当・閲覧者です");
+  const personScope = input.personScope ?? "organization";
+  if (!PERSON_SCOPES.includes(personScope)) throw new Error("参照範囲を確認してください");
+  const knownKeys = new Set(customFields.map((field) => field.key));
+  const normalizeKeys = (keys: string[] | undefined) => {
+    const unique = [...new Set((keys ?? []).map((key) => key.trim()).filter(Boolean))].sort();
+    const unknown = unique.find((key) => !knownKeys.has(key));
+    if (unknown) throw new Error(`独自項目「${unknown}」が見つかりません`);
+    if (unique.length > 100) throw new Error("項目は100件までです");
+    return unique;
+  };
+  const hiddenFieldKeys = normalizeKeys(input.hiddenFieldKeys);
+  const readonlyFieldKeys = normalizeKeys(input.readonlyFieldKeys);
+  const overlap = hiddenFieldKeys.find((key) => readonlyFieldKeys.includes(key));
+  if (overlap) throw new Error(`独自項目「${overlap}」を非表示と編集不可の両方にはできません`);
+  const disabledFeatures = [...new Set((input.disabledFeatures ?? []).map((feature) => feature.trim()).filter(Boolean))].sort();
+  const unsupported = disabledFeatures.find((feature) => !RESTRICTABLE_FEATURES.includes(feature as RestrictableFeature));
+  if (unsupported) throw new Error(`機能「${unsupported}」は権限設定の対象ではありません`);
+  const next: RolePermission = {
+    role: input.role,
+    personScope,
+    hiddenFieldKeys,
+    readonlyFieldKeys,
+    disabledFeatures: disabledFeatures as RestrictableFeature[],
+  };
+  const others = permissions.filter((permission) => permission.role !== input.role);
+  return [...others, next].sort((left, right) => RESTRICTABLE_ROLES.indexOf(left.role) - RESTRICTABLE_ROLES.indexOf(right.role));
 }
 
 export function sortedWorkHistory(entries: WorkHistoryEntry[] | undefined) {

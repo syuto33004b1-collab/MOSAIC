@@ -84,7 +84,7 @@ export function createSharedWorkspaceController(
     async reload() {
       const latest = await repository.getWorkspace(organizationId);
       baseline = latest.state;
-      return { revision: latest.revision, state: latest.state };
+      return { revision: latest.revision, state: latest.state, permissions: latest.permissions };
     },
     async save(
       state: WorkspaceEnvelope["state"],
@@ -168,6 +168,7 @@ function SharedWorkspaceRoute({
   const shared = useMemo(() => workspace ? {
     initialRevision: workspace.revision,
     initialState: workspace.state,
+    initialPermissions: workspace.permissions,
     listFavorites: () => repository.listFavorites(currentOrganization.id),
     reload: sharedController.reload,
     save: sharedController.save,

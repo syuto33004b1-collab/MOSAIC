@@ -12,6 +12,15 @@ Authorization: Bearer mosaic_sk_...
 
 利用者 JWT では呼べません。検証は service_role から `authorize_integration_request` を呼び、連携資格あたり毎分60回です。スコープは `workspace:read` 必須で、書込みは `members:write` / `projects:write` / `assignments:write` / `staffing:write` です。
 
+## ロール別権限との関係
+
+資格は発行者に紐付くため、発行者のロールに設定されたロール別権限（`app.role_permissions`）がそのまま適用されます。スコープを満たしていても、非表示の独自項目、利用不可の機能、参照範囲外の人には届きません。
+
+- 参照は `integration_get_workspace` から `get_workspace` を通るので、項目のマスクと参照範囲の絞り込みが同じ実装で効きます
+- 書込みは利用不可の機能セクションと参照範囲外の人を 403 で拒否します
+- `rolePermissions` の書込みはスコープに関係なく常に拒否します。権限設定は Web UI の owner / admin だけが変更できます
+- 制限を受けない連携が必要な場合は、制限のないロール（owner）の利用者が資格を発行します
+
 ## エンドポイント
 
 `https://PROJECT_REF.supabase.co/functions/v1/api/v1/<resource>`
