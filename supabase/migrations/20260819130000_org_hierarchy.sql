@@ -601,6 +601,71 @@ begin
       from app.staffing_needs as need
       where need.organization_id = organization.id
         and need.status <> 'cancelled'
+    ), '[]'::jsonb),
+    'opportunities', coalesce((
+      select jsonb_agg(
+        jsonb_build_object(
+          'id', opportunity.id,
+          'code', opportunity.code,
+          'name', opportunity.name,
+          'summary', opportunity.summary,
+          'stage', opportunity.stage,
+          'tone', opportunity.tone,
+          'ownerPersonId', opportunity.owner_person_id,
+          'ownerName', owner.name,
+          'ownerInitials', owner.initials,
+          'startDate', opportunity.start_date,
+          'endDate', opportunity.end_date,
+          'demand', opportunity.demand_headcount,
+          'convertedProjectId', opportunity.converted_project_id,
+          'version', opportunity.version
+        ) order by opportunity.start_date, opportunity.name, opportunity.id
+      )
+      from app.opportunities as opportunity
+      left join app.people as owner
+        on owner.organization_id = opportunity.organization_id
+       and owner.id = opportunity.owner_person_id
+      where opportunity.organization_id = organization.id
+        and opportunity.archived_at is null
+    ), '[]'::jsonb),
+    'opportunityNeeds', coalesce((
+      select jsonb_agg(
+        jsonb_build_object(
+          'id', need.id,
+          'opportunityId', need.opportunity_id,
+          'role', need.role_title,
+          'skills', coalesce((
+            select jsonb_agg(skill.name order by skill.normalized_name, skill.id)
+            from app.opportunity_need_skills as need_skill
+            join app.skills as skill
+              on skill.organization_id = need_skill.organization_id
+             and skill.id = need_skill.skill_id
+            where need_skill.organization_id = need.organization_id
+              and need_skill.opportunity_need_id = need.id
+          ), '[]'::jsonb),
+          'skillRequirements', coalesce((
+            select jsonb_agg(
+              jsonb_build_object(
+                'name', skill.name,
+                'minProficiency', need_skill.min_proficiency
+              ) order by skill.normalized_name, skill.id
+            )
+            from app.opportunity_need_skills as need_skill
+            join app.skills as skill
+              on skill.organization_id = need_skill.organization_id
+             and skill.id = need_skill.skill_id
+            where need_skill.organization_id = need.organization_id
+              and need_skill.opportunity_need_id = need.id
+          ), '[]'::jsonb),
+          'startDate', need.start_date,
+          'endDate', need.end_date,
+          'allocation', need.allocation_percent,
+          'version', need.version
+        ) order by need.start_date, need.id
+      )
+      from app.opportunity_needs as need
+      where need.organization_id = organization.id
+        and need.status <> 'cancelled'
     ), '[]'::jsonb)
   )
   into v_result
@@ -618,7 +683,7 @@ $function$;
 
 comment on function public.get_workspace(uuid) is $comment$
 Arguments: p_organization_id uuid.
-Returns one consistent snapshot including skillCatalog, customFields, orgUnits, orgMemberships, member/project customValues, and member workHistory.
+Returns one consistent snapshot including skillCatalog, customFields, orgUnits, orgMemberships, opportunities, opportunityNeeds, member/project customValues, and member workHistory.
 Archived people/projects and cancelled assignments/needs are omitted.
 $comment$;
 
@@ -633,7 +698,7 @@ begin
   if p_payload is null or jsonb_typeof(p_payload) <> 'object' then
     raise exception using errcode = '22023', message = 'p_payload must be a JSON object';
   end if;
-  if (p_payload - array['members', 'projects', 'assignments', 'needs', 'skillCatalog', 'customFields', 'orgUnits', 'orgMemberships']::text[]) <> '{}'::jsonb then
+  if (p_payload - array['members', 'projects', 'assignments', 'needs', 'skillCatalog', 'customFields', 'orgUnits', 'orgMemberships', 'opportunities', 'opportunityNeeds']::text[]) <> '{}'::jsonb then
     raise exception using errcode = '22023', message = 'p_payload contains unsupported top-level keys';
   end if;
   if p_payload ? 'skillCatalog' and jsonb_typeof(p_payload -> 'skillCatalog') <> 'object' then
@@ -660,7 +725,19 @@ begin
   if (coalesce(p_payload -> 'orgMemberships', '{}'::jsonb) - array['upsert', 'archiveIds']::text[]) <> '{}'::jsonb then
     raise exception using errcode = '22023', message = 'orgMemberships contains unsupported keys';
   end if;
-  return p_payload - 'skillCatalog' - 'customFields' - 'orgUnits' - 'orgMemberships';
+  if p_payload ? 'opportunities' and jsonb_typeof(p_payload -> 'opportunities') <> 'object' then
+    raise exception using errcode = '22023', message = 'opportunities must be a JSON object';
+  end if;
+  if (coalesce(p_payload -> 'opportunities', '{}'::jsonb) - array['upsert', 'archiveIds']::text[]) <> '{}'::jsonb then
+    raise exception using errcode = '22023', message = 'opportunities contains unsupported keys';
+  end if;
+  if p_payload ? 'opportunityNeeds' and jsonb_typeof(p_payload -> 'opportunityNeeds') <> 'object' then
+    raise exception using errcode = '22023', message = 'opportunityNeeds must be a JSON object';
+  end if;
+  if (coalesce(p_payload -> 'opportunityNeeds', '{}'::jsonb) - array['upsert', 'cancelIds']::text[]) <> '{}'::jsonb then
+    raise exception using errcode = '22023', message = 'opportunityNeeds contains unsupported keys';
+  end if;
+  return p_payload - 'skillCatalog' - 'customFields' - 'orgUnits' - 'orgMemberships' - 'opportunities' - 'opportunityNeeds';
 end;
 $function$;
 
@@ -710,6 +787,8 @@ begin
   perform private.apply_org_memberships(p_organization_id, p_payload, auth.uid());
   perform private.apply_org_unit_archives(p_organization_id, p_payload);
   perform private.sync_people_departments_from_org(p_organization_id, auth.uid());
+  perform private.apply_opportunities(p_organization_id, p_payload, auth.uid());
+  perform private.apply_opportunity_needs(p_organization_id, p_payload, auth.uid());
   perform private.assert_skill_proficiency_matches(p_organization_id);
   return v_result;
 end;
@@ -723,7 +802,7 @@ Arguments:
   p_payload jsonb
   p_payload_hash text (lowercase 64-character SHA-256 hex of the client payload)
 
-Payload shape is the existing members/projects/assignments/needs/skillCatalog/customFields contract, plus:
+Payload shape is the existing members/projects/assignments/needs/skillCatalog/customFields/opportunities/opportunityNeeds contract, plus:
 {
   "orgUnits": {
     "upsert": [{"id","name","parentId?","sortOrder?"}],
