@@ -19,6 +19,7 @@ function repositoryWithInvitation(invitation: OrganizationInvitation) {
       .mockResolvedValueOnce([invitation])
       .mockResolvedValue([]),
     listIntegrationClients: vi.fn().mockResolvedValue([]),
+    listWebhookEndpoints: vi.fn().mockResolvedValue([]),
     revokeOrganizationInvitation: vi.fn().mockResolvedValue({ changed: true }),
   } as unknown as ProductionRepository;
 }
@@ -29,6 +30,7 @@ function repositoryWithAuditEvent(event: AuditEvent) {
     listAuditEvents: vi.fn().mockResolvedValue({ events: [event], nextBefore: undefined }),
     listOrganizationInvitations: vi.fn().mockResolvedValue([]),
     listIntegrationClients: vi.fn().mockResolvedValue([]),
+    listWebhookEndpoints: vi.fn().mockResolvedValue([]),
   } as unknown as ProductionRepository;
 }
 
@@ -73,6 +75,7 @@ describe("OperationsPanel invitation administration", () => {
       listAuditEvents: vi.fn().mockResolvedValue({ events: [], nextBefore: undefined }),
       listOrganizationInvitations: vi.fn().mockResolvedValue([]),
       listIntegrationClients: vi.fn().mockResolvedValue([]),
+    listWebhookEndpoints: vi.fn().mockResolvedValue([]),
     } as unknown as ProductionRepository;
 
     render(
@@ -96,6 +99,7 @@ describe("OperationsPanel invitation administration", () => {
       listAuditEvents: vi.fn().mockResolvedValue({ events: [], nextBefore: undefined }),
       listOrganizationInvitations: vi.fn().mockResolvedValue([]),
       listIntegrationClients: vi.fn().mockResolvedValue([]),
+    listWebhookEndpoints: vi.fn().mockResolvedValue([]),
       inviteMember: vi.fn().mockResolvedValue({
         email: "new.member@example.jp",
         role: "planner",
@@ -168,6 +172,7 @@ describe("OperationsPanel keyboard navigation", () => {
       listAuditEvents: vi.fn().mockResolvedValue({ events: [], nextBefore: undefined }),
       listOrganizationInvitations: vi.fn().mockResolvedValue([]),
       listIntegrationClients: vi.fn().mockResolvedValue([]),
+    listWebhookEndpoints: vi.fn().mockResolvedValue([]),
     } as unknown as ProductionRepository;
     const commonProps = {
       currentUserId: "00000000-0000-4000-8000-000000000001",
@@ -271,6 +276,7 @@ describe("OperationsPanel integration credentials", () => {
           scopes: ["workspace:read", "assignments:write"],
           status: "active",
         }]),
+      listWebhookEndpoints: vi.fn().mockResolvedValue([]),
       createIntegrationClient: vi.fn().mockResolvedValue({
         client: {
           id: "00000000-0000-4000-8000-000000000020",
@@ -327,6 +333,7 @@ describe("OperationsPanel integration credentials", () => {
       listIntegrationClients: vi.fn()
         .mockResolvedValueOnce([client])
         .mockResolvedValue([{ ...client, status: "revoked" }]),
+      listWebhookEndpoints: vi.fn().mockResolvedValue([]),
       revokeIntegrationClient: vi.fn().mockResolvedValue({ changed: true, client: { ...client, status: "revoked" } }),
     } as unknown as ProductionRepository;
 
@@ -345,5 +352,63 @@ describe("OperationsPanel integration credentials", () => {
     await user.click(screen.getByRole("button", { name: "失効" }));
     await waitFor(() => expect(repository.revokeIntegrationClient).toHaveBeenCalledWith(organization.id, client.id));
     expect(await screen.findByText("レポート連携の連携資格を失効しました。")).toBeInTheDocument();
+  });
+});
+
+describe("OperationsPanel webhook endpoints", () => {
+  it("registers an https webhook and shows the signing secret once", async () => {
+    const user = userEvent.setup();
+    const repository = {
+      listOrganizationMembers: vi.fn().mockResolvedValue([]),
+      listAuditEvents: vi.fn().mockResolvedValue({ events: [], nextBefore: undefined }),
+      listOrganizationInvitations: vi.fn().mockResolvedValue([]),
+      listIntegrationClients: vi.fn().mockResolvedValue([]),
+      listWebhookEndpoints: vi.fn()
+        .mockResolvedValueOnce([])
+        .mockResolvedValue([{
+          id: "00000000-0000-4000-8000-000000000040",
+          organizationId: organization.id,
+          name: "BI 通知",
+          url: "https://hooks.example.com/mosaic",
+          events: ["workspace.committed"],
+          status: "active",
+        }]),
+      createWebhookEndpoint: vi.fn().mockResolvedValue({
+        endpoint: {
+          id: "00000000-0000-4000-8000-000000000040",
+          organizationId: organization.id,
+          name: "BI 通知",
+          url: "https://hooks.example.com/mosaic",
+          events: ["workspace.committed"],
+          status: "active",
+        },
+        secret: "ab".repeat(32),
+        replayed: false,
+      }),
+    } as unknown as ProductionRepository;
+
+    render(
+      <OperationsPanel
+        currentUserId="00000000-0000-4000-8000-000000000001"
+        currentOrganization={organization}
+        organizations={[organization]}
+        repository={repository}
+        onClose={vi.fn()}
+        onSelectOrganization={vi.fn()}
+      />,
+    );
+
+    await user.type(await screen.findByLabelText("エンドポイント名"), "BI 通知");
+    await user.type(screen.getByLabelText("通知先URL"), "https://hooks.example.com/mosaic");
+    await user.click(screen.getByRole("button", { name: "Webhookを登録する" }));
+
+    await waitFor(() => expect(repository.createWebhookEndpoint).toHaveBeenCalledWith(
+      organization.id,
+      "BI 通知",
+      "https://hooks.example.com/mosaic",
+      ["workspace.committed"],
+    ));
+    expect(await screen.findByText("ab".repeat(32))).toBeInTheDocument();
+    expect(screen.getByText("署名シークレット（再表示できません）")).toBeInTheDocument();
   });
 });

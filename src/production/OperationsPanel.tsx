@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from "react";
-import { Check, Clock3, History, KeyRound, MailPlus, MailX, RefreshCw, ShieldCheck, UsersRound, X } from "lucide-react";
+import { Check, Clock3, History, KeyRound, MailPlus, MailX, Radio, RefreshCw, ShieldCheck, UsersRound, X } from "lucide-react";
 import { ProductionRepository } from "./repository";
 import type {
   AuditEvent,
@@ -9,8 +9,10 @@ import type {
   OrganizationMember,
   OrganizationRole,
   OrganizationSummary,
+  WebhookEndpoint,
+  WebhookEvent,
 } from "./types";
-import { INTEGRATION_SCOPES } from "./types";
+import { INTEGRATION_SCOPES, WEBHOOK_EVENTS } from "./types";
 
 type OperationsPanelProps = {
   currentUserId: string;
@@ -59,6 +61,18 @@ function formatScopes(scopes: IntegrationScope[]) {
   return scopes.map((scope) => INTEGRATION_SCOPE_LABELS[scope] ?? scope).join(" / ");
 }
 
+const WEBHOOK_EVENT_LABELS: Record<WebhookEvent, string> = {
+  "workspace.committed": "ワークスペース保存",
+  "member.changed": "メンバー変更",
+  "project.changed": "プロジェクト変更",
+  "assignment.changed": "アサイン変更",
+  "staffing_need.changed": "要員要件変更",
+};
+
+function formatWebhookEvents(events: WebhookEvent[]) {
+  return events.map((event) => WEBHOOK_EVENT_LABELS[event] ?? event).join(" / ");
+}
+
 function formatAuditData(value?: Record<string, unknown>) {
   return value ? JSON.stringify(value, null, 2) : "—";
 }
@@ -74,6 +88,7 @@ export function OperationsPanel({
   const [members, setMembers] = useState<OrganizationMember[]>([]);
   const [invitations, setInvitations] = useState<OrganizationInvitation[]>([]);
   const [clients, setClients] = useState<IntegrationClient[]>([]);
+  const [webhooks, setWebhooks] = useState<WebhookEndpoint[]>([]);
   const [events, setEvents] = useState<AuditEvent[]>([]);
   const [nextBefore, setNextBefore] = useState<string>();
   const [loading, setLoading] = useState(true);
@@ -90,6 +105,12 @@ export function OperationsPanel({
   const [issuingClient, setIssuingClient] = useState(false);
   const [clientAction, setClientAction] = useState("");
   const [issuedSecret, setIssuedSecret] = useState("");
+  const [endpointName, setEndpointName] = useState("");
+  const [endpointUrl, setEndpointUrl] = useState("");
+  const [endpointEvents, setEndpointEvents] = useState<WebhookEvent[]>(["workspace.committed"]);
+  const [issuingEndpoint, setIssuingEndpoint] = useState(false);
+  const [endpointAction, setEndpointAction] = useState("");
+  const [issuedWebhookSecret, setIssuedWebhookSecret] = useState("");
   const panelRef = useRef<HTMLElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
   const onCloseRef = useRef(onClose);
@@ -109,8 +130,9 @@ export function OperationsPanel({
       canViewAudit ? repository.listAuditEvents(currentOrganization.id) : Promise.resolve({ events: [], nextBefore: undefined }),
       canInvite ? repository.listOrganizationInvitations(currentOrganization.id) : Promise.resolve([] as OrganizationInvitation[]),
       canInvite ? repository.listIntegrationClients(currentOrganization.id) : Promise.resolve([] as IntegrationClient[]),
+      canInvite ? repository.listWebhookEndpoints(currentOrganization.id) : Promise.resolve([] as WebhookEndpoint[]),
     ]);
-    const [memberResult, auditResult, invitationResult, clientResult] = results;
+    const [memberResult, auditResult, invitationResult, clientResult, webhookResult] = results;
     if (memberResult.status === "fulfilled") setMembers(memberResult.value);
     if (auditResult.status === "fulfilled") {
       setEvents(auditResult.value.events);
@@ -118,6 +140,7 @@ export function OperationsPanel({
     }
     if (invitationResult.status === "fulfilled") setInvitations(invitationResult.value);
     if (clientResult.status === "fulfilled") setClients(clientResult.value);
+    if (webhookResult.status === "fulfilled") setWebhooks(webhookResult.value);
     const rejected = results.find((result): result is PromiseRejectedResult => result.status === "rejected");
     if (rejected) setError(messageFrom(rejected.reason));
     setLoading(false);
@@ -130,9 +153,10 @@ export function OperationsPanel({
       canViewAudit ? repository.listAuditEvents(currentOrganization.id) : Promise.resolve({ events: [], nextBefore: undefined }),
       canInvite ? repository.listOrganizationInvitations(currentOrganization.id) : Promise.resolve([] as OrganizationInvitation[]),
       canInvite ? repository.listIntegrationClients(currentOrganization.id) : Promise.resolve([] as IntegrationClient[]),
+      canInvite ? repository.listWebhookEndpoints(currentOrganization.id) : Promise.resolve([] as WebhookEndpoint[]),
     ]).then((results) => {
       if (!active) return;
-      const [memberResult, auditResult, invitationResult, clientResult] = results;
+      const [memberResult, auditResult, invitationResult, clientResult, webhookResult] = results;
       if (memberResult.status === "fulfilled") setMembers(memberResult.value);
       if (auditResult.status === "fulfilled") {
         setEvents(auditResult.value.events);
@@ -140,6 +164,7 @@ export function OperationsPanel({
       }
       if (invitationResult.status === "fulfilled") setInvitations(invitationResult.value);
       if (clientResult.status === "fulfilled") setClients(clientResult.value);
+      if (webhookResult.status === "fulfilled") setWebhooks(webhookResult.value);
       const rejected = results.find((result): result is PromiseRejectedResult => result.status === "rejected");
       if (rejected) setError(messageFrom(rejected.reason));
       setLoading(false);
@@ -299,6 +324,72 @@ export function OperationsPanel({
     }
   };
 
+  const toggleEndpointEvent = (eventName: WebhookEvent) => {
+    setEndpointEvents((current) => {
+      if (current.includes(eventName)) {
+        const next = current.filter((item) => item !== eventName);
+        return next.length > 0 ? next : current;
+      }
+      return [...current, eventName];
+    });
+  };
+
+  const issueEndpoint = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!canInvite || issuingEndpoint) return;
+    setIssuingEndpoint(true);
+    setInviteStatus("");
+    setIssuedWebhookSecret("");
+    setError("");
+    try {
+      const result = await repository.createWebhookEndpoint(
+        currentOrganization.id,
+        endpointName,
+        endpointUrl,
+        endpointEvents.length ? endpointEvents : ["workspace.committed"],
+      );
+      setIssuedWebhookSecret(result.secret ?? "");
+      setInviteStatus(result.secret
+        ? `${result.endpoint.name}のWebhookを登録しました。署名シークレットはこの画面を閉じるまでしか表示しません。`
+        : `${result.endpoint.name}のWebhookは既に登録済みです。署名シークレットは再表示できません。`);
+      setEndpointName("");
+      setEndpointUrl("");
+      setEndpointEvents(["workspace.committed"]);
+      await loadOperations();
+    } catch (reason) {
+      setError(messageFrom(reason));
+    } finally {
+      setIssuingEndpoint(false);
+    }
+  };
+
+  const copyIssuedWebhookSecret = async () => {
+    if (!issuedWebhookSecret) return;
+    try {
+      await navigator.clipboard.writeText(issuedWebhookSecret);
+      setInviteStatus("署名シークレットをコピーしました。受信側の検証設定へ保存してください。");
+    } catch {
+      setError("コピーできませんでした。表示中のシークレットを手動で控えてください。");
+    }
+  };
+
+  const revokeEndpoint = async (endpoint: WebhookEndpoint) => {
+    if (!canInvite || endpointAction || endpoint.status === "revoked") return;
+    if (!window.confirm(`${endpoint.name}へのWebhook配信を停止します。続けますか？`)) return;
+    setEndpointAction(endpoint.id);
+    setInviteStatus("");
+    setError("");
+    try {
+      await repository.revokeWebhookEndpoint(currentOrganization.id, endpoint.id);
+      setInviteStatus(`${endpoint.name}のWebhookを停止しました。`);
+      await loadOperations();
+    } catch (reason) {
+      setError(messageFrom(reason));
+    } finally {
+      setEndpointAction("");
+    }
+  };
+
   const loadMoreAuditEvents = async () => {
     if (!nextBefore || loadingMore) return;
     setLoadingMore(true);
@@ -452,7 +543,7 @@ export function OperationsPanel({
         {canInvite && (
           <>
             <div className="drawer-section-title"><span>外部連携</span><small>{loading ? "読込中" : `${clients.length}件`}</small></div>
-            <div className="form-note"><KeyRound size={15} /><span>API・AI秘書・MCPは同じ業務カタログを使います。資格は人間のログインとは別です。公開エンドポイントはまだ発行しません。</span></div>
+            <div className="form-note"><KeyRound size={15} /><span>API・AI秘書は同じ業務カタログを使います。資格は人間のログインとは別です。外部APIは <code>/functions/v1/api/v1/</code> です。MCPは別Issueです。</span></div>
             {issuedSecret && (
               <div className="form-note production-secret-banner" role="status">
                 <KeyRound size={15} />
@@ -505,6 +596,61 @@ export function OperationsPanel({
               </fieldset>
               <div className="form-note"><ShieldCheck size={15} /><span>秘密鍵は発行直後に一度だけ表示します。任意のSQLやURLは実行できません。</span></div>
               <button className="drawer-primary" type="submit" disabled={issuingClient || !clientName.trim()}><KeyRound size={15} />{issuingClient ? "発行中…" : "連携資格を発行する"}</button>
+            </form>
+            <div className="drawer-section-title"><span>Webhook</span><small>{loading ? "読込中" : `${webhooks.length}件`}</small></div>
+            <div className="form-note"><Radio size={15} /><span>ワークスペース保存と業務データの変更をHTTPSで通知します。localhostやプライベートIPは登録できません。最大10件です。</span></div>
+            {issuedWebhookSecret && (
+              <div className="form-note production-secret-banner" role="status">
+                <Radio size={15} />
+                <span>
+                  <strong>署名シークレット（再表示できません）</strong>
+                  <code>{issuedWebhookSecret}</code>
+                </span>
+                <button className="row-open" type="button" onClick={() => void copyIssuedWebhookSecret()}>コピー</button>
+              </div>
+            )}
+            <div className="allocation-list production-integration-list">
+              {webhooks.map((endpoint) => (
+                <div key={endpoint.id}>
+                  <span className={`notice-icon ${endpoint.status === "revoked" ? "danger" : "info"}`}><Radio size={14} /></span>
+                  <span>
+                    <strong>{endpoint.name}</strong>
+                    <small>
+                      {endpoint.status === "revoked" ? "停止済み" : "配信中"}
+                      {` · ${endpoint.url}`}
+                      {` · ${formatWebhookEvents(endpoint.events)}`}
+                    </small>
+                  </span>
+                  {endpoint.status === "active" ? (
+                    <button className="row-open invitation-revoke-button" type="button" disabled={Boolean(endpointAction)} onClick={() => void revokeEndpoint(endpoint)}>
+                      {endpointAction === endpoint.id ? "停止中" : "配信停止"}
+                    </button>
+                  ) : <b>停止</b>}
+                </div>
+              ))}
+              {!loading && webhooks.length === 0 && <div><Radio size={16} /><span><strong>登録済みのWebhookはありません</strong><small>owner / admin がHTTPSの通知先を登録します。</small></span></div>}
+            </div>
+            <form className="assignment-form production-invite-form" onSubmit={issueEndpoint}>
+              <div className="drawer-section-title"><span>Webhookを登録</span><small>最大10件</small></div>
+              <label>
+                エンドポイント名
+                <input required maxLength={80} value={endpointName} onChange={(event) => setEndpointName(event.target.value)} placeholder="勤怠連携 / BI" />
+              </label>
+              <label>
+                通知先URL
+                <input required type="url" value={endpointUrl} onChange={(event) => setEndpointUrl(event.target.value)} placeholder="https://hooks.example.com/mosaic" />
+              </label>
+              <fieldset className="production-scope-list">
+                <legend>通知するイベント</legend>
+                {WEBHOOK_EVENTS.map((eventName) => (
+                  <label key={eventName}>
+                    <input type="checkbox" checked={endpointEvents.includes(eventName)} onChange={() => toggleEndpointEvent(eventName)} />
+                    {WEBHOOK_EVENT_LABELS[eventName]}
+                  </label>
+                ))}
+              </fieldset>
+              <div className="form-note"><ShieldCheck size={15} /><span>署名は <code>X-MOSAIC-Signature: sha256=…</code> です。受信側でHMACを検証してください。</span></div>
+              <button className="drawer-primary" type="submit" disabled={issuingEndpoint || !endpointName.trim() || !endpointUrl.trim()}><Radio size={15} />{issuingEndpoint ? "登録中…" : "Webhookを登録する"}</button>
             </form>
           </>
         )}

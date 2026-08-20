@@ -94,6 +94,7 @@ const readParameters = {
     personId: uuidSchema,
     projectId: uuidSchema,
     ownerPersonId: uuidSchema,
+    id: uuidSchema,
     role: { type: "string" },
     location: { type: "string" },
     skills: skillsSchema,
@@ -672,10 +673,10 @@ function parseSavedReportFields(value) {
 
 const READ_ALLOWED = {
   summary: ["resource", "startDate", "endDate"],
-  members: ["resource", "query", "role", "location", "skills", "startDate", "endDate", "minAvailablePercent", "sceneId", "limit"],
-  projects: ["resource", "query", "ownerPersonId", "statuses", "startDate", "endDate", "limit"],
-  assignments: ["resource", "personId", "projectId", "statuses", "startDate", "endDate", "limit"],
-  staffing_needs: ["resource", "projectId", "statuses", "skills", "startDate", "endDate", "limit"],
+  members: ["resource", "query", "role", "location", "skills", "startDate", "endDate", "minAvailablePercent", "sceneId", "limit", "id"],
+  projects: ["resource", "query", "ownerPersonId", "statuses", "startDate", "endDate", "limit", "id"],
+  assignments: ["resource", "personId", "projectId", "statuses", "startDate", "endDate", "limit", "id"],
+  staffing_needs: ["resource", "projectId", "statuses", "skills", "startDate", "endDate", "limit", "id"],
   opportunities: ["resource", "query", "ownerPersonId", "statuses", "startDate", "endDate", "limit"],
   opportunity_needs: ["resource", "query", "skills", "startDate", "endDate", "limit"],
   org_units: ["resource", "query", "limit"],
@@ -713,6 +714,7 @@ function parseReadArgs(value) {
     personId: optionalUuid(input.personId, "メンバーID"),
     projectId: optionalUuid(input.projectId, "プロジェクトID"),
     ownerPersonId: optionalUuid(input.ownerPersonId, "責任者ID"),
+    id: optionalUuid(input.id, "対象ID"),
     role: optionalString(input.role, "職種", { max: 120 }),
     location: optionalString(input.location, "勤務地", { max: 120 }),
     skills: optionalStringArray(input.skills, "スキル"),
@@ -1153,6 +1155,7 @@ export function readWorkspaceTool(snapshot, name, args, caller) {
       .filter((member) => !filters.role || lower(member.role) === lower(filters.role))
       .filter((member) => !filters.location || lower(member.location) === lower(filters.location))
       .filter((member) => includesSkills(member.skills, filters.skills))
+      .filter((member) => !filters.id || member.id === filters.id)
       .map((member) => {
         const availability = filters.startDate ? (() => {
           const peakAllocation = memberPeakLoad(state, member.id, filters.startDate, filters.endDate);
@@ -1169,6 +1172,7 @@ export function readWorkspaceTool(snapshot, name, args, caller) {
       .filter((project) => !filters.ownerPersonId || project.ownerPersonId === filters.ownerPersonId)
       .filter((project) => !filters.statuses?.length || filters.statuses.includes(project.status))
       .filter((project) => overlaps(project, filters.startDate, filters.endDate))
+      .filter((project) => !filters.id || project.id === filters.id)
       .map((project) => ({ id: project.id, code: project.code, name: project.name, summary: project.summary, status: project.status, ownerPersonId: project.ownerPersonId ?? null, ownerName: project.ownerName ?? null, startDate: project.startDate, endDate: project.endDate, nextMilestone: project.nextMilestone, nextMilestoneDate: project.nextMilestoneDate ?? null, progress: Number(project.progress), demand: Number(project.demand), ...(project.customValues && Object.keys(project.customValues).length ? { customValues: project.customValues } : {}) }));
     return { resource: filters.resource, revision: state.revision, ...bounded(values, filters.limit) };
   }
@@ -1180,6 +1184,7 @@ export function readWorkspaceTool(snapshot, name, args, caller) {
       .filter((assignment) => !filters.projectId || assignment.projectId === filters.projectId)
       .filter((assignment) => !filters.statuses?.length || filters.statuses.includes(assignment.status))
       .filter((assignment) => overlaps(assignment, filters.startDate, filters.endDate))
+      .filter((assignment) => !filters.id || assignment.id === filters.id)
       .map((assignment) => ({ id: assignment.id, personId: assignment.personId, personName: members.get(assignment.personId)?.name ?? null, projectId: assignment.projectId, projectName: projects.get(assignment.projectId)?.name ?? null, startDate: assignment.startDate, endDate: assignment.endDate, allocation: Number(assignment.allocation), status: assignment.status, label: assignment.label ?? null, staffingNeedId: assignment.staffingNeedId ?? null }));
     return { resource: filters.resource, revision: state.revision, ...bounded(values, filters.limit) };
   }
@@ -1295,6 +1300,7 @@ export function readWorkspaceTool(snapshot, name, args, caller) {
     .filter((need) => !filters.statuses?.length || filters.statuses.includes(need.status))
     .filter((need) => includesSkills(need.skills, filters.skills))
     .filter((need) => overlaps(need, filters.startDate, filters.endDate))
+    .filter((need) => !filters.id || need.id === filters.id)
     .map((need) => ({ id: need.id, projectId: need.projectId, projectName: projects.get(need.projectId)?.name ?? null, role: need.role, skills: need.skills ?? [], ...(Array.isArray(need.skillRequirements) && need.skillRequirements.length ? { skillRequirements: need.skillRequirements } : {}), startDate: need.startDate, endDate: need.endDate, allocation: Number(need.allocation), status: need.status, draftPersonId: need.draftPersonId ?? null, draftPersonName: members.get(need.draftPersonId)?.name ?? null }));
   return { resource: filters.resource, revision: state.revision, ...bounded(values, filters.limit) };
 }

@@ -69,6 +69,7 @@ Authentication設定では、Email providerの`Allow new users to sign up`を無
 
 ```powershell
 npm exec supabase -- functions deploy invite --project-ref PROJECT_REF
+npm exec supabase -- functions deploy api --project-ref PROJECT_REF
 ```
 
 hosted Functionには`SUPABASE_URL`と`SUPABASE_SERVICE_ROLE_KEY`が自動で入ります。値をlogやartifactへ出しません。
@@ -114,6 +115,12 @@ RealtimeのRLS評価に必要な例外として、`authenticated`には`app.orga
 - `list_organization_invitations`
 - `revoke_organization_invitation`
 - `list_audit_events`
+- `create_integration_client`
+- `list_integration_clients`
+- `revoke_integration_client`
+- `create_webhook_endpoint`
+- `list_webhook_endpoints`
+- `revoke_webhook_endpoint`
 
 組織作成とワークスペース保存はclient生成のrequest IDを受け取り、応答だけが失われた再送でも同じ結果を返します。request IDを変えて機械的に再送しません。招待取消と同じアクセス状態への変更は、すでに目的状態ならrevisionを増やさないno-opとして返します。
 

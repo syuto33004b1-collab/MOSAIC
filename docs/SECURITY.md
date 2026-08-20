@@ -50,6 +50,8 @@ MOSAICのsourceと静的フロントエンドはpublicです。source、schema�
 - API roleには業務tableの直接DMLを付与せず、`service_role`も公開RPCのrevision・監査境界を迂回する通常運用に使わない。
 - HTMLへ利用者入力を直接挿入しない。Reactのescapeを迂回するAPIはsecurity review対象とする。
 - 外部URL、CSV export、将来のfile uploadには許可list、content type、size制限を設ける。
+- 外部APIは`mosaic_sk_`資格とカタログ操作だけを受け付ける。利用者JWTと任意RPCは拒否する。
+- Webhook先はhttpsの公開アドレスに限り、localhostとプライベートIPを拒否する。署名シークレットは発行時以外表示しない。
 - error表示へtoken、SQL、個人情報、内部ID一覧を含めない。
 
 ## ログとデータ保持

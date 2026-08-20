@@ -25,6 +25,7 @@
 - Geminiをserver側から呼び出す、認証済み利用者向けAIチャット
 - `owner` / `admin` / `planner` / `viewer`の権限分離
 - 組織招待の登録・取消、利用者の権限変更・利用停止、変更前後を追える監査ログ
+- 外部連携資格、バージョン付き外部API、Webhook通知
 - revision比較による競合防止、冪等保存、Realtime更新通知
 
 Supabase接続値が未設定の環境では、画面上に`DEMO`と表示し、サンプルデータだけをブラウザの`localStorage`へ保存します。接続済み環境でDB読込に失敗した場合はデモへ切り替えず、エラーとして停止します。
@@ -46,7 +47,7 @@ npm run typecheck
 
 ## 共有運用のセットアップ
 
-業務データは非公開の`app` schemaに置き、ブラウザは認証済みRPCだけを利用します。migration、Auth URL、GitHub Repository Variables、role別検証は[Supabaseセットアップ](docs/SUPABASE_SETUP.md)を参照してください。AIチャットのserver-side APIキー、ローカル実行、Functionデプロイは[AIチャット設定](docs/AI_CHAT.md)に記載しています。リリース、バックアップ、障害対応は[運用手順](docs/OPERATIONS.md)、認可とsecretの境界は[セキュリティ方針](docs/SECURITY.md)に記載しています。
+業務データは非公開の`app` schemaに置き、ブラウザは認証済みRPCだけを利用します。migration、Auth URL、GitHub Repository Variables、role別検証は[Supabaseセットアップ](docs/SUPABASE_SETUP.md)を参照してください。AIチャットのserver-side APIキー、ローカル実行、Functionデプロイは[AIチャット設定](docs/AI_CHAT.md)に記載しています。外部APIとWebhookは[外部API](docs/EXTERNAL_API.md)を参照してください。リリース、バックアップ、障害対応は[運用手順](docs/OPERATIONS.md)、認可とsecretの境界は[セキュリティ方針](docs/SECURITY.md)に記載しています。
 
 `.env.local`には公開可能な接続値だけを設定します。
 

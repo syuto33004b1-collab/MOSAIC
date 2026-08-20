@@ -656,4 +656,41 @@ describe("organization invite function", () => {
     expect(created.client).toMatchObject({ name: "社内 MCP", keyPrefix: "abc123def456" });
 
   });
+
+  it("registers a webhook endpoint and keeps the signing secret off the list contract", async () => {
+    const rpc = vi.fn().mockResolvedValue({
+      data: {
+        endpoint: {
+          id: "00000000-0000-4000-8000-000000000040",
+          organizationId: "00000000-0000-4000-8000-000000000002",
+          name: "BI 通知",
+          url: "https://hooks.example.com/mosaic",
+          events: ["workspace.committed"],
+          status: "active",
+        },
+        secret: "ab".repeat(32),
+        replayed: false,
+      },
+      error: null,
+    });
+    const repository = new ProductionRepository({ rpc } as unknown as SupabaseClient);
+
+    const created = await repository.createWebhookEndpoint(
+      "00000000-0000-4000-8000-000000000002",
+      " BI 通知 ",
+      " https://hooks.example.com/mosaic ",
+      ["workspace.committed"],
+      "00000000-0000-4000-8000-000000000041",
+    );
+
+    expect(rpc).toHaveBeenCalledWith("create_webhook_endpoint", {
+      p_events: ["workspace.committed"],
+      p_name: "BI 通知",
+      p_organization_id: "00000000-0000-4000-8000-000000000002",
+      p_request_id: "00000000-0000-4000-8000-000000000041",
+      p_url: "https://hooks.example.com/mosaic",
+    });
+    expect(created.secret).toHaveLength(64);
+    expect(created.endpoint).toMatchObject({ name: "BI 通知", url: "https://hooks.example.com/mosaic" });
+  });
 });
