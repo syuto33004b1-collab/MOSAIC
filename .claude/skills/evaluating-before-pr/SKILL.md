@@ -29,19 +29,11 @@ description: Use before creating a pull request in this repository — every tim
 | 「小さい差分だから」 | #53 は3行のシグネチャ誤りで migration 全体を落とした |
 | 「同じ変更だから評価済み扱いでよい」 | 指摘対応以外の変更を加えたら評価対象が変わっている。再評価する |
 
-## 順序
+## 先に済ませること
 
-```
-1. 実装
-2. 変更を全てコミットする          ← 評価対象を確定させる
-3. 機械的検証
-4. UI に影響するなら verifying-ui-changes
-5. 評価（このスキル）
-6. 指摘対応 → 3 と 4 をやり直す（5 はやり直さない）
-7. PR 作成
-```
+順序は [AGENTS.md](../../../AGENTS.md) が唯一の出典。ここでは**この段階の手段**だけを書く。
 
-### 2. 先にコミットする
+### 先にコミットする
 
 評価対象は `git diff origin/main...HEAD` である。**未コミットや未ステージの変更は評価対象から漏れる。** 評価前に必ず確認する。
 
@@ -52,7 +44,7 @@ git diff origin/main...HEAD --stat
 
 出力が空でないまま評価すると、評価していない差分が PR に乗る。
 
-### 3. 機械的検証
+### 機械的検証
 
 ```bash
 npx tsc --noEmit
@@ -69,11 +61,9 @@ npm exec supabase -- db lint --local --schema app,private,public --level warning
 npm exec supabase -- test db supabase/tests --local
 ```
 
-### 6. 指摘対応のあと
+### 指摘対応のあと
 
-- **機械的検証と UI 確認はやり直す。** 修正が別の壊れを生んでいないかは未検証のままにしない
-- **評価はやり直さない。** 指摘を直して PR を出す
-- ただし指摘対応**以外**の変更を加えたなら、評価対象が変わっているので再評価する
+義務は AGENTS.md の 11 に従う。**修正のコミットを忘れないこと。** 忘れると修正が PR に入らない。
 
 ## 評価者
 
