@@ -43,6 +43,8 @@ import {
   orgUnitLoadRows,
   orgUnitPath,
   orgUnitTree,
+  matchMembers,
+  parseSkillInput,
   PROFICIENCY_LABELS,
   projectMembers,
   projectSearchText,
@@ -54,6 +56,7 @@ import {
   type OpportunityStage,
   type OrgUnit,
   type Project,
+  type SearchSkillFilter,
   type SkillKind,
   type WorkHistoryEntry,
   type WorkspaceState,
@@ -73,8 +76,20 @@ type MembersViewProps = {
   onOpen: (memberId: string) => void;
   onAdd: () => void;
   onAssign: (memberId: string) => void;
+  onAddScene: (input: {
+    name: string;
+    query?: string;
+    role?: string;
+    location?: string;
+    skills?: SearchSkillFilter[];
+    startDate?: string;
+    endDate?: string;
+    minAvailablePercent?: number;
+  }) => void;
+  onDeleteScene: (sceneId: string) => void;
   canEdit?: boolean;
   canManageMembers?: boolean;
+  canManageScenes?: boolean;
 };
 
 type ReportsViewProps = {
@@ -333,19 +348,34 @@ export function OpportunitiesView({ state, onOpen, onCreate, canEdit = true }: O
   );
 }
 
-export function MembersView({ state, weekOffset, onOpen, onAdd, onAssign, canEdit = true, canManageMembers = true }: MembersViewProps) {
+export function MembersView({ state, weekOffset, onOpen, onAdd, onAssign, onAddScene, onDeleteScene, canEdit = true, canManageMembers = true, canManageScenes = false }: MembersViewProps) {
   const [query, setQuery] = useState("");
   const [role, setRole] = useState("すべて");
   const [orgFilter, setOrgFilter] = useState("");
+  const [sceneId, setSceneId] = useState("");
+  const [sceneName, setSceneName] = useState("");
+  const [sceneQuery, setSceneQuery] = useState("");
+  const [sceneRole, setSceneRole] = useState("");
+  const [sceneLocation, setSceneLocation] = useState("");
+  const [mustSkills, setMustSkills] = useState("");
+  const [niceSkills, setNiceSkills] = useState("");
+  const [sceneStart, setSceneStart] = useState("");
+  const [sceneEnd, setSceneEnd] = useState("");
+  const [sceneMinAvailable, setSceneMinAvailable] = useState("");
+  const [error, setError] = useState("");
   const weekStart = getWeekStart(weekOffset);
   const roles = ["すべて", ...Array.from(new Set(state.members.map((member) => member.role)))];
   const orgUnits = orgUnitTree(state.orgUnits);
+  const scenes = state.searchScenes ?? [];
+  const selectedScene = scenes.find((scene) => scene.id === sceneId);
+  const scoreById = new Map((selectedScene ? matchMembers(state, selectedScene) : []).map((match) => [match.member.id, match]));
   const queryNeedle = query.toLowerCase();
   const scopedMembers = orgFilter ? membersInOrgSubtree(state, orgFilter, "any") : state.members;
-  const filtered = scopedMembers.filter((member) => {
+  const filtered = (selectedScene ? scopedMembers.filter((member) => scoreById.has(member.id)) : scopedMembers).filter((member) => {
     const textMatch = memberSearchText(state, member).includes(queryNeedle);
     return textMatch && (role === "すべて" || member.role === role);
   }).sort((a, b) => {
+    if (selectedScene) return (scoreById.get(b.id)?.score ?? 0) - (scoreById.get(a.id)?.score ?? 0) || a.name.localeCompare(b.name, "ja");
     const aUtilization = a.capacity > 0 ? memberLoad(state, a.id, weekStart) / a.capacity : Number.POSITIVE_INFINITY;
     const bUtilization = b.capacity > 0 ? memberLoad(state, b.id, weekStart) / b.capacity : Number.POSITIVE_INFINITY;
     return aUtilization - bUtilization;
@@ -355,11 +385,42 @@ export function MembersView({ state, weekOffset, onOpen, onAdd, onAssign, canEdi
   const overloaded = state.members.filter((member) => memberLoad(state, member.id, weekStart) > member.capacity).length;
   const listFields = visibleCustomFields(state.customFields, "member", "list");
 
+  const submitScene = () => {
+    try {
+      const minAvailable = sceneMinAvailable.trim() === "" ? undefined : Number(sceneMinAvailable);
+      onAddScene({
+        name: sceneName,
+        query: sceneQuery.trim() || undefined,
+        role: sceneRole.trim() || undefined,
+        location: sceneLocation.trim() || undefined,
+        skills: [
+          ...parseSkillInput(mustSkills).map((level) => ({ name: level.name, minProficiency: level.proficiency, importance: "must" as const })),
+          ...parseSkillInput(niceSkills).map((level) => ({ name: level.name, minProficiency: level.proficiency, importance: "nice" as const })),
+        ],
+        startDate: sceneStart || undefined,
+        endDate: sceneEnd || undefined,
+        minAvailablePercent: minAvailable,
+      });
+      setSceneName("");
+      setSceneQuery("");
+      setSceneRole("");
+      setSceneLocation("");
+      setMustSkills("");
+      setNiceSkills("");
+      setSceneStart("");
+      setSceneEnd("");
+      setSceneMinAvailable("");
+      setError("");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "検索シーンを保存できませんでした");
+    }
+  };
+
   return (
     <section className="section-view members-view" aria-labelledby="members-heading">
       <h2 id="members-heading" className="sr-only">メンバー一覧</h2>
       <div className="member-ribbon">
-        <div className="ribbon-lead"><span className="ribbon-icon mint"><UsersRound size={18} /></span><div><small>TEAM AVAILABILITY</small><strong>空きが大きい順にメンバーを表示</strong></div></div>
+        <div className="ribbon-lead"><span className="ribbon-icon mint"><UsersRound size={18} /></span><div><small>TEAM AVAILABILITY</small><strong>{selectedScene ? "保存シーンのスコア順に候補を表示" : "空きが大きい順にメンバーを表示"}</strong></div></div>
         <div className="ribbon-stat"><strong>{state.members.length}</strong><span>登録メンバー</span></div>
         <div className="ribbon-divider" />
         <div className="ribbon-stat good"><strong>{available}</strong><span>40%以上の空き</span></div>
@@ -377,23 +438,46 @@ export function MembersView({ state, weekOffset, onOpen, onAdd, onAssign, canEdi
             {orgUnits.map((unit) => <option value={unit.id} key={unit.id}>{orgUnitPath(state.orgUnits, unit.id).join(" / ")}</option>)}
           </select></label>
         )}
-        <span className="toolbar-result">空き率の高い順</span>
+        <label className="view-filter"><Sparkles size={14} /><select value={sceneId} onChange={(event) => setSceneId(event.target.value)} aria-label="保存した検索シーン">
+          <option value="">シーンなし</option>
+          {scenes.map((scene) => <option value={scene.id} key={scene.id}>{scene.name}</option>)}
+        </select></label>
+        {canManageScenes && selectedScene && <button className="view-add-button" type="button" onClick={() => { onDeleteScene(selectedScene.id); setSceneId(""); }}>このシーンを削除</button>}
+        <span className="toolbar-result">{selectedScene ? "スコアの高い順" : "空き率の高い順"}</span>
         {canManageMembers && <button className="view-add-button" onClick={onAdd}><Plus size={15} />メンバーを追加</button>}
       </div>
 
+      {canManageScenes && (
+        <form className="field-catalog-form search-scene-form" onSubmit={(event) => { event.preventDefault(); submitScene(); }}>
+          <label>シーン名<input value={sceneName} onChange={(event) => setSceneName(event.target.value)} placeholder="フロントエンド候補" /></label>
+          <label>職種<input value={sceneRole} onChange={(event) => setSceneRole(event.target.value)} placeholder="Frontend Engineer" /></label>
+          <label>勤務地<input value={sceneLocation} onChange={(event) => setSceneLocation(event.target.value)} placeholder="東京" /></label>
+          <label>検索語<input value={sceneQuery} onChange={(event) => setSceneQuery(event.target.value)} placeholder="React" /></label>
+          <label>必須スキル<input value={mustSkills} onChange={(event) => setMustSkills(event.target.value)} placeholder="React:3, TypeScript:3" /></label>
+          <label>歓迎スキル<input value={niceSkills} onChange={(event) => setNiceSkills(event.target.value)} placeholder="A11y:3" /></label>
+          <label>開始日<input type="date" value={sceneStart} onChange={(event) => setSceneStart(event.target.value)} aria-label="検索シーンの開始日" /></label>
+          <label>終了日<input type="date" value={sceneEnd} onChange={(event) => setSceneEnd(event.target.value)} aria-label="検索シーンの終了日" /></label>
+          <label>最小空き（%）<input type="number" min={0} max={100} value={sceneMinAvailable} onChange={(event) => setSceneMinAvailable(event.target.value)} placeholder="40" aria-label="最小空き配分" /></label>
+          <button type="submit" className="view-add-button"><Plus size={15} />検索シーンを保存</button>
+          {error && <p className="skill-catalog-error" role="alert">{error}</p>}
+        </form>
+      )}
+
       <div className="member-table-wrap">
         <table className="member-table">
-          <thead><tr><th>メンバー</th><th>スキル</th>{listFields.map((field) => <th key={field.id}>{field.label}</th>)}<th>今週</th><th>4週間のキャパシティ</th><th>次の空き</th><th><span className="sr-only">操作</span></th></tr></thead>
+          <thead><tr><th>メンバー</th><th>スキル</th>{selectedScene && <th>スコア</th>}{listFields.map((field) => <th key={field.id}>{field.label}</th>)}<th>今週</th><th>4週間のキャパシティ</th><th>次の空き</th><th><span className="sr-only">操作</span></th></tr></thead>
           <tbody>
             {filtered.map((member) => {
               const load = memberLoad(state, member.id, weekStart);
               const weeklyLoads = [0, 1, 2, 3].map((offset) => memberLoad(state, member.id, addDays(weekStart, offset * 7)));
               const nextOpen = member.capacity > 0 ? weeklyLoads.findIndex((value) => value <= member.capacity * .6) : -1;
               const loadRatio = member.capacity > 0 ? load / member.capacity * 100 : load > 0 ? 100 : 0;
+              const match = scoreById.get(member.id);
               return (
                 <tr key={member.id}>
                   <td><button className="member-name-cell" onClick={() => onOpen(member.id)}><span className={"avatar " + member.avatarTone}>{member.initials}</span><span><strong>{member.name}</strong><small>{member.role} · {member.department}{memberOrgMemberships(state, member.id).some((item) => !item.isPrimary) ? " · 兼務あり" : ""}</small></span></button></td>
                   <td><div className="member-skills">{memberSkillLevels(member).slice(0, 3).map((level) => <span key={level.name}>{level.name}<small>{level.proficiency}</small></span>)}</div></td>
+                  {selectedScene && <td><span className="match-score">{match?.score ?? 0}点<small>{match?.availablePercent ?? 0}%空き</small></span></td>}
                   {listFields.map((field) => <td key={field.id}><span className="custom-field-cell">{formatCustomValue(field, customValue(member.customValues, field.id))}</span></td>)}
                   <td><span className={"load-ring " + (load > member.capacity ? "over" : member.capacity > 0 && load <= member.capacity * .6 ? "open" : "")} style={{ "--load": Math.min(100, loadRatio) } as React.CSSProperties}><strong>{load}%</strong></span><small className="capacity-limit">上限 {member.capacity}%</small></td>
                   <td><div className="member-week-rail">{weeklyLoads.map((value, index) => { const ratio = member.capacity > 0 ? value / member.capacity * 100 : value > 0 ? 100 : 0; return <i className={value > member.capacity ? "over" : member.capacity > 0 && value <= member.capacity * .6 ? "open" : ""} key={index}><b style={{ height: Math.max(12, Math.min(100, ratio)) + "%" }} /><small>{value}%</small></i>; })}</div></td>

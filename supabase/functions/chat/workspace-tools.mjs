@@ -27,17 +27,20 @@ const ASSIGNMENT_STATUSES = ["draft", "confirmed"];
 const NEED_STATUSES = ["open", "planned", "filled"];
 const OPPORTUNITY_STAGES = ["inquiry", "proposal", "negotiation", "won", "lost"];
 const ACTIVE_OPPORTUNITY_STAGES = ["inquiry", "proposal", "negotiation"];
-const READ_RESOURCES = ["summary", "members", "projects", "assignments", "staffing_needs", "opportunities", "opportunity_needs", "org_units", "org_memberships"];
+const READ_RESOURCES = ["summary", "members", "projects", "assignments", "staffing_needs", "opportunities", "opportunity_needs", "org_units", "org_memberships", "search_scenes"];
 const MAX_READ_RESULTS = 25;
 const DEFAULT_READ_RESULTS = 10;
 const MAX_SKILLS = 20;
+const SKILL_IMPORTANCES = ["must", "nice"];
 
 const READ_TOOL = "read_workspace";
 const MEMBER_TOOLS = new Set(["create_member", "update_member", "delete_member"]);
 const ORG_TOOLS = new Set(["create_org_unit", "update_org_unit", "delete_org_unit", "set_member_org_memberships"]);
+const SEARCH_SCENE_TOOLS = new Set(["create_search_scene", "delete_search_scene"]);
 const WRITE_TOOLS = new Set([
   ...MEMBER_TOOLS,
   ...ORG_TOOLS,
+  ...SEARCH_SCENE_TOOLS,
   "create_project",
   "update_project",
   "delete_project",
@@ -86,6 +89,7 @@ const readParameters = {
     startDate: dateSchema,
     endDate: dateSchema,
     minAvailablePercent: { type: "number", minimum: 0, maximum: 100 },
+    sceneId: uuidSchema,
     limit: { type: "integer", minimum: 1, maximum: MAX_READ_RESULTS },
   },
   required: ["resource"],
@@ -156,6 +160,28 @@ const opportunityNeedFields = {
   allocation: { type: "number", exclusiveMinimum: 0, maximum: 100 },
 };
 
+const searchSceneSkillSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    name: { type: "string" },
+    minProficiency: { type: "integer", minimum: 1, maximum: 5 },
+    importance: { type: "string", enum: SKILL_IMPORTANCES },
+  },
+  required: ["name", "minProficiency", "importance"],
+};
+
+const searchSceneFields = {
+  name: { type: "string" },
+  query: { type: "string" },
+  role: { type: "string" },
+  location: { type: "string" },
+  skills: { type: "array", items: searchSceneSkillSchema, maxItems: MAX_SKILLS },
+  startDate: dateSchema,
+  endDate: dateSchema,
+  minAvailablePercent: { type: "number", minimum: 0, maximum: 100 },
+};
+
 function declaration(name, description, parameters) {
   return { type: "function", name, description, parameters };
 }
@@ -211,6 +237,8 @@ export const WORKSPACE_TOOL_DECLARATIONS = Object.freeze([
     extraUnitIds: { type: "array", items: uuidSchema, maxItems: 40 },
     managerUnitIds: { type: "array", items: uuidSchema, maxItems: 40 },
   }, ["memberId"])),
+  declaration("create_search_scene", "必須・歓迎スキルを含む検索シーンを組織共有で保存する。", createParameters(searchSceneFields, ["name"])),
+  declaration("delete_search_scene", "保存済みの検索シーンを削除する。", createParameters({ sceneId: uuidSchema }, ["sceneId"])),
 ]);
 
 const TOOL_NAMES = new Set(WORKSPACE_TOOL_DECLARATIONS.map((tool) => tool.name));
@@ -473,9 +501,51 @@ function parseOpportunityNeedFields(value, patch = false) {
   return parsed;
 }
 
+function parseSceneSkills(value) {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) fail("INVALID_TOOL_ARGUMENTS", "スキル条件は配列で入力してください。");
+  if (value.length > MAX_SKILLS) fail("INVALID_TOOL_ARGUMENTS", "スキル条件の件数が多すぎます。");
+  const seen = new Set();
+  const skills = [];
+  for (const item of value) {
+    const skill = record(item, "スキル条件");
+    allowedKeys(skill, ["name", "minProficiency", "importance"], "スキル条件");
+    const name = requiredString(skill.name, "スキル名", { max: 80 });
+    const key = name.toLocaleLowerCase();
+    if (seen.has(key)) fail("INVALID_TOOL_ARGUMENTS", "同じスキルを重複して指定できません。");
+    seen.add(key);
+    skills.push({
+      name,
+      minProficiency: numberValue(skill.minProficiency, "必要習熟度", 1, 5, { integer: true }),
+      importance: enumValue(skill.importance, "重要度", SKILL_IMPORTANCES),
+    });
+  }
+  return skills;
+}
+
+function parseSearchSceneFields(value) {
+  const input = record(value, "検索シーン");
+  allowedKeys(input, Object.keys(searchSceneFields), "検索シーン");
+  const parsed = compact({
+    name: requiredString(input.name, "検索シーン名", { max: 80 }),
+    query: optionalString(input.query, "検索語", { max: 120 }),
+    role: optionalString(input.role, "職種", { max: 120 }),
+    location: optionalString(input.location, "勤務地", { max: 120 }),
+    skills: parseSceneSkills(input.skills),
+    startDate: optionalDate(input.startDate, "開始日"),
+    endDate: optionalDate(input.endDate, "終了日"),
+    minAvailablePercent: optionalNumber(input.minAvailablePercent, "最小空き配分", 0, 100),
+  });
+  if ((parsed.startDate && !parsed.endDate) || (!parsed.startDate && parsed.endDate)) {
+    fail("INVALID_TOOL_ARGUMENTS", "期間は開始日と終了日を両方指定してください。");
+  }
+  ensureDateRange(parsed.startDate, parsed.endDate, "検索シーン期間");
+  return parsed;
+}
+
 const READ_ALLOWED = {
   summary: ["resource", "startDate", "endDate"],
-  members: ["resource", "query", "role", "location", "skills", "startDate", "endDate", "minAvailablePercent", "limit"],
+  members: ["resource", "query", "role", "location", "skills", "startDate", "endDate", "minAvailablePercent", "sceneId", "limit"],
   projects: ["resource", "query", "ownerPersonId", "statuses", "startDate", "endDate", "limit"],
   assignments: ["resource", "personId", "projectId", "statuses", "startDate", "endDate", "limit"],
   staffing_needs: ["resource", "projectId", "statuses", "skills", "startDate", "endDate", "limit"],
@@ -483,6 +553,7 @@ const READ_ALLOWED = {
   opportunity_needs: ["resource", "query", "skills", "startDate", "endDate", "limit"],
   org_units: ["resource", "query", "limit"],
   org_memberships: ["resource", "query", "personId", "limit"],
+  search_scenes: ["resource", "query", "limit"],
 };
 
 function parseReadArgs(value) {
@@ -503,6 +574,8 @@ function parseReadArgs(value) {
   if (minAvailablePercent !== undefined && (!startDate || resource !== "members")) {
     fail("INVALID_TOOL_ARGUMENTS", "最小空き配分にはメンバー参照と期間指定が必要です。");
   }
+  const sceneId = optionalUuid(input.sceneId, "検索シーンID");
+  if (sceneId && resource !== "members") fail("INVALID_TOOL_ARGUMENTS", "検索シーンIDはメンバー参照だけで使えます。");
   return compact({
     resource,
     query: optionalString(input.query, "検索語", { max: 120 }),
@@ -516,6 +589,7 @@ function parseReadArgs(value) {
     startDate,
     endDate,
     minAvailablePercent,
+    sceneId,
     limit: optionalNumber(input.limit, "取得件数", 1, MAX_READ_RESULTS, { integer: true }) ?? DEFAULT_READ_RESULTS,
   });
 }
@@ -640,6 +714,13 @@ export function parseWorkspaceToolCall(name, args) {
         managerUnitIds: optionalUuidArray(input.managerUnitIds, "責任者部門"),
       });
       break;
+    case "create_search_scene":
+      normalized = parseSearchSceneFields(input);
+      break;
+    case "delete_search_scene":
+      allowedKeys(input, ["sceneId"]);
+      normalized = { sceneId: uuidValue(input.sceneId, "検索シーンID") };
+      break;
     default:
       fail("UNKNOWN_WORKSPACE_TOOL", "許可されていないAI操作です。");
   }
@@ -686,6 +767,7 @@ function workspaceSnapshot(value) {
   collections.opportunityNeeds = Array.isArray(state.opportunityNeeds) ? structuredClone(state.opportunityNeeds) : [];
   collections.orgUnits = Array.isArray(state.orgUnits) ? structuredClone(state.orgUnits) : [];
   collections.orgMemberships = Array.isArray(state.orgMemberships) ? structuredClone(state.orgMemberships) : [];
+  collections.searchScenes = Array.isArray(state.searchScenes) ? structuredClone(state.searchScenes) : [];
   return { organizationId: organizationId.toLowerCase(), revision, ...collections };
 }
 
@@ -850,6 +932,34 @@ export function readWorkspaceTool(snapshot, name, args) {
   }
 
   if (filters.resource === "members") {
+    if (filters.sceneId) {
+      const scene = byId(state.searchScenes, filters.sceneId, "検索シーン");
+      const values = state.members.flatMap((member) => {
+        const match = memberMatchesScene(state, member, scene);
+        if (!match) return [];
+        if (!containsQuery([
+          member.name,
+          member.role,
+          member.department,
+          member.location,
+          ...(member.skills ?? []),
+        ], filters.query)) return [];
+        return [{
+          id: member.id,
+          name: member.name,
+          role: member.role,
+          department: member.department,
+          location: member.location,
+          skills: member.skills ?? [],
+          capacity: Number(member.capacity),
+          score: match.score,
+          availablePercent: match.availablePercent,
+          matchedMust: match.matchedMust,
+          matchedNice: match.matchedNice,
+        }];
+      }).sort((left, right) => right.score - left.score || String(left.name).localeCompare(String(right.name), "ja"));
+      return { resource: filters.resource, revision: state.revision, sceneId: scene.id, sceneName: scene.name, ...bounded(values, filters.limit) };
+    }
     const values = state.members.filter((member) => containsQuery([
       member.name,
       member.role,
@@ -909,6 +1019,22 @@ export function readWorkspaceTool(snapshot, name, args) {
       .filter((need) => includesSkills(need.skills, filters.skills))
       .filter((need) => overlaps(need, filters.startDate, filters.endDate))
       .map((need) => ({ id: need.id, opportunityId: need.opportunityId, opportunityName: opportunities.get(need.opportunityId)?.name ?? null, role: need.role, skills: need.skills ?? [], startDate: need.startDate, endDate: need.endDate, allocation: Number(need.allocation) }));
+    return { resource: filters.resource, revision: state.revision, ...bounded(values, filters.limit) };
+  }
+
+  if (filters.resource === "search_scenes") {
+    const values = state.searchScenes.filter((scene) => containsQuery([scene.name, scene.query, scene.role, scene.location], filters.query))
+      .map((scene) => ({
+        id: scene.id,
+        name: scene.name,
+        query: scene.query ?? null,
+        role: scene.role ?? null,
+        location: scene.location ?? null,
+        skills: scene.skills ?? [],
+        startDate: scene.startDate ?? null,
+        endDate: scene.endDate ?? null,
+        minAvailablePercent: scene.minAvailablePercent ?? null,
+      }));
     return { resource: filters.resource, revision: state.revision, ...bounded(values, filters.limit) };
   }
 
@@ -1001,6 +1127,41 @@ function memberMatchesNeed(member, need) {
   });
 }
 
+function memberMatchesScene(state, member, scene) {
+  if (scene.role && lower(member.role) !== lower(scene.role)) return null;
+  if (scene.location && lower(member.location) !== lower(scene.location)) return null;
+  if (scene.query && !containsQuery([
+    member.name,
+    member.role,
+    member.department,
+    member.location,
+    ...(member.skills ?? []),
+    ...Object.values(member.customValues ?? {}),
+    ...(member.workHistory ?? []).flatMap((entry) => [entry.title, entry.organization, entry.description ?? ""]),
+  ], scene.query)) return null;
+  const skills = Array.isArray(scene.skills) ? scene.skills : [];
+  const matchedMust = [];
+  for (const requirement of skills.filter((skill) => skill?.importance !== "nice")) {
+    const proficiency = skillLevel(member, requirement.name);
+    if (proficiency === undefined || proficiency < Number(requirement.minProficiency ?? 1)) return null;
+    matchedMust.push(requirement.name);
+  }
+  const matchedNice = skills.filter((requirement) => requirement?.importance === "nice").flatMap((requirement) => {
+    const proficiency = skillLevel(member, requirement.name);
+    return proficiency !== undefined && proficiency >= Number(requirement.minProficiency ?? 1) ? [requirement.name] : [];
+  });
+  const availablePercent = scene.startDate && scene.endDate
+    ? Math.max(0, Number(member.capacity) - memberPeakLoad(state, member.id, scene.startDate, scene.endDate))
+    : Number(member.capacity);
+  if (scene.minAvailablePercent !== undefined && scene.minAvailablePercent !== null && availablePercent < Number(scene.minAvailablePercent)) return null;
+  return {
+    score: Math.min(60, matchedNice.length * 20) + Math.min(40, Math.round(availablePercent * 0.4)),
+    availablePercent,
+    matchedMust,
+    matchedNice,
+  };
+}
+
 function assignmentMatchesNeed(state, assignment, need) {
   const member = state.members.find((candidate) => candidate.id === assignment.personId);
   const otherPeak = member
@@ -1026,6 +1187,7 @@ function cloneState(state) {
     opportunityNeeds: structuredClone(state.opportunityNeeds ?? []),
     orgUnits: structuredClone(state.orgUnits ?? []),
     orgMemberships: structuredClone(state.orgMemberships ?? []),
+    searchScenes: structuredClone(state.searchScenes ?? []),
   };
 }
 
@@ -1083,6 +1245,9 @@ function workspacePayload(next, previous) {
   const membershipUpsert = changedRows(next.orgMemberships ?? [], previous.orgMemberships ?? []);
   const membershipArchive = removedIds(next.orgMemberships ?? [], previous.orgMemberships ?? []);
   if (membershipUpsert.length || membershipArchive.length) payload.orgMemberships = { upsert: membershipUpsert, archiveIds: membershipArchive };
+  const sceneUpsert = changedRows(next.searchScenes ?? [], previous.searchScenes ?? []);
+  const sceneArchive = removedIds(next.searchScenes ?? [], previous.searchScenes ?? []);
+  if (sceneUpsert.length || sceneArchive.length) payload.searchScenes = { upsert: sceneUpsert, archiveIds: sceneArchive };
   return payload;
 }
 
@@ -1112,6 +1277,7 @@ function actionPermission(role, toolName) {
   if (role === "viewer") fail("FORBIDDEN", "閲覧者はデータを変更できません。", { status: 403 });
   if (role === "planner" && MEMBER_TOOLS.has(toolName)) fail("FORBIDDEN", "メンバー変更はオーナーまたは管理者だけが実行できます。", { status: 403 });
   if (role === "planner" && ORG_TOOLS.has(toolName)) fail("FORBIDDEN", "組織階層の変更はオーナーまたは管理者だけが実行できます。", { status: 403 });
+  if (role === "planner" && SEARCH_SCENE_TOOLS.has(toolName)) fail("FORBIDDEN", "検索シーンの変更はオーナーまたは管理者だけが実行できます。", { status: 403 });
 }
 
 function payloadIsDestructive(payload) {
@@ -1123,7 +1289,8 @@ function payloadIsDestructive(payload) {
     || payload.opportunities?.archiveIds.length
     || payload.opportunityNeeds?.cancelIds.length
     || payload.orgUnits?.archiveIds.length
-    || payload.orgMemberships?.archiveIds.length,
+    || payload.orgMemberships?.archiveIds.length
+    || payload.searchScenes?.archiveIds.length,
   );
 }
 
@@ -1160,6 +1327,8 @@ function actionLabels(toolName) {
     update_org_unit: ["部門を更新", "更新する"],
     delete_org_unit: ["部門を削除", "削除する"],
     set_member_org_memberships: ["所属を更新", "更新する"],
+    create_search_scene: ["検索シーンを保存", "保存する"],
+    delete_search_scene: ["検索シーンを削除", "削除する"],
   };
   return labels[toolName];
 }
@@ -1596,6 +1765,27 @@ function applyAction(state, toolName, args, newUuid, requestId) {
     subject = member.name;
     details.push(primary ? `主所属: ${orgUnitPath(next.orgUnits, primary.id).join(" / ")}` : "主所属なし");
     if (extra.length) details.push(`兼務: ${extra.map((id) => orgUnitPath(next.orgUnits, id).join(" / ")).join("、")}`);
+  } else if (toolName === "create_search_scene") {
+    if (next.searchScenes.some((scene) => lower(scene.name) === lower(args.name))) fail("DUPLICATE_SEARCH_SCENE", "同じ名前の検索シーンがすでにあります。");
+    const scene = compact({
+      id: newUuid(),
+      name: args.name,
+      query: args.query,
+      role: args.role,
+      location: args.location,
+      skills: args.skills ?? [],
+      startDate: args.startDate,
+      endDate: args.endDate,
+      minAvailablePercent: args.minAvailablePercent,
+    });
+    next.searchScenes.push(scene);
+    subject = scene.name;
+    details.push([scene.role, scene.location, `${(scene.skills ?? []).length}件のスキル条件`].filter(Boolean).join(" / "));
+  } else if (toolName === "delete_search_scene") {
+    const scene = byId(next.searchScenes, args.sceneId, "検索シーン");
+    next.searchScenes = next.searchScenes.filter((candidate) => candidate.id !== scene.id);
+    subject = scene.name;
+    details.push("検索シーンを削除します。");
   }
 
   if (relevantAssignment) {

@@ -210,6 +210,35 @@ export type WorkspaceState = {
   opportunityNeeds?: OpportunityNeed[];
   orgUnits?: OrgUnit[];
   orgMemberships?: OrgMembership[];
+  searchScenes?: SearchScene[];
+};
+
+export type SkillImportance = "must" | "nice";
+
+export type SearchSkillFilter = {
+  name: string;
+  minProficiency: SkillProficiency;
+  importance: SkillImportance;
+};
+
+export type SearchScene = {
+  id: string;
+  name: string;
+  query?: string;
+  role?: string;
+  location?: string;
+  skills?: SearchSkillFilter[];
+  startDate?: string;
+  endDate?: string;
+  minAvailablePercent?: number;
+};
+
+export type MemberMatch = {
+  member: Member;
+  score: number;
+  availablePercent: number;
+  matchedMust: string[];
+  matchedNice: string[];
 };
 
 export type WeekDay = {
@@ -358,7 +387,32 @@ const opportunityNeeds: OpportunityNeed[] = [
   { id: "opp-need-ledger-be", opportunityId: "opp-ledger", role: "Backend Engineer", skills: ["AWS", "API"], skillRequirements: [{ name: "AWS", minProficiency: 4 }, { name: "API", minProficiency: 3 }], startDate: "2026-08-24", endDate: "2026-11-20", allocation: 40 },
 ];
 
-export const initialWorkspace: WorkspaceState = { members, projects, assignments, needs, skillCatalog, customFields, opportunities, opportunityNeeds, orgUnits, orgMemberships };
+const searchScenes: SearchScene[] = [
+  {
+    id: "scene-frontend",
+    name: "フロントエンド候補",
+    role: "Frontend Engineer",
+    skills: [
+      { name: "React", minProficiency: 3, importance: "must" },
+      { name: "A11y", minProficiency: 3, importance: "nice" },
+    ],
+  },
+  {
+    id: "scene-mobile-qa",
+    name: "モバイルQA候補",
+    role: "QA Engineer",
+    skills: [
+      { name: "QA", minProficiency: 3, importance: "must" },
+      { name: "Mobile", minProficiency: 3, importance: "must" },
+      { name: "Automation", minProficiency: 3, importance: "nice" },
+    ],
+    startDate: "2026-08-24",
+    endDate: "2026-09-04",
+    minAvailablePercent: 40,
+  },
+];
+
+export const initialWorkspace: WorkspaceState = { members, projects, assignments, needs, skillCatalog, customFields, opportunities, opportunityNeeds, orgUnits, orgMemberships, searchScenes };
 
 function isoDate(date: Date) {
   return date.toISOString().slice(0, 10);
@@ -1297,4 +1351,129 @@ export function orgUnitLoadRows(state: WorkspaceState, weekStart: string): OrgUn
       managers: orgManagers(state, unit.id).map((member) => member.name),
     };
   });
+}
+
+export function searchSceneSkills(scene: Pick<SearchScene, "skills">): SearchSkillFilter[] {
+  const seen = new Set<string>();
+  return (scene.skills ?? []).flatMap((skill) => {
+    const name = skill.name.trim();
+    const key = skillKey(name);
+    if (!name || seen.has(key)) return [];
+    seen.add(key);
+    return [{
+      name,
+      minProficiency: normalizeSkillProficiency(skill.minProficiency, 3),
+      importance: skill.importance === "nice" ? "nice" : "must",
+    }];
+  });
+}
+
+export function searchSceneFromNeed(need: Pick<StaffingNeed, "id" | "role" | "skills" | "skillRequirements" | "startDate" | "endDate" | "allocation">): SearchScene {
+  return {
+    id: `need:${need.id}`,
+    name: need.role,
+    role: need.role,
+    skills: needSkillRequirements(need).map((requirement) => ({
+      name: requirement.name,
+      minProficiency: requirement.minProficiency,
+      importance: "must" as const,
+    })),
+    startDate: need.startDate,
+    endDate: need.endDate,
+    minAvailablePercent: need.allocation,
+  };
+}
+
+export function addSearchScene(scenes: SearchScene[], input: {
+  id?: string;
+  name: string;
+  query?: string;
+  role?: string;
+  location?: string;
+  skills?: SearchSkillFilter[];
+  startDate?: string;
+  endDate?: string;
+  minAvailablePercent?: number;
+}): SearchScene[] {
+  const name = input.name.trim();
+  if (!name) throw new Error("検索シーン名を入力してください");
+  if (name.length > 80) throw new Error("検索シーン名は80文字以内にしてください");
+  if (scenes.some((scene) => scene.name.trim().toLocaleLowerCase() === name.toLocaleLowerCase())) {
+    throw new Error("同じ名前の検索シーンがすでにあります");
+  }
+  const query = input.query?.trim() ?? "";
+  if (query.length > 120) throw new Error("検索語は120文字以内にしてください");
+  const role = input.role?.trim() ?? "";
+  const location = input.location?.trim() ?? "";
+  if (role.length > 120) throw new Error("職種は120文字以内にしてください");
+  if (location.length > 120) throw new Error("勤務地は120文字以内にしてください");
+  const startDate = input.startDate?.trim() ?? "";
+  const endDate = input.endDate?.trim() ?? "";
+  if ((startDate && !endDate) || (!startDate && endDate)) throw new Error("期間は開始日と終了日を両方指定してください");
+  if (startDate && endDate && startDate > endDate) throw new Error("終了日は開始日以降にしてください");
+  if (input.minAvailablePercent !== undefined && (!Number.isFinite(input.minAvailablePercent) || input.minAvailablePercent < 0 || input.minAvailablePercent > 100)) {
+    throw new Error("最小空きは0〜100で指定してください");
+  }
+  const seenSkills = new Set<string>();
+  (input.skills ?? []).forEach((skill) => {
+    const key = skillKey(skill.name);
+    if (!key) return;
+    if (seenSkills.has(key)) throw new Error("同じスキルを重複して指定できません");
+    seenSkills.add(key);
+    if (skill.importance !== "must" && skill.importance !== "nice") throw new Error("スキルの重要度は必須または歓迎にしてください");
+  });
+  const skills = searchSceneSkills({ skills: input.skills });
+  return [...scenes, {
+    id: input.id ?? crypto.randomUUID(),
+    name,
+    ...(query ? { query } : {}),
+    ...(role ? { role } : {}),
+    ...(location ? { location } : {}),
+    ...(skills.length ? { skills } : {}),
+    ...(startDate ? { startDate, endDate } : {}),
+    ...(input.minAvailablePercent !== undefined ? { minAvailablePercent: input.minAvailablePercent } : {}),
+  }];
+}
+
+export function memberAvailablePercent(state: WorkspaceState, member: Member, startDate?: string, endDate?: string) {
+  if (!startDate || !endDate) return member.capacity;
+  return Math.max(0, member.capacity - memberPeakLoad(state, member.id, startDate, endDate));
+}
+
+export function matchScore(availablePercent: number, matchedNiceCount: number) {
+  return Math.min(60, matchedNiceCount * 20) + Math.min(40, Math.round(availablePercent * 0.4));
+}
+
+export function matchMember(state: WorkspaceState, member: Member, scene: SearchScene): MemberMatch | null {
+  if (scene.role && member.role.toLocaleLowerCase() !== scene.role.toLocaleLowerCase()) return null;
+  if (scene.location && member.location.toLocaleLowerCase() !== scene.location.toLocaleLowerCase()) return null;
+  if (scene.query && !memberSearchText(state, member).includes(scene.query.trim().toLocaleLowerCase())) return null;
+  const skills = searchSceneSkills(scene);
+  const levels = memberSkillLevels(member);
+  const matchedMust: string[] = [];
+  for (const requirement of skills.filter((skill) => skill.importance === "must")) {
+    const level = levels.find((item) => skillKey(item.name) === skillKey(requirement.name));
+    if (!level || level.proficiency < requirement.minProficiency) return null;
+    matchedMust.push(requirement.name);
+  }
+  const matchedNice = skills.filter((skill) => skill.importance === "nice").flatMap((requirement) => {
+    const level = levels.find((item) => skillKey(item.name) === skillKey(requirement.name));
+    return level && level.proficiency >= requirement.minProficiency ? [requirement.name] : [];
+  });
+  const availablePercent = memberAvailablePercent(state, member, scene.startDate, scene.endDate);
+  if (scene.minAvailablePercent !== undefined && availablePercent < scene.minAvailablePercent) return null;
+  return {
+    member,
+    score: matchScore(availablePercent, matchedNice.length),
+    availablePercent,
+    matchedMust,
+    matchedNice,
+  };
+}
+
+export function matchMembers(state: WorkspaceState, scene: SearchScene): MemberMatch[] {
+  return state.members.flatMap((member) => {
+    const match = matchMember(state, member, scene);
+    return match ? [match] : [];
+  }).sort((left, right) => right.score - left.score || left.member.name.localeCompare(right.member.name, "ja"));
 }
