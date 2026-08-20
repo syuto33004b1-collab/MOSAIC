@@ -1515,10 +1515,24 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   background: #fff;
   box-shadow: 0 6px 22px rgba(36,48,78,.04);
 }
-.card-heading { margin-bottom: 15px; display: flex; align-items: center; justify-content: space-between; color: #7c8597; }
+/* `space-between` puts the free space between the two children and guarantees
+   nothing once there is none: at 320px the widest badge left a 0px gap and the
+   title ran straight into the chip. `gap` is the floor. */
+.card-heading { margin-bottom: 15px; display: flex; align-items: center; justify-content: space-between; gap: 10px; color: #7c8597; }
 .card-heading small { color: #9aa2b1; font-family: var(--font-data); font-size: 6px; font-weight: 800; letter-spacing: .15em; }
 .card-heading h3 { margin: 4px 0 0; color: var(--ink); font-size: 13px; }
-.card-heading > span { width: 24px; height: 24px; border-radius: 8px; background: #fff0ee; color: #ce6259; display: grid; place-items: center; font-family: var(--font-data); font-size: 8px; font-weight: 800; }
+/* A flex item will not shrink below its min-content width unless told to, and
+   the badge no longer shrinks either, so a title with nothing to break on
+   pushed the badge out of the heading — measured 497px outside at 390px with an
+   80-character unbroken string. With this the row stays inside the card and the
+   overflow is confined to the title's own box, which is #87's subject. */
+.card-heading > div { min-width: 0; }
+/* No width or border-radius here. The theme rule below already owned the
+   radius; the width it did not, which is why `width: 24px` used to be the
+   direct cause of the bug rather than a dead declaration. Both live there now,
+   in one place. `min-height` rather than `height`, so that if the text floor
+   rises (#100) the chip grows instead of spilling again. */
+.card-heading > span { min-height: 24px; background: #fff0ee; color: #ce6259; display: grid; place-items: center; font-family: var(--font-data); font-size: 8px; font-weight: 800; }
 .department-list { display: flex; flex-direction: column; gap: 11px; }
 .department-list > div { display: grid; grid-template-columns: 100px 1fr 32px; align-items: center; gap: 8px; }
 .department-list strong, .department-list small { display: block; }
@@ -2934,7 +2948,14 @@ h1 {
 .horizon-caption button { color: var(--coral-deep); }
 .balance-card,
 .exceptions-card { padding: 20px; }
-.card-heading > span { border-radius: 50%; background: var(--coral-soft); color: #a83e27; }
+/* A chip that hugs its content, not a fixed circle. This selector serves two
+   kinds of caller — a count (`{n}`) and a status caption (「制限なし」,
+   「N件未対応 · N件確認待ち」) — and the fixed 24x24 only ever fitted the first:
+   the captions wrapped to 2 and 6 lines and spilled 5px and 65px below their
+   heading. `min-width: 24px` with a pill radius keeps a single digit at the
+   same 24x24 circle it has now; anything longer grows sideways instead of
+   downwards. `flex: 0 0 auto` stops a long heading squeezing it back. */
+.card-heading > span { width: auto; min-width: 24px; padding-inline: 7px; flex: 0 0 auto; white-space: nowrap; border-radius: 999px; background: var(--coral-soft); color: #a83e27; }
 .department-list i { background: var(--paper-deep); }
 .department-list b { background: var(--sage); }
 .department-list b.over { background: var(--coral); }
