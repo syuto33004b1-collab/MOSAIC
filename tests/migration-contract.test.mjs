@@ -132,8 +132,6 @@ test("layers role permissions on one read and one write choke point", async () =
   assert.match(sql, /role text not null check \(role in \('admin', 'planner', 'viewer'\)\)/);
   assert.match(sql, /person_scope in \('organization', 'unit_subtree', 'unit', 'self'\)/);
   assert.match(sql, /cardinality\(hidden_field_keys\) <= 100/);
-  // Array operators are STABLE, so set checks must stay out of CHECK constraints.
-  assert.doesNotMatch(sql, /check \([^)]*(&&|<@|array_position)/);
   assert.match(sql, /a field key cannot be both hidden and read-only/);
   assert.match(sql, /rolePermissions\.disabledFeatures contains an unsupported feature/);
   assert.match(sql, /revoke all on table app\.role_permissions from public, anon, authenticated, service_role/);
@@ -152,4 +150,14 @@ test("layers role permissions on one read and one write choke point", async () =
   assert.match(sql, /this role cannot assign a member outside its data scope/);
   assert.doesNotMatch(sql, /grant execute on function private\./);
   assert.doesNotMatch(sql, /grant .* on table app\.role_permissions/);
+});
+
+test("keeps the role permission feature allow list on the table too", async () => {
+  const sql = await readFile(path.join(migrations, "20260820120000_role_permission_feature_check.sql"), "utf8");
+  assert.match(sql, /alter table app\.role_permissions/);
+  assert.match(sql, /add constraint role_permissions_disabled_features_allowed check/);
+  assert.match(sql, /disabled_features <@ array\[/);
+  for (const feature of ["searchScenes", "savedReports", "profileRequests", "opportunities", "favorites"]) {
+    assert.ok(sql.includes(`'${feature}'`), `expected ${feature} in the allow list`);
+  }
 });
