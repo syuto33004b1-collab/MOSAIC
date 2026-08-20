@@ -1730,12 +1730,15 @@ button:focus-visible, a:focus-visible { outline: 3px solid rgba(86,104,232,.35);
 .production-operations-panel .drawer-section-title button { margin-left: auto; }
 .production-member-list > div,
 .production-invitation-list > div,
+.production-integration-list > div,
 .production-audit-list > div { min-height: 58px; }
 .production-member-list strong,
 .production-invitation-list strong,
+.production-integration-list strong,
 .production-audit-list strong { font-size: 11px; }
 .production-member-list small,
 .production-invitation-list small,
+.production-integration-list small,
 .production-audit-list small { font-size: 10px; line-height: 1.5; }
 .member-access-controls { display: flex; flex: 0 0 auto; align-items: center; gap: 6px; }
 .member-access-controls select { min-height: 36px; max-width: 104px; padding: 5px 24px 5px 9px; border: 1px solid #dce2ec; border-radius: 8px; background: #fff; color: var(--ink); font: 700 10px var(--font-data); }
@@ -1751,6 +1754,13 @@ button:focus-visible, a:focus-visible { outline: 3px solid rgba(86,104,232,.35);
 .production-audit-detail dd { min-width: 0; margin: 0; color: #3d4858; font: 500 9px/1.6 var(--font-data); overflow-wrap: anywhere; }
 .production-audit-detail pre { max-height: 180px; margin: 0; padding: 8px; overflow: auto; border-radius: 7px; background: #f4f6fa; white-space: pre-wrap; }
 .production-invite-form { padding: 16px; border: 1px solid #e1e6ef; border-radius: 13px; background: #fafbff; }
+.production-scope-list { display: grid; gap: 8px; margin: 0; padding: 12px; border: 1px solid #e1e6ef; border-radius: 12px; }
+.production-scope-list legend { padding: 0 4px; color: #58677d; font-size: 10px; font-weight: 800; }
+.production-scope-list label { display: flex; gap: 8px; align-items: flex-start; margin: 0; font-size: 12px; line-height: 1.45; }
+.production-scope-list input { margin-top: 2px; }
+.production-secret-banner { align-items: flex-start; }
+.production-secret-banner span { display: grid; gap: 6px; min-width: 0; }
+.production-secret-banner code { display: block; padding: 8px; overflow: auto; border-radius: 8px; background: #f4f6fa; font: 600 11px/1.5 var(--font-data); word-break: break-all; }
 .production-organization-switcher { margin-bottom: 20px; }
 .production-runtime-info { margin: 24px 0 0; color: #99a2b2; font: 700 9px/1.5 var(--font-data); letter-spacing: .04em; text-align: center; }
 
@@ -2865,6 +2875,9 @@ h1 {
   border-radius: 3px;
   background: var(--paper-pure);
 }
+.production-scope-list { border-color: var(--line); border-radius: 3px; }
+.production-scope-list legend { color: var(--muted); }
+.production-secret-banner code { background: var(--canvas); }
 .capacity-meter,
 .profile-capacity i { background: var(--paper-deep); }
 .capacity-meter span { background: var(--sage); }

@@ -1,7 +1,16 @@
 import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from "react";
-import { Check, Clock3, History, MailPlus, MailX, RefreshCw, ShieldCheck, UsersRound, X } from "lucide-react";
+import { Check, Clock3, History, KeyRound, MailPlus, MailX, RefreshCw, ShieldCheck, UsersRound, X } from "lucide-react";
 import { ProductionRepository } from "./repository";
-import type { AuditEvent, OrganizationInvitation, OrganizationMember, OrganizationRole, OrganizationSummary } from "./types";
+import type {
+  AuditEvent,
+  IntegrationClient,
+  IntegrationScope,
+  OrganizationInvitation,
+  OrganizationMember,
+  OrganizationRole,
+  OrganizationSummary,
+} from "./types";
+import { INTEGRATION_SCOPES } from "./types";
 
 type OperationsPanelProps = {
   currentUserId: string;
@@ -37,6 +46,19 @@ function inviteStatusMessage(invitation: { email: string; role: string; authInvi
   return `${invitation.email}へ招待メールを送りました。`;
 }
 
+const WRITABLE_INTEGRATION_SCOPES = INTEGRATION_SCOPES.filter((scope) => scope !== "workspace:read");
+const INTEGRATION_SCOPE_LABELS: Record<IntegrationScope, string> = {
+  "workspace:read": "メンバー・プロジェクト・アサイン・要員要件の参照",
+  "members:write": "メンバーの登録・更新・アーカイブ",
+  "projects:write": "プロジェクトの登録・更新・アーカイブ",
+  "assignments:write": "アサインの登録・更新・取消",
+  "staffing:write": "要員要件の登録・充足・取消",
+};
+
+function formatScopes(scopes: IntegrationScope[]) {
+  return scopes.map((scope) => INTEGRATION_SCOPE_LABELS[scope] ?? scope).join(" / ");
+}
+
 function formatAuditData(value?: Record<string, unknown>) {
   return value ? JSON.stringify(value, null, 2) : "—";
 }
@@ -51,6 +73,7 @@ export function OperationsPanel({
 }: OperationsPanelProps) {
   const [members, setMembers] = useState<OrganizationMember[]>([]);
   const [invitations, setInvitations] = useState<OrganizationInvitation[]>([]);
+  const [clients, setClients] = useState<IntegrationClient[]>([]);
   const [events, setEvents] = useState<AuditEvent[]>([]);
   const [nextBefore, setNextBefore] = useState<string>();
   const [loading, setLoading] = useState(true);
@@ -62,6 +85,11 @@ export function OperationsPanel({
   const [inviting, setInviting] = useState(false);
   const [memberAction, setMemberAction] = useState("");
   const [invitationAction, setInvitationAction] = useState("");
+  const [clientName, setClientName] = useState("");
+  const [clientScopes, setClientScopes] = useState<IntegrationScope[]>(["workspace:read"]);
+  const [issuingClient, setIssuingClient] = useState(false);
+  const [clientAction, setClientAction] = useState("");
+  const [issuedSecret, setIssuedSecret] = useState("");
   const panelRef = useRef<HTMLElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
   const onCloseRef = useRef(onClose);
@@ -80,14 +108,16 @@ export function OperationsPanel({
       repository.listOrganizationMembers(currentOrganization.id),
       canViewAudit ? repository.listAuditEvents(currentOrganization.id) : Promise.resolve({ events: [], nextBefore: undefined }),
       canInvite ? repository.listOrganizationInvitations(currentOrganization.id) : Promise.resolve([] as OrganizationInvitation[]),
+      canInvite ? repository.listIntegrationClients(currentOrganization.id) : Promise.resolve([] as IntegrationClient[]),
     ]);
-    const [memberResult, auditResult, invitationResult] = results;
+    const [memberResult, auditResult, invitationResult, clientResult] = results;
     if (memberResult.status === "fulfilled") setMembers(memberResult.value);
     if (auditResult.status === "fulfilled") {
       setEvents(auditResult.value.events);
       setNextBefore(auditResult.value.nextBefore);
     }
     if (invitationResult.status === "fulfilled") setInvitations(invitationResult.value);
+    if (clientResult.status === "fulfilled") setClients(clientResult.value);
     const rejected = results.find((result): result is PromiseRejectedResult => result.status === "rejected");
     if (rejected) setError(messageFrom(rejected.reason));
     setLoading(false);
@@ -99,15 +129,17 @@ export function OperationsPanel({
       repository.listOrganizationMembers(currentOrganization.id),
       canViewAudit ? repository.listAuditEvents(currentOrganization.id) : Promise.resolve({ events: [], nextBefore: undefined }),
       canInvite ? repository.listOrganizationInvitations(currentOrganization.id) : Promise.resolve([] as OrganizationInvitation[]),
+      canInvite ? repository.listIntegrationClients(currentOrganization.id) : Promise.resolve([] as IntegrationClient[]),
     ]).then((results) => {
       if (!active) return;
-      const [memberResult, auditResult, invitationResult] = results;
+      const [memberResult, auditResult, invitationResult, clientResult] = results;
       if (memberResult.status === "fulfilled") setMembers(memberResult.value);
       if (auditResult.status === "fulfilled") {
         setEvents(auditResult.value.events);
         setNextBefore(auditResult.value.nextBefore);
       }
       if (invitationResult.status === "fulfilled") setInvitations(invitationResult.value);
+      if (clientResult.status === "fulfilled") setClients(clientResult.value);
       const rejected = results.find((result): result is PromiseRejectedResult => result.status === "rejected");
       if (rejected) setError(messageFrom(rejected.reason));
       setLoading(false);
@@ -204,6 +236,66 @@ export function OperationsPanel({
       setError(messageFrom(reason));
     } finally {
       setInvitationAction("");
+    }
+  };
+
+  const toggleClientScope = (scope: IntegrationScope) => {
+    setClientScopes((current) => {
+      if (scope === "workspace:read") return current.includes("workspace:read") ? current : ["workspace:read", ...current];
+      return current.includes(scope) ? current.filter((item) => item !== scope) : [...current, scope];
+    });
+  };
+
+  const issueClient = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!canInvite || issuingClient) return;
+    setIssuingClient(true);
+    setInviteStatus("");
+    setIssuedSecret("");
+    setError("");
+    try {
+      const scopes: IntegrationScope[] = clientScopes.includes("workspace:read")
+        ? clientScopes
+        : ["workspace:read", ...clientScopes];
+      const result = await repository.createIntegrationClient(currentOrganization.id, clientName, scopes);
+      setIssuedSecret(result.secret ?? "");
+      setInviteStatus(result.secret
+        ? `${result.client.name}の連携資格を発行しました。秘密鍵はこの画面を閉じるまでしか表示しません。`
+        : `${result.client.name}の連携資格は既に発行済みです。秘密鍵は再表示できません。`);
+      setClientName("");
+      setClientScopes(["workspace:read"]);
+      await loadOperations();
+    } catch (reason) {
+      setError(messageFrom(reason));
+    } finally {
+      setIssuingClient(false);
+    }
+  };
+
+  const copyIssuedSecret = async () => {
+    if (!issuedSecret) return;
+    try {
+      await navigator.clipboard.writeText(issuedSecret);
+      setInviteStatus("秘密鍵をコピーしました。パスワードマネージャへ保存してください。");
+    } catch {
+      setError("コピーできませんでした。表示中の秘密鍵を手動で控えてください。");
+    }
+  };
+
+  const revokeClient = async (client: IntegrationClient) => {
+    if (!canInvite || clientAction || client.status === "revoked") return;
+    if (!window.confirm(`${client.name}の連携資格を失効します。既存のAPI/MCP接続は直ちに使えなくなります。続けますか？`)) return;
+    setClientAction(client.id);
+    setInviteStatus("");
+    setError("");
+    try {
+      await repository.revokeIntegrationClient(currentOrganization.id, client.id);
+      setInviteStatus(`${client.name}の連携資格を失効しました。`);
+      await loadOperations();
+    } catch (reason) {
+      setError(messageFrom(reason));
+    } finally {
+      setClientAction("");
     }
   };
 
@@ -357,6 +449,66 @@ export function OperationsPanel({
           </form>
         )}
 
+        {canInvite && (
+          <>
+            <div className="drawer-section-title"><span>外部連携</span><small>{loading ? "読込中" : `${clients.length}件`}</small></div>
+            <div className="form-note"><KeyRound size={15} /><span>API・AI秘書・MCPは同じ業務カタログを使います。資格は人間のログインとは別です。公開エンドポイントはまだ発行しません。</span></div>
+            {issuedSecret && (
+              <div className="form-note production-secret-banner" role="status">
+                <KeyRound size={15} />
+                <span>
+                  <strong>秘密鍵（再表示できません）</strong>
+                  <code>{issuedSecret}</code>
+                </span>
+                <button className="row-open" type="button" onClick={() => void copyIssuedSecret()}>コピー</button>
+              </div>
+            )}
+            <div className="allocation-list production-integration-list">
+              {clients.map((client) => (
+                <div key={client.id}>
+                  <span className={`notice-icon ${client.status === "revoked" ? "danger" : "info"}`}><KeyRound size={14} /></span>
+                  <span>
+                    <strong>{client.name}</strong>
+                    <small>
+                      {client.status === "revoked" ? "失効済み" : "有効"}
+                      {` · mosaic_sk_${client.keyPrefix}…`}
+                      {` · ${formatScopes(client.scopes)}`}
+                    </small>
+                  </span>
+                  {client.status === "active" ? (
+                    <button className="row-open invitation-revoke-button" type="button" disabled={Boolean(clientAction)} onClick={() => void revokeClient(client)}>
+                      {clientAction === client.id ? "失効中" : "失効"}
+                    </button>
+                  ) : <b>失効</b>}
+                </div>
+              ))}
+              {!loading && clients.length === 0 && <div><KeyRound size={16} /><span><strong>発行済みの連携資格はありません</strong><small>owner / admin が名前とスコープを指定して発行します。</small></span></div>}
+            </div>
+            <form className="assignment-form production-invite-form" onSubmit={issueClient}>
+              <div className="drawer-section-title"><span>連携資格を発行</span><small>最大20件</small></div>
+              <label>
+                名前
+                <input required maxLength={80} value={clientName} onChange={(event) => setClientName(event.target.value)} placeholder="社内 MCP / レポート連携" />
+              </label>
+              <fieldset className="production-scope-list">
+                <legend>許可する操作</legend>
+                <label>
+                  <input type="checkbox" checked disabled readOnly />
+                  {INTEGRATION_SCOPE_LABELS["workspace:read"]}
+                </label>
+                {WRITABLE_INTEGRATION_SCOPES.map((scope) => (
+                  <label key={scope}>
+                    <input type="checkbox" checked={clientScopes.includes(scope)} onChange={() => toggleClientScope(scope)} />
+                    {INTEGRATION_SCOPE_LABELS[scope]}
+                  </label>
+                ))}
+              </fieldset>
+              <div className="form-note"><ShieldCheck size={15} /><span>秘密鍵は発行直後に一度だけ表示します。任意のSQLやURLは実行できません。</span></div>
+              <button className="drawer-primary" type="submit" disabled={issuingClient || !clientName.trim()}><KeyRound size={15} />{issuingClient ? "発行中…" : "連携資格を発行する"}</button>
+            </form>
+          </>
+        )}
+
         {canViewAudit && (
           <>
             <div className="drawer-section-title"><span>監査ログ</span><button className="row-open" aria-label="監査ログを再読み込み" onClick={() => void loadOperations()}><RefreshCw size={14} /></button></div>
@@ -371,6 +523,7 @@ export function OperationsPanel({
                     <dl>
                       <div><dt>対象</dt><dd>{event.entityType}{event.entityId ? ` / ${event.entityId}` : ""}</dd></div>
                       <div><dt>request ID</dt><dd>{event.requestId ?? "—"}</dd></div>
+                      <div><dt>呼出元</dt><dd>{event.callerKind === "integration" ? `外部連携${event.integrationClientName ? ` / ${event.integrationClientName}` : ""}` : event.callerKind === "ai" ? "AI秘書" : "利用者"}</dd></div>
                       <div><dt>変更前</dt><dd><pre>{formatAuditData(event.oldData)}</pre></dd></div>
                       <div><dt>変更後</dt><dd><pre>{formatAuditData(event.newData)}</pre></dd></div>
                     </dl>

@@ -97,6 +97,9 @@ export type AuditEvent = {
   workspaceRevision?: number;
   oldData?: Record<string, unknown>;
   newData?: Record<string, unknown>;
+  callerKind?: "user" | "ai" | "integration";
+  integrationClientId?: string;
+  integrationClientName?: string;
 };
 
 export type AuditEventPage = {
@@ -150,6 +153,37 @@ export type AcceptInvitationResult = {
   organizationId?: string;
   organizationName?: string;
   role?: OrganizationRole;
+};
+
+export const INTEGRATION_SCOPES = ["workspace:read", "members:write", "projects:write", "assignments:write", "staffing:write"] as const;
+export type IntegrationScope = (typeof INTEGRATION_SCOPES)[number];
+export type IntegrationClientStatus = "active" | "revoked";
+
+export type IntegrationClient = {
+  id: string;
+  organizationId: string;
+  name: string;
+  keyPrefix: string;
+  scopes: IntegrationScope[];
+  status: IntegrationClientStatus;
+  createdAt?: string;
+  createdByUserId?: string;
+  createdByName?: string;
+  revokedAt?: string;
+  lastUsedAt?: string;
+};
+
+export type CreateIntegrationClientResult = {
+  client: IntegrationClient;
+  secret?: string;
+  requestId?: string;
+  replayed: boolean;
+};
+
+export type RevokeIntegrationClientResult = {
+  changed: boolean;
+  requestId?: string;
+  client: IntegrationClient;
 };
 
 export class ProductionRepositoryError extends Error {

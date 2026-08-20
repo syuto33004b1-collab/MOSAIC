@@ -1,25 +1,30 @@
 /**
- * Pure workspace tool contract used by the chat Edge Function.
+ * Pure workspace tool contract used by the chat Edge Function and future
+ * API/MCP adapters. HTTP routing stays in each adapter; this module only
+ * catalogues authorized member/project/assignment/staffing operations.
  *
  * Integration contract:
  * - `detectWorkspaceFunctionCalls(interaction)` extracts Gemini Interactions
  *   `function_call` steps as `{ id, name, arguments }`.
  * - `parseWorkspaceToolCall(name, args)` performs strict, server-side argument
  *   validation and returns `{ mode, toolName, args }`.
- * - `readWorkspaceTool(snapshot, name, args)` returns a bounded, data-minimized
- *   result from a `get_workspace` RPC snapshot.
+ * - `readWorkspaceTool(snapshot, name, args, caller?)` returns a bounded,
+ *   data-minimized result from a `get_workspace` RPC snapshot.
  * - `planWorkspaceAction(...)` creates a normalized action, confirmation
  *   preview, and atomic `save_workspace` payload without touching the network.
  * - `buildWorkspaceSaveRequest(plan)` maps a confirmed plan to RPC arguments.
+ * - Callers are `{ kind: "user"|"ai", role }` or `{ kind: "integration", scopes }`.
  *
  * The caller must fetch the snapshot and execute RPCs with `ctx.supabase`, not
- * `ctx.supabaseAdmin`. Organization and role authorization remain enforced by
- * the existing authenticated RPC boundary.
+ * `ctx.supabaseAdmin`, for human sessions. Organization and role authorization
+ * remain enforced by the existing authenticated RPC boundary. Integration
+ * adapters authorize scopes here, then call RPCs with a verified org context.
  */
+
+import { describeOperationDenial, INTEGRATION_LIMITS, normalizeCaller, OPERATION_CATALOG } from "./integration-core.mjs";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/u;
-const ROLE_VALUES = new Set(["owner", "admin", "planner", "viewer"]);
 const AVATAR_TONES = ["lavender", "peach", "sky", "mint", "sand", "rose"];
 const PROJECT_TONES = ["blue", "mint", "orange", "plum", "sky"];
 const PROJECT_STATUSES = ["進行中", "要注意", "準備中", "完了間近", "完了"];
@@ -28,15 +33,16 @@ const NEED_STATUSES = ["open", "planned", "filled"];
 const OPPORTUNITY_STAGES = ["inquiry", "proposal", "negotiation", "won", "lost"];
 const ACTIVE_OPPORTUNITY_STAGES = ["inquiry", "proposal", "negotiation"];
 const READ_RESOURCES = ["summary", "members", "projects", "assignments", "staffing_needs", "opportunities", "opportunity_needs", "org_units", "org_memberships", "search_scenes", "saved_reports", "profile_requests"];
-const MAX_READ_RESULTS = 25;
-const DEFAULT_READ_RESULTS = 10;
-const MAX_SKILLS = 20;
+const MAX_READ_RESULTS = INTEGRATION_LIMITS.maxReadResults;
+const DEFAULT_READ_RESULTS = INTEGRATION_LIMITS.defaultReadResults;
+const MAX_SKILLS = INTEGRATION_LIMITS.maxSkills;
 const SKILL_IMPORTANCES = ["must", "nice"];
 const REPORT_SOURCES = ["members", "projects"];
 const REPORT_GROUP_BY = ["department", "role", "location", "status"];
 const REPORT_METRICS = ["count", "avgLoad"];
 const PROFILE_REQUEST_SCOPES = ["skills", "workHistory", "all"];
 const PROFILE_REQUEST_STATUSES = ["open", "submitted", "done", "cancelled"];
+const ROLE_VALUES = new Set(["owner", "admin", "planner", "viewer"]);
 
 const READ_TOOL = "read_workspace";
 const MEMBER_TOOLS = new Set(["create_member", "update_member", "delete_member"]);
@@ -288,7 +294,7 @@ export const WORKSPACE_TOOL_DECLARATIONS = Object.freeze([
   declaration("cancel_profile_request", "未完了の更新依頼を取り消す。", createParameters({ requestId: uuidSchema }, ["requestId"])),
 ]);
 
-const TOOL_NAMES = new Set(WORKSPACE_TOOL_DECLARATIONS.map((tool) => tool.name));
+const TOOL_NAMES = new Set(Object.keys(OPERATION_CATALOG));
 
 export function isWorkspaceWriteTool(name) {
   return WRITE_TOOLS.has(name);
@@ -1076,9 +1082,10 @@ function orgSearchLabels(state, personId) {
     .flatMap((item) => orgUnitPath(state.orgUnits, item.orgUnitId));
 }
 
-export function readWorkspaceTool(snapshot, name, args) {
+export function readWorkspaceTool(snapshot, name, args, caller) {
   const parsed = parseWorkspaceToolCall(name, args);
   if (parsed.mode !== "read") fail("INVALID_TOOL_MODE", "参照toolではありません。");
+  if (caller !== undefined) authorizeCaller(normalizeCaller(caller), parsed.toolName);
   const state = workspaceSnapshot(snapshot);
   const filters = parsed.args;
 
@@ -1495,6 +1502,16 @@ function actionPermission(role, toolName) {
   if (role === "planner" && SEARCH_SCENE_TOOLS.has(toolName)) fail("FORBIDDEN", "検索シーンの変更はオーナーまたは管理者だけが実行できます。", { status: 403 });
   if (role === "planner" && REPORT_TOOLS.has(toolName)) fail("FORBIDDEN", "レポート定義の変更はオーナーまたは管理者だけが実行できます。", { status: 403 });
   if (role === "planner" && PROFILE_ADMIN_TOOLS.has(toolName)) fail("FORBIDDEN", "更新依頼の作成・確認・取消はオーナーまたは管理者だけが実行できます。", { status: 403 });
+}
+
+function authorizeCaller(caller, toolName) {
+  if (caller?.kind === "integration") {
+    const denial = describeOperationDenial(caller, toolName);
+    if (denial) fail(denial.code, denial.message, { status: denial.status });
+    return;
+  }
+  if (toolName === READ_TOOL) return;
+  actionPermission(caller.role, toolName);
 }
 
 function payloadIsDestructive(payload) {
@@ -2082,7 +2099,8 @@ export async function planWorkspaceAction(options) {
   const { snapshot, role, toolName, args } = options ?? {};
   const parsed = parseWorkspaceToolCall(toolName, args);
   if (parsed.mode !== "write") fail("INVALID_TOOL_MODE", "変更toolではありません。");
-  actionPermission(role, parsed.toolName);
+  const caller = normalizeCaller(options?.caller, role);
+  authorizeCaller(caller, parsed.toolName);
   const current = workspaceSnapshot(snapshot);
   const requestId = resolveGenerator(options.requestId ?? (() => crypto.randomUUID()), "request ID");
   const uuidSource = options.uuid ?? (() => crypto.randomUUID());
@@ -2107,7 +2125,8 @@ export async function planWorkspaceAction(options) {
     kind: "workspace_action",
     version: 1,
     toolName: parsed.toolName,
-    role,
+    role: caller.kind === "integration" ? "integration" : caller.role,
+    caller,
     organizationId: current.organizationId,
     expectedRevision: current.revision,
     requestId,

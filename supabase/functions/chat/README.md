@@ -88,6 +88,16 @@ Supabaseのplatform JWT検証と`withSupabase({ auth: "user" })`の両方を有�
 - 保存requestは固定request ID、payload hash、expected revisionを含む。既存RPCが権限、冪等性、整合性、監査logを担保する。
 - メンバー/プロジェクトの削除はアーカイブ、アサイン/要員要件の削除は取消として計画する。
 - 招待、Authユーザー作成、role変更、組織設定はtool対象外。
+- 操作カタログ・スコープ・共有件数制限は`integration-core.mjs`を正とする。API/MCPはこのチャットURLへ相乗りしない。
+
+## Shared integration core
+
+AI秘書・将来のAPI・MCPは同じ業務カタログを使う別アダプタです。任意SQL / 任意RPC名 / 任意URLは受け付けません。
+
+- 人間セッション: 組織ロール（viewer / planner / owner·admin）
+- 外部連携: `app.integration_clients` のスコープ。秘密鍵は `mosaic_sk_` 形式で作成時だけ返す
+- 検証: `authorize_integration_request`（service_role）。レート制限は連携クライアントあたり 60/分
+- 監査: `caller_kind` は `user` / `ai` / `integration`
 
 ## Secrets and deployment
 
@@ -114,4 +124,5 @@ npm exec supabase -- functions deploy chat --project-ref PROJECT_REF
 
 - RAG / File Search: `gemini.mjs`のInteraction requestへ`tools`を追加する。
 - Additional Function Calling: `workspace-tools.mjs`へ許可済みtool、検証、preview、保存計画、testを追加する。
-- 永続的なrate limit: 現在のメモリ内制限はisolate単位のbest effortです。本番規模ではDBまたは承認済みの共有rate-limit storeへ置き換えます。
+- REST API / MCP: このFunctionとは別アダプタから`authorize_integration_request`と同一カタログを使う。
+- 永続的なrate limit: チャットのメモリ内制限はisolate単位のbest effortです。連携資格はDBウィンドウを使います。

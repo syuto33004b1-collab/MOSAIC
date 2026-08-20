@@ -261,7 +261,8 @@ select is(
         'get_my_context', 'create_organization', 'get_workspace', 'save_workspace',
         'invite_member', 'list_organization_invitations', 'revoke_organization_invitation',
         'accept_invitation', 'list_organization_members', 'manage_organization_member',
-        'list_audit_events', 'update_my_profile'
+        'list_audit_events', 'update_my_profile',
+        'create_integration_client', 'list_integration_clients', 'revoke_integration_client'
       ]::text[])
       and not procedure.prosecdef
   ),
@@ -279,7 +280,8 @@ select is(
         'get_my_context', 'create_organization', 'get_workspace', 'save_workspace',
         'invite_member', 'list_organization_invitations', 'revoke_organization_invitation',
         'accept_invitation', 'list_organization_members', 'manage_organization_member',
-        'list_audit_events', 'update_my_profile'
+        'list_audit_events', 'update_my_profile',
+        'create_integration_client', 'list_integration_clients', 'revoke_integration_client'
       ]::text[])
       and has_function_privilege('anon', procedure.oid, 'EXECUTE')
   ),
@@ -297,11 +299,12 @@ select is(
         'get_my_context', 'create_organization', 'get_workspace', 'save_workspace',
         'invite_member', 'list_organization_invitations', 'revoke_organization_invitation',
         'accept_invitation', 'list_organization_members', 'manage_organization_member',
-        'list_audit_events', 'update_my_profile'
+        'list_audit_events', 'update_my_profile',
+        'create_integration_client', 'list_integration_clients', 'revoke_integration_client'
       ]::text[])
       and has_function_privilege('authenticated', procedure.oid, 'EXECUTE')
   ),
-  12::bigint,
+  15::bigint,
   'authenticated can execute every allowlisted RPC overload'
 ); -- 11
 

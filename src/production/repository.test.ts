@@ -620,4 +620,40 @@ describe("organization invite function", () => {
       p_target_id: "00000000-0000-4000-8000-000000000022",
     });
   });
+
+  it("issues an integration client with scopes and keeps the one-time secret off the list contract", async () => {
+    const rpc = vi.fn().mockResolvedValue({
+      data: {
+        client: {
+          id: "00000000-0000-4000-8000-000000000020",
+          organizationId: "00000000-0000-4000-8000-000000000002",
+          name: "社内 MCP",
+          keyPrefix: "abc123def456",
+          scopes: ["workspace:read", "projects:write"],
+          status: "active",
+        },
+        secret: "mosaic_sk_abc123def45600112233445566778899aabbccddeeff",
+        replayed: false,
+      },
+      error: null,
+    });
+    const repository = new ProductionRepository({ rpc } as unknown as SupabaseClient);
+
+    const created = await repository.createIntegrationClient(
+      "00000000-0000-4000-8000-000000000002",
+      " 社内 MCP ",
+      ["workspace:read", "projects:write"],
+      "00000000-0000-4000-8000-000000000030",
+    );
+
+    expect(rpc).toHaveBeenCalledWith("create_integration_client", {
+      p_name: "社内 MCP",
+      p_organization_id: "00000000-0000-4000-8000-000000000002",
+      p_request_id: "00000000-0000-4000-8000-000000000030",
+      p_scopes: ["workspace:read", "projects:write"],
+    });
+    expect(created.secret).toMatch(/^mosaic_sk_/);
+    expect(created.client).toMatchObject({ name: "社内 MCP", keyPrefix: "abc123def456" });
+
+  });
 });
