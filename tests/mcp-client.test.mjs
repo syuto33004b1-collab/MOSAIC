@@ -2,6 +2,10 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   callExternalTool,
+  cancelExternalWrite,
+  isWriteTool,
+  proposeExternalWrite,
+  runConfirmedExternalWrite,
   externalToolDeclarations,
   externalToolName,
   isExternalToolName,
@@ -234,4 +238,113 @@ test("rejects arguments that are not a JSON object", async () => {
       (error) => error instanceof McpClientError && error.code === "INVALID_EXTERNAL_ARGUMENTS",
     );
   }
+});
+
+test("declares a write tool as needing confirmation and reports it as one", () => {
+  const servers = [{ serverKey: "acme_ops", name: "ACME運用", tools: ["search_ticket", "create_ticket"], writeTools: ["create_ticket"] }];
+  const declarations = externalToolDeclarations(servers);
+  assert.match(declarations[0].description, /参照します/u);
+  assert.match(declarations[1].description, /確認するまで実行されません/u);
+  assert.equal(isWriteTool(servers, "acme_ops", "create_ticket"), true);
+  assert.equal(isWriteTool(servers, "acme_ops", "search_ticket"), false);
+  assert.equal(isWriteTool(servers, "other", "create_ticket"), false);
+  assert.equal(isWriteTool(undefined, "acme_ops", "create_ticket"), false);
+});
+
+test("proposing a write contacts nothing outside MOSAIC and previews the exact arguments", async () => {
+  const calls = [];
+  const rpc = async (name, args) => {
+    calls.push({ name, args });
+    if (name === "propose_mcp_call") return { callId: "41000000-0000-4000-8000-000000000121", serverKey: "acme_ops", serverName: "ACME運用", toolName: "create_ticket" };
+    throw new Error(`unexpected rpc ${name}`);
+  };
+  const proposal = await proposeExternalWrite({
+    organizationId,
+    serverKey: "acme_ops",
+    toolName: "create_ticket",
+    args: JSON.stringify({ title: "障害対応", priority: 2 }),
+    rpc,
+    // A fetch that would fail loudly if the proposal tried to reach outside.
+    fetchImpl: () => {
+      throw new Error("no request may leave before confirmation");
+    },
+  });
+
+  assert.deepEqual(calls.map((entry) => entry.name), ["propose_mcp_call"]);
+  assert.equal(proposal.preview.type, "externalMcpWrite");
+  assert.equal(proposal.preview.destructive, true);
+  assert.deepEqual(proposal.preview.details, [
+    { label: "title", value: "障害対応" },
+    { label: "priority", value: "2" },
+  ]);
+  assert.match(proposal.preview.impacts.join(" "), /取り消せません/u);
+  assert.deepEqual(proposal.args, { title: "障害対応", priority: 2 });
+});
+
+test("runs a confirmed write with the arguments that were previewed, once", async () => {
+  const sent = [];
+  const rpc = async (name, args) => {
+    if (name === "resume_mcp_call") {
+      return { callId: args.p_call_id, serverKey: "acme_ops", serverName: "ACME運用", toolName: "create_ticket", url: "https://mcp.example.com/mcp" };
+    }
+    if (name === "complete_mcp_call") return { recorded: true };
+    throw new Error(`unexpected rpc ${name}`);
+  };
+  const fetchImpl = async (url, init) => {
+    const message = JSON.parse(init.body);
+    sent.push(message);
+    if (message.method === "initialize") return jsonResponse({ jsonrpc: "2.0", id: 1, result: {} });
+    return jsonResponse({ jsonrpc: "2.0", id: 2, result: { content: [{ type: "text", text: "TICKET-1 を作成しました" }] } });
+  };
+  const result = await runConfirmedExternalWrite({
+    organizationId,
+    serverKey: "acme_ops",
+    toolName: "create_ticket",
+    callId: "41000000-0000-4000-8000-000000000121",
+    args: { title: "障害対応" },
+    fetchImpl,
+    resolveHost: async () => ["93.184.216.34"],
+    rpc,
+    env: () => "",
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.untrusted, true);
+  assert.deepEqual(sent[1].params, { name: "create_ticket", arguments: { title: "障害対応" } });
+});
+
+test("refuses a confirmation the database no longer recognises", async () => {
+  for (const resumed of [null, { callId: "x" }, { callId: "x", url: "https://mcp.example.com/mcp", serverKey: "other", toolName: "create_ticket" }]) {
+    const rpc = async (name) => (name === "resume_mcp_call" ? resumed : { recorded: true });
+    await assert.rejects(
+      () => runConfirmedExternalWrite({
+        organizationId,
+        serverKey: "acme_ops",
+        toolName: "create_ticket",
+        callId: "41000000-0000-4000-8000-000000000121",
+        args: {},
+        fetchImpl: () => {
+          throw new Error("must not dial on a stale confirmation");
+        },
+        resolveHost: async () => ["93.184.216.34"],
+        rpc,
+        env: () => "",
+      }),
+      (error) => error instanceof McpClientError && error.code === "EXTERNAL_CONFIRMATION_STALE",
+    );
+  }
+});
+
+test("closes the pending row when the person declines", async () => {
+  const calls = [];
+  await cancelExternalWrite({
+    organizationId,
+    callId: "41000000-0000-4000-8000-000000000121",
+    rpc: async (name, args) => {
+      calls.push({ name, args });
+      return { recorded: true };
+    },
+  });
+  assert.deepEqual(calls.map((entry) => entry.name), ["complete_mcp_call"]);
+  assert.equal(calls[0].args.p_ok, false);
+  assert.equal(calls[0].args.p_error_code, "USER_CANCELLED");
 });

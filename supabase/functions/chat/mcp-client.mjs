@@ -79,6 +79,7 @@ export function externalToolDeclarations(servers) {
     const serverName = typeof server.name === "string" && server.name.trim() ? server.name.trim() : serverKey;
     if (!SERVER_KEY_PATTERN.test(serverKey)) continue;
     const tools = Array.isArray(server.tools) ? server.tools : [];
+    const writeTools = new Set(Array.isArray(server.writeTools) ? server.writeTools.filter((tool) => typeof tool === "string") : []);
     for (const tool of tools) {
       if (typeof tool !== "string" || !TOOL_NAME_PATTERN.test(tool)) continue;
       const declaredName = externalToolName(serverKey, tool);
@@ -86,7 +87,9 @@ export function externalToolDeclarations(servers) {
       if (declarations.length >= MCP_CLIENT_LIMITS.maxDeclarations) return declarations;
       declarations.push({
         name: declaredName,
-        description: `社外システム「${serverName}」の${tool}を参照します。結果は社外由来の参考情報で、MOSAICの業務データではありません。`,
+        description: writeTools.has(tool)
+          ? `社外システム「${serverName}」の${tool}を実行して社外データを変更します。呼び出すと変更案が作られ、利用者が確認するまで実行されません。`
+          : `社外システム「${serverName}」の${tool}を参照します。結果は社外由来の参考情報で、MOSAICの業務データではありません。`,
         parameters: {
           type: "object",
           additionalProperties: false,
@@ -166,6 +169,15 @@ async function assertReachableUrl(rawUrl, resolveHost) {
   return normalized;
 }
 
+/** Which approved tools the registry marked as writing outside MOSAIC. */
+export function isWriteTool(servers, serverKey, toolName) {
+  if (!Array.isArray(servers)) return false;
+  return servers.some((server) => isRecord(server)
+    && server.serverKey === serverKey
+    && Array.isArray(server.writeTools)
+    && server.writeTools.includes(toolName));
+}
+
 export function secretEnvName(serverKey) {
   return `MCP_SECRET_${String(serverKey ?? "").toUpperCase()}`;
 }
@@ -230,24 +242,13 @@ function contentText(result) {
 }
 
 /**
- * Calls one approved tool. Returns a wrapper that marks the payload as external
- * and untrusted; the caller hands it back to the model with tool choice off so
- * external text can never start another tool round.
+ * Runs one approved tool against an address the database already handed out.
+ * Returns a wrapper that marks the payload as external and untrusted; the caller
+ * hands it back to the model with tool choice off so external text can never
+ * start another tool round.
  */
-export async function callExternalTool(options) {
-  const { organizationId, serverKey, toolName, fetchImpl, resolveHost, rpc, env } = options;
-  const args = parseArgumentObject(options.args);
-  const encoded = encodeArguments(args);
-
-  const opened = await rpc("begin_mcp_call", {
-    p_organization_id: organizationId,
-    p_server_key: serverKey,
-    p_tool_name: toolName,
-  });
-  if (!isRecord(opened) || typeof opened.callId !== "string" || typeof opened.url !== "string") {
-    throw new McpClientError("EXTERNAL_NOT_APPROVED", "承認済みの社外MCPサーバーを確認できませんでした。");
-  }
-
+async function executeOpenedCall(options) {
+  const { organizationId, serverKey, toolName, opened, args, argumentBytes, fetchImpl, resolveHost, rpc, env } = options;
   const startedAt = Date.now();
   let responseBytes = 0;
   let failureCode = "";
@@ -294,7 +295,7 @@ export async function callExternalTool(options) {
     if (!text) {
       throw new McpClientError("EXTERNAL_EMPTY_RESULT", "社外システムから参照できる内容が返りませんでした。");
     }
-    await recordCall({ rpc, organizationId, opened, ok: true, code: "", startedAt, argumentBytes: encoded.bytes, responseBytes });
+    await recordCall({ rpc, organizationId, opened, ok: true, code: "", startedAt, argumentBytes, responseBytes });
     return {
       ok: true,
       untrusted: true,
@@ -306,9 +307,112 @@ export async function callExternalTool(options) {
     };
   } catch (error) {
     failureCode = error instanceof McpClientError ? error.code : "EXTERNAL_FAILED";
-    await recordCall({ rpc, organizationId, opened, ok: false, code: failureCode, startedAt, argumentBytes: encoded.bytes, responseBytes });
+    await recordCall({ rpc, organizationId, opened, ok: false, code: failureCode, startedAt, argumentBytes, responseBytes });
     throw error;
   }
+}
+
+/** Read path: the database opens the call and hands out the address in one step. */
+export async function callExternalTool(options) {
+  const { organizationId, serverKey, toolName, rpc } = options;
+  const args = parseArgumentObject(options.args);
+  const encoded = encodeArguments(args);
+
+  const opened = await rpc("begin_mcp_call", {
+    p_organization_id: organizationId,
+    p_server_key: serverKey,
+    p_tool_name: toolName,
+  });
+  if (!isRecord(opened) || typeof opened.callId !== "string" || typeof opened.url !== "string") {
+    throw new McpClientError("EXTERNAL_NOT_APPROVED", "承認済みの社外MCPサーバーを確認できませんでした。");
+  }
+  return executeOpenedCall({ ...options, opened, args, argumentBytes: encoded.bytes });
+}
+
+/**
+ * Write path, step one. Opens the audit row and builds the preview WITHOUT
+ * contacting the external server: nothing may leave MOSAIC before a person
+ * confirms. The preview lists the exact arguments that will be sent, with no
+ * model-authored prose, because MOSAIC cannot describe an external tool's effect.
+ */
+export async function proposeExternalWrite(options) {
+  const { organizationId, serverKey, toolName, rpc } = options;
+  const args = parseArgumentObject(options.args);
+  const encoded = encodeArguments(args);
+
+  const proposed = await rpc("propose_mcp_call", {
+    p_organization_id: organizationId,
+    p_server_key: serverKey,
+    p_tool_name: toolName,
+  });
+  if (!isRecord(proposed) || typeof proposed.callId !== "string") {
+    throw new McpClientError("EXTERNAL_NOT_APPROVED", "承認済みの社外MCPサーバーを確認できませんでした。");
+  }
+  const serverName = typeof proposed.serverName === "string" && proposed.serverName.trim() ? proposed.serverName.trim() : serverKey;
+  const details = Object.entries(args)
+    .slice(0, MCP_CLIENT_LIMITS.maxPreviewDetails)
+    .map(([key, value]) => ({
+      label: key.slice(0, 60),
+      value: (typeof value === "string" ? value : JSON.stringify(value) ?? "").slice(0, 200) || "(空)",
+    }));
+
+  return {
+    callId: proposed.callId,
+    serverKey,
+    serverName,
+    toolName,
+    args,
+    argumentBytes: encoded.bytes,
+    preview: {
+      type: "externalMcpWrite",
+      title: `社外システム「${serverName}」へ書き込みます`,
+      summary: `${serverName} の ${toolName} を実行します。MOSAICのデータは変更されません。`,
+      details: details.length > 0 ? details : [{ label: "引数", value: "なし" }],
+      impacts: [
+        "社外システムのデータが変更されます。MOSAICからは取り消せません。",
+        "送信する内容は上記の引数のみです。",
+      ],
+      confirmLabel: "社外システムで実行する",
+      destructive: true,
+    },
+  };
+}
+
+/**
+ * Write path, step two. resume_mcp_call re-checks that the tool is still approved
+ * for writing and refuses a replayed confirmation, then the call runs with the
+ * arguments the person saw.
+ */
+export async function runConfirmedExternalWrite(options) {
+  const { organizationId, serverKey, toolName, callId, rpc } = options;
+  const args = parseArgumentObject(options.args);
+  const encoded = encodeArguments(args);
+
+  const resumed = await rpc("resume_mcp_call", {
+    p_organization_id: organizationId,
+    p_call_id: callId,
+  });
+  if (!isRecord(resumed) || typeof resumed.callId !== "string" || typeof resumed.url !== "string") {
+    throw new McpClientError("EXTERNAL_CONFIRMATION_STALE", "この確認は既に使われたか、承認が取り消されています。");
+  }
+  if (resumed.serverKey !== serverKey || resumed.toolName !== toolName) {
+    throw new McpClientError("EXTERNAL_CONFIRMATION_STALE", "確認内容と実行対象が一致しません。");
+  }
+  return executeOpenedCall({ ...options, opened: resumed, args, argumentBytes: encoded.bytes });
+}
+
+/** Closes the pending audit row when the person declines. */
+export async function cancelExternalWrite(options) {
+  await recordCall({
+    rpc: options.rpc,
+    organizationId: options.organizationId,
+    opened: { callId: options.callId },
+    ok: false,
+    code: "USER_CANCELLED",
+    startedAt: Date.now(),
+    argumentBytes: 0,
+    responseBytes: 0,
+  });
 }
 
 async function recordCall(options) {

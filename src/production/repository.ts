@@ -964,6 +964,8 @@ export function normalizeMcpServer(value: unknown): McpServer | undefined {
   const allowedTools = readArray(record, "allowed_tools", "allowedTools")
     .flatMap((tool) => typeof tool === "string" && MCP_SERVER_LIMITS.toolNamePattern.test(tool.trim()) ? [tool.trim()] : []);
   if (allowedTools.length === 0) return undefined;
+  const writeTools = readArray(record, "write_tools", "writeTools")
+    .flatMap((tool) => typeof tool === "string" && allowedTools.includes(tool.trim()) ? [tool.trim()] : []);
   return {
     id,
     organizationId,
@@ -971,6 +973,7 @@ export function normalizeMcpServer(value: unknown): McpServer | undefined {
     name,
     url,
     allowedTools,
+    writeTools,
     status: record.status === "revoked" ? "revoked" : ("active" satisfies McpServerStatus),
     createdAt: readString(record, "created_at", "createdAt"),
     createdByName: readString(record, "created_by_name", "createdByName"),
@@ -1580,6 +1583,7 @@ export class ProductionRepository {
     name: string,
     url: string,
     allowedTools: string[],
+    writeTools: string[] = [],
     requestId = crypto.randomUUID(),
   ): Promise<CreateMcpServerResult> {
     const key = serverKey.trim().toLowerCase();
@@ -1594,6 +1598,11 @@ export class ProductionRepository {
     if (invalid) {
       throw new ProductionRepositoryError(`tool名「${invalid}」は使用できません。40文字以内の半角英数と_.-にしてください。`, { code: "INVALID_MCP_TOOLS" });
     }
+    const writes = [...new Set(writeTools.map((tool) => tool.trim()).filter(Boolean))];
+    const outside = writes.find((tool) => !tools.includes(tool));
+    if (outside) {
+      throw new ProductionRepositoryError(`書込toolは承認するtoolの中から選んでください（「${outside}」は含まれていません）。`, { code: "INVALID_MCP_WRITE_TOOLS" });
+    }
     const { data, error } = await this.client.rpc("create_mcp_server", {
       p_allowed_tools: tools,
       p_name: name.trim(),
@@ -1601,6 +1610,7 @@ export class ProductionRepository {
       p_request_id: requestId,
       p_server_key: key,
       p_url: url.trim(),
+      p_write_tools: writes,
     });
     if (error) throw rpcError("外部MCPサーバーを登録", error);
     const result = asRecord(unwrapRpcValue(data));

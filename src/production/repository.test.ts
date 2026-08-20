@@ -776,6 +776,7 @@ describe("approved external mcp servers", () => {
     name: "ACME人事",
     url: "https://mcp.example.com/mcp",
     allowed_tools: ["search_employee", "get-attendance"],
+    write_tools: ["get-attendance"],
     status: "active",
   };
 
@@ -784,12 +785,23 @@ describe("approved external mcp servers", () => {
       serverKey: "acme_hr",
       url: "https://mcp.example.com/mcp",
       allowedTools: ["search_employee", "get-attendance"],
+      writeTools: ["get-attendance"],
       status: "active",
     });
     expect(normalizeMcpServer({ ...row, url: "http://mcp.example.com/mcp" })).toBeUndefined();
     expect(normalizeMcpServer({ ...row, server_key: "Acme-HR" })).toBeUndefined();
     expect(normalizeMcpServer({ ...row, allowed_tools: ["has space"] })).toBeUndefined();
     expect(normalizeMcpServer({ ...row, allowed_tools: [] })).toBeUndefined();
+    // A write tool outside the approved set is dropped rather than trusted.
+    expect(normalizeMcpServer({ ...row, write_tools: ["not_approved"] })?.writeTools).toEqual([]);
+  });
+
+  it("refuses a write tool that is not in the approved list", async () => {
+    const rpc = vi.fn();
+    const repository = new ProductionRepository({ rpc } as unknown as SupabaseClient);
+    await expect(repository.createMcpServer(row.organization_id, "acme_hr", "n", row.url, ["ok"], ["nope"]))
+      .rejects.toThrow("書込toolは承認するtoolの中から選んでください");
+    expect(rpc).not.toHaveBeenCalled();
   });
 
   it("refuses a bad key or tool list before reaching the database", async () => {
@@ -804,7 +816,7 @@ describe("approved external mcp servers", () => {
   it("sends the deduplicated tool list and reports a replayed registration", async () => {
     const rpc = vi.fn().mockResolvedValue({ data: { server: row, replayed: true, requestId: "00000000-0000-4000-8000-000000000ab1" }, error: null });
     const repository = new ProductionRepository({ rpc } as unknown as SupabaseClient);
-    const result = await repository.createMcpServer(row.organization_id, " ACME_HR ", " ACME人事 ", ` ${row.url} `, ["search_employee", "search_employee", " get-attendance "], "00000000-0000-4000-8000-000000000ab1");
+    const result = await repository.createMcpServer(row.organization_id, " ACME_HR ", " ACME人事 ", ` ${row.url} `, ["search_employee", "search_employee", " get-attendance "], [], "00000000-0000-4000-8000-000000000ab1");
     expect(rpc).toHaveBeenCalledWith("create_mcp_server", {
       p_allowed_tools: ["search_employee", "get-attendance"],
       p_name: "ACME人事",
@@ -812,6 +824,7 @@ describe("approved external mcp servers", () => {
       p_request_id: "00000000-0000-4000-8000-000000000ab1",
       p_server_key: "acme_hr",
       p_url: row.url,
+      p_write_tools: [],
     });
     expect(result.replayed).toBe(true);
     expect(result.server.serverKey).toBe("acme_hr");

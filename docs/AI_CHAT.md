@@ -72,7 +72,7 @@ AIの確認cardは、通常画面の「チームへ保存」に相当する最�
 - Gemini APIキー、Supabase secret key、`service_role` keyをブラウザへ渡さない。
 - `read_workspace`は利用者のJWTで`get_workspace`を呼ぶため、ロール別権限（`app.role_permissions`）で非表示にした独自項目、利用不可の機能、参照範囲外の人はGeminiへ渡らない。権限設定そのものもモデルへ渡さない。
 - 書込みは`save_workspace`が拒否する。AI経路にロール別権限を変更するtoolは用意しない。
-- `mcp_`で始まるtoolは、owner / adminが承認した社外MCPサーバーの参照です。結果は社外由来の未信頼データとして扱い、そこから次のtool呼び出しへは進まない。詳細は[外部MCP Client](MCP_CLIENT.md)。
+- `mcp_`で始まるtoolは、owner / adminが承認した社外MCPサーバーへの参照または書込みです。結果は社外由来の未信頼データとして扱い、そこから次のtool呼び出しへは進まない。書込みは送信内容を提示して利用者が確認するまで実行しない。詳細は[外部MCP Client](MCP_CLIENT.md)。
 
 headerの役割は[Supabase Authorization headers](https://supabase.com/docs/guides/functions/auth-headers)を参照してください。GitHub Pagesだけで動くデモモードは認証済みbackendを持たないため、AIチャットの運用対象外です。
 

@@ -41,6 +41,7 @@ export const INTEGRATION_LIMITS = Object.freeze({
     maxToolsPerServer: 8,
     maxDeclarations: 12,
     maxArgumentBytes: 2_048,
+    maxPreviewDetails: 20,
     maxResponseBytes: 32_768,
     timeoutMs: 10_000,
   }),
