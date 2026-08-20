@@ -33,7 +33,7 @@ MOSAICのsourceと静的フロントエンドはpublicです。source、schema�
 - 社外MCPの応答は未信頼データとして扱う。指示として解釈せず、応答から次のツール呼び出しへ進まない。テキスト以外のブロックはモデルへ渡さない。
 - 社外へ送る引数はバイト数を制限し、1呼び出しごとに接続先・tool・依頼者・送受信バイト数を`app.mcp_call_logs`へ記録する。引数の値は記録しない。
 - 社外MCPの参照可否はrole別権限の対象外である。`public.begin_mcp_call`の認可は有効なmembershipだけを見る。制限されたroleでも承認済みtoolを呼べる（[#55](https://github.com/syuto33004b1-collab/MOSAIC/issues/55)で対応）。
-- **未修正**: 外部連携資格の実行者紐付けは、発行者が有効な実行roleを失うと組織内のowner/adminへフォールバックする。資格は`active`のまま残るため、適用されるrole別権限が制限の緩い側へ切り替わる（[#54](https://github.com/syuto33004b1-collab/MOSAIC/issues/54)）。発行者のrole変更時は対応する資格を失効させる運用で回避する。
+- 外部連携資格は発行した利用者としてだけ動く。発行者がactiveなowner/admin/plannerを外れた資格は、別の管理者へ昇格させず`42501`で停止する。停止理由は保有者へ返さず、owner/adminだけが`list_integration_clients`の`actorEligible`で判別する。失効と再発行はowner/adminの判断とし、自動失効はしない。
 
 ## Secret管理
 

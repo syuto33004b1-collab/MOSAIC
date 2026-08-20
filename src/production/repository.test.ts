@@ -1,7 +1,7 @@
 import type { SupabaseClient, User } from "@supabase/supabase-js";
 import { describe, expect, it, vi } from "vitest";
 import { convertOpportunityToProject, initialWorkspace } from "../domain";
-import { normalizeAuditEvent, normalizeMcpServer, normalizeMyContext, normalizeOrganizationInvitation, normalizeWorkspace, ProductionRepository, sha256Hex, workspaceChangesPayload } from "./repository";
+import { normalizeAuditEvent, normalizeIntegrationClient, normalizeMcpServer, normalizeMyContext, normalizeOrganizationInvitation, normalizeWorkspace, ProductionRepository, sha256Hex, workspaceChangesPayload } from "./repository";
 
 const user = {
   id: "00000000-0000-4000-8000-000000000001",
@@ -815,5 +815,24 @@ describe("approved external mcp servers", () => {
     });
     expect(result.replayed).toBe(true);
     expect(result.server.serverKey).toBe("acme_hr");
+  });
+});
+
+describe("integration credential actor eligibility", () => {
+  const row = {
+    id: "61000000-0000-4000-8000-000000000111",
+    organization_id: "21000000-0000-4000-8000-000000000111",
+    name: "Admin issued",
+    key_prefix: "aaaaaaaaaaaa",
+    scopes: ["workspace:read"],
+    status: "active",
+  };
+
+  it("reads actorEligible only when the RPC reports it", () => {
+    expect(normalizeIntegrationClient({ ...row, actorEligible: false })?.actorEligible).toBe(false);
+    expect(normalizeIntegrationClient({ ...row, actor_eligible: true })?.actorEligible).toBe(true);
+    // create and revoke results do not compute it, so it stays absent rather than defaulting to true.
+    expect(normalizeIntegrationClient(row)?.actorEligible).toBeUndefined();
+    expect(normalizeIntegrationClient({ ...row, actorEligible: "no" })?.actorEligible).toBeUndefined();
   });
 });
