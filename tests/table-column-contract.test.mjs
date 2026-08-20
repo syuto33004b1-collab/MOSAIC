@@ -19,6 +19,14 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
  *
  * These checks are static because the failure is a CSS/markup contract, not a
  * value a type can hold.
+ *
+ * ## What they cannot do
+ *
+ * They do not measure rendered widths. A class attached to the wrong column, or
+ * a hint that still leaves a column too narrow at some viewport, passes here.
+ * jsdom has no layout, and this repo has no browser test harness, so rendered
+ * geometry is checked by hand against the running app and recorded in the PR.
+ * What these guard is the structure that made the widths unassignable at all.
  */
 
 const read = (rel) => readFile(path.join(root, rel), "utf8");
@@ -87,6 +95,43 @@ test("a custom-field value clips rather than wrapping to two lines", async () =>
   assert.match(css, /\.custom-field-cell\s*\{[^}]*text-overflow:\s*ellipsis/u);
   // A floor, so a short value like 未設定 is not squeezed onto two lines.
   assert.match(css, /\.member-table \.col-custom\s*\{[^}]*min-width:/u);
+  // And a ceiling on the *cell*, not only the <th>. Under `auto` layout the
+  // column takes the widest cell's intrinsic width, which a <th> max-width does
+  // not bound: an 80-character unbreakable value took the column to 613px and
+  // left 4週間のキャパシティ at 39px.
+  assert.match(css, /\.custom-field-cell\s*\{[^}]*max-width:\s*\d/u);
+});
+
+/**
+ * The hints deliberately add up to more than the table's min-width. That is not
+ * a bug: `min-width` on the variable column outranks `width` on the hinted ones,
+ * so the browser holds the custom columns at their floor and compresses the
+ * rest. Measured at a 485px viewport, where the table sits at its 960px
+ * min-width: the two custom columns kept 88px each while メンバー went 190→159,
+ * スキル 140→131 and 操作 172→147. Nothing clipped, nothing starved.
+ *
+ * So there is no sum to assert. What is worth asserting is that no hint is small
+ * enough to be a typo, and that the variable column has both a floor and a
+ * ceiling — the floor is what makes the compression above land where it should.
+ */
+test("no width hint is small enough to be a typo", async () => {
+  const css = withoutComments(await read("src/styles.css"));
+  for (const table of ["portfolio", "member"]) {
+    const hints = [...css.matchAll(new RegExp(`\\.${table}-table \\.(col-[a-z]+)[^{]*\\{[^}]*?width:\\s*(\\d+)px`, "gu"))];
+    const named = new Map(hints.map((m) => [m[1], Number(m[2])]));
+    assert.ok(named.size >= 4, `${table}-table names only ${named.size} columns`);
+    for (const [col, px] of named) {
+      assert.ok(px >= 40, `${table}-table ${col} is ${px}px — too narrow to hold anything`);
+    }
+  }
+});
+
+test("the variable column has both a floor and a ceiling", async () => {
+  const css = withoutComments(await read("src/styles.css"));
+  const rule = css.match(/\.portfolio-table \.col-custom,\s*\n\.member-table \.col-custom\s*\{([^}]*)\}/u);
+  assert.ok(rule, "expected a shared .col-custom rule");
+  assert.match(rule[1], /min-width:\s*\d+px/u, "without a floor, a short value gets squeezed onto two lines");
+  assert.match(rule[1], /max-width:\s*\d+px/u);
 });
 
 test("the actions cell can grow when its buttons wrap", async () => {

@@ -1214,8 +1214,6 @@ button:focus-visible, a:focus-visible { outline: 3px solid rgba(86,104,232,.35);
    neighbours out of the table. */
 .portfolio-table .col-custom,
 .member-table .col-custom { min-width: 88px; max-width: 150px; }
-.portfolio-table td,
-.member-table td { overflow: hidden; }
 /* This cell is display: flex, which turns the shared td height into a definite
    height rather than a minimum — so when the two buttons wrapped, the flex
    lines were squeezed into 68px and overlapped by 4px. Let the row grow. */
@@ -3881,7 +3879,11 @@ h1 {
   font-size: 8px;
 }
 
-.custom-field-cell { display: block; overflow: hidden; color: #5d6678; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+/* max-width here, not only on the <th>: under `auto` layout the column takes
+   the widest cell's intrinsic width, and a <th> max-width does not bound that.
+   A long unbreakable value pushed this column to 613px and squeezed 4週間の
+   キャパシティ down to 39px. */
+.custom-field-cell { display: block; max-width: 150px; overflow: hidden; color: #5d6678; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .custom-field-facts { margin-top: 12px; }
 .custom-field-inputs,
 .work-history-editor { display: grid; gap: 10px; }
