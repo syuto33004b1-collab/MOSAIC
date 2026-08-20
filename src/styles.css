@@ -2273,6 +2273,8 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   --rose: #eec2d2;
   --focus-ring: #8f321f;
   --focus-ring-on-dark: #f8e2da;
+  --fab-safe-area: 78px;
+  --fab-safe-area-raised: 148px;
   --shadow-float: 0 18px 55px rgba(52, 17, 3, .12);
   --ease-human: cubic-bezier(.16, .64, .32, 1);
 }
@@ -2459,6 +2461,21 @@ body {
   position: relative;
   padding: 42px clamp(28px, 3.5vw, 58px) 48px;
   background: var(--paper);
+}
+
+/* A spacer, not padding: .workspace's padding is set by seven rules across the
+   breakpoints, and a shorthand in any of them would drop a padding-bottom added
+   here. Without it the last row cannot be scrolled clear of the fixed chat
+   launcher — measured at the bottom of the page, three controls stayed under it,
+   including 組織's 削除. */
+.app-shell > .workspace::after {
+  content: "";
+  display: block;
+  height: var(--fab-safe-area);
+}
+/* The change bar pushes the launcher up, so the reserve has to grow with it. */
+.app-shell:has(.change-bar) > .workspace::after {
+  height: var(--fab-safe-area-raised);
 }
 
 .workspace::before {
@@ -3139,6 +3156,7 @@ h1 {
    AI assistant
    A compact editorial margin-note treatment built from the MOSAIC palette.
    -------------------------------------------------------------------------- */
+/* The safe areas below have to match these offsets. Change one, change both. */
 .ai-chat-root {
   position: fixed;
   z-index: 50;
