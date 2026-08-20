@@ -1396,12 +1396,19 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .load-ring.open { background: conic-gradient(#73bda5 calc(var(--load) * 1%), #edf0f4 0); }
 .load-ring.over { background: conic-gradient(#e9786e 100%, #edf0f4 0); }
 .load-ring.over strong { color: #c85f56; }
-.member-week-rail { height: 39px; display: grid; grid-template-columns: repeat(4, 1fr); align-items: end; gap: 5px; }
+/* The bar and its label are separate items of the same grid, one column each,
+   so they cannot overlap: grid items in different tracks never do. They used to
+   overlap because the label was absolutely positioned inside the bar, which
+   takes it out of the track it looked like it belonged to.
+   `min-content` as the track floor means the track is never narrower than its
+   widest item — the label — so this follows --text-min if the floor moves
+   again, with no width to keep in sync. */
+.member-week-rail { display: grid; grid-template-columns: repeat(4, minmax(min-content, 1fr)); grid-template-rows: 29px auto; grid-auto-flow: column; align-items: end; column-gap: 5px; row-gap: 3px; }
 .member-week-rail i { position: relative; height: 29px; border-radius: 5px 5px 3px 3px; background: #edf0f4; overflow: visible; }
 .member-week-rail b { position: absolute; left: 0; right: 0; bottom: 0; border-radius: inherit; background: #8a97e7; }
 .member-week-rail i.open b { background: #7bc0aa; }
 .member-week-rail i.over b { background: #e87970; }
-.member-week-rail small { position: absolute; bottom: -12px; left: 50%; transform: translateX(-50%); color: #a0a7b5; font-family: var(--font-data); font-size: 5.5px; }
+.member-week-rail small { text-align: center; white-space: nowrap; color: #a0a7b5; font-family: var(--font-data); font-size: 5.5px; }
 .next-open { font-size: 8px; }
 .next-open small { margin-top: 4px; display: block; color: #969eae; font-size: 7px; }
 .quick-assign {

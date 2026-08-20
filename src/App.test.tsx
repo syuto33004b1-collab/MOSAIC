@@ -1264,3 +1264,35 @@ describe("CSV import", () => {
     expect((save.mock.calls[0][0] as WorkspaceState).members.some((member) => member.name === "CSV 花子" && member.capacity === 90)).toBe(true);
   });
 });
+
+describe("four-week capacity rail", () => {
+  /**
+   * Each week's label used to be absolutely positioned inside its bar, so the
+   * grid that was supposed to keep the four weeks apart could not: "100%" is
+   * 26.2px at the 10px floor while a segment was 19.6-21.3px, and the labels
+   * overlapped their neighbour at every width up to about 1400px and escaped
+   * the rail's own box at every width measured, up to 1920px.
+   *
+   * Bar and label are now separate items of the same grid, one column each.
+   * Grid items in different tracks cannot overlap, so this asserts the
+   * structure that makes that true rather than any pixel width. The rendered
+   * geometry is in the PR.
+   */
+  it("keeps each week's label out of its bar so the two share a grid column", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: "メンバー" }));
+
+    const rails = document.querySelectorAll(".member-week-rail");
+    expect(rails.length).toBeGreaterThan(0);
+    for (const rail of rails) {
+      // Four bars and four labels, all direct children: with
+      // grid-auto-flow: column and two rows, that is one bar and one label per
+      // column. A label nested in a bar would leave the bar's track empty of it.
+      expect(rail.querySelectorAll(":scope > i")).toHaveLength(4);
+      expect(rail.querySelectorAll(":scope > small")).toHaveLength(4);
+      expect(rail.querySelectorAll("i small")).toHaveLength(0);
+      expect(rail.children).toHaveLength(8);
+    }
+  });
+});
