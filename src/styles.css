@@ -1019,12 +1019,12 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   padding: 0 9px;
   border: 1px solid var(--line);
   border-radius: 9px;
-  color: #747e90;
+  color: var(--muted-readable);
   display: flex;
   align-items: center;
   gap: 5px;
 }
-.view-filter select { border: 0; background: transparent; color: inherit; font-size: 9px; }
+.view-filter select { border: 0; background: transparent; color: inherit; font-size: var(--text-min); }
 .toolbar-result { margin-left: 4px; color: #929aaa; font-size: 8px; }
 .view-add-button {
   height: 34px;
@@ -1049,11 +1049,11 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   padding: 0 9px;
   border: 1px solid var(--line);
   border-radius: 9px;
-  color: #747e90;
+  color: var(--muted-readable);
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 9px;
+  font-size: var(--text-min);
   font-weight: 700;
   white-space: nowrap;
 }
@@ -1089,7 +1089,7 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   gap: 12px;
 }
 .proposal-picker-group { display: grid; gap: 6px; }
-.proposal-picker-group > small { color: #929aaa; font-size: 8px; letter-spacing: .08em; }
+.proposal-picker-group > small { color: var(--muted-readable); font-size: var(--text-min); letter-spacing: .08em; }
 .proposal-picker-item {
   min-height: 44px;
   padding: 6px 8px;
@@ -1107,14 +1107,14 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .proposal-picker-item:disabled { opacity: .52; cursor: not-allowed; }
 /* flex-basis, not just width: .avatar sets flex: 0 0 34px, and in a row flex
    container the basis beats width, so width alone left a 34x28 oval. */
-.proposal-picker-item .avatar { flex: 0 0 28px; width: 28px; height: 28px; font-size: 9px; }
+.proposal-picker-item .avatar { flex: 0 0 28px; width: 28px; height: 28px; font-size: var(--text-min); }
 /* Named, not `span`: the old `.proposal-picker-item span` also matched the
    avatar span and out-ranked .avatar's flex: 0 0 34px, stretching a
    border-radius: 50% circle into a 103px-wide ellipse. A class means adding an
    icon or badge span to the row cannot resurrect that. */
 .proposal-picker-copy { min-width: 0; flex: 1; display: grid; }
 .proposal-picker-item strong { font-size: 10px; }
-.proposal-picker-item small { color: #7b8494; font-size: 8px; }
+.proposal-picker-item small { color: var(--muted-readable); font-size: var(--text-min); }
 .proposal-picker-empty { margin: 0; color: #929aaa; font-size: 9px; }
 .proposal-cards { display: grid; gap: 12px; }
 .proposal-card {
@@ -1342,7 +1342,7 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   background: #fff;
 }
 .csv-view h2 { margin: 0 0 6px; font-size: 16px; }
-.csv-lead { margin: 0 0 12px; color: #7b8494; font-size: 11px; }
+.csv-lead { margin: 0 0 12px; color: var(--muted-readable); font-size: 11px; }
 .csv-toolbar, .csv-presets, .csv-import { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
 .csv-columns { display: flex; flex-wrap: wrap; gap: 8px 12px; margin-bottom: 12px; }
 .csv-preset { display: inline-flex; align-items: center; border: 1px solid #dce2eb; border-radius: 999px; overflow: hidden; }
@@ -1472,7 +1472,7 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .horizon-caption > span { display: inline-flex; align-items: center; gap: 5px; }
 .horizon-caption i { width: 8px; height: 8px; border-radius: 3px; }
 .horizon-caption i.confirmed { background: #8391e6; }.horizon-caption i.draft { border: 1px dashed #6070c9; background: #dfe3ff; }.horizon-caption i.pipeline { background: #f3c8b5; }
-.pipeline-chip { margin-top: 3px; color: #b9472c; font-size: 7px; font-weight: 700; }
+.pipeline-chip { margin-top: 3px; color: #b9472c; font-size: var(--text-min); font-weight: 700; }
 .horizon-caption button { margin-left: auto; border: 0; background: transparent; color: #5967bd; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; font-size: 8px; font-weight: 700; }
 .report-lower-grid { margin-bottom: 16px; display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 .balance-card, .exceptions-card {
@@ -2094,7 +2094,7 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .detail-need-list em,
 .capacity-limit,
 .production-runtime-info {
-  font-size: 10px;
+  font-size: var(--text-min);
   line-height: 1.5;
 }
 
@@ -2281,6 +2281,9 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   --focus-ring-on-dark: #f8e2da;
   /* The launcher's own geometry. The reserve below is derived from these, so
      moving or resizing the launcher moves the reserve with it. */
+  /* 描画される最小の文字サイズ。これより小さい値を新しく書かない。
+     一括ルールと個別ルールの下限がこれを参照する */
+  --text-min: 10px;
   --fab-size: 56px;
   --fab-inset: max(22px, env(safe-area-inset-bottom));
   --fab-inset-raised: max(92px, calc(78px + env(safe-area-inset-bottom)));
@@ -2358,7 +2361,7 @@ body {
 }
 .brand-copy small {
   color: var(--muted);
-  font: 700 8px/1.2 var(--font-data);
+  font: 700 var(--text-min)/1.2 var(--font-data);
   letter-spacing: .04em;
   text-transform: uppercase;
 }
@@ -2378,7 +2381,7 @@ body {
   border: 0;
   border-radius: 0;
   color: var(--coral-deep);
-  font-size: 9px;
+  font-size: var(--text-min);
   letter-spacing: .14em;
 }
 
@@ -3089,7 +3092,7 @@ h1 {
     color: var(--ink);
     box-shadow: none;
   }
-  .app-shell:not(.production-shell) > .sidebar .nav-label { color: inherit; font-size: 9px; }
+  .app-shell:not(.production-shell) > .sidebar .nav-label { color: inherit; font-size: var(--text-min); }
   .app-shell:not(.production-shell) > .sidebar .profile-row {
     display: flex;
     padding: 0;
@@ -3147,7 +3150,7 @@ h1 {
   .app-shell:not(.production-shell) > .sidebar { grid-template-columns: minmax(0, 1fr) auto; }
   .app-shell:not(.production-shell) > .sidebar .brand { display: none; }
   .app-shell:not(.production-shell) > .sidebar .nav-item { min-width: 0; }
-  .app-shell:not(.production-shell) > .sidebar .profile-actions button { min-width: 34px; padding-inline: 4px; font-size: 8px; }
+  .app-shell:not(.production-shell) > .sidebar .profile-actions button { min-width: 34px; padding-inline: 4px; font-size: var(--text-min); }
   .production-sidebar .brand-copy small,
   .production-sidebar .workspace-mode small { display: none; }
   .production-sidebar .workspace-mode { margin-left: auto; padding-left: 12px; }
@@ -3286,7 +3289,7 @@ h1 {
 
 .ai-chat-heading small {
   color: var(--coral-deep);
-  font: 800 8px/1.2 var(--font-data);
+  font: 800 var(--text-min)/1.2 var(--font-data);
   letter-spacing: .16em;
 }
 
@@ -3307,7 +3310,7 @@ h1 {
   background: transparent;
   color: var(--muted-readable-dark);
   cursor: pointer;
-  font-size: 9px;
+  font-size: var(--text-min);
   font-weight: 700;
   white-space: nowrap;
 }
@@ -3394,7 +3397,7 @@ h1 {
   display: block;
   margin-bottom: 5px;
   color: var(--muted);
-  font: 800 8px/1.2 var(--font-data);
+  font: 800 var(--text-min)/1.2 var(--font-data);
   letter-spacing: .1em;
 }
 
@@ -3475,7 +3478,7 @@ h1 {
 .ai-chat-proposal-header small {
   margin: 1px 0 4px;
   color: var(--coral-deep);
-  font: 800 8px/1.2 var(--font-data);
+  font: 800 var(--text-min)/1.2 var(--font-data);
   letter-spacing: .13em;
 }
 
@@ -3516,7 +3519,7 @@ h1 {
 
 .ai-chat-proposal-details dt {
   color: var(--muted);
-  font-size: 9px;
+  font-size: var(--text-min);
   font-weight: 700;
   line-height: 1.5;
 }
@@ -3545,7 +3548,7 @@ h1 {
 
 .ai-chat-proposal-impacts strong {
   color: var(--ink);
-  font-size: 9px;
+  font-size: var(--text-min);
   font-weight: 750;
 }
 
@@ -3553,14 +3556,14 @@ h1 {
   margin: 5px 0 0;
   padding-left: 16px;
   color: var(--muted-readable-dark);
-  font-size: 9px;
+  font-size: var(--text-min);
   line-height: 1.65;
 }
 
 .ai-chat-proposal-meta {
   margin: 10px 0 0 !important;
   color: var(--coral-deep);
-  font-size: 9px !important;
+  font-size: var(--text-min) !important;
   font-weight: 750;
   line-height: 1.45 !important;
   display: flex;
@@ -3570,14 +3573,14 @@ h1 {
 
 .ai-chat-proposal-meta span {
   color: var(--muted);
-  font: 700 8px/1.45 var(--font-data);
+  font: 700 var(--text-min)/1.45 var(--font-data);
   text-align: right;
 }
 
 .ai-chat-proposal-disclosure {
   margin: 7px 0 0 !important;
   color: var(--muted-readable-dark);
-  font-size: 9px !important;
+  font-size: var(--text-min) !important;
   line-height: 1.6 !important;
 }
 
@@ -3587,7 +3590,7 @@ h1 {
   border-left: 3px solid var(--coral-deep);
   background: #fff2ed;
   color: #8c3522;
-  font-size: 9px !important;
+  font-size: var(--text-min) !important;
   line-height: 1.6 !important;
 }
 
@@ -3740,7 +3743,7 @@ h1 {
 .ai-chat-composer > p {
   margin: 7px 1px 0;
   color: var(--muted);
-  font: 700 8px/1.4 var(--font-data);
+  font: 700 var(--text-min)/1.4 var(--font-data);
   letter-spacing: .02em;
 }
 
@@ -3781,7 +3784,7 @@ h1 {
   .ai-chat-header { padding-inline: 12px; gap: 8px; }
   .ai-chat-header-icon { width: 32px; height: 32px; flex-basis: 32px; }
   .ai-chat-heading h2 { font-size: 16px; }
-  .ai-chat-clear { min-height: 40px; padding-inline: 5px; font-size: 8px; }
+  .ai-chat-clear { min-height: 40px; padding-inline: 5px; font-size: var(--text-min); }
   .ai-chat-close { width: 40px; height: 40px; flex-basis: 40px; }
   .ai-chat-log { padding: 16px 14px 20px; }
   .ai-chat-proposal { padding: 13px 12px; }
@@ -3839,10 +3842,10 @@ h1 {
 .member-org-fields,
 .org-flag-set { display: grid; gap: 8px; }
 .org-flag-set { border: 1px solid #e6eaf2; border-radius: 12px; padding: 10px 12px; }
-.org-flag-set legend { color: #7b8496; font-size: 8px; font-weight: 700; }
+.org-flag-set legend { color: var(--muted-readable); font-size: var(--text-min); font-weight: 700; }
 .org-flag-set .field-flag { display: flex; align-items: center; gap: 8px; font-size: 11px; }
 .org-flag-empty { margin: 0; color: #939bb0; font-size: 10px; }
-.skill-catalog-form label { display: grid; gap: 5px; color: #7b8496; font-size: 8px; font-weight: 700; }
+.skill-catalog-form label { display: grid; gap: 5px; color: var(--muted-readable); font-size: var(--text-min); font-weight: 700; }
 .skill-catalog-form input,
 .skill-catalog-form select {
   height: 36px;
@@ -3864,7 +3867,7 @@ h1 {
 .skill-map-table { width: 100%; border-collapse: collapse; }
 .skill-map-table th,
 .skill-map-table td { padding: 11px 14px; border-bottom: 1px solid #eef1f6; text-align: left; vertical-align: middle; }
-.skill-map-table th { color: #8b93a4; font-size: 8px; font-weight: 800; letter-spacing: .08em; }
+.skill-map-table th { color: var(--muted-readable); font-size: var(--text-min); font-weight: 800; letter-spacing: .08em; }
 .skill-map-table .category-row { background: #f7f9fc; }
 .skill-map-table .gap-row td { background: #fff6f4; }
 .skill-tree-name { display: grid; gap: 3px; }
@@ -3872,17 +3875,17 @@ h1 {
 .skill-tree-name.depth-2 { padding-left: 32px; }
 .skill-tree-name.depth-3 { padding-left: 48px; }
 .skill-tree-name strong { font-size: 12px; }
-.skill-tree-name small { color: #939bb0; font-size: 8px; }
+.skill-tree-name small { color: var(--muted-readable); font-size: var(--text-min); }
 .proficiency-rail { display: grid; grid-template-columns: repeat(5, 22px); gap: 4px; }
 .proficiency-rail i {
   height: 28px;
   border-radius: 6px;
   background: #eef1f6;
-  color: #8b93a4;
+  color: var(--muted-readable);
   display: grid;
   place-items: center;
   font-family: var(--font-data);
-  font-size: 8px;
+  font-size: var(--text-min);
   font-weight: 800;
 }
 .proficiency-rail i.filled.level-1 { background: #e8edf7; color: #5d6a86; }
@@ -3890,16 +3893,17 @@ h1 {
 .proficiency-rail i.filled.level-3 { background: #cfd8fb; color: #3d4f8d; }
 .proficiency-rail i.filled.level-4 { background: #b7c2f5; color: #2d3d7a; }
 .proficiency-rail i.filled.level-5 { background: #91a0ff; color: #172033; }
-.skill-departments { color: #6d7689; font-size: 10px; }
+.skill-departments { color: var(--muted-readable); font-size: var(--text-min); }
 .skill-need-link { border: 0; background: none; color: var(--cobalt); cursor: pointer; font: inherit; font-weight: 700; }
-.skill-gap { color: #d15b52; font-family: var(--font-data); }
-.skill-ok { color: #5f9d86; font-size: 10px; font-weight: 700; }
+.skill-gap { color: var(--coral-deep); font-family: var(--font-data); }
+.skill-ok { color: var(--sage); font-size: var(--text-min); font-weight: 700; }
 .member-skills span small,
 .profile-skills span small {
   margin-left: 4px;
-  color: #7d88b8;
+  /* 習熟度の数値は主役なので --ink。ラベル側は --muted-readable のままにして階層を作る */
+  color: var(--ink);
   font-family: var(--font-data);
-  font-size: 8px;
+  font-size: var(--text-min);
 }
 
 /* max-width here, not only on the <th>: under `auto` layout the column takes
@@ -3948,7 +3952,7 @@ h1 {
   gap: 10px;
   align-items: end;
 }
-.field-catalog-form label { display: grid; gap: 5px; color: #7b8496; font-size: 8px; font-weight: 700; }
+.field-catalog-form label { display: grid; gap: 5px; color: var(--muted-readable); font-size: var(--text-min); font-weight: 700; }
 .field-catalog-form input,
 .field-catalog-form select {
   height: 36px;
@@ -3979,7 +3983,7 @@ h1 {
   font-size: 12px;
   font-weight: 700;
 }
-.match-score small { color: #8c95a6; font-size: 7px; font-weight: 700; }
+.match-score small { color: #8c95a6; font-size: var(--text-min); font-weight: 700; }
 .saved-report-card { margin: 0 0 18px; }
 .field-surfaces { color: #6d7689; font-size: 10px; font-weight: 700; }
 
@@ -4001,7 +4005,7 @@ h1 {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  color: #6d7689;
+  color: var(--muted-readable);
   font-size: 10px;
   font-weight: 800;
   letter-spacing: .08em;
@@ -4020,7 +4024,7 @@ h1 {
 }
 .pipeline-card strong { font-size: 12px; }
 .pipeline-card small,
-.pipeline-card em { color: #7b8496; font-size: 10px; font-style: normal; }
+.pipeline-card em { color: var(--muted-readable); font-size: var(--text-min); font-style: normal; }
 .pipeline-empty { margin: 18px 4px; color: #8b94a5; font-size: 11px; }
 .detail-need-list .selected-need { border-color: #b9472c; background: #f8e2da; }
 
@@ -4033,7 +4037,7 @@ h1 {
   .app-shell > .workspace::after { display: none; }
 }
 .role-permission-card { margin: 0 0 18px; }
-.role-permission-note { margin: 0 0 10px; color: #7b8496; font-size: 11px; font-weight: 600; }
+.role-permission-note { margin: 0 0 10px; color: var(--muted-readable); font-size: 11px; font-weight: 600; }
 .role-permission-form { grid-template-columns: 180px 200px; }
 .role-permission-features,
 .role-permission-fields {
@@ -4046,7 +4050,7 @@ h1 {
   gap: 8px 14px;
 }
 .role-permission-features legend,
-.role-permission-fields legend { color: #7b8496; font-size: 8px; font-weight: 700; }
+.role-permission-fields legend { color: var(--muted-readable); font-size: var(--text-min); font-weight: 700; }
 .role-permission-form .role-permission-note { grid-column: 1 / -1; margin: 0; }
 
 .profile-request-card { margin: 0 0 18px; }
@@ -4060,7 +4064,7 @@ h1 {
   flex-wrap: wrap;
   gap: 8px 14px;
 }
-.profile-request-members legend { color: #7b8496; font-size: 8px; font-weight: 700; }
+.profile-request-members legend { color: var(--muted-readable); font-size: var(--text-min); font-weight: 700; }
 .profile-request-members label { display: flex; align-items: center; gap: 6px; color: var(--ink); font-size: 12px; font-weight: 600; }
 .profile-request-list { display: grid; gap: 12px; }
 .profile-request-item {
@@ -4070,7 +4074,7 @@ h1 {
   gap: 8px;
 }
 .profile-request-item header { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; }
-.profile-request-item header small, .profile-request-item p { color: #7883b6; font-size: 12px; }
+.profile-request-item header small, .profile-request-item p { color: var(--muted-readable); font-size: 12px; }
 .profile-request-submit { display: grid; gap: 10px; }
 .field-surfaces { color: #6d7689; font-size: 10px; font-weight: 700; }
 
