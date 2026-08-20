@@ -2273,6 +2273,12 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   --rose: #eec2d2;
   --focus-ring: #8f321f;
   --focus-ring-on-dark: #f8e2da;
+  /* The launcher's own geometry. The reserve below is derived from these, so
+     moving or resizing the launcher moves the reserve with it. */
+  --fab-size: 56px;
+  --fab-inset: max(22px, env(safe-area-inset-bottom));
+  --fab-inset-raised: max(92px, calc(78px + env(safe-area-inset-bottom)));
+  --fab-clearance: 8px;
   --shadow-float: 0 18px 55px rgba(52, 17, 3, .12);
   --ease-human: cubic-bezier(.16, .64, .32, 1);
 }
@@ -2459,6 +2465,22 @@ body {
   position: relative;
   padding: 42px clamp(28px, 3.5vw, 58px) 48px;
   background: var(--paper);
+}
+
+/* A spacer, not padding: .workspace's padding is set by seven rules across the
+   breakpoints, and a shorthand in any of them would drop a padding-bottom added
+   here. Without it the last row cannot be scrolled clear of the fixed chat
+   launcher — measured at the bottom of the page, three controls stayed under it,
+   including 組織's 削除. Derived from the launcher's own tokens so a device with
+   a bottom inset larger than 22px reserves more, not the same 78px. */
+.app-shell > .workspace::after {
+  content: "";
+  display: block;
+  height: calc(var(--fab-inset) + var(--fab-size) + var(--fab-clearance));
+}
+/* The change bar pushes the launcher up, so the reserve grows with it. */
+.app-shell:has(> .change-bar) > .workspace::after {
+  height: calc(var(--fab-inset-raised) + var(--fab-size) + var(--fab-clearance));
 }
 
 .workspace::before {
@@ -3143,7 +3165,7 @@ h1 {
   position: fixed;
   z-index: 50;
   right: clamp(16px, 2vw, 28px);
-  bottom: max(22px, env(safe-area-inset-bottom));
+  bottom: var(--fab-inset);
   display: grid;
   justify-items: end;
   color: var(--text);
@@ -3153,7 +3175,7 @@ h1 {
 
 .ai-chat-root.is-elevated,
 .change-bar ~ .ai-chat-root {
-  bottom: max(92px, calc(78px + env(safe-area-inset-bottom)));
+  bottom: var(--fab-inset-raised);
 }
 
 .ai-chat-root.is-suspended {
@@ -3162,8 +3184,8 @@ h1 {
 }
 
 .ai-chat-launcher {
-  width: 56px;
-  height: 56px;
+  width: var(--fab-size);
+  height: var(--fab-size);
   padding: 0;
   border: 1px solid var(--ink);
   border-radius: 50%;
@@ -4002,6 +4024,7 @@ h1 {
 
 @media print {
   .ai-chat-root { display: none !important; }
+  .app-shell > .workspace::after { display: none; }
 }
 .role-permission-card { margin: 0 0 18px; }
 .role-permission-note { margin: 0 0 10px; color: #7b8496; font-size: 11px; font-weight: 600; }
@@ -4047,4 +4070,5 @@ h1 {
 
 @media print {
   .ai-chat-root { display: none !important; }
+  .app-shell > .workspace::after { display: none; }
 }
