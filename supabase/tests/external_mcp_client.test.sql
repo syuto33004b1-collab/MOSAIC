@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions, pg_catalog;
 
-select plan(16);
+select plan(20);
 
 insert into auth.users (id, email, raw_user_meta_data) values
   ('11000000-0000-4000-8000-000000000101', 'mcp-owner@test.local', '{"full_name":"MCP Owner"}'::jsonb),
@@ -201,6 +201,57 @@ select throws_ok(
   '42501',
   'not authorized',
   'a non-member cannot see the approved tools'
+);
+
+reset role;
+
+-- The planner's role loses the externalMcp feature.
+insert into app.role_permissions (
+  organization_id, role, disabled_features, created_by, updated_by
+) values (
+  '21000000-0000-4000-8000-000000000101',
+  'planner',
+  array['externalMcp']::text[],
+  '11000000-0000-4000-8000-000000000101',
+  '11000000-0000-4000-8000-000000000101'
+);
+
+set local role authenticated;
+set local request.jwt.claim.role = 'authenticated';
+set local request.jwt.claim.sub = '11000000-0000-4000-8000-000000000102';
+
+select throws_ok(
+  $$select public.begin_mcp_call('21000000-0000-4000-8000-000000000101', 'acme_hr', 'search_employee')$$,
+  '42501',
+  'external mcp servers are disabled for this role',
+  'a role with externalMcp disabled cannot reach an approved server'
+);
+
+select is(
+  public.list_mcp_tools('21000000-0000-4000-8000-000000000101') -> 'servers',
+  '[]'::jsonb,
+  'the approved tools disappear from the declarations for that role'
+);
+
+set local request.jwt.claim.sub = '11000000-0000-4000-8000-000000000101';
+
+select is(
+  jsonb_array_length(public.list_mcp_tools('21000000-0000-4000-8000-000000000101') -> 'servers'),
+  2,
+  'the owner is unaffected by the planner restriction'
+);
+
+reset role;
+
+select is(
+  (
+    select count(*)
+    from app.mcp_call_logs as call_log
+    where call_log.organization_id = '21000000-0000-4000-8000-000000000101'
+      and call_log.actor_user_id = '11000000-0000-4000-8000-000000000102'
+  ),
+  1::bigint,
+  'a permission refusal opens no audit row, so only the earlier allowed call is logged'
 );
 
 select * from finish();

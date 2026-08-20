@@ -241,3 +241,22 @@ test("binds an integration credential to its issuer without escalating", async (
   assert.match(sql, /grant execute on function public\.list_integration_clients\(uuid\) to authenticated/);
   assert.doesNotMatch(sql, /grant execute on function private\./);
 });
+
+test("makes external mcp access switchable by role permissions", async () => {
+  const sql = await readFile(path.join(migrations, "20260820200000_external_mcp_role_permission.sql"), "utf8");
+  // The allow list lives in a table constraint and in the apply function; both must move together.
+  assert.equal((sql.match(/'externalMcp'/gu) ?? []).length >= 2, true, "expected externalMcp in both the constraint and the apply validation");
+  assert.match(sql, /drop constraint role_permissions_disabled_features_allowed/);
+  assert.match(sql, /add constraint role_permissions_disabled_features_allowed check/);
+  // Refused before the address is resolved and before an audit row exists.
+  assert.match(sql, /external mcp servers are disabled for this role/);
+  const beginCall = sql.match(/create or replace function public\.begin_mcp_call[\s\S]*?\$function\$;/)?.[0] ?? "";
+  assert.ok(beginCall.length > 0, "expected begin_mcp_call in the migration");
+  const guard = beginCall.indexOf("externalMcp");
+  const insert = beginCall.indexOf("insert into app.mcp_call_logs");
+  const address = beginCall.indexOf("'url', v_server.url");
+  assert.ok(guard > 0 && insert > guard, "the permission guard must precede the audit row");
+  assert.ok(address > guard, "the permission guard must precede handing out the address");
+  // Hidden from the model entirely, not merely refused on call.
+  assert.match(sql, /return jsonb_build_object\('servers', '\[\]'::jsonb\)/);
+});
