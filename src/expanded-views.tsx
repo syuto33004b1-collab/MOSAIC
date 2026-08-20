@@ -722,7 +722,7 @@ export function ProposalView({
               {favoriteMembers.slice(0, 8).map((member) => (
                 <button type="button" key={member.id} className="proposal-picker-item" onClick={() => addMember(member.id)} disabled={selectedIds.length >= MAX_PROPOSAL_MEMBERS}>
                   <span className={"avatar " + member.avatarTone}>{member.initials}</span>
-                  <span><strong>{member.name}</strong><small>{member.role}</small></span>
+                  <span className="proposal-picker-copy"><strong>{member.name}</strong><small>{member.role}</small></span>
                   <Plus size={14} />
                 </button>
               ))}
@@ -733,7 +733,7 @@ export function ProposalView({
             {pickerMembers.slice(0, 12).map((member) => (
               <button type="button" key={member.id} className="proposal-picker-item" onClick={() => addMember(member.id)} disabled={selectedIds.length >= MAX_PROPOSAL_MEMBERS}>
                 <span className={"avatar " + member.avatarTone}>{member.initials}</span>
-                <span><strong>{member.name}</strong><small>{member.role}</small></span>
+                <span className="proposal-picker-copy"><strong>{member.name}</strong><small>{member.role}</small></span>
                 <Plus size={14} />
               </button>
             ))}

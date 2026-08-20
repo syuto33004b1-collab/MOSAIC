@@ -1,5 +1,8 @@
 export type Tone = "blue" | "mint" | "orange" | "plum" | "sky";
-export type AvatarTone = "lavender" | "peach" | "sky" | "mint" | "sand" | "rose";
+/** Every tone needs a `--<tone>` custom property and an `.avatar.<tone>` rule in
+ *  styles.css. This list exists at runtime so a test can check that. */
+export const AVATAR_TONES = ["lavender", "peach", "sky", "mint", "sand", "rose"] as const;
+export type AvatarTone = (typeof AVATAR_TONES)[number];
 export type AssignmentStatus = "confirmed" | "draft";
 export type NeedStatus = "open" | "planned" | "filled";
 export type ProjectStatus = "進行中" | "要注意" | "準備中" | "完了間近" | "完了";
