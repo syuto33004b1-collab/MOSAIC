@@ -14,8 +14,8 @@
   --peach: #f5d0bd;
   --sky: #c8ddf6;
   --lavender: #d8d4fa;
-  --sand: #efdfc0;
-  --rose: #f8ccd8;
+  --sand: #f0e0b0;
+  --rose: #f9c6d8;
 }
 
 * { box-sizing: border-box; }
@@ -1114,10 +1114,11 @@ button:focus-visible, a:focus-visible { outline: 3px solid rgba(86,104,232,.35);
 /* flex-basis, not just width: .avatar sets flex: 0 0 34px, and in a row flex
    container the basis beats width, so width alone left a 34x28 oval. */
 .proposal-picker-item .avatar { flex: 0 0 28px; width: 28px; height: 28px; font-size: 9px; }
-/* Only the text wrapper grows. Without :not(.avatar) this also matched the
+/* Named, not `span`: the old `.proposal-picker-item span` also matched the
    avatar span and out-ranked .avatar's flex: 0 0 34px, stretching a
-   border-radius: 50% circle into a 103px-wide ellipse. */
-.proposal-picker-item > span:not(.avatar) { min-width: 0; flex: 1; display: grid; }
+   border-radius: 50% circle into a 103px-wide ellipse. A class means adding an
+   icon or badge span to the row cannot resurrect that. */
+.proposal-picker-copy { min-width: 0; flex: 1; display: grid; }
 .proposal-picker-item strong { font-size: 10px; }
 .proposal-picker-item small { color: #7b8494; font-size: 8px; }
 .proposal-picker-empty { margin: 0; color: #929aaa; font-size: 9px; }
@@ -2239,8 +2240,8 @@ button:focus-visible, a:focus-visible { outline: 3px solid rgba(86,104,232,.35);
   --peach: #f3c8b5;
   --sky: #d9e5de;
   --lavender: #e6d9d4;
-  --sand: #ece0cf;
-  --rose: #f0d5d5;
+  --sand: #e6d3a8;
+  --rose: #eec2d2;
   --focus-ring: #8f321f;
   --shadow-float: 0 18px 55px rgba(52, 17, 3, .12);
   --ease-human: cubic-bezier(.16, .64, .32, 1);
