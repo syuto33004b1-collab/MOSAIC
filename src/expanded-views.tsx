@@ -337,7 +337,7 @@ export function ProjectsView({
       <div className="portfolio-table-wrap">
         <table className="portfolio-table">
           <thead>
-            <tr><th><span className="sr-only">お気に入り</span></th><th>プロジェクト</th><th>状態</th>{listFields.map((field) => <th key={field.id}>{field.label}</th>)}<th>4週間の充足</th><th>進捗</th><th>次の節目</th><th>責任者</th><th><span className="sr-only">詳細</span></th></tr>
+            <tr><th className="col-favorite"><span className="sr-only">お気に入り</span></th><th className="col-name">プロジェクト</th><th className="col-status">状態</th>{listFields.map((field) => <th key={field.id} className="col-custom">{field.label}</th>)}<th className="col-rail">4週間の充足</th><th className="col-progress">進捗</th><th className="col-milestone">次の節目</th><th className="col-owner">責任者</th><th className="col-open"><span className="sr-only">詳細</span></th></tr>
           </thead>
           <tbody>
             {filtered.map((project) => {
@@ -350,7 +350,7 @@ export function ProjectsView({
                   <td>
                     <button className="project-name-cell" onClick={() => onOpen(project.id)}>
                       <span className={"project-code " + project.tone}>{project.code}</span>
-                      <span><strong>{project.name}</strong><small>{project.summary}</small></span>
+                      <span className="row-name-copy"><strong>{project.name}</strong><small>{project.summary}</small></span>
                     </button>
                   </td>
                   <td><span className={"status-pill " + statusClass[project.status]}><i />{project.status}</span>{need && <small className={"need-note " + (need.status === "planned" ? "planned" : "")}>{need.status === "planned" ? "解消予定" : need.role + " 不足"}</small>}</td>
@@ -453,7 +453,7 @@ export function OpportunitiesView({ state, onOpen, onCreate, canEdit = true }: O
         <div className="portfolio-table-wrap">
           <table className="portfolio-table">
             <thead>
-              <tr><th>案件</th><th>段階</th><th>想定期間</th><th>必要人数</th><th>責任者</th><th><span className="sr-only">詳細</span></th></tr>
+              <tr><th className="col-name">案件</th><th className="col-status">段階</th><th className="col-period">想定期間</th><th className="col-headcount">必要人数</th><th className="col-owner">責任者</th><th className="col-open"><span className="sr-only">詳細</span></th></tr>
             </thead>
             <tbody>
               {filtered.filter((opportunity) => !isActiveOpportunity(opportunity)).map((opportunity) => (
@@ -461,7 +461,7 @@ export function OpportunitiesView({ state, onOpen, onCreate, canEdit = true }: O
                   <td>
                     <button className="project-name-cell" onClick={() => onOpen(opportunity.id)}>
                       <span className={"project-code " + opportunity.tone}>{opportunity.code}</span>
-                      <span><strong>{opportunity.name}</strong><small>{opportunity.summary}</small></span>
+                      <span className="row-name-copy"><strong>{opportunity.name}</strong><small>{opportunity.summary}</small></span>
                     </button>
                   </td>
                   <td><span className={"status-pill " + opportunityStageClass[opportunity.stage]}><i />{OPPORTUNITY_STAGE_LABELS[opportunity.stage]}</span></td>
@@ -624,7 +624,7 @@ export function MembersView({
 
       <div className="member-table-wrap">
         <table className="member-table">
-          <thead><tr><th><span className="sr-only">お気に入り</span></th><th>メンバー</th><th>スキル</th>{selectedScene && <th>スコア</th>}{listFields.map((field) => <th key={field.id}>{field.label}</th>)}<th>今週</th><th>4週間のキャパシティ</th><th>次の空き</th><th><span className="sr-only">操作</span></th></tr></thead>
+          <thead><tr><th className="col-favorite"><span className="sr-only">お気に入り</span></th><th className="col-name">メンバー</th><th className="col-skills">スキル</th>{selectedScene && <th className="col-score">スコア</th>}{listFields.map((field) => <th key={field.id} className="col-custom">{field.label}</th>)}<th className="col-week">今週</th><th className="col-rail">4週間のキャパシティ</th><th className="col-next">次の空き</th><th className="col-actions"><span className="sr-only">操作</span></th></tr></thead>
           <tbody>
             {filtered.map((member) => {
               const load = memberLoad(state, member.id, weekStart);
@@ -635,7 +635,7 @@ export function MembersView({
               return (
                 <tr key={member.id}>
                   <td>{onToggleFavorite ? <FavoriteStar name={member.name} pressed={isFavorited(favorites, "member", member.id)} onToggle={() => onToggleFavorite(member.id)} /> : null}</td>
-                  <td><button className="member-name-cell" onClick={() => onOpen(member.id)}><span className={"avatar " + member.avatarTone}>{member.initials}</span><span><strong>{member.name}</strong><small>{member.role} · {member.department}{memberOrgMemberships(state, member.id).some((item) => !item.isPrimary) ? " · 兼務あり" : ""}</small></span></button></td>
+                  <td><button className="member-name-cell" onClick={() => onOpen(member.id)}><span className={"avatar " + member.avatarTone}>{member.initials}</span><span className="row-name-copy"><strong>{member.name}</strong><small>{member.role} · {member.department}{memberOrgMemberships(state, member.id).some((item) => !item.isPrimary) ? " · 兼務あり" : ""}</small></span></button></td>
                   <td><div className="member-skills">{memberSkillLevels(member).slice(0, 3).map((level) => <span key={level.name}>{level.name}<small>{level.proficiency}</small></span>)}</div></td>
                   {selectedScene && <td><span className="match-score">{match?.score ?? 0}点<small>{match?.availablePercent ?? 0}%空き</small></span></td>}
                   {listFields.map((field) => <td key={field.id}><span className="custom-field-cell">{formatCustomValue(field, customValue(member.customValues, field.id))}</span></td>)}
