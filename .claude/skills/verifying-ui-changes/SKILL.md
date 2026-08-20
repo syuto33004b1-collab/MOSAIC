@@ -145,6 +145,176 @@ for (let i = 0; i < nodes.length; i++) for (let j = i + 1; j < nodes.length; j++
 
 **`nodes` も出力も `.slice(0, N)` で切らない。** 切ると範囲外を「0件」と報告することになる（#96 でそれをやった）。O(n²) が重いなら、件数ではなく**全候補ペアを覆えると説明できる単位に分割**し、その範囲を報告に書く。「隣接する要素だけ」のような絞り方は、絶対配置・`transform`・`rowspan`・極端に長い内容で非隣接の重なりを取り落とす。
 
+### 文字が箱から出ているか
+
+**軸を両方見る。そして、測る対象は「制約している箱」。** この節を書き始めた動機は #96 と #99 で「はみ出しを 0 件と報告していた」ことだが、原因は2つとも私の測り方だった。
+
+以下はすべて **Chromium（Chrome）での実測**。仕様の一般的保証としてではなく、この環境で確認した挙動として読む。
+
+#### 1. 片方の軸しか見ていなかった
+
+`.card-heading > span`（24x24、`overflow: visible`）に「1件未対応 · 1件確認待ち」が入っている状態:
+
+| | 値 | |
+| --- | --- | --- |
+| `clientWidth` x `clientHeight` | 24x24 | |
+| `scrollWidth` x `scrollHeight` | **24x90** | |
+| `scrollWidth > clientWidth` | 24 > 24 | false ← これだけを見ていた |
+| `scrollHeight > clientHeight` | 90 > 24 | **true** |
+
+**`overflow: visible` でも scroll 系ははみ出しを報告した。** `overflow: hidden` に変えても同じ 24x90。`overflow` は変数ではなかった。
+
+```javascript
+// 「クリップされている」ではなく「scrollable overflow がある」。子孫のどれが原因かは分からない
+const hasScrollableOverflow = el =>
+  el.scrollWidth > el.clientWidth + 1 || el.scrollHeight > el.clientHeight + 1;
+```
+
+#### 2. インライン要素を測っていた
+
+**非置換インライン要素は、自分の矩形が自分の文字を含む。** 幅 40px の親に `<span>` が入って文字が 98px あるとき、実測で
+
+- `span` の矩形は **98x15**（文字と同じ）。span を基準に測ると **はみ出し 0**
+- `span.clientWidth` / `span.scrollWidth` は **0 / 0**。`0 > 0` なので scroll 判定も効かない
+- 制約しているのは親の `div`。**その箱（幅 40px）を基準にすると 58px のはみ出し**。`div.scrollWidth` 98 対 `clientWidth` 40 で scroll 判定も効く
+
+つまり「Range なら inline を拾える」ではなく、**どちらの測り方でも、基準にする箱を間違えると 0 になる。** 下のスニペットは、箱を作らない `display`（`inline` / `contents` / `ruby`）だけを飛ばして、最も近い「箱を持つ祖先」を基準にする。`inline-block` などは箱を作るので飛ばさない（下の表）。
+
+#### 3. scroll 系の残る限界（実測）
+
+| ケース | 実測 | scroll 系 | 文字の矩形 |
+| --- | --- | --- | --- |
+| 末端側へはみ出し（`overflow: visible`） | client 24x24 / scroll 74x24 | 検出する | 検出する |
+| **始端側へはみ出し**（`text-indent: -60px`） | client 24x24 / **scroll 24x24** | 見逃した | 左 60px |
+| 同じ左方向でも `direction: rtl` | scroll **74x24** | 検出する | 検出する |
+| はみ出しの**量** | flex 中央寄せ: scroll 25x35、文字 27x45 | 過小 | 27x45 |
+
+scrollable overflow は scroll origin から**末端方向**へ伸びる。既定の `horizontal-tb` / `ltr` では左と上が始端になるので、そちら側は入らない。`rtl` では左が末端になるので入る。**「左が見えない」ではなく「始端側が見えない」。** `writing-mode` によって軸と向きが変わるので、縦書きを扱うなら測り直す。
+
+#### 文字の矩形を測る（始端側と量を補う）
+
+`range.selectNodeContents(el)` は**子要素まで含む**ので、`<label>レポート名<input></label>` だと label の文字と input の和集合を測り、**17px はみ出していると誤報する**（実測で踏んだ）。その要素が自分で持つテキストノードだけを対象にする。
+
+```javascript
+const hasText = n => n.nodeType === 3 && /[^\t\n\r ]/u.test(n.textContent);   // NBSP は残す
+const textRect = el => {                     // 自前のテキストノードだけの外接矩形
+  let b = null, rects = 0;
+  for (const n of el.childNodes) {
+    if (!hasText(n)) continue;
+    const range = document.createRange(); range.selectNodeContents(n);
+    for (const r of range.getClientRects()) {
+      if (r.width < .5 || r.height < .5) continue;   // 幅0・高さありの断片は縦の誤候補になる
+      rects++;
+      b = b ? { left: Math.min(b.left, r.left), top: Math.min(b.top, r.top),
+                right: Math.max(b.right, r.right), bottom: Math.max(b.bottom, r.bottom) }
+            : { left: r.left, top: r.top, right: r.right, bottom: r.bottom };
+    }
+  }
+  return b && { ...b, rects };
+};
+const NO_BOX = /^(?:inline|contents|ruby(?:-.*)?)$/u;   // 箱を作らない display だけを飛ばす
+const frameOf = el => {                      // 基準箱の候補。ヒューリスティックで、正解の保証はない
+  for (let n = el; n; n = n.parentElement)
+    if (!NO_BOX.test(getComputedStyle(n).display)) return n;
+  return el;
+};
+const hasScrollableOverflow = el =>
+  el.scrollWidth > el.clientWidth + 1 || el.scrollHeight > el.clientHeight + 1;
+const overflowingAncestor = el => {         // flex / grid アイテムが親から出ている場合を拾う
+  for (let n = el.parentElement; n && n !== document.body; n = n.parentElement)
+    if (hasScrollableOverflow(n)) return (n.className || n.tagName).toString().slice(0, 18);
+  return null;
+};
+const paddingBox = el => {                  // clientWidth と同じ境界にそろえる
+  const r = el.getBoundingClientRect(), cs = getComputedStyle(el);
+  return { left: r.left + parseFloat(cs.borderLeftWidth), top: r.top + parseFloat(cs.borderTopWidth),
+           right: r.right - parseFloat(cs.borderRightWidth), bottom: r.bottom - parseFloat(cs.borderBottomWidth) };
+};
+const hits = [];
+for (const el of document.querySelectorAll('<対象コンテナ>, <対象コンテナ> *')) {
+  const t = textRect(el);
+  if (!t) continue;
+  const frame = frameOf(el);
+  const box = paddingBox(frame);
+  if (box.right - box.left < 1 || box.bottom - box.top < 1) continue;
+  const lt = { x: Math.max(0, box.left - t.left), y: Math.max(0, box.top - t.top) };
+  const rb = { x: Math.max(0, t.right - box.right), y: Math.max(0, t.bottom - box.bottom) };
+  if (lt.x < 1 && lt.y < 1 && rb.x < 1 && rb.y < 1) continue;   // 生の数値で判定し、表示だけ丸める
+  const cs = getComputedStyle(el);
+  hits.push({ text: [...el.childNodes].filter(hasText).map(n => n.textContent.trim()).join('').slice(0, 22),
+              cls: (el.className || el.tagName).toString().slice(0, 22),
+              frame: frame === el ? 'self' : (frame.className || frame.tagName).toString().slice(0, 18),
+              frameBox: `${(box.right - box.left).toFixed(1)}x${(box.bottom - box.top).toFixed(1)}`,
+              textBox: `${(t.right - t.left).toFixed(1)}x${(t.bottom - t.top).toFixed(1)}`,
+              spillLeftTop: `${lt.x.toFixed(1)}x${lt.y.toFixed(1)}`,      // 物理方向。論理方向ではない
+              spillRightBottom: `${rb.x.toFixed(1)}x${rb.y.toFixed(1)}`,
+              rects: t.rects, lineHeight: cs.lineHeight, display: cs.display,
+              frameOverflows: hasScrollableOverflow(frame),   // frame の子孫のどれかが原因。この文字とは限らない
+              overflowingAncestor: overflowingAncestor(frame) });
+}
+({ count: hits.length, hits })   // 件数で切らない
+```
+
+`spillLeftTop` / `spillRightBottom` は**物理方向**の名前にしている。`rtl` では左が inline-end、`vertical-rl` では軸そのものが入れ替わるので、論理方向として読まない。`scrollSays` を並べておけば、どちらの測定が拾ったのかを報告に書ける。
+
+**`frameOf()` の境界を実測で確かめた結果**（幅 40px の親、98px の文字）:
+
+| 構造 | 基準になる箱 | はみ出し |
+| --- | --- | --- |
+| block の中の inline | 親の block 40px | 58px |
+| `inline-block` (20px) の中の inline | **その `inline-block` 20px** | 78px |
+| `display: contents` の中の inline | 飛ばして block 40px | 58px |
+| `ruby` の中の inline | 飛ばして block 40px | 58px |
+| `table-cell` (20px) の中の inline | その `table-cell`。ただし内容に合わせて 98px に伸びていた | 0px |
+| 絶対配置された inline | blockify されて自分自身 | 0px（制約されていない） |
+
+`inline-block` / `inline-flex` / `inline-grid` / `inline-table` は**箱を作るので飛ばさない**。`startsWith('inline')` で書くとこれらを飛ばしてしまい、上の 78px を 58px と報告する（実測で踏んだ）。
+
+**`frameOf()` が返すのは「基準箱の候補」で、「実際に制約している箱」ではない。** 走査は最初に箱を持つ祖先で止まるので、そのさらに外側でクリップしている箱は見ない。絶対配置なら containing block も特定できない。`table-cell` は border box を返すが、実際の制約は content / padding 側にある。ruby や断片化は block / inline の二分では扱えない。
+
+**特に flex / grid アイテムは blockify されるので、走査がそのアイテム自身で止まる。** 内容に合わせて伸びたアイテムが親からはみ出していても、自分の箱と比べれば 0 になる。実測で `inline-flex`(20px) の中の 98px の文字は自分自身が基準箱になり、はみ出し 0 と出た。**そのため `overflowingAncestor` を出している** — このケースでは `inline-flex` の親が両軸の scroll 判定で引っかかった（grid トラックから出るアイテムでも同じ）。**`overflowingAncestor` に値が入っていたら、はみ出しが 0 でも見る。**
+
+#### これも「不具合」ではなく「目視すべき候補」
+
+項目定義画面で走らせると6件出て、**うち4件は誤検出**だった。
+
+| | 基準の箱 | 文字の矩形 | 左上 | 右下 | `line-height` | rects | frameOverflows | 判定 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `.sr-only`「項目定義」 | 1x1 | 96.6x35.0 | 0x0 | 95.6x34.0 | normal | 1 | true | **意図的**（1x1 に押し込んで `overflow: hidden` で隠す設計） |
+| `<strong>`「3」x3件 | 72x23 | 13.5x32.0 | 0x5.0 | 0x4.0 | 23px | 1 | true | **誤検出**（下記） |
+| `<span>`「制限なし」 | 24x24 | 20.3x29.0 | 0x0 | 0x5.0 | 15px | 2 | true | **不具合** |
+| `<span>`「1件未対応 · …」 | 24x24 | 22.2x89.0 | 0x0 | 0x65.0 | 15px | 8 | true | **不具合** |
+
+**この画面では `frameOverflows` が6件すべて true。** 両軸の scroll 判定だけで同じ候補が出るし、**同じ誤検出も出る**（`<strong>` の3件）。文字の矩形を併用する価値は、始端側を拾えることと**量が分かること**にある。ただし `frameOverflows` が true でも、原因がその文字だとは限らない（frame の子孫すべてを含む値）。
+
+`<strong>` の 5px と「制限なし」の 5px は**同じ数値で原因が違う**。
+
+- `<strong>` は折り返していない。`getClientRects()` が返すのはテキスト断片の矩形で、フォントの ascent / descent を含むため `line-height: 23px` でも 32px になる。文字自体は箱の中に収まっている
+- 「制限なし」は 15px の行が2本入っており、箱は 24px
+
+**この2つを数値だけで機械的に分けられない。** 行数の推定（矩形の高さ ÷ `line-height`）は分類の**手がかり**にはなるが、**判定に使ってはいけない**。N行の外接高さは `N × line-height` にならず、同じ行に違う `font-size`・fallback フォント・ruby・上下付きがあれば崩れ、`line-height: normal` では基準そのものが取れない。**`rects` も行数ではない**（JSX の `{a}件未対応 · {b}件確認待ち` は4テキストノードになり、同じ行を複数回数える。実測で6行に対し8個）。
+
+**候補は全件、意図的／不具合に分類してから件数を報告する。** 重なり検出と同じ規律（上記）。
+
+`hasText` はタブ・改行・半角空白だけのテキストノードを落とすので、`white-space: pre` / `pre-wrap` で意味を持つ空白は測れない。結果表示の `.trim()` は先頭・末尾の NBSP も消すので、候補の見分けがつきにくくなることがある。
+
+そのほかの誤検出要因: ゼロ幅文字だけの断片、fallback フォントや絵文字の大きなメトリクス、ruby・上下付き、`transform` やアニメーション途中、意図的な負の indent、複数行や段組みの断片を1つの外接矩形にまとめた結果の空白部分、`visibility: hidden` や透明の文字。
+
+#### この2つの測定では判断できないもの
+
+**「検出できない」ではなく「これらの測定だけでは確実な検出・原因の特定・可読性の判断ができない」。** 幾何学的なはみ出しとして偶然拾えることはある。**目視で見る。**
+
+- 祖先の `overflow` / `clip-path` / mask / `border-radius` によるクリップ、sticky / fixed 要素による状態依存の遮蔽、重なりと `z-index`
+- 疑似要素（`::before` / `::after`）、list marker、CSS counters などの generated content
+- `input` / `textarea` / `select` の値、画像・SVG・アイコン・`canvas`、SVG text
+- Shadow DOM と iframe の内部（`querySelectorAll` が入らない）、`display: contents`
+- CSS columns、ページ分割、複雑な inline fragmentation
+- `text-overflow: ellipsis` や `line-clamp` による省略そのもの（`scrollWidth` は単行省略の**候補**を出せるが、省略が実際に描画された証明ではない）
+- 低コントラスト、`opacity`、`filter`、極小文字、`transform` による縮小
+- Web フォント未読込、tofu、文字化け、欠落グリフ
+- ブラウザのズーム率、OS の文字拡大、強制カラー、ユーザースタイル
+- 特定のレスポンシブ状態やアニメーション中だけ起きるもの
+
 ### 幅0のカラムを洗い出す（可変カラムのテーブルでは必須）
 
 上のスニペットは `r.width >= 1` で絞るので、**幅0の要素は入らない。** 別に測る。
