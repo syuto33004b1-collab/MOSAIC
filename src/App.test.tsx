@@ -1286,13 +1286,19 @@ describe("four-week capacity rail", () => {
     const rails = document.querySelectorAll(".member-week-rail");
     expect(rails.length).toBeGreaterThan(0);
     for (const rail of rails) {
-      // Four bars and four labels, all direct children: with
-      // grid-auto-flow: column and two rows, that is one bar and one label per
-      // column. A label nested in a bar would leave the bar's track empty of it.
-      expect(rail.querySelectorAll(":scope > i")).toHaveLength(4);
-      expect(rail.querySelectorAll(":scope > small")).toHaveLength(4);
+      // grid-auto-flow: column over two rows fills each column top-to-bottom
+      // before moving on, so the order has to be bar, its label, next bar, its
+      // label. Counting 4 and 4 would also pass i,i,i,i,small,small,small,small,
+      // which puts every label one to three weeks away from its own bar.
+      expect([...rail.children].map((child) => child.tagName.toLowerCase()))
+        .toEqual(["i", "small", "i", "small", "i", "small", "i", "small"]);
+      // A label nested in its bar is out of the grid entirely — the original bug.
       expect(rail.querySelectorAll("i small")).toHaveLength(0);
-      expect(rail.children).toHaveLength(8);
+      // Every label reads as a percentage, so a swapped or empty cell shows up.
+      const notAPercentage = [...rail.querySelectorAll(":scope > small")]
+        .map((label) => label.textContent ?? "")
+        .filter((text) => !/^\d+%$/u.test(text));
+      expect(notAPercentage).toEqual([]);
     }
   });
 });
