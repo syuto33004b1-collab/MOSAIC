@@ -1175,8 +1175,43 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   width: 100%;
   min-width: 960px;
   border-collapse: collapse;
-  table-layout: fixed;
+  /* Not `fixed`. The header row is built from a variable number of <th>:
+     `{listFields.map(...)}` adds one per custom field the user puts in the list
+     view, and the member table adds a score column when a search scene is
+     picked. Under `fixed`, positional widths that summed to 100% starved every
+     column past the last one named, so the right-hand columns rendered at 0px.
+     Content-driven widths cannot starve a column; the wrapper scrolls instead. */
+  table-layout: auto;
 }
+/* Widths key off identity, not position, so adding a column cannot shift them.
+   These are hints under `auto` layout — the browser still grows a column whose
+   content needs it, which is why the text cells cap and ellipsis below. */
+.portfolio-table .col-favorite,
+.member-table .col-favorite { width: 44px; }
+.portfolio-table .col-status,
+.member-table .col-week { width: 96px; }
+.portfolio-table .col-progress,
+.portfolio-table .col-milestone,
+.portfolio-table .col-headcount { width: 110px; }
+.portfolio-table .col-rail,
+.member-table .col-rail { width: 124px; }
+.member-table .col-skills { width: 140px; }
+.member-table .col-next { width: 120px; }
+.portfolio-table .col-owner,
+.member-table .col-score { width: 104px; }
+.portfolio-table .col-open { width: 56px; }
+.member-table .col-actions { width: 172px; }
+.portfolio-table .col-name,
+.member-table .col-name { width: 190px; }
+.portfolio-table .col-period { width: 150px; }
+/* A long value must clip, not push the column wide enough to shove its
+   neighbours out of the table. */
+.portfolio-table .col-custom,
+.member-table .col-custom { min-width: 88px; max-width: 150px; }
+/* This cell is display: flex, which turns the shared td height into a definite
+   height rather than a minimum — so when the two buttons wrapped, the flex
+   lines were squeezed into 68px and overlapped by 4px. Let the row grow. */
+.member-table td.member-row-actions { height: auto; align-content: center; }
 .portfolio-table th,
 .member-table th {
   height: 40px;
@@ -1201,13 +1236,6 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .member-table tbody tr { transition: background .18s ease; }
 .portfolio-table tbody tr:hover,
 .member-table tbody tr:hover { background: #fafbfe; }
-.portfolio-table th:nth-child(1) { width: 27%; }
-.portfolio-table th:nth-child(2) { width: 11%; }
-.portfolio-table th:nth-child(3) { width: 18%; }
-.portfolio-table th:nth-child(4) { width: 12%; }
-.portfolio-table th:nth-child(5) { width: 14%; }
-.portfolio-table th:nth-child(6) { width: 13%; }
-.portfolio-table th:nth-child(7) { width: 5%; }
 .project-name-cell,
 .member-name-cell {
   width: 100%;
@@ -1244,6 +1272,12 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .member-name-cell strong { color: var(--ink); font-size: 10px; }
 .project-name-cell small,
 .member-name-cell small { margin-top: 4px; overflow: hidden; color: #9199a9; font-size: 7px; text-overflow: ellipsis; white-space: nowrap; }
+/* min-width: 0 is the point. A flex item defaults to min-width: auto, so this
+   wrapper refused to shrink below its text and spilled over the next column —
+   16 measured text-on-text overlaps on the project table. */
+.row-name-copy { min-width: 0; flex: 1; display: grid; }
+.project-name-cell strong,
+.member-name-cell strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .status-pill {
   width: max-content;
   padding: 5px 7px;
@@ -1315,12 +1349,6 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
    a pointer instead of not-allowed. */
 .view-add-button.ghost { margin-left: 0; }
 
-.member-table th:nth-child(1) { width: 24%; }
-.member-table th:nth-child(2) { width: 20%; }
-.member-table th:nth-child(3) { width: 10%; }
-.member-table th:nth-child(4) { width: 22%; }
-.member-table th:nth-child(5) { width: 14%; }
-.member-table th:nth-child(6) { width: 10%; }
 .member-skills { display: flex; flex-wrap: wrap; gap: 4px; }
 .member-skills span, .profile-skills span {
   padding: 4px 6px;
@@ -3846,7 +3874,11 @@ h1 {
   font-size: 8px;
 }
 
-.custom-field-cell { color: #5d6678; font-size: 11px; }
+/* max-width here, not only on the <th>: under `auto` layout the column takes
+   the widest cell's intrinsic width, and a <th> max-width does not bound that.
+   A long unbreakable value pushed this column to 613px and squeezed 4週間の
+   キャパシティ down to 39px. */
+.custom-field-cell { display: block; max-width: 150px; overflow: hidden; color: #5d6678; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .custom-field-facts { margin-top: 12px; }
 .custom-field-inputs,
 .work-history-editor { display: grid; gap: 10px; }
