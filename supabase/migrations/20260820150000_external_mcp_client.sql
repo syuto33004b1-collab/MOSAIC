@@ -565,7 +565,7 @@ Closes the audit row opened by begin_mcp_call. Only the actor who opened a
 pending row may close it. Byte counts and durations are clamped, not trusted.
 $comment$;
 
-comment on function public.create_mcp_server(uuid, text, text, text[], uuid) is $comment$
+comment on function public.create_mcp_server(uuid, text, text, text, text[], uuid) is $comment$
 Arguments: organization, server key, display name, https URL, approved tool
 names, request UUID. Owners and admins only. Active servers are capped at 5 per
 organization and 8 tools each. Private, loopback, and credential-bearing URLs
@@ -583,14 +583,14 @@ $comment$;
 revoke all on function private.mcp_server_public_json(app.mcp_servers, text) from public, anon, authenticated;
 revoke all on function private.assert_public_https_mcp_url(text) from public, anon, authenticated;
 revoke all on function private.normalize_mcp_tool_names(text[]) from public, anon, authenticated;
-revoke all on function public.create_mcp_server(uuid, text, text, text[], uuid) from public, anon, authenticated;
+revoke all on function public.create_mcp_server(uuid, text, text, text, text[], uuid) from public, anon, authenticated;
 revoke all on function public.revoke_mcp_server(uuid, uuid, uuid) from public, anon, authenticated;
 revoke all on function public.list_mcp_servers(uuid) from public, anon, authenticated;
 revoke all on function public.list_mcp_tools(uuid) from public, anon, authenticated;
 revoke all on function public.begin_mcp_call(uuid, text, text) from public, anon, authenticated;
 revoke all on function public.complete_mcp_call(uuid, uuid, boolean, text, integer, integer, integer) from public, anon, authenticated;
 
-grant execute on function public.create_mcp_server(uuid, text, text, text[], uuid) to authenticated;
+grant execute on function public.create_mcp_server(uuid, text, text, text, text[], uuid) to authenticated;
 grant execute on function public.revoke_mcp_server(uuid, uuid, uuid) to authenticated;
 grant execute on function public.list_mcp_servers(uuid) to authenticated;
 grant execute on function public.list_mcp_tools(uuid) to authenticated;
