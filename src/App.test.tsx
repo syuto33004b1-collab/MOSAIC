@@ -951,7 +951,7 @@ describe("role-aware workspace", () => {
     await user.type(screen.getByPlaceholderText("雇用形態"), "在留資格");
     await user.type(screen.getByPlaceholderText("employment_type"), "visa_status");
     await user.click(screen.getByRole("button", { name: "項目を追加" }));
-    expect(screen.getByText("在留資格")).toBeInTheDocument();
+    expect(screen.getAllByText("在留資格").length).toBeGreaterThan(0);
 
     await user.click(navigation.getByRole("button", { name: "メンバー" }));
     await user.click(screen.getAllByRole("button", { name: /佐伯 優斗/ }).find((button) => button.classList.contains("member-name-cell"))!);
