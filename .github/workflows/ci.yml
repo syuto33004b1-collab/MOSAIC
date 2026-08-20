@@ -72,6 +72,33 @@ jobs:
         if: always()
         run: npm exec supabase -- stop --no-backup
 
+  evaluation-record:
+    name: Evaluation record
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+      - name: Check the pre-PR evaluation record
+        env:
+          # The body is author-controlled. Pass it through the environment and
+          # stdin only; never interpolate it into the shell.
+          PR_BODY: ${{ github.event.pull_request.body }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: >-
+          printf '%s' "$PR_BODY" | node scripts/check-evaluation-record.mjs
+          $(git rev-list "$BASE_SHA".."$HEAD_SHA")
+
   dependency-review:
     name: Dependency review
     if: github.event_name == 'pull_request'
