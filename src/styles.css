@@ -2740,8 +2740,9 @@ h1 {
 .urgent .alert-top small,
 .alert-people button { color: var(--coral-deep); }
 .skill-chips span,
+/* スキル名が主ラベル。中の数値（`small`）は --muted-readable に落として従にする */
 .member-skills span,
-.profile-skills span { border-radius: 3px; background: var(--paper-deep); color: var(--muted); }
+.profile-skills span { border-radius: 3px; background: var(--paper-deep); color: var(--ink); }
 .all-alerts { color: var(--ink); }
 .all-alerts span { color: var(--coral-deep); }
 .attention-clear { border-color: #b9d4c5; border-radius: 3px; background: var(--sage-soft); color: var(--sage); }
@@ -3289,7 +3290,7 @@ h1 {
 
 .ai-chat-heading small {
   color: var(--coral-deep);
-  font: 800 var(--text-min)/1.2 var(--font-data);
+  font: 800 8px/1.2 var(--font-data);
   letter-spacing: .16em;
 }
 
@@ -3310,7 +3311,7 @@ h1 {
   background: transparent;
   color: var(--muted-readable-dark);
   cursor: pointer;
-  font-size: var(--text-min);
+  font-size: 9px;
   font-weight: 700;
   white-space: nowrap;
 }
@@ -3397,7 +3398,7 @@ h1 {
   display: block;
   margin-bottom: 5px;
   color: var(--muted);
-  font: 800 var(--text-min)/1.2 var(--font-data);
+  font: 800 8px/1.2 var(--font-data);
   letter-spacing: .1em;
 }
 
@@ -3478,7 +3479,7 @@ h1 {
 .ai-chat-proposal-header small {
   margin: 1px 0 4px;
   color: var(--coral-deep);
-  font: 800 var(--text-min)/1.2 var(--font-data);
+  font: 800 8px/1.2 var(--font-data);
   letter-spacing: .13em;
 }
 
@@ -3519,7 +3520,7 @@ h1 {
 
 .ai-chat-proposal-details dt {
   color: var(--muted);
-  font-size: var(--text-min);
+  font-size: 9px;
   font-weight: 700;
   line-height: 1.5;
 }
@@ -3548,7 +3549,7 @@ h1 {
 
 .ai-chat-proposal-impacts strong {
   color: var(--ink);
-  font-size: var(--text-min);
+  font-size: 9px;
   font-weight: 750;
 }
 
@@ -3556,14 +3557,14 @@ h1 {
   margin: 5px 0 0;
   padding-left: 16px;
   color: var(--muted-readable-dark);
-  font-size: var(--text-min);
+  font-size: 9px;
   line-height: 1.65;
 }
 
 .ai-chat-proposal-meta {
   margin: 10px 0 0 !important;
   color: var(--coral-deep);
-  font-size: var(--text-min) !important;
+  font-size: 9px !important;
   font-weight: 750;
   line-height: 1.45 !important;
   display: flex;
@@ -3573,14 +3574,14 @@ h1 {
 
 .ai-chat-proposal-meta span {
   color: var(--muted);
-  font: 700 var(--text-min)/1.45 var(--font-data);
+  font: 700 8px/1.45 var(--font-data);
   text-align: right;
 }
 
 .ai-chat-proposal-disclosure {
   margin: 7px 0 0 !important;
   color: var(--muted-readable-dark);
-  font-size: var(--text-min) !important;
+  font-size: 9px !important;
   line-height: 1.6 !important;
 }
 
@@ -3590,7 +3591,7 @@ h1 {
   border-left: 3px solid var(--coral-deep);
   background: #fff2ed;
   color: #8c3522;
-  font-size: var(--text-min) !important;
+  font-size: 9px !important;
   line-height: 1.6 !important;
 }
 
@@ -3743,7 +3744,7 @@ h1 {
 .ai-chat-composer > p {
   margin: 7px 1px 0;
   color: var(--muted);
-  font: 700 var(--text-min)/1.4 var(--font-data);
+  font: 700 8px/1.4 var(--font-data);
   letter-spacing: .02em;
 }
 
@@ -3784,7 +3785,7 @@ h1 {
   .ai-chat-header { padding-inline: 12px; gap: 8px; }
   .ai-chat-header-icon { width: 32px; height: 32px; flex-basis: 32px; }
   .ai-chat-heading h2 { font-size: 16px; }
-  .ai-chat-clear { min-height: 40px; padding-inline: 5px; font-size: var(--text-min); }
+  .ai-chat-clear { min-height: 40px; padding-inline: 5px; font-size: 8px; }
   .ai-chat-close { width: 40px; height: 40px; flex-basis: 40px; }
   .ai-chat-log { padding: 16px 14px 20px; }
   .ai-chat-proposal { padding: 13px 12px; }
@@ -3900,8 +3901,9 @@ h1 {
 .member-skills span small,
 .profile-skills span small {
   margin-left: 4px;
-  /* 習熟度の数値は主役なので --ink。ラベル側は --muted-readable のままにして階層を作る */
-  color: var(--ink);
+  /* スキル名が主ラベルで、これはその修飾。--font-data で区別を付ける方が、
+     名前より濃くして階層を逆転させるより素直 */
+  color: var(--muted-readable);
   font-family: var(--font-data);
   font-size: var(--text-min);
 }
