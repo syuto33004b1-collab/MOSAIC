@@ -113,8 +113,6 @@ type ProjectsViewProps = {
   state: WorkspaceState;
   weekOffset: number;
   onOpen: (projectId: string) => void;
-  onCreate: () => void;
-  canEdit?: boolean;
   query?: string;
   onQueryChange?: (query: string) => void;
   favorites?: Favorite[];
@@ -128,7 +126,6 @@ type MembersViewProps = {
   state: WorkspaceState;
   weekOffset: number;
   onOpen: (memberId: string) => void;
-  onAdd: () => void;
   onAssign: (memberId: string) => void;
   onAddScene: (input: {
     name: string;
@@ -163,7 +160,6 @@ type ProposalViewProps = {
   onSelectedIdsChange: (ids: string[]) => void;
   onAnonymousChange: (value: boolean) => void;
   onOpenMember: (memberId: string) => void;
-  onCopyLink: () => void;
   onToggleFavorite?: (memberId: string) => void;
 };
 
@@ -181,8 +177,6 @@ type ReportsViewProps = {
 type OpportunitiesViewProps = {
   state: WorkspaceState;
   onOpen: (opportunityId: string) => void;
-  onCreate: () => void;
-  canEdit?: boolean;
 };
 
 type SkillsViewProps = {
@@ -276,8 +270,6 @@ export function ProjectsView({
   state,
   weekOffset,
   onOpen,
-  onCreate,
-  canEdit = true,
   query,
   onQueryChange,
   favorites = [],
@@ -331,7 +323,6 @@ export function ProjectsView({
         <label className="view-toggle"><input type="checkbox" checked={favoritesOnly} onChange={(event) => onFavoritesOnlyChange?.(event.target.checked)} disabled={!onFavoritesOnlyChange} />お気に入りのみ</label>
         <span className="toolbar-result">{filtered.length}件を表示</span>
         {onCopyQuery && searchValue.trim() && <button className="view-add-button ghost" type="button" onClick={onCopyQuery}>検索リンクをコピー</button>}
-        {canEdit && <button className="view-add-button" onClick={onCreate}><Plus size={15} />プロジェクトを追加</button>}
       </div>
 
       <div className="portfolio-table-wrap">
@@ -384,7 +375,7 @@ const opportunityStageClass: Record<OpportunityStage, string> = {
   lost: "closing",
 };
 
-export function OpportunitiesView({ state, onOpen, onCreate, canEdit = true }: OpportunitiesViewProps) {
+export function OpportunitiesView({ state, onOpen }: OpportunitiesViewProps) {
   const [query, setQuery] = useState("");
   const [stage, setStage] = useState("進行中");
   const queryNeedle = query.toLowerCase();
@@ -426,7 +417,6 @@ export function OpportunitiesView({ state, onOpen, onCreate, canEdit = true }: O
           {["進行中", "引き合い", "提案", "商談", "受注", "失注", "すべて"].map((option) => <option key={option}>{option}</option>)}
         </select></label>
         <span className="toolbar-result">{filtered.length}件を表示</span>
-        {canEdit && <button className="view-add-button" onClick={onCreate}><Plus size={15} />受注前案件を追加</button>}
       </div>
 
       <div className="pipeline-board">
@@ -484,12 +474,10 @@ export function MembersView({
   state,
   weekOffset,
   onOpen,
-  onAdd,
   onAssign,
   onAddScene,
   onDeleteScene,
   canEdit = true,
-  canManageMembers = true,
   canManageScenes = false,
   query,
   onQueryChange,
@@ -603,7 +591,6 @@ export function MembersView({
         <label className="view-toggle"><input type="checkbox" checked={favoritesOnly} onChange={(event) => onFavoritesOnlyChange?.(event.target.checked)} disabled={!onFavoritesOnlyChange} />お気に入りのみ</label>
         <span className="toolbar-result">{selectedScene ? "スコアの高い順" : "空き率の高い順"}</span>
         {onCopyQuery && searchValue.trim() && <button className="view-add-button ghost" type="button" onClick={onCopyQuery}>検索リンクをコピー</button>}
-        {canManageMembers && <button className="view-add-button" onClick={onAdd}><Plus size={15} />メンバーを追加</button>}
       </div>
 
       {canManageScenes && (
@@ -668,7 +655,6 @@ export function ProposalView({
   onSelectedIdsChange,
   onAnonymousChange,
   onOpenMember,
-  onCopyLink,
   onToggleFavorite,
 }: ProposalViewProps) {
   const [pickerQuery, setPickerQuery] = useState("");
@@ -710,7 +696,6 @@ export function ProposalView({
           <EyeOff size={14} />氏名・勤務地を隠す
         </label>
         <span className="toolbar-result">最大{MAX_PROPOSAL_MEMBERS}名。社内リンクはログインが必要です。</span>
-        <button className="view-add-button" onClick={onCopyLink} disabled={selected.length === 0}>この提案のリンクをコピー</button>
       </div>
 
       <div className="proposal-layout">
