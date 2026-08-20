@@ -152,6 +152,30 @@ getComputedStyle(document.querySelector('.role-permission-form')).gridTemplateCo
 
 使ったブラウザ（Claude in Chrome / in-app）と、実際の URL も報告に書く。
 
+## 評価者へ渡す画像を残す
+
+`evaluating-before-pr` は UI 差分のときスクリーンショットを `-i` で添付する。そのためのファイルをここで作る。
+
+**現行環境でファイル保存を確認できたのは chrome-devtools の `take_screenshot { filePath }` だけ**（`claude-in-chrome` の `save_to_disk` は保存先を特定できず、`Claude_Browser` にはパラメータが無い）。
+
+```
+chrome-devtools.list_pages                     ← 選択中のページを確認する
+chrome-devtools.new_page { url: <起動時の URL> } ← about:blank なら開き直す
+chrome-devtools.take_screenshot { filePath: "<scratchpad>/ui-<画面>-<幅>-<連番>.png", format: "png" }
+```
+
+**白画像を残さない。** ブラウザが再接続すると選択ページが `about:blank` に戻り、そのまま撮ると真っ白になる。実際にそれを評価へ添付して Critical を受けた。
+
+1. `list_pages` で選択中のページが対象 URL であることを確認する
+2. 保存後、**画像を自分で `Read` して中身を見る**
+3. 機械的にも確認できる。伸張後のユニークバイト数が極端に少なければ単色である（実測: 白画像 3、実画像 253）。ファイルサイズも目安（実測: 15 KB 対 99 KB）
+
+**ファイル名は毎回変える。** 同名を使い回すと古い画像や前回の白画像を誤って添付する。
+
+`確認済み` と判定した対象から残す。desktop と narrow を各1枚が基本で、状態で見た目が変わるものはその状態も残す。scratchpad に置き、リポジトリへはコミットしない。
+
+残した画像について、**画面名・URL・viewport・ファイル名**を対応表に併記する。評価ゲートがそのままブリーフへ写せるようにする。
+
 ## 認証が必要な画面
 
 共有モードの画面はログインが必要で、**認証操作は代行しない**。
