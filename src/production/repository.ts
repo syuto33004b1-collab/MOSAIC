@@ -29,6 +29,11 @@ import {
   type RevokeWebhookEndpointResult,
   type WorkspaceEnvelope,
   type WorkspacePermissions,
+  type McpServer,
+  type McpServerStatus,
+  type CreateMcpServerResult,
+  type RevokeMcpServerResult,
+  MCP_SERVER_LIMITS,
   INTEGRATION_SCOPES,
   WEBHOOK_EVENTS,
 } from "./types";
@@ -944,6 +949,32 @@ export function normalizeWebhookEndpoint(value: unknown): WebhookEndpoint | unde
   };
 }
 
+export function normalizeMcpServer(value: unknown): McpServer | undefined {
+  const record = asRecord(value);
+  const id = readIdentifier(record, "id");
+  const organizationId = readString(record, "organization_id", "organizationId");
+  const serverKey = readString(record, "server_key", "serverKey");
+  const name = readString(record, "name");
+  const url = readString(record, "url");
+  if (!record || !id || !organizationId || !serverKey || !name || !url) return undefined;
+  if (!MCP_SERVER_LIMITS.serverKeyPattern.test(serverKey) || !url.startsWith("https://")) return undefined;
+  const allowedTools = readArray(record, "allowed_tools", "allowedTools")
+    .flatMap((tool) => typeof tool === "string" && MCP_SERVER_LIMITS.toolNamePattern.test(tool.trim()) ? [tool.trim()] : []);
+  if (allowedTools.length === 0) return undefined;
+  return {
+    id,
+    organizationId,
+    serverKey,
+    name,
+    url,
+    allowedTools,
+    status: record.status === "revoked" ? "revoked" : ("active" satisfies McpServerStatus),
+    createdAt: readString(record, "created_at", "createdAt"),
+    createdByName: readString(record, "created_by_name", "createdByName"),
+    revokedAt: readString(record, "revoked_at", "revokedAt"),
+  };
+}
+
 function auditSummary(action: string, entityType: string, oldData?: UnknownRecord, newData?: UnknownRecord) {
   const entityLabels: Record<string, string> = {
     assignments: "アサイン",
@@ -1530,6 +1561,73 @@ export class ProductionRepository {
       changed: result?.changed === true,
       requestId: readString(result, "request_id", "requestId") ?? requestId,
       endpoint,
+    };
+  }
+
+  async listMcpServers(organizationId: string): Promise<McpServer[]> {
+    const { data, error } = await this.client.rpc("list_mcp_servers", { p_organization_id: organizationId });
+    if (error) throw rpcError("外部MCPサーバーを読み込み", error);
+    const values = Array.isArray(data) ? data : readArray(asRecord(unwrapRpcValue(data)), "servers", "items");
+    return values.map(normalizeMcpServer).filter((item): item is McpServer => Boolean(item));
+  }
+
+  async createMcpServer(
+    organizationId: string,
+    serverKey: string,
+    name: string,
+    url: string,
+    allowedTools: string[],
+    requestId = crypto.randomUUID(),
+  ): Promise<CreateMcpServerResult> {
+    const key = serverKey.trim().toLowerCase();
+    if (!MCP_SERVER_LIMITS.serverKeyPattern.test(key)) {
+      throw new ProductionRepositoryError("サーバーキーは英小文字で始まる16文字以内の半角英数と_にしてください。", { code: "INVALID_MCP_SERVER_KEY" });
+    }
+    const tools = [...new Set(allowedTools.map((tool) => tool.trim()).filter(Boolean))];
+    if (tools.length === 0 || tools.length > MCP_SERVER_LIMITS.maxToolsPerServer) {
+      throw new ProductionRepositoryError(`承認するtoolは1件以上${MCP_SERVER_LIMITS.maxToolsPerServer}件以内で指定してください。`, { code: "INVALID_MCP_TOOLS" });
+    }
+    const invalid = tools.find((tool) => !MCP_SERVER_LIMITS.toolNamePattern.test(tool));
+    if (invalid) {
+      throw new ProductionRepositoryError(`tool名「${invalid}」は使用できません。40文字以内の半角英数と_.-にしてください。`, { code: "INVALID_MCP_TOOLS" });
+    }
+    const { data, error } = await this.client.rpc("create_mcp_server", {
+      p_allowed_tools: tools,
+      p_name: name.trim(),
+      p_organization_id: organizationId,
+      p_request_id: requestId,
+      p_server_key: key,
+      p_url: url.trim(),
+    });
+    if (error) throw rpcError("外部MCPサーバーを登録", error);
+    const result = asRecord(unwrapRpcValue(data));
+    const server = normalizeMcpServer(result?.server ?? result);
+    if (!server) throw new ProductionRepositoryError("登録した外部MCPサーバーを確認できませんでした。", { code: "INVALID_MCP_SERVER" });
+    return {
+      server,
+      requestId: readString(result, "request_id", "requestId") ?? requestId,
+      replayed: result?.replayed === true,
+    };
+  }
+
+  async revokeMcpServer(
+    organizationId: string,
+    serverId: string,
+    requestId = crypto.randomUUID(),
+  ): Promise<RevokeMcpServerResult> {
+    const { data, error } = await this.client.rpc("revoke_mcp_server", {
+      p_organization_id: organizationId,
+      p_request_id: requestId,
+      p_server_id: serverId,
+    });
+    if (error) throw rpcError("外部MCPサーバーを停止", error);
+    const result = asRecord(unwrapRpcValue(data));
+    const server = normalizeMcpServer(result?.server ?? result);
+    if (!server) throw new ProductionRepositoryError("停止後の外部MCPサーバーを確認できませんでした。", { code: "INVALID_MCP_SERVER" });
+    return {
+      changed: result?.changed === true,
+      requestId: readString(result, "request_id", "requestId") ?? requestId,
+      server,
     };
   }
 

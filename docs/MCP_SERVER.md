@@ -13,6 +13,8 @@ POST https://PROJECT_REF.supabase.co/functions/v1/mcp
 
 OAuth Authorization Server は今段の対象外です。
 
+AI秘書から社外MCPサーバーへ接続する逆方向の出口は別実装です。[外部MCP Client](MCP_CLIENT.md)を参照してください。
+
 ## 公開面
 
 - Tool: `read_workspace` のみ

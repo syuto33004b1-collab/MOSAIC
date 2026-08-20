@@ -43,3 +43,15 @@ test("shared limits stay aligned with the existing chat and save_workspace ceili
   assert.equal(roleMeetsMinimum("admin", "admin"), true);
   assert.equal(roleMeetsMinimum("planner", "admin"), false);
 });
+
+test("outbound mcp limits sit beside the existing ones without changing them", () => {
+  assert.equal(INTEGRATION_LIMITS.mcpClient.limit, 20);
+  assert.equal(INTEGRATION_LIMITS.mcpClient.maxServersPerOrg, 5);
+  assert.equal(INTEGRATION_LIMITS.mcpClient.maxToolsPerServer, 8);
+  assert.equal(INTEGRATION_LIMITS.mcpClient.maxArgumentBytes, 2_048);
+  assert.equal(INTEGRATION_LIMITS.mcpClient.maxResponseBytes, 32_768);
+  assert.equal(INTEGRATION_LIMITS.mcpClient.timeoutMs, 10_000);
+  // The outbound client must not add or rename a workspace tool or a scope.
+  assert.equal(Object.keys(OPERATION_CATALOG).length, WORKSPACE_TOOL_DECLARATIONS.length);
+  assert.equal(INTEGRATION_SCOPES.length, 5);
+});

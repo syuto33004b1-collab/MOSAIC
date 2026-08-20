@@ -231,6 +231,41 @@ export type RevokeWebhookEndpointResult = {
   endpoint: WebhookEndpoint;
 };
 
+export type McpServerStatus = "active" | "revoked";
+
+/** An external MCP server an owner or admin approved for the AI secretary. */
+export type McpServer = {
+  id: string;
+  organizationId: string;
+  serverKey: string;
+  name: string;
+  url: string;
+  allowedTools: string[];
+  status: McpServerStatus;
+  createdAt?: string;
+  createdByName?: string;
+  revokedAt?: string;
+};
+
+export type CreateMcpServerResult = {
+  server: McpServer;
+  requestId?: string;
+  replayed: boolean;
+};
+
+export type RevokeMcpServerResult = {
+  changed: boolean;
+  requestId?: string;
+  server: McpServer;
+};
+
+export const MCP_SERVER_LIMITS = Object.freeze({
+  maxServersPerOrg: 5,
+  maxToolsPerServer: 8,
+  serverKeyPattern: /^[a-z][a-z0-9_]{0,15}$/u,
+  toolNamePattern: /^[A-Za-z][A-Za-z0-9_.-]{0,39}$/u,
+});
+
 export class ProductionRepositoryError extends Error {
   readonly code: string;
   readonly retryable: boolean;

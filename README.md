@@ -28,6 +28,7 @@
 - 外部連携資格、バージョン付き外部API、Webhook通知
 - 外部AI向けの参照専用 Remote MCP Server
 - ロール別の項目・機能・参照範囲の権限設定
+- AI秘書から承認済み外部MCPサーバーを参照するMCP Client
 - revision比較による競合防止、冪等保存、Realtime更新通知
 
 Supabase接続値が未設定の環境では、画面上に`DEMO`と表示し、サンプルデータだけをブラウザの`localStorage`へ保存します。接続済み環境でDB読込に失敗した場合はデモへ切り替えず、エラーとして停止します。
@@ -49,7 +50,7 @@ npm run typecheck
 
 ## 共有運用のセットアップ
 
-業務データは非公開の`app` schemaに置き、ブラウザは認証済みRPCだけを利用します。migration、Auth URL、GitHub Repository Variables、role別検証は[Supabaseセットアップ](docs/SUPABASE_SETUP.md)を参照してください。AIチャットのserver-side APIキー、ローカル実行、Functionデプロイは[AIチャット設定](docs/AI_CHAT.md)に記載しています。外部APIとWebhookは[外部API](docs/EXTERNAL_API.md)を参照してください。Remote MCP Serverは[MCP Server](docs/MCP_SERVER.md)を参照してください。リリース、バックアップ、障害対応は[運用手順](docs/OPERATIONS.md)、認可とsecretの境界は[セキュリティ方針](docs/SECURITY.md)に記載しています。
+業務データは非公開の`app` schemaに置き、ブラウザは認証済みRPCだけを利用します。migration、Auth URL、GitHub Repository Variables、role別検証は[Supabaseセットアップ](docs/SUPABASE_SETUP.md)を参照してください。AIチャットのserver-side APIキー、ローカル実行、Functionデプロイは[AIチャット設定](docs/AI_CHAT.md)に記載しています。外部APIとWebhookは[外部API](docs/EXTERNAL_API.md)を参照してください。Remote MCP Serverは[MCP Server](docs/MCP_SERVER.md)、AI秘書から社外MCPへ接続する出口は[外部MCP Client](docs/MCP_CLIENT.md)を参照してください。リリース、バックアップ、障害対応は[運用手順](docs/OPERATIONS.md)、認可とsecretの境界は[セキュリティ方針](docs/SECURITY.md)に記載しています。
 
 `.env.local`には公開可能な接続値だけを設定します。
 
