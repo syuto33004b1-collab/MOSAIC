@@ -5,7 +5,7 @@ description: Use before opening a pull request whose diff changes anything that 
 
 # UI 変更の描画確認
 
-順序は [AGENTS.md](../../../AGENTS.md) が唯一の出典。ここには**手段**だけを書く。原則は環境を問わず同じ。
+順序・原則・**発火条件**は [AGENTS.md](../../../AGENTS.md) が唯一の出典。ここには**手段**だけを書く。発火条件をここで広げたり狭めたりしない。
 
 Testing Library のテストが通っていることは、**この確認を省く理由にならない**。文字列の存在は確認できるが、レイアウト崩れ、はみ出し、重なり、切詰めは検出できない。
 
@@ -125,6 +125,7 @@ getComputedStyle(document.querySelector('.role-permission-form')).gridTemplateCo
 - `確認済み` と書けるのは、**実際に画像を見て判断した**対象だけ
 - 画像が取れていないなら `未確認`。DOM とテキストだけで `確認済み` にしない
 - `不合格` があれば直してからやり直す
+- **差分が影響する対象に `未確認` が残るなら、評価と PR へ進まず利用者へ判断を仰ぐ**（AGENTS.md の 9）。認証画面に限らない。撮影に失敗した場合も同じ
 
 使ったブラウザ手段と、実際の URL も報告に書く。
 
