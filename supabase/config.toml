@@ -435,3 +435,9 @@ enabled = true
 verify_jwt = false
 import_map = "./functions/api/deno.json"
 entrypoint = "./functions/api/index.ts"
+
+[functions.mcp]
+enabled = true
+verify_jwt = false
+import_map = "./functions/mcp/deno.json"
+entrypoint = "./functions/mcp/index.ts"

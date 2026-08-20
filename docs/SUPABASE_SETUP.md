@@ -70,6 +70,7 @@ Authentication設定では、Email providerの`Allow new users to sign up`を無
 ```powershell
 npm exec supabase -- functions deploy invite --project-ref PROJECT_REF
 npm exec supabase -- functions deploy api --project-ref PROJECT_REF
+npm exec supabase -- functions deploy mcp --project-ref PROJECT_REF
 ```
 
 hosted Functionには`SUPABASE_URL`と`SUPABASE_SERVICE_ROLE_KEY`が自動で入ります。値をlogやartifactへ出しません。
