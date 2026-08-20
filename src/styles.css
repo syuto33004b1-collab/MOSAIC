@@ -1044,7 +1044,7 @@ button:focus-visible, a:focus-visible { outline: 3px solid rgba(86,104,232,.35);
   font-weight: 700;
 }
 .view-add-button:hover { border-color: #9ba7e8; background: #f7f8ff; }
-.view-add-button.ghost { margin-left: 0; color: #687285; }
+.view-add-button.ghost { margin-left: 0; }
 .view-add-button:disabled { opacity: .52; cursor: not-allowed; }
 .view-toggle {
   height: 34px;
@@ -1306,7 +1306,7 @@ button:focus-visible, a:focus-visible { outline: 3px solid rgba(86,104,232,.35);
 .csv-preset button + button { border-left: 1px solid #dce2eb; background: #fff; color: #687285; }
 .csv-issues { margin: 0; padding-left: 18px; color: #b42318; font-size: 11px; }
 .csv-import { padding-top: 8px; border-top: 1px solid #eef1f6; }
-.view-add-button.ghost { margin-left: 0; color: #687285; cursor: pointer; }
+.view-add-button.ghost { margin-left: 0; cursor: pointer; }
 
 .member-table th:nth-child(1) { width: 24%; }
 .member-table th:nth-child(2) { width: 20%; }
@@ -2725,6 +2725,15 @@ h1 {
   color: #fff;
 }
 .view-add-button:hover { border-color: var(--ink); background: var(--ink); }
+/* .ghost is the unfilled variant. The rule above gives every .view-add-button a
+   coral fill, so the ghost has to opt out of the fill here, in the same layer —
+   piling a third override on top of the two pre-theme ones is how it broke. */
+.view-add-button.ghost {
+  border-color: var(--muted-readable);
+  background: var(--paper);
+  color: var(--ink);
+}
+.view-add-button.ghost:hover { border-color: var(--ink); background: var(--paper-deep); }
 .toolbar-result { color: var(--muted); }
 
 .portfolio-table-wrap,
