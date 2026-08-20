@@ -23,6 +23,11 @@ MOSAICのsourceと静的フロントエンドはpublicです。source、schema�
 - 機密操作は短いJWT有効期間、session失効、必要に応じたsession ID確認を検討する。
 - 利用者削除だけで既発行tokenが即時無効になると仮定しない。退職・権限剥奪時はsessionを失効する。
 - 最後のownerを停止・降格しない。退職者はmembershipを物理削除せず`suspended`にし、同じメールの保留招待も取り消す。
+- `app.role_permissions`でrole別に独自項目の非表示・編集不可、機能の利用可否、参照できる人の範囲を制限できる。ownerは常に無制限で行を持たない。行が無いroleは無制限。
+- role別権限の判定は`public.get_workspace`と`public.save_workspace`だけに置く。Web UI、AI秘書、外部API、MCPはこの2つを通るので経路ごとに実装しない。clientが受け取る`permissions`は判定済みの結果であり、認可の根拠にしない。
+- role別権限を変更できるのはowner/admin。adminのrowを変更できるのはownerだけにする。制限されたadminが自分の制限を外せないようにする。
+- 外部連携clientからの`rolePermissions`書込はscopeに関係なく拒否する。
+- 非表示・編集不可の独自項目は、その値を書き換えられないだけでなく、他項目の保存時に消えない。
 
 ## Secret管理
 

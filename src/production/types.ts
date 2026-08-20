@@ -1,4 +1,4 @@
-import type { WorkspaceState } from "../domain";
+import type { PersonScope, RestrictableFeature, WorkspaceState } from "../domain";
 import type { ChatTransport } from "../lib/ai/chatClient";
 import type { Favorite, FavoriteKind } from "../collaboration";
 
@@ -35,10 +35,19 @@ export type MyContext = {
   invitations: PendingInvitation[];
 };
 
+/** The caller's own resolved limits, decided by the database and read-only here. */
+export type WorkspacePermissions = {
+  personScope: PersonScope;
+  hiddenFieldKeys: string[];
+  readonlyFieldKeys: string[];
+  disabledFeatures: RestrictableFeature[];
+};
+
 export type WorkspaceEnvelope = {
   state: WorkspaceState;
   revision: number;
   savedAt?: string;
+  permissions?: WorkspacePermissions;
 };
 
 export type SaveWorkspaceResult = {
@@ -49,8 +58,9 @@ export type SaveWorkspaceResult = {
 export type SharedWorkspaceAdapter = {
   initialState: WorkspaceState;
   initialRevision: number;
+  initialPermissions?: WorkspacePermissions;
   save: (state: WorkspaceState, expectedRevision: number, requestId: string) => Promise<SaveWorkspaceResult>;
-  reload: () => Promise<{ state: WorkspaceState; revision: number }>;
+  reload: () => Promise<{ state: WorkspaceState; revision: number; permissions?: WorkspacePermissions }>;
   subscribe: (onRevision: (revision?: number) => void) => () => void;
   listFavorites?: () => Promise<Favorite[]>;
   setFavorite?: (kind: FavoriteKind, targetId: string, favorite: boolean) => Promise<Favorite[]>;
@@ -121,6 +131,7 @@ export type SaveWorkspacePayload = {
   searchScenes?: { upsert: NonNullable<WorkspaceState["searchScenes"]>; archiveIds: string[] };
   savedReports?: { upsert: NonNullable<WorkspaceState["savedReports"]>; archiveIds: string[] };
   profileRequests?: { upsert: NonNullable<WorkspaceState["profileRequests"]>; archiveIds: string[] };
+  rolePermissions?: { upsert: NonNullable<WorkspaceState["rolePermissions"]> };
 };
 
 export type InvitationResult = {

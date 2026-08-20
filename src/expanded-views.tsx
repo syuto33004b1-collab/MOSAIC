@@ -85,16 +85,22 @@ import {
   visibleCustomFields,
   allowedReportGroupBy,
   buildSavedReport,
+  PERSON_SCOPES,
+  RESTRICTABLE_FEATURES,
+  RESTRICTABLE_ROLES,
   type CustomFieldDefinition,
   type CustomFieldEntity,
   type CustomFieldType,
   type Member,
   type OpportunityStage,
   type OrgUnit,
+  type PersonScope,
   type ProfileRequest,
   type ProfileRequestScope,
   type Project,
   type ReportGroupBy,
+  type RestrictableFeature,
+  type RestrictableRole,
   type ReportMetric,
   type ReportSource,
   type SearchSkillFilter,
@@ -201,6 +207,15 @@ type FieldsViewProps = {
     searchable?: boolean;
   }) => void;
   canManage?: boolean;
+  canManageRequests?: boolean;
+  canManageAdminPermissions?: boolean;
+  onSaveRolePermission?: (input: {
+    role: RestrictableRole;
+    personScope: PersonScope;
+    hiddenFieldKeys: string[];
+    readonlyFieldKeys: string[];
+    disabledFeatures: RestrictableFeature[];
+  }) => void;
   identity?: { userId?: string };
   onCreateRequests?: (personIds: string[], input: { scope: ProfileRequestScope; note: string }) => void;
   onSubmitRequest?: (requestId: string, proposed: { skills: string; workHistory: WorkHistoryEntry[] }) => void;
@@ -1124,6 +1139,159 @@ export function WorkHistoryEditor({
   );
 }
 
+const PERSON_SCOPE_LABELS: Record<PersonScope, string> = {
+  organization: "組織全体",
+  unit_subtree: "所属部門と配下",
+  unit: "所属部門のみ",
+  self: "本人のみ",
+};
+
+const FEATURE_LABELS: Record<RestrictableFeature, string> = {
+  searchScenes: "検索シーン",
+  savedReports: "保存レポート",
+  profileRequests: "更新依頼",
+  opportunities: "受注前案件",
+  favorites: "お気に入り",
+};
+
+const RESTRICTABLE_ROLE_LABELS: Record<RestrictableRole, string> = {
+  admin: "管理者",
+  planner: "プランナー",
+  viewer: "閲覧者",
+};
+
+export function RolePermissionsPanel({
+  state,
+  canManage = false,
+  canManageAdmin = false,
+  onSave,
+}: {
+  state: WorkspaceState;
+  canManage?: boolean;
+  canManageAdmin?: boolean;
+  onSave?: (input: {
+    role: RestrictableRole;
+    personScope: PersonScope;
+    hiddenFieldKeys: string[];
+    readonlyFieldKeys: string[];
+    disabledFeatures: RestrictableFeature[];
+  }) => void;
+}) {
+  const [role, setRole] = useState<RestrictableRole>("planner");
+  const [error, setError] = useState("");
+  const permissions = state.rolePermissions ?? [];
+  const current = permissions.find((permission) => permission.role === role);
+  const fields = state.customFields ?? [];
+  const [draft, setDraft] = useState<{
+    personScope: PersonScope;
+    hiddenFieldKeys: string[];
+    readonlyFieldKeys: string[];
+    disabledFeatures: RestrictableFeature[];
+  } | null>(null);
+  const active = draft ?? {
+    personScope: current?.personScope ?? "organization",
+    hiddenFieldKeys: current?.hiddenFieldKeys ?? [],
+    readonlyFieldKeys: current?.readonlyFieldKeys ?? [],
+    disabledFeatures: current?.disabledFeatures ?? [],
+  };
+  const editable = canManage && (role !== "admin" || canManageAdmin);
+
+  const selectRole = (next: RestrictableRole) => {
+    setRole(next);
+    setDraft(null);
+    setError("");
+  };
+
+  const toggleKey = (list: "hiddenFieldKeys" | "readonlyFieldKeys", key: string) => {
+    const keys = active[list].includes(key) ? active[list].filter((item) => item !== key) : [...active[list], key];
+    setDraft({ ...active, [list]: keys });
+  };
+
+  const toggleFeature = (feature: RestrictableFeature) => {
+    const features = active.disabledFeatures.includes(feature)
+      ? active.disabledFeatures.filter((item) => item !== feature)
+      : [...active.disabledFeatures, feature];
+    setDraft({ ...active, disabledFeatures: features });
+  };
+
+  const submit = () => {
+    try {
+      onSave?.({ role, ...active });
+      setDraft(null);
+      setError("");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "権限設定を保存できませんでした");
+    }
+  };
+
+  return (
+    <section className="balance-card role-permission-card" aria-labelledby="role-permission-heading">
+      <div className="card-heading">
+        <div><small>ROLE PERMISSIONS</small><h3 id="role-permission-heading">ロール別の権限</h3></div>
+        <span>{permissions.length === 0 ? "制限なし" : `${permissions.length}ロールに制限あり`}</span>
+      </div>
+      <p className="role-permission-note">オーナーは常に制限されません。設定していないロールは制限なしで動作します。</p>
+      <form className="field-catalog-form role-permission-form" onSubmit={(event) => { event.preventDefault(); submit(); }}>
+        <label>ロール<select aria-label="権限を設定するロール" value={role} onChange={(event) => selectRole(event.target.value as RestrictableRole)}>
+          {RESTRICTABLE_ROLES.map((option) => <option value={option} key={option}>{RESTRICTABLE_ROLE_LABELS[option]}</option>)}
+        </select></label>
+        <label>参照範囲<select aria-label="参照できる人の範囲" value={active.personScope} disabled={!editable} onChange={(event) => setDraft({ ...active, personScope: event.target.value as PersonScope })}>
+          {PERSON_SCOPES.map((option) => <option value={option} key={option}>{PERSON_SCOPE_LABELS[option]}</option>)}
+        </select></label>
+        <fieldset className="role-permission-features">
+          <legend>使えない機能</legend>
+          {RESTRICTABLE_FEATURES.map((feature) => (
+            <label key={feature} className="field-flag">
+              <input
+                type="checkbox"
+                checked={active.disabledFeatures.includes(feature)}
+                disabled={!editable}
+                onChange={() => toggleFeature(feature)}
+              />
+              {FEATURE_LABELS[feature]}
+            </label>
+          ))}
+        </fieldset>
+        {fields.length > 0 && (
+          <>
+            <fieldset className="role-permission-fields">
+              <legend>非表示の独自項目</legend>
+              {fields.map((field) => (
+                <label key={`hidden-${field.id}`} className="field-flag">
+                  <input
+                    type="checkbox"
+                    checked={active.hiddenFieldKeys.includes(field.key)}
+                    disabled={!editable}
+                    onChange={() => toggleKey("hiddenFieldKeys", field.key)}
+                  />
+                  {field.label}
+                </label>
+              ))}
+            </fieldset>
+            <fieldset className="role-permission-fields">
+              <legend>編集できない独自項目</legend>
+              {fields.map((field) => (
+                <label key={`readonly-${field.id}`} className="field-flag">
+                  <input
+                    type="checkbox"
+                    checked={active.readonlyFieldKeys.includes(field.key)}
+                    disabled={!editable}
+                    onChange={() => toggleKey("readonlyFieldKeys", field.key)}
+                  />
+                  {field.label}
+                </label>
+              ))}
+            </fieldset>
+          </>
+        )}
+        {editable && <button type="submit" className="view-add-button">{RESTRICTABLE_ROLE_LABELS[role]}の権限を更新</button>}
+        {!editable && <p className="role-permission-note">{role === "admin" ? "管理者の権限設定はオーナーだけが変更できます。" : "権限設定を変更する権限がありません。"}</p>}
+        {error && <p className="skill-catalog-error" role="alert">{error}</p>}
+      </form>
+    </section>
+  );
+}
+
 export function ProfileRequestsPanel({
   state,
   identity,
@@ -1245,7 +1413,7 @@ export function ProfileRequestsPanel({
     </section>
   );
 }
-export function FieldsView({ state, onAddField, canManage = false, identity, onCreateRequests, onSubmitRequest, onCompleteRequest, onCancelRequest }: FieldsViewProps) {
+export function FieldsView({ state, onAddField, canManage = false, canManageRequests = canManage, canManageAdminPermissions = false, onSaveRolePermission, identity, onCreateRequests, onSubmitRequest, onCompleteRequest, onCancelRequest }: FieldsViewProps) {
   const [query, setQuery] = useState("");
   const [entityType, setEntityType] = useState<CustomFieldEntity | "すべて">("すべて");
   const [formEntity, setFormEntity] = useState<CustomFieldEntity>("member");
@@ -1299,10 +1467,17 @@ export function FieldsView({ state, onAddField, canManage = false, identity, onC
         <div className="ribbon-stat"><strong>{(state.members.filter((member) => (member.workHistory ?? []).length > 0).length)}</strong><span>経歴あり</span></div>
       </div>
 
+      <RolePermissionsPanel
+        state={state}
+        canManage={canManage}
+        canManageAdmin={canManageAdminPermissions}
+        onSave={onSaveRolePermission}
+      />
+
       <ProfileRequestsPanel
         state={state}
         identity={identity}
-        canManage={canManage}
+        canManage={canManageRequests}
         onCreateRequests={onCreateRequests}
         onSubmitRequest={onSubmitRequest}
         onCompleteRequest={onCompleteRequest}

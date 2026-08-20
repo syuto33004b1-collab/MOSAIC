@@ -125,3 +125,31 @@ test("keeps personal favorites off the shared workspace payload", async () => {
   assert.doesNotMatch(sql, /grant execute on function public\.list_favorites\(uuid\) to anon/);
   assert.doesNotMatch(sql, /workspace_revision/);
 });
+
+test("layers role permissions on one read and one write choke point", async () => {
+  const sql = await readFile(path.join(migrations, "20260820090000_role_permissions.sql"), "utf8");
+  assert.match(sql, /create table app\.role_permissions/);
+  assert.match(sql, /role text not null check \(role in \('admin', 'planner', 'viewer'\)\)/);
+  assert.match(sql, /person_scope in \('organization', 'unit_subtree', 'unit', 'self'\)/);
+  assert.match(sql, /cardinality\(hidden_field_keys\) <= 100/);
+  // Array operators are STABLE, so set checks must stay out of CHECK constraints.
+  assert.doesNotMatch(sql, /check \([^)]*(&&|<@|array_position)/);
+  assert.match(sql, /a field key cannot be both hidden and read-only/);
+  assert.match(sql, /rolePermissions\.disabledFeatures contains an unsupported feature/);
+  assert.match(sql, /revoke all on table app\.role_permissions from public, anon, authenticated, service_role/);
+  assert.match(sql, /create trigger role_permissions_audit/);
+  // get_workspace is the single read path for Web UI, AI chat, the external API, and MCP.
+  assert.match(sql, /return private\.scoped_workspace\(p_organization_id, v_result\)/);
+  assert.match(sql, /perform private\.assert_role_permissions_allow\(p_organization_id, p_payload\)/);
+  assert.match(sql, /perform private\.apply_role_permissions\(p_organization_id, p_payload, auth\.uid\(\)\)/);
+  // Only owners may relax administrator limits, so a restricted admin cannot escalate.
+  assert.match(sql, /only owners may change administrator permissions/);
+  assert.match(sql, /rolePermissions cannot be changed through an integration/);
+  // A field the caller may not write keeps its stored value through the per-entity replace.
+  assert.match(sql, /and not \(field_value\.field_id::text = any \(v_locked\)\)/);
+  assert.match(sql, /a restricted custom field cannot be changed by this role/);
+  assert.match(sql, /favorites are disabled for this role/);
+  assert.match(sql, /this role cannot assign a member outside its data scope/);
+  assert.doesNotMatch(sql, /grant execute on function private\./);
+  assert.doesNotMatch(sql, /grant .* on table app\.role_permissions/);
+});

@@ -1,6 +1,6 @@
 import type { AuthError, PostgrestError, SupabaseClient, User } from "@supabase/supabase-js";
-import type { Assignment, CustomFieldDefinition, CustomFieldEntity, CustomFieldType, Member, Opportunity, OpportunityNeed, OpportunityStage, OrgMembership, OrgUnit, ProfileRequest, ProfileRequestScope, ProfileRequestStatus, Project, ReportGroupBy, ReportMetric, ReportSource, SavedReport, SearchScene, SearchSkillFilter, SkillDefinition, SkillImportance, SkillKind, StaffingNeed, WorkHistoryEntry, WorkspaceState } from "../domain";
-import { hydrateWorkspaceSkills, OPPORTUNITY_STAGES, normalizeSkillProficiency, normalizeWorkHistory, parseSkillInput, PROFILE_REQUEST_SCOPES, PROFILE_REQUEST_STATUSES } from "../domain";
+import type { Assignment, CustomFieldDefinition, CustomFieldEntity, CustomFieldType, Member, Opportunity, OpportunityNeed, OpportunityStage, OrgMembership, OrgUnit, PersonScope, ProfileRequest, ProfileRequestScope, ProfileRequestStatus, Project, ReportGroupBy, ReportMetric, ReportSource, RestrictableFeature, RestrictableRole, RolePermission, SavedReport, SearchScene, SearchSkillFilter, SkillDefinition, SkillImportance, SkillKind, StaffingNeed, WorkHistoryEntry, WorkspaceState } from "../domain";
+import { hydrateWorkspaceSkills, OPPORTUNITY_STAGES, normalizeSkillProficiency, normalizeWorkHistory, parseSkillInput, PERSON_SCOPES, PROFILE_REQUEST_SCOPES, PROFILE_REQUEST_STATUSES, RESTRICTABLE_FEATURES, RESTRICTABLE_ROLES } from "../domain";
 import { normalizeFavorites, type Favorite, type FavoriteKind } from "../collaboration";
 import { appAuthRedirectUrl } from "./authRecovery";
 import {
@@ -28,6 +28,7 @@ import {
   type CreateWebhookEndpointResult,
   type RevokeWebhookEndpointResult,
   type WorkspaceEnvelope,
+  type WorkspacePermissions,
   INTEGRATION_SCOPES,
   WEBHOOK_EVENTS,
 } from "./types";
@@ -180,6 +181,43 @@ function normalizeCustomFieldDefinition(value: unknown): CustomFieldDefinition |
     ...(record.showInDetail === false ? { showInDetail: false } : { showInDetail: true }),
     ...(record.searchable === false ? { searchable: false } : { searchable: true }),
     ...(sortOrder !== undefined ? { sortOrder } : {}),
+    ...(record.canEdit === false ? { canEdit: false } : {}),
+  };
+}
+
+function readStringArray(record: UnknownRecord | undefined, key: string) {
+  return readArray(record, key).flatMap((item) => typeof item === "string" && item.trim() ? [item.trim()] : []);
+}
+
+function normalizeRolePermission(value: unknown): RolePermission | undefined {
+  const record = asRecord(value);
+  if (!record) return undefined;
+  const role = readString(record, "role");
+  if (!role || !RESTRICTABLE_ROLES.includes(role as RestrictableRole)) return undefined;
+  const personScope = readString(record, "personScope") ?? "organization";
+  if (!PERSON_SCOPES.includes(personScope as PersonScope)) return undefined;
+  const disabledFeatures = readStringArray(record, "disabledFeatures")
+    .filter((feature): feature is RestrictableFeature => RESTRICTABLE_FEATURES.includes(feature as RestrictableFeature));
+  return {
+    role: role as RestrictableRole,
+    personScope: personScope as PersonScope,
+    hiddenFieldKeys: readStringArray(record, "hiddenFieldKeys").sort(),
+    readonlyFieldKeys: readStringArray(record, "readonlyFieldKeys").sort(),
+    disabledFeatures: [...new Set(disabledFeatures)].sort(),
+  };
+}
+
+function normalizeWorkspacePermissions(value: unknown): WorkspacePermissions | undefined {
+  const record = asRecord(value);
+  if (!record) return undefined;
+  const personScope = readString(record, "personScope") ?? "organization";
+  const disabledFeatures = readStringArray(record, "disabledFeatures")
+    .filter((feature): feature is RestrictableFeature => RESTRICTABLE_FEATURES.includes(feature as RestrictableFeature));
+  return {
+    personScope: PERSON_SCOPES.includes(personScope as PersonScope) ? (personScope as PersonScope) : "organization",
+    hiddenFieldKeys: readStringArray(record, "hiddenFieldKeys"),
+    readonlyFieldKeys: readStringArray(record, "readonlyFieldKeys"),
+    disabledFeatures: [...new Set(disabledFeatures)],
   };
 }
 
@@ -568,6 +606,8 @@ function normalizeWorkspaceState(value: unknown): WorkspaceState | undefined {
   if (savedReportValues && savedReportValues.some((item) => !item)) return undefined;
   const profileRequestValues = record.profileRequests === undefined ? undefined : readArray(record, "profileRequests").map(normalizeProfileRequest);
   if (profileRequestValues && profileRequestValues.some((item) => !item)) return undefined;
+  const rolePermissionValues = record.rolePermissions === undefined ? undefined : readArray(record, "rolePermissions").map(normalizeRolePermission);
+  if (rolePermissionValues && rolePermissionValues.some((item) => !item)) return undefined;
   return hydrateWorkspaceSkills({
     members: members as Member[],
     projects: projects as Project[],
@@ -582,6 +622,7 @@ function normalizeWorkspaceState(value: unknown): WorkspaceState | undefined {
     ...(searchSceneValues ? { searchScenes: searchSceneValues as SearchScene[] } : {}),
     ...(savedReportValues ? { savedReports: savedReportValues as SavedReport[] } : {}),
     ...(profileRequestValues ? { profileRequests: profileRequestValues as ProfileRequest[] } : {}),
+    ...(rolePermissionValues ? { rolePermissions: rolePermissionValues as RolePermission[] } : {}),
   });
 }
 
@@ -809,6 +850,7 @@ export function normalizeWorkspace(value: unknown): WorkspaceEnvelope {
     searchScenes: record.searchScenes,
     savedReports: record.savedReports,
     profileRequests: record.profileRequests,
+    rolePermissions: record.rolePermissions,
   } : value);
   const rawState = typeof stateCandidate === "string" ? JSON.parse(stateCandidate) as unknown : stateCandidate;
   const state = normalizeWorkspaceState(rawState);
@@ -820,9 +862,11 @@ export function normalizeWorkspace(value: unknown): WorkspaceEnvelope {
   if (revision === undefined) {
     throw new ProductionRepositoryError("共有ワークスペースの更新番号を確認できませんでした。", { code: "INVALID_REVISION" });
   }
+  const permissions = normalizeWorkspacePermissions(record?.permissions);
   return {
     state,
     revision,
+    ...(permissions ? { permissions } : {}),
     savedAt: readString(record, "saved_at", "savedAt", "updated_at")
       ?? readString(asRecord(record?.organization), "workspaceChangedAt", "workspace_changed_at"),
   };
@@ -1097,6 +1141,20 @@ export function workspaceChangesPayload(
   const requestUpsert = changedRows(nextRequests, previousRequests);
   const requestArchiveIds = removedIds(nextRequests, previousRequests);
   if (requestUpsert.length || requestArchiveIds.length) payload.profileRequests = { upsert: requestUpsert, archiveIds: requestArchiveIds };
+
+  // Role permissions are keyed by role, not by id, so they need their own diff.
+  const previousByRole = new Map((previous.rolePermissions ?? []).map((item) => [item.role, JSON.stringify(item)]));
+  const permissionUpsert = (state.rolePermissions ?? [])
+    .filter((item) => previousByRole.get(item.role) !== JSON.stringify(item));
+  if (permissionUpsert.length) {
+    if (role !== "owner" && role !== "admin") {
+      throw new ProductionRepositoryError("権限が変更されたため、権限設定を保存できません。未保存内容を確認して再読み込みしてください。", {
+        code: "FORBIDDEN",
+        retryable: false,
+      });
+    }
+    payload.rolePermissions = { upsert: permissionUpsert };
+  }
   return payload;
 }
 

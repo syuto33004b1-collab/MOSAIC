@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   addCustomField,
+  editableCustomFields,
+  setRolePermission,
   addOrgUnit,
   addProfileRequests,
   addSkillCatalogEntry,
@@ -385,5 +387,47 @@ describe("search scenes", () => {
     });
     expect(scenes.at(-1)).toMatchObject({ name: "大阪バックエンド", role: "Backend Engineer", location: "大阪" });
     expect(() => addSearchScene(scenes, { name: "大阪バックエンド", role: "Backend Engineer" })).toThrow("同じ名前");
+  });
+});
+
+describe("role permissions", () => {
+  const customFields = initialWorkspace.customFields ?? [];
+
+  it("normalizes, sorts, and keeps one row per role", () => {
+    const first = setRolePermission([], customFields, {
+      role: "planner",
+      personScope: "unit_subtree",
+      hiddenFieldKeys: [" english ", "english", "joined_on"],
+      disabledFeatures: ["favorites", "favorites"],
+    });
+    expect(first).toEqual([{
+      role: "planner",
+      personScope: "unit_subtree",
+      hiddenFieldKeys: ["english", "joined_on"],
+      readonlyFieldKeys: [],
+      disabledFeatures: ["favorites"],
+    }]);
+    const replaced = setRolePermission(first, customFields, { role: "planner", personScope: "self" });
+    expect(replaced).toHaveLength(1);
+    expect(replaced[0]).toMatchObject({ personScope: "self", hiddenFieldKeys: [], disabledFeatures: [] });
+    const both = setRolePermission(replaced, customFields, { role: "admin", personScope: "organization" });
+    expect(both.map((permission) => permission.role)).toEqual(["admin", "planner"]);
+  });
+
+  it("refuses unknown field keys, unknown features, and hidden/read-only overlap", () => {
+    expect(() => setRolePermission([], customFields, { role: "viewer", hiddenFieldKeys: ["nope"] })).toThrow("見つかりません");
+    expect(() => setRolePermission([], customFields, { role: "viewer", disabledFeatures: ["aiChat"] })).toThrow("対象ではありません");
+    expect(() => setRolePermission([], customFields, {
+      role: "viewer",
+      hiddenFieldKeys: ["english"],
+      readonlyFieldKeys: ["english"],
+    })).toThrow("両方");
+    expect(() => setRolePermission([], customFields, { role: "viewer", personScope: "team" as never })).toThrow("参照範囲");
+  });
+
+  it("keeps read-only fields out of the editors but leaves them readable", () => {
+    const marked = customFields.map((field) => field.key === "english" ? { ...field, canEdit: false } : field);
+    expect(visibleCustomFields(marked, "member", "detail").map((field) => field.key)).toContain("english");
+    expect(editableCustomFields(marked, "member", "detail").map((field) => field.key)).not.toContain("english");
   });
 });

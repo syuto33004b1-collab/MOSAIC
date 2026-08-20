@@ -816,3 +816,31 @@ test("authorizes integration callers by scope instead of a human organization ro
     (error) => error instanceof WorkspaceToolError && error.code === "FORBIDDEN",
   );
 });
+
+test("ignores the resolved permission keys the database adds to the snapshot", async () => {
+  const scoped = {
+    ...snapshot(),
+    permissions: {
+      role: "planner",
+      personScope: "self",
+      hiddenFieldKeys: ["salary_band"],
+      readonlyFieldKeys: [],
+      disabledFeatures: ["favorites"],
+    },
+    rolePermissions: [
+      { role: "planner", personScope: "self", hiddenFieldKeys: ["salary_band"], readonlyFieldKeys: [], disabledFeatures: ["favorites"] },
+    ],
+  };
+  const read = readWorkspaceTool(scoped, "read_workspace", { resource: "summary" }, { kind: "ai", role: "planner" });
+  assert.equal(read.resource, "summary");
+  // Role permission configuration must not reach the model through read_workspace.
+  assert.doesNotMatch(JSON.stringify(read), /rolePermissions|hiddenFieldKeys|salary_band/);
+  const plan = await planWorkspaceAction(plannerOptions("create_assignment", {
+    personId: ids.bob,
+    projectId: ids.secondProject,
+    startDate: "2026-08-10",
+    endDate: "2026-08-20",
+    allocation: 20,
+  }, { snapshot: scoped }));
+  assert.equal(plan.payload.rolePermissions, undefined);
+});

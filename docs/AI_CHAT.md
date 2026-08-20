@@ -70,6 +70,8 @@ AIの確認cardは、通常画面の「チームへ保存」に相当する最�
 - JWTがない、期限切れ、または別projectのtokenである場合はGeminiを呼び出さない。
 - `--no-verify-jwt`をローカル・本番とも使用しない。
 - Gemini APIキー、Supabase secret key、`service_role` keyをブラウザへ渡さない。
+- `read_workspace`は利用者のJWTで`get_workspace`を呼ぶため、ロール別権限（`app.role_permissions`）で非表示にした独自項目、利用不可の機能、参照範囲外の人はGeminiへ渡らない。権限設定そのものもモデルへ渡さない。
+- 書込みは`save_workspace`が拒否する。AI経路にロール別権限を変更するtoolは用意しない。
 
 headerの役割は[Supabase Authorization headers](https://supabase.com/docs/guides/functions/auth-headers)を参照してください。GitHub Pagesだけで動くデモモードは認証済みbackendを持たないため、AIチャットの運用対象外です。
 
