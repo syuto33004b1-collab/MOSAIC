@@ -28,7 +28,7 @@ import {
   UsersRound,
   X,
 } from "lucide-react";
-import { CustomFieldFacts, CustomFieldInputs, FavoriteStar, FieldsView, MemberOrgFields, MembersView, OpportunitiesView, OrgFacts, OrgView, ProjectsView, ProposalView, ReportsView, SkillsView, WorkHistoryEditor, WorkHistoryList } from "./expanded-views";
+import { CustomFieldFacts, CustomFieldInputs, CsvTransferPanel, FavoriteStar, FieldsView, MemberOrgFields, MembersView, OpportunitiesView, OrgFacts, OrgView, ProjectsView, ProposalView, ReportsView, SkillsView, WorkHistoryEditor, WorkHistoryList } from "./expanded-views";
 import { AiChat } from "./components/ai-chat/AiChat";
 import type { ChatTransport } from "./lib/ai/chatClient";
 import {
@@ -116,6 +116,7 @@ import {
   type Favorite,
   type FavoriteKind,
 } from "./collaboration";
+import { applyMemberImport, type MemberImportAction } from "./csv";
 
 export type OrganizationRole = "owner" | "admin" | "planner" | "viewer";
 
@@ -2044,6 +2045,15 @@ export default function Home({ mode = "demo", organizationId, organizationName =
     setToast("更新依頼を取り消しました");
   };
 
+  const handleImportMembers = (actions: MemberImportAction[]) => {
+    if (!canManageMembers || actions.length === 0) return;
+    setWorkspace((current) => applyMemberImport(current, actions));
+    markUnsaved();
+    const created = actions.filter((action) => action.mode === "create").length;
+    const updated = actions.filter((action) => action.mode === "update").length;
+    setToast(`CSVから${created}件追加、${updated}件更新を仮置きしました`);
+  };
+
   const primaryAction = () => {
     if (activeNav === "board" && canAddAssignment) openNewAssignment();
     if (activeNav === "projects" && canEdit) setDrawer("newProject");
@@ -2222,7 +2232,12 @@ export default function Home({ mode = "demo", organizationId, organizationName =
         {activeNav === "proposal" && <ProposalView state={workspace} weekOffset={weekOffset} selectedIds={visibleProposalIds} anonymous={proposalAnonymous} favorites={favorites} onSelectedIdsChange={setProposalMemberIds} onAnonymousChange={setProposalAnonymous} onOpenMember={openMember} onCopyLink={() => void copyShareLink({ nav: "proposal", memberIds: visibleProposalIds, anonymous: proposalAnonymous }, "提案リンクをコピーしました")} onToggleFavorite={(memberId) => void toggleFavoriteTarget("member", memberId)} />}
         {activeNav === "org" && <OrgView state={workspace} onAddUnit={handleAddOrgUnit} onMoveUnit={handleMoveOrgUnit} onArchiveUnit={handleArchiveOrgUnit} canManage={canManageMembers} />}
         {activeNav === "skills" && <SkillsView state={hydrateWorkspaceSkills(workspace)} onAddCatalogEntry={handleAddCatalogEntry} onOpenMember={openMember} onResolveNeed={openStaffingNeed} canEdit={canEdit} />}
-        {activeNav === "fields" && <FieldsView state={workspace} onAddField={handleAddCustomField} canManage={canManageMembers} identity={identity} onCreateRequests={handleCreateProfileRequests} onSubmitRequest={handleSubmitProfileRequest} onCompleteRequest={handleCompleteProfileRequest} onCancelRequest={handleCancelProfileRequest} />}
+        {activeNav === "fields" && (
+          <>
+            <FieldsView state={workspace} onAddField={handleAddCustomField} canManage={canManageMembers} identity={identity} onCreateRequests={handleCreateProfileRequests} onSubmitRequest={handleSubmitProfileRequest} onCompleteRequest={handleCompleteProfileRequest} onCancelRequest={handleCancelProfileRequest} />
+            <CsvTransferPanel state={workspace} organizationId={organizationId} canImport={canManageMembers} onImportMembers={handleImportMembers} />
+          </>
+        )}
         {activeNav === "reports" && <ReportsView state={workspace} onOpenWeek={openWeekFromReport} onResolveNeed={openStaffingNeed} onOpenOpportunity={openOpportunity} onAddReport={handleAddSavedReport} onDeleteReport={handleDeleteSavedReport} canEdit={canEdit} canManageReports={canManageMembers} />}
       </section>
 
