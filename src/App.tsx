@@ -35,12 +35,15 @@ import {
   addCustomField,
   addDays,
   addOrgUnit,
+  addProfileRequests,
   addSearchScene,
   addSavedReport,
   addSkillCatalogEntry,
   archiveOrgUnit,
   assignmentGrid,
+  cancelProfileRequest,
   canConvertOpportunity,
+  completeProfileRequest,
   convertOpportunityToProject,
   createProjectCode,
   formatDate,
@@ -77,6 +80,7 @@ import {
   projectTone,
   setMemberOrgMemberships,
   searchSceneFromNeed,
+  submitProfileRequest,
   visibleCustomFields,
   weekEnd,
   type Assignment,
@@ -87,6 +91,7 @@ import {
   type Opportunity,
   type OpportunityNeed,
   type OpportunityStage,
+  type ProfileRequestScope,
   type Project,
   type ProjectStatus,
   type ReportGroupBy,
@@ -108,13 +113,19 @@ export type SharedWorkspaceAdapter = {
   save: (state: WorkspaceState, expectedRevision: number, requestId: string) => Promise<{ revision: number; savedAt: string }>;
   reload: () => Promise<{ state: WorkspaceState; revision: number }>;
   subscribe: (onRevision: (revision?: number) => void) => () => void;
+  submitProfileRequest?: (
+    requestId: string,
+    proposed: { skills: string; workHistory: WorkHistoryEntry[] },
+    expectedRevision: number,
+    requestIdToken: string,
+  ) => Promise<{ revision: number; savedAt: string; state?: WorkspaceState }>;
 };
 
 export type AppProps = {
   mode?: "demo" | "shared";
   organizationId?: string;
   organizationName?: string;
-  identity?: { name: string; email: string; role: OrganizationRole };
+  identity?: { name: string; email: string; role: OrganizationRole; userId?: string };
   shared?: SharedWorkspaceAdapter;
   onSignOut?: () => void;
   onOpenOperations?: () => void;
@@ -1868,6 +1879,57 @@ export default function Home({ mode = "demo", organizationId, organizationName =
     setToast("レポートを削除しました");
   };
 
+  const handleCreateProfileRequests = (personIds: string[], input: { scope: ProfileRequestScope; note: string }) => {
+    if (!canManageMembers) throw new Error("更新依頼を作成する権限がありません");
+    const profileRequests = addProfileRequests(workspace, personIds, input);
+    setWorkspace((current) => ({ ...current, profileRequests }));
+    markUnsaved();
+    setToast(personIds.length > 1 ? `${personIds.length}件の更新依頼を作成しました` : "更新依頼を作成しました");
+  };
+
+  const handleSubmitProfileRequest = (requestId: string, proposed: { skills: string; workHistory: WorkHistoryEntry[] }) => {
+    const next = submitProfileRequest(workspace, requestId, proposed, { identity, canManage: canManageMembers });
+    if (mode === "shared" && role === "viewer" && shared?.submitProfileRequest) {
+      const requestToken = newId();
+      const submitRemote = shared.submitProfileRequest;
+      void (async () => {
+        try {
+          setSyncStatus("saving");
+          const result = await submitRemote(requestId, proposed, revisionRef.current, requestToken);
+          revisionRef.current = result.revision;
+          setRevision(result.revision);
+          const state = result.state ? cloneState(result.state) : next;
+          setWorkspace(state);
+          setCommittedWorkspace(cloneState(state));
+          setSyncStatus("idle");
+          setToast("更新内容を提出しました");
+        } catch (error) {
+          setSyncStatus("error");
+          setSyncError(error instanceof Error ? error.message : "提出に失敗しました");
+          throw error;
+        }
+      })();
+      return;
+    }
+    setWorkspace(next);
+    markUnsaved();
+    setToast("更新内容を提出しました");
+  };
+
+  const handleCompleteProfileRequest = (requestId: string) => {
+    if (!canManageMembers) return;
+    setWorkspace(completeProfileRequest(workspace, requestId));
+    markUnsaved();
+    setToast("更新内容をメンバーへ反映しました");
+  };
+
+  const handleCancelProfileRequest = (requestId: string) => {
+    if (!canManageMembers) return;
+    setWorkspace((current) => ({ ...current, profileRequests: cancelProfileRequest(current.profileRequests ?? [], requestId) }));
+    markUnsaved();
+    setToast("更新依頼を取り消しました");
+  };
+
   const primaryAction = () => {
     if (activeNav === "board" && canAddAssignment) openNewAssignment();
     if (activeNav === "projects" && canEdit) setDrawer("newProject");
@@ -2044,7 +2106,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
         {activeNav === "members" && <MembersView state={workspace} weekOffset={weekOffset} onOpen={openMember} onAdd={() => setDrawer("newMember")} onAssign={openAssignmentFor} onAddScene={handleAddSearchScene} onDeleteScene={handleDeleteSearchScene} canEdit={canEdit} canManageMembers={canManageMembers} canManageScenes={canManageMembers} />}
         {activeNav === "org" && <OrgView state={workspace} onAddUnit={handleAddOrgUnit} onMoveUnit={handleMoveOrgUnit} onArchiveUnit={handleArchiveOrgUnit} canManage={canManageMembers} />}
         {activeNav === "skills" && <SkillsView state={hydrateWorkspaceSkills(workspace)} onAddCatalogEntry={handleAddCatalogEntry} onOpenMember={openMember} onResolveNeed={openStaffingNeed} canEdit={canEdit} />}
-        {activeNav === "fields" && <FieldsView state={workspace} onAddField={handleAddCustomField} canManage={canManageMembers} />}
+        {activeNav === "fields" && <FieldsView state={workspace} onAddField={handleAddCustomField} canManage={canManageMembers} identity={identity} onCreateRequests={handleCreateProfileRequests} onSubmitRequest={handleSubmitProfileRequest} onCompleteRequest={handleCompleteProfileRequest} onCancelRequest={handleCancelProfileRequest} />}
         {activeNav === "reports" && <ReportsView state={workspace} onOpenWeek={openWeekFromReport} onResolveNeed={openStaffingNeed} onOpenOpportunity={openOpportunity} onAddReport={handleAddSavedReport} onDeleteReport={handleDeleteSavedReport} canEdit={canEdit} canManageReports={canManageMembers} />}
       </section>
 

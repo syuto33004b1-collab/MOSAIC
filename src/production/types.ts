@@ -7,6 +7,7 @@ export type ProductionIdentity = {
   name: string;
   email: string;
   role: OrganizationRole;
+  userId?: string;
 };
 
 export type OrganizationSummary = {
@@ -50,6 +51,12 @@ export type SharedWorkspaceAdapter = {
   save: (state: WorkspaceState, expectedRevision: number, requestId: string) => Promise<SaveWorkspaceResult>;
   reload: () => Promise<{ state: WorkspaceState; revision: number }>;
   subscribe: (onRevision: (revision?: number) => void) => () => void;
+  submitProfileRequest?: (
+    requestId: string,
+    proposed: { skills: string; workHistory: NonNullable<WorkspaceState["members"][number]["workHistory"]> },
+    expectedRevision: number,
+    requestIdToken: string,
+  ) => Promise<SaveWorkspaceResult & { state?: WorkspaceState }>;
 };
 
 export type ProductionAppProps = {
@@ -107,6 +114,7 @@ export type SaveWorkspacePayload = {
   orgMemberships?: { upsert: NonNullable<WorkspaceState["orgMemberships"]>; archiveIds: string[] };
   searchScenes?: { upsert: NonNullable<WorkspaceState["searchScenes"]>; archiveIds: string[] };
   savedReports?: { upsert: NonNullable<WorkspaceState["savedReports"]>; archiveIds: string[] };
+  profileRequests?: { upsert: NonNullable<WorkspaceState["profileRequests"]>; archiveIds: string[] };
 };
 
 export type InvitationResult = {

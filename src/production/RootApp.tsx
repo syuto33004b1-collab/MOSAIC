@@ -63,7 +63,7 @@ type SharedWorkspaceRouteProps = {
   aiChatTransport: ChatTransport;
 };
 
-type SharedWorkspaceRepository = Pick<ProductionRepository, "getWorkspace" | "saveWorkspace" | "subscribeToWorkspace">;
+type SharedWorkspaceRepository = Pick<ProductionRepository, "getWorkspace" | "saveWorkspace" | "submitProfileRequest" | "subscribeToWorkspace">;
 
 export function createSharedWorkspaceController(
   repository: SharedWorkspaceRepository,
@@ -102,6 +102,14 @@ export function createSharedWorkspaceController(
       );
       baseline = state;
       return result;
+    },
+    async submitProfileRequest(
+      requestId: string,
+      proposed: { skills: string; workHistory: NonNullable<WorkspaceEnvelope["state"]["members"][number]["workHistory"]> },
+      expectedRevision: number,
+      requestIdToken: string,
+    ) {
+      return repository.submitProfileRequest(organizationId, requestId, proposed, expectedRevision, requestIdToken);
     },
     subscribe(onRevision: (revision?: number) => void) {
       return repository.subscribeToWorkspace(organizationId, onRevision);
@@ -161,6 +169,7 @@ function SharedWorkspaceRoute({
     initialState: workspace.state,
     reload: sharedController.reload,
     save: sharedController.save,
+    submitProfileRequest: sharedController.submitProfileRequest,
     subscribe: sharedController.subscribe,
   } : undefined, [sharedController, workspace]);
 
@@ -195,7 +204,7 @@ function SharedWorkspaceRoute({
           mode="shared"
           organizationId={currentOrganization.id}
           organizationName={currentOrganization.name}
-          identity={{ email: context.email, name: context.name, role: currentOrganization.role }}
+          identity={{ email: context.email, name: context.name, role: currentOrganization.role, userId: context.userId }}
           shared={shared}
           onSignOut={onSignOut}
           onOpenOperations={() => setOperationsOpen(true)}

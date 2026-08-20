@@ -166,6 +166,28 @@ describe("production repository response adapters", () => {
     expect(() => workspaceChangesPayload(changed, previous, "planner")).toThrow("項目定義を保存できません");
   });
 
+  it("sends UUID profile request changes", () => {
+    const requestId = "11111111-0000-4000-8000-000000000051";
+    const previous = {
+      ...initialWorkspace,
+      profileRequests: [{ id: requestId, personId: "nakamura", scope: "skills" as const, status: "open" as const }],
+    };
+    const changed = {
+      ...previous,
+      profileRequests: [
+        { id: requestId, personId: "nakamura", scope: "skills" as const, status: "submitted" as const, proposedSkills: [{ name: "React", proficiency: 5 as const }] },
+        { id: "req-demo", personId: "okada", scope: "all" as const, status: "open" as const },
+        { id: "22222222-0000-4000-8000-000000000052", personId: "saeki", scope: "workHistory" as const, status: "open" as const },
+      ],
+    };
+
+    const payload = workspaceChangesPayload(changed, previous, "planner");
+    expect(payload.profileRequests?.upsert).toEqual([
+      { id: requestId, personId: "nakamura", scope: "skills", status: "submitted", proposedSkills: [{ name: "React", proficiency: 5 }] },
+      { id: "22222222-0000-4000-8000-000000000052", personId: "saeki", scope: "workHistory", status: "open" },
+    ]);
+  });
+
   it("includes opportunity and staffing-plan changes in the save payload", () => {
     const previous = initialWorkspace;
     const changed = {

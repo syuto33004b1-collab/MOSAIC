@@ -112,6 +112,7 @@ export const OPPORTUNITY_STAGE_LABELS: Record<OpportunityStage, string> = {
 
 export type Member = {
   id: string;
+  authUserId?: string;
   initials: string;
   name: string;
   role: string;
@@ -212,6 +213,20 @@ export type WorkspaceState = {
   orgMemberships?: OrgMembership[];
   searchScenes?: SearchScene[];
   savedReports?: SavedReport[];
+  profileRequests?: ProfileRequest[];
+};
+
+export type ProfileRequestScope = "skills" | "workHistory" | "all";
+export type ProfileRequestStatus = "open" | "submitted" | "done" | "cancelled";
+
+export type ProfileRequest = {
+  id: string;
+  personId: string;
+  scope: ProfileRequestScope;
+  note?: string;
+  status: ProfileRequestStatus;
+  proposedSkills?: SkillLevel[];
+  proposedWorkHistory?: WorkHistoryEntry[];
 };
 
 export type ReportSource = "members" | "projects";
@@ -437,7 +452,12 @@ const savedReports: SavedReport[] = [
   { id: "report-role-load", name: "職種別稼働", source: "members", groupBy: "role", metric: "avgLoad" },
 ];
 
-export const initialWorkspace: WorkspaceState = { members, projects, assignments, needs, skillCatalog, customFields, opportunities, opportunityNeeds, orgUnits, orgMemberships, searchScenes, savedReports };
+const profileRequests: ProfileRequest[] = [
+  { id: "req-nakamura-skills", personId: "nakamura", scope: "skills", note: "フロント案件に向けてスキルを更新してください", status: "open" },
+  { id: "req-saeki-history", personId: "saeki", scope: "workHistory", note: "直近の担当案件を経歴へ反映してください", status: "submitted", proposedWorkHistory: [{ id: "wh-saeki-proposed", title: "プロダクトデザイナー", organization: "Atlas リニューアル", startDate: "2024-04-01", description: "販売管理の体験設計を担当" }] },
+];
+
+export const initialWorkspace: WorkspaceState = { members, projects, assignments, needs, skillCatalog, customFields, opportunities, opportunityNeeds, orgUnits, orgMemberships, searchScenes, savedReports, profileRequests };
 
 function isoDate(date: Date) {
   return date.toISOString().slice(0, 10);
@@ -1033,6 +1053,125 @@ export function normalizeWorkHistory(entries: WorkHistoryEntry[] | undefined) {
       ...(endDate ? { endDate } : {}),
       ...(description ? { description } : {}),
     };
+  });
+}
+
+export const PROFILE_REQUEST_SCOPES: ProfileRequestScope[] = ["skills", "workHistory", "all"];
+export const PROFILE_REQUEST_STATUSES: ProfileRequestStatus[] = ["open", "submitted", "done", "cancelled"];
+
+export function profileRequestScopeLabel(scope: ProfileRequestScope) {
+  return scope === "skills" ? "スキル" : scope === "workHistory" ? "業務経歴" : "スキルと経歴";
+}
+
+export function profileRequestStatusLabel(status: ProfileRequestStatus) {
+  return status === "open" ? "未対応" : status === "submitted" ? "確認待ち" : status === "done" ? "完了" : "取消";
+}
+
+export function isActiveProfileRequest(request: ProfileRequest) {
+  return request.status === "open" || request.status === "submitted";
+}
+
+export function canActAsProfileRequestSubject(
+  member: Member | undefined,
+  identity?: { userId?: string },
+  canManage = false,
+) {
+  if (canManage) return true;
+  return Boolean(member?.authUserId && identity?.userId && member.authUserId === identity.userId);
+}
+
+export function addProfileRequests(state: WorkspaceState, personIds: string[], input: {
+  id?: string;
+  scope: ProfileRequestScope;
+  note?: string;
+}): ProfileRequest[] {
+  if (!PROFILE_REQUEST_SCOPES.includes(input.scope)) throw new Error("依頼内容を確認してください");
+  const note = input.note?.trim() ?? "";
+  if (note.length > 400) throw new Error("依頼メモは400文字以内にしてください");
+  const unique = [...new Set(personIds.map((personId) => personId.trim()).filter(Boolean))];
+  if (!unique.length) throw new Error("対象メンバーを選んでください");
+  const existing = state.profileRequests ?? [];
+  const next = [...existing];
+  unique.forEach((personId) => {
+    if (!state.members.some((member) => member.id === personId)) throw new Error("対象メンバーが見つかりません");
+    if (next.some((request) => request.personId === personId && isActiveProfileRequest(request))) {
+      throw new Error("このメンバーには未完了の更新依頼があります");
+    }
+    next.push({
+      id: unique.length === 1 && input.id ? input.id : crypto.randomUUID(),
+      personId,
+      scope: input.scope,
+      ...(note ? { note } : {}),
+      status: "open",
+    });
+  });
+  return next;
+}
+
+function proposedSkillLevels(value: string | SkillLevel[] | undefined) {
+  if (typeof value === "string") return parseSkillInput(value);
+  return (value ?? []).flatMap((level) => {
+    const name = level.name.trim();
+    return name ? [{ name, proficiency: normalizeSkillProficiency(level.proficiency) }] : [];
+  });
+}
+
+export function submitProfileRequest(state: WorkspaceState, requestId: string, proposed: {
+  skills?: string | SkillLevel[];
+  workHistory?: WorkHistoryEntry[];
+}, options?: { identity?: { userId?: string }; canManage?: boolean }): WorkspaceState {
+  const requests = state.profileRequests ?? [];
+  const request = requests.find((item) => item.id === requestId);
+  if (!request) throw new Error("更新依頼が見つかりません");
+  if (request.status !== "open") throw new Error("この依頼は提出できる状態ではありません");
+  const member = state.members.find((item) => item.id === request.personId);
+  if (!canActAsProfileRequestSubject(member, options?.identity, options?.canManage)) {
+    throw new Error("この依頼を提出する権限がありません");
+  }
+  const proposedSkills = request.scope === "workHistory" ? undefined : proposedSkillLevels(proposed.skills);
+  const proposedWorkHistory = request.scope === "skills"
+    ? undefined
+    : normalizeWorkHistory((proposed.workHistory ?? []).filter((entry) => entry.title.trim() && entry.organization.trim() && entry.startDate));
+  if (request.scope !== "workHistory" && !proposedSkills?.length) throw new Error("更新するスキルを入力してください");
+  if (request.scope !== "skills" && !proposedWorkHistory?.length) throw new Error("更新する経歴を入力してください");
+  return {
+    ...state,
+    profileRequests: requests.map((item) => item.id === requestId ? {
+      ...item,
+      status: "submitted" as const,
+      ...(proposedSkills?.length ? { proposedSkills } : {}),
+      ...(proposedWorkHistory?.length ? { proposedWorkHistory } : {}),
+    } : item),
+  };
+}
+
+export function cancelProfileRequest(requests: ProfileRequest[], requestId: string): ProfileRequest[] {
+  const request = requests.find((item) => item.id === requestId);
+  if (!request) throw new Error("更新依頼が見つかりません");
+  if (request.status === "done" || request.status === "cancelled") throw new Error("この依頼は取り消せません");
+  return requests.map((item) => item.id === requestId ? { ...item, status: "cancelled" as const } : item);
+}
+
+export function completeProfileRequest(state: WorkspaceState, requestId: string): WorkspaceState {
+  const requests = state.profileRequests ?? [];
+  const request = requests.find((item) => item.id === requestId);
+  if (!request) throw new Error("更新依頼が見つかりません");
+  if (request.status !== "submitted") throw new Error("確認できるのは提出済みの依頼です");
+  const members = state.members.map((member) => {
+    if (member.id !== request.personId) return member;
+    return {
+      ...member,
+      ...(request.scope !== "workHistory" && request.proposedSkills?.length ? {
+        skills: request.proposedSkills.map((level) => level.name),
+        skillLevels: request.proposedSkills,
+      } : {}),
+      ...(request.scope !== "skills" && request.proposedWorkHistory ? { workHistory: request.proposedWorkHistory } : {}),
+    };
+  });
+  return hydrateWorkspaceSkills({
+    ...state,
+    members,
+    profileRequests: requests.map((item) => item.id === requestId ? { ...item, status: "done" as const } : item),
   });
 }
 

@@ -2,10 +2,13 @@ import { describe, expect, it } from "vitest";
 import {
   addCustomField,
   addOrgUnit,
+  addProfileRequests,
   addSkillCatalogEntry,
   archiveOrgUnit,
   assignmentGrid,
   buildSkillMap,
+  cancelProfileRequest,
+  completeProfileRequest,
   canConvertOpportunity,
   convertOpportunityToProject,
   createProjectCode,
@@ -38,6 +41,7 @@ import {
   matchMembers,
   searchSceneFromNeed,
   setMemberOrgMemberships,
+  submitProfileRequest,
   visibleCustomFields,
   type WorkspaceState,
 } from "./domain";
@@ -231,6 +235,21 @@ describe("custom fields and work history", () => {
     expect(memberSearchText(initialWorkspace, member)).toContain("ビジネス");
     expect(memberSearchText(initialWorkspace, member)).toContain("studio north");
     expect(projectSearchText(initialWorkspace, project)).toContain("atlas株式会社");
+  });
+
+  it("creates, submits, and applies profile update requests without writing members until confirmation", () => {
+    const created = addProfileRequests(initialWorkspace, ["okada"], { scope: "skills", note: "QAスキルを更新" });
+    expect(created.some((request) => request.personId === "okada" && request.status === "open")).toBe(true);
+    expect(() => addProfileRequests({ ...initialWorkspace, profileRequests: created }, ["okada"], { scope: "all" })).toThrow("未完了");
+    const submitted = submitProfileRequest(initialWorkspace, "req-nakamura-skills", { skills: "React:5, TypeScript:4, A11y:4" }, { canManage: true });
+    expect(submitted.profileRequests?.find((request) => request.id === "req-nakamura-skills")?.status).toBe("submitted");
+    expect(submitted.members.find((member) => member.id === "nakamura")?.skillLevels?.find((level) => level.name === "React")?.proficiency).toBe(4);
+    const completed = completeProfileRequest(submitted, "req-nakamura-skills");
+    expect(completed.members.find((member) => member.id === "nakamura")?.skillLevels?.find((level) => level.name === "React")?.proficiency).toBe(5);
+    expect(completed.profileRequests?.find((request) => request.id === "req-nakamura-skills")?.status).toBe("done");
+    const cancelled = cancelProfileRequest(initialWorkspace.profileRequests ?? [], "req-nakamura-skills");
+    expect(cancelled.find((request) => request.id === "req-nakamura-skills")?.status).toBe("cancelled");
+    expect(() => submitProfileRequest(initialWorkspace, "req-nakamura-skills", { skills: "React:5" }, { identity: { userId: "user-1" } })).toThrow("権限");
   });
 });
 

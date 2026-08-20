@@ -3808,3 +3808,31 @@ h1 {
 @media print {
   .ai-chat-root { display: none !important; }
 }
+.profile-request-card { margin: 0 0 18px; }
+.profile-request-form { grid-template-columns: minmax(0, 1fr) 160px minmax(0, 1.2fr); }
+.profile-request-members {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 8px 0 0;
+  border: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+}
+.profile-request-members legend { color: #7b8496; font-size: 8px; font-weight: 700; }
+.profile-request-members label { display: flex; align-items: center; gap: 6px; color: var(--ink); font-size: 12px; font-weight: 600; }
+.profile-request-list { display: grid; gap: 12px; }
+.profile-request-item {
+  padding: 12px 0 0;
+  border-top: 1px solid var(--line);
+  display: grid;
+  gap: 8px;
+}
+.profile-request-item header { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; }
+.profile-request-item header small, .profile-request-item p { color: #7883b6; font-size: 12px; }
+.profile-request-submit { display: grid; gap: 10px; }
+.field-surfaces { color: #6d7689; font-size: 10px; font-weight: 700; }
+
+@media print {
+  .ai-chat-root { display: none !important; }
+}
