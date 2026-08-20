@@ -59,7 +59,7 @@ npm exec supabase -- secrets set MCP_SECRET_ACME_HR=...
 
 ## 今段の対象外
 
-- 社外への書込み。確認フロー付きで次段に回します。今段は管理者が参照専用と確認した tool を承認する運用です
-- OAuth / Authorization Server、SSE、セッションの永続化
-- `resources/list` / `resources/read`（toolのみ）
-- ロール別権限（項目・機能・参照範囲）との連動
+- 社外への書込み。確認フロー付きで次段に回します。今段は管理者が参照専用と確認した tool を承認する運用です → [#56](https://github.com/syuto33004b1-collab/MOSAIC/issues/56)
+- ロール別権限（項目・機能・参照範囲）との連動。`begin_mcp_call` の認可は現在 `private.is_org_member` だけです → [#55](https://github.com/syuto33004b1-collab/MOSAIC/issues/55)
+- OAuth / Authorization Server、SSE、セッションの永続化（未起票）
+- `resources/list` / `resources/read`（toolのみ。未起票）
