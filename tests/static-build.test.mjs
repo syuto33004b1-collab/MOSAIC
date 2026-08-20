@@ -29,6 +29,7 @@ test("ships the interactive assignment workspace and social image", async () => 
   )).join("\n");
 
   assert.match(bundle, /mosaic-local-workspace-v3/);
+  assert.match(bundle, /mosaic-favorites-v1/);
   assert.match(bundle, /プロジェクト・ポートフォリオ/);
   assert.match(bundle, /キャパシティ予測/);
   assert.match(bundle, /チームへ保存/);

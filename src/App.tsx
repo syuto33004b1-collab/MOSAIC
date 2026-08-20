@@ -28,7 +28,7 @@ import {
   UsersRound,
   X,
 } from "lucide-react";
-import { CustomFieldFacts, CustomFieldInputs, FieldsView, MemberOrgFields, MembersView, OpportunitiesView, OrgFacts, OrgView, ProjectsView, ReportsView, SkillsView, WorkHistoryEditor, WorkHistoryList } from "./expanded-views";
+import { CustomFieldFacts, CustomFieldInputs, FavoriteStar, FieldsView, MemberOrgFields, MembersView, OpportunitiesView, OrgFacts, OrgView, ProjectsView, ProposalView, ReportsView, SkillsView, WorkHistoryEditor, WorkHistoryList } from "./expanded-views";
 import { AiChat } from "./components/ai-chat/AiChat";
 import type { ChatTransport } from "./lib/ai/chatClient";
 import {
@@ -105,6 +105,18 @@ import {
   type WorkspaceState,
 } from "./domain";
 
+import {
+  buildShareHref,
+  isFavorited,
+  parseShareSearch,
+  readDemoFavorites,
+  retainedMemberIds,
+  toggleFavorite,
+  writeDemoFavorites,
+  type Favorite,
+  type FavoriteKind,
+} from "./collaboration";
+
 export type OrganizationRole = "owner" | "admin" | "planner" | "viewer";
 
 export type SharedWorkspaceAdapter = {
@@ -113,6 +125,8 @@ export type SharedWorkspaceAdapter = {
   save: (state: WorkspaceState, expectedRevision: number, requestId: string) => Promise<{ revision: number; savedAt: string }>;
   reload: () => Promise<{ state: WorkspaceState; revision: number }>;
   subscribe: (onRevision: (revision?: number) => void) => () => void;
+  listFavorites?: () => Promise<Favorite[]>;
+  setFavorite?: (kind: FavoriteKind, targetId: string, favorite: boolean) => Promise<Favorite[]>;
   submitProfileRequest?: (
     requestId: string,
     proposed: { skills: string; workHistory: WorkHistoryEntry[] },
@@ -227,6 +241,7 @@ const navItems = [
   { id: "projects", label: "プロジェクト", icon: FolderKanban },
   { id: "opportunities", label: "受注前", icon: Inbox },
   { id: "members", label: "メンバー", icon: UsersRound },
+  { id: "proposal", label: "提案", icon: Sparkles },
   { id: "org", label: "組織", icon: Building2 },
   { id: "skills", label: "スキルマップ", icon: Layers3 },
   { id: "fields", label: "項目定義", icon: SlidersHorizontal },
@@ -238,6 +253,7 @@ const pageMeta = {
   projects: { eyebrow: "PORTFOLIO CONTROL", title: "プロジェクト・ポートフォリオ", description: "案件ごとの充足と次の節目を横断して管理します。" },
   opportunities: { eyebrow: "PRE-AWARD PIPELINE", title: "受注前案件", description: "引き合いから商談までの要員計画を、確定プロジェクトと分けて検討します。" },
   members: { eyebrow: "TEAM AVAILABILITY", title: "メンバーと空き状況", description: "スキルと4週間の余白から、次の担当者を探します。" },
+  proposal: { eyebrow: "CANDIDATE PROPOSAL", title: "候補者提案", description: "氏名を隠して、スキルと空き状況だけを比較します。" },
   org: { eyebrow: "ORGANIZATION TREE", title: "組織階層", description: "部門の階層、責任者、兼務を管理し、検索とレポートへ使います。" },
   skills: { eyebrow: "SKILL TAXONOMY", title: "スキルマップ", description: "分類、習熟度、不足領域を組織全体で確認します。" },
   fields: { eyebrow: "FIELD DEFINITIONS", title: "項目と経歴", description: "独自項目の配置と、メンバーの業務経歴を管理します。" },
@@ -336,23 +352,56 @@ function applyMemberOrg(state: WorkspaceState, personId: string, form: MemberFor
   });
 }
 
+
+function initialShareLink() {
+  return parseShareSearch(window.location.search);
+}
+
+async function copyText(value: string) {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(value);
+    return;
+  }
+  throw new Error("clipboard unavailable");
+}
+
+function drawerFromShare(link: ReturnType<typeof parseShareSearch>, state: WorkspaceState): { drawer: Drawer; memberId?: string; projectId?: string; toast?: string } {
+  if (link?.nav === "members" && link.open) {
+    if (memberById(state, link.open)) return { drawer: "member", memberId: link.open };
+    return { drawer: null, toast: "共有リンクのメンバーが見つかりません" };
+  }
+  if (link?.nav === "projects" && link.open) {
+    if (projectById(state, link.open)) return { drawer: "project", projectId: link.open };
+    return { drawer: null, toast: "共有リンクのプロジェクトが見つかりません" };
+  }
+  return { drawer: null };
+}
+
 export default function Home({ mode = "demo", organizationId, organizationName = "MOSAIC デモ", identity, shared, onSignOut, onOpenOperations, onAccessInvalidated, aiChatTransport }: AppProps) {
   const startingWorkspace = shared?.initialState ?? initialWorkspace;
+  const startingShare = initialShareLink();
+  const opening = drawerFromShare(startingShare, startingWorkspace);
   const [workspace, setWorkspace] = useState<WorkspaceState>(() => cloneState(startingWorkspace));
   const [committedWorkspace, setCommittedWorkspace] = useState<WorkspaceState>(() => cloneState(startingWorkspace));
-  const [activeNav, setActiveNav] = useState<keyof typeof pageMeta>("board");
+  const [activeNav, setActiveNav] = useState<keyof typeof pageMeta>(startingShare?.nav ?? "board");
   const [viewMode, setViewMode] = useState<"members" | "projects">("members");
   const [weekOffset, setWeekOffset] = useState(0);
   const [filter, setFilter] = useState("すべて");
   const [query, setQuery] = useState("");
+  const [memberQuery, setMemberQuery] = useState(startingShare?.nav === "members" ? startingShare.q ?? "" : "");
+  const [projectQuery, setProjectQuery] = useState(startingShare?.nav === "projects" ? startingShare.q ?? "" : "");
+  const [favoritesOnly, setFavoritesOnly] = useState(false);
+  const [favorites, setFavorites] = useState<Favorite[]>(() => mode === "demo" ? readDemoFavorites() : []);
+  const [proposalMemberIds, setProposalMemberIds] = useState<string[]>(startingShare?.nav === "proposal" ? startingShare.memberIds ?? [] : []);
+  const [proposalAnonymous, setProposalAnonymous] = useState(startingShare?.nav === "proposal" ? Boolean(startingShare.anonymous) : false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
-  const [drawer, setDrawer] = useState<Drawer>(null);
-  const [selectedProjectId, setSelectedProjectId] = useState(startingWorkspace.projects[0]?.id ?? "");
-  const [selectedMemberId, setSelectedMemberId] = useState(startingWorkspace.members[0]?.id ?? "");
+  const [drawer, setDrawer] = useState<Drawer>(opening.drawer);
+  const [selectedProjectId, setSelectedProjectId] = useState(opening.projectId ?? startingWorkspace.projects[0]?.id ?? "");
+  const [selectedMemberId, setSelectedMemberId] = useState(opening.memberId ?? startingWorkspace.members[0]?.id ?? "");
   const [selectedAssignmentId, setSelectedAssignmentId] = useState("");
   const [selectedNeedId, setSelectedNeedId] = useState(startingWorkspace.needs[0]?.id ?? "");
-  const [toast, setToast] = useState("");
+  const [toast, setToast] = useState(opening.toast ?? "");
   const [unsavedChanges, setUnsavedChanges] = useState(0);
   const [hydrated, setHydrated] = useState(mode === "shared");
   const [revision, setRevision] = useState(shared?.initialRevision ?? 0);
@@ -388,6 +437,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
   const refreshWorkspaceRef = useRef<(remoteRevision?: number, propagateError?: boolean) => Promise<void>>(async () => undefined);
   const saveOutcomeUncertainRef = useRef(false);
   const formDirtyRef = useRef(false);
+  const favoritesRef = useRef(favorites);
 
   const clearFormDraft = useCallback(() => {
     formDirtyRef.current = false;
@@ -424,24 +474,31 @@ export default function Home({ mode = "demo", organizationId, organizationName =
   useEffect(() => {
     if (mode !== "demo") return;
     const timer = window.setTimeout(() => {
+      let nextState = startingWorkspace;
       try {
         const saved = window.localStorage.getItem(storageKey);
         if (saved) {
           const parsed = JSON.parse(saved) as WorkspaceState;
           if (Array.isArray(parsed.members) && Array.isArray(parsed.assignments)) {
             const migrated = migrateDemoWorkspace(parsed);
+            nextState = migrated;
             setWorkspace(migrated);
             setCommittedWorkspace(cloneState(migrated));
-            closeDrawer();
           }
         }
       } catch {
         window.localStorage.removeItem(storageKey);
       }
+      const restored = drawerFromShare(parseShareSearch(window.location.search), nextState);
+      if (restored.memberId) setSelectedMemberId(restored.memberId);
+      if (restored.projectId) setSelectedProjectId(restored.projectId);
+      if (restored.drawer) setDrawer(restored.drawer);
+      else if (nextState !== startingWorkspace) closeDrawer();
+      if (restored.toast) setToast(restored.toast);
       setHydrated(true);
     }, 0);
     return () => window.clearTimeout(timer);
-  }, [closeDrawer, mode]);
+  }, [closeDrawer, mode, startingWorkspace]);
 
   useEffect(() => {
     unsavedRef.current = unsavedChanges;
@@ -466,6 +523,25 @@ export default function Home({ mode = "demo", organizationId, organizationName =
     const timer = window.setTimeout(() => setToast(""), 3200);
     return () => window.clearTimeout(timer);
   }, [toast]);
+
+  useEffect(() => {
+    favoritesRef.current = favorites;
+  }, [favorites]);
+
+  useEffect(() => {
+    if (mode !== "shared" || !shared?.listFavorites) return;
+    let active = true;
+    shared.listFavorites()
+      .then((items) => {
+        if (active) setFavorites(items);
+      })
+      .catch(() => {
+        if (active) setToast("お気に入りを読み込めませんでした");
+      });
+    return () => {
+      active = false;
+    };
+  }, [mode, shared]);
 
   useEffect(() => {
     if (!drawer) return;
@@ -596,6 +672,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
 
   const days = useMemo(() => getWeekDays(weekOffset), [weekOffset]);
   const weekStart = getWeekStart(weekOffset);
+  const visibleProposalIds = retainedMemberIds(proposalMemberIds, workspace.members.map((member) => member.id));
   const currentWeekStart = weekStart;
   const currentDailyLoads = workspace.members.flatMap((member) => memberDailyLoads(workspace, member.id, currentWeekStart, weekEnd(currentWeekStart)).map((day) => ({ ...day, capacity: member.capacity })));
   const totalCapacity = workspace.members.reduce((sum, member) => sum + member.capacity, 0) * 5;
@@ -755,6 +832,43 @@ export default function Home({ mode = "demo", organizationId, organizationName =
   const openMember = (memberId: string) => {
     setSelectedMemberId(memberId);
     setDrawer("member");
+  };
+
+  const currentShareHref = (link: Parameters<typeof buildShareHref>[1]) => buildShareHref(window.location, link);
+
+  const copyShareLink = async (link: Parameters<typeof buildShareHref>[1], success = "リンクをコピーしました") => {
+    try {
+      await copyText(currentShareHref(link));
+      setToast(success);
+    } catch {
+      setToast("リンクをコピーできませんでした");
+    }
+  };
+
+  const toggleFavoriteTarget = async (kind: FavoriteKind, targetId: string) => {
+    const current = favoritesRef.current;
+    const next = toggleFavorite(current, kind, targetId);
+    const favorite = isFavorited(next, kind, targetId);
+    setFavorites(next);
+    if (mode === "demo") {
+      writeDemoFavorites(next);
+      return;
+    }
+    if (!shared?.setFavorite) return;
+    try {
+      const saved = await shared.setFavorite(kind, targetId, favorite);
+      setFavorites(saved);
+    } catch {
+      setFavorites(current);
+      setToast("お気に入りを更新できませんでした");
+    }
+  };
+
+  const addMemberToProposal = (memberId: string) => {
+    setProposalMemberIds((current) => retainedMemberIds([...current, memberId], workspace.members.map((member) => member.id)));
+    setActiveNav("proposal");
+    closeDrawer();
+    setToast("提案ビューに追加しました");
   };
 
   const openStaffingNeed = (needId: string) => {
@@ -1935,6 +2049,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
     if (activeNav === "projects" && canEdit) setDrawer("newProject");
     if (activeNav === "opportunities" && canEdit) setDrawer("newOpportunity");
     if (activeNav === "members" && canManageMembers) setDrawer("newMember");
+    if (activeNav === "proposal") void copyShareLink({ nav: "proposal", memberIds: visibleProposalIds, anonymous: proposalAnonymous }, "提案リンクをコピーしました");
     if (activeNav === "skills") {
       const openNeed = workspace.needs.find((need) => need.status !== "filled");
       if (openNeed) openStaffingNeed(openNeed.id);
@@ -2004,9 +2119,9 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                 </div>
               )}
             </div>
-            <button className="primary-button" onClick={primaryAction} disabled={activeNav === "board" ? !canAddAssignment : activeNav === "projects" || activeNav === "opportunities" ? !canEdit : activeNav === "members" ? !canManageMembers : activeNav === "skills" ? workspace.needs.every((need) => need.status === "filled") : false}>
-              {activeNav === "board" && <Plus size={16} />}{activeNav === "projects" && <BriefcaseBusiness size={16} />}{activeNav === "opportunities" && <Inbox size={16} />}{activeNav === "members" && <UserRoundPlus size={16} />}{activeNav === "skills" && <Layers3 size={16} />}{(activeNav === "fields" || activeNav === "org") && <UsersRound size={16} />}{activeNav === "reports" && <LayoutDashboard size={16} />}
-              {activeNav === "board" ? "アサインを追加" : activeNav === "projects" ? "プロジェクトを追加" : activeNav === "opportunities" ? "受注前案件を追加" : activeNav === "members" ? "メンバーを追加" : activeNav === "skills" ? "不足ロールを確認" : activeNav === "fields" || activeNav === "org" ? "メンバーを確認" : "ボードで調整"}
+            <button className="primary-button" onClick={primaryAction} disabled={activeNav === "board" ? !canAddAssignment : activeNav === "projects" || activeNav === "opportunities" ? !canEdit : activeNav === "members" ? !canManageMembers : activeNav === "skills" ? workspace.needs.every((need) => need.status === "filled") : activeNav === "proposal" ? visibleProposalIds.length === 0 : false}>
+              {activeNav === "board" && <Plus size={16} />}{activeNav === "projects" && <BriefcaseBusiness size={16} />}{activeNav === "opportunities" && <Inbox size={16} />}{activeNav === "members" && <UserRoundPlus size={16} />}{activeNav === "proposal" && <Sparkles size={16} />}{activeNav === "skills" && <Layers3 size={16} />}{(activeNav === "fields" || activeNav === "org") && <UsersRound size={16} />}{activeNav === "reports" && <LayoutDashboard size={16} />}
+              {activeNav === "board" ? "アサインを追加" : activeNav === "projects" ? "プロジェクトを追加" : activeNav === "opportunities" ? "受注前案件を追加" : activeNav === "members" ? "メンバーを追加" : activeNav === "proposal" ? "提案リンクをコピー" : activeNav === "skills" ? "不足ロールを確認" : activeNav === "fields" || activeNav === "org" ? "メンバーを確認" : "ボードで調整"}
             </button>
           </div>
         </header>
@@ -2101,9 +2216,10 @@ export default function Home({ mode = "demo", organizationId, organizationName =
           </>
         )}
 
-        {activeNav === "projects" && <ProjectsView state={workspace} weekOffset={weekOffset} onOpen={openProject} onCreate={() => setDrawer("newProject")} canEdit={canEdit} />}
+        {activeNav === "projects" && <ProjectsView state={workspace} weekOffset={weekOffset} onOpen={openProject} onCreate={() => setDrawer("newProject")} canEdit={canEdit} query={projectQuery} onQueryChange={setProjectQuery} favorites={favorites} favoritesOnly={favoritesOnly} onFavoritesOnlyChange={setFavoritesOnly} onToggleFavorite={(projectId) => void toggleFavoriteTarget("project", projectId)} onCopyQuery={() => void copyShareLink({ nav: "projects", q: projectQuery }, "検索リンクをコピーしました")} />}
         {activeNav === "opportunities" && <OpportunitiesView state={workspace} onOpen={openOpportunity} onCreate={() => setDrawer("newOpportunity")} canEdit={canEdit} />}
-        {activeNav === "members" && <MembersView state={workspace} weekOffset={weekOffset} onOpen={openMember} onAdd={() => setDrawer("newMember")} onAssign={openAssignmentFor} onAddScene={handleAddSearchScene} onDeleteScene={handleDeleteSearchScene} canEdit={canEdit} canManageMembers={canManageMembers} canManageScenes={canManageMembers} />}
+        {activeNav === "members" && <MembersView state={workspace} weekOffset={weekOffset} onOpen={openMember} onAdd={() => setDrawer("newMember")} onAssign={openAssignmentFor} onAddScene={handleAddSearchScene} onDeleteScene={handleDeleteSearchScene} canEdit={canEdit} canManageMembers={canManageMembers} canManageScenes={canManageMembers} query={memberQuery} onQueryChange={setMemberQuery} favorites={favorites} favoritesOnly={favoritesOnly} onFavoritesOnlyChange={setFavoritesOnly} onToggleFavorite={(memberId) => void toggleFavoriteTarget("member", memberId)} onAddToProposal={addMemberToProposal} onCopyQuery={() => void copyShareLink({ nav: "members", q: memberQuery }, "検索リンクをコピーしました")} />}
+        {activeNav === "proposal" && <ProposalView state={workspace} weekOffset={weekOffset} selectedIds={visibleProposalIds} anonymous={proposalAnonymous} favorites={favorites} onSelectedIdsChange={setProposalMemberIds} onAnonymousChange={setProposalAnonymous} onOpenMember={openMember} onCopyLink={() => void copyShareLink({ nav: "proposal", memberIds: visibleProposalIds, anonymous: proposalAnonymous }, "提案リンクをコピーしました")} onToggleFavorite={(memberId) => void toggleFavoriteTarget("member", memberId)} />}
         {activeNav === "org" && <OrgView state={workspace} onAddUnit={handleAddOrgUnit} onMoveUnit={handleMoveOrgUnit} onArchiveUnit={handleArchiveOrgUnit} canManage={canManageMembers} />}
         {activeNav === "skills" && <SkillsView state={hydrateWorkspaceSkills(workspace)} onAddCatalogEntry={handleAddCatalogEntry} onOpenMember={openMember} onResolveNeed={openStaffingNeed} canEdit={canEdit} />}
         {activeNav === "fields" && <FieldsView state={workspace} onAddField={handleAddCustomField} canManage={canManageMembers} identity={identity} onCreateRequests={handleCreateProfileRequests} onSubmitRequest={handleSubmitProfileRequest} onCompleteRequest={handleCompleteProfileRequest} onCancelRequest={handleCancelProfileRequest} />}
@@ -2201,13 +2317,22 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                 {selectedProjectNeeds.length > 0 ? <div className="detail-need-list">{selectedProjectNeeds.map((need) => <button onClick={() => openStaffingNeed(need.id)} key={need.id}><span><strong>{need.role}</strong><small>{formatDate(need.startDate)} — {formatDate(need.endDate)} · {need.allocation}%</small></span><em>{need.status === "open" ? "候補を見る" : need.status === "planned" ? "解消予定" : "充足済み"}</em><ChevronRight size={14} /></button>)}</div> : <div className="candidate-empty"><UsersRound size={18} /><span><strong>要員要件はありません</strong><small>必要なロールと期間を追加できます。</small></span></div>}
                 {canEdit && <button className="drawer-primary" onClick={() => openNeedCreator(selectedProject.id)}><UserRoundPlus size={16} />要員要件を追加</button>}
                 {canEdit && <button className="drawer-secondary" onClick={() => openNewAssignment(undefined, selectedProject.id)}>この案件へアサインを追加</button>}
+                <div className="entity-action-row">
+                  <FavoriteStar name={selectedProject.name} pressed={isFavorited(favorites, "project", selectedProject.id)} onToggle={() => void toggleFavoriteTarget("project", selectedProject.id)} />
+                  <button className="drawer-secondary" type="button" onClick={() => void copyShareLink({ nav: "projects", open: selectedProject.id }, "案件リンクをコピーしました")}>この案件のリンクをコピー</button>
+                </div>
                 {canEdit && <div className="entity-action-row"><button className="drawer-secondary" onClick={() => openProjectEditor(selectedProject)}>案件情報を編集</button><button className="drawer-danger" onClick={archiveProject}><Trash2 size={15} />案件をアーカイブ</button></div>}
               </div>
             )}
 
             {drawer === "member" && selectedMember && (
               <div className="drawer-content">
-                <div className="profile-hero"><span className={"avatar profile-avatar " + selectedMember.avatarTone}>{selectedMember.initials}</span><div><h2>{selectedMember.name}</h2><p>{selectedMember.role} · {selectedMember.department}</p><small>{selectedMember.location}</small></div><strong>{memberLoad(workspace, selectedMember.id, weekStart)}%</strong></div>
+                <div className="profile-hero">
+                  <span className={"avatar profile-avatar " + selectedMember.avatarTone}>{selectedMember.initials}</span>
+                  <div><h2>{selectedMember.name}</h2><p>{selectedMember.role} · {selectedMember.department}</p><small>{selectedMember.location}</small></div>
+                  <FavoriteStar name={selectedMember.name} pressed={isFavorited(favorites, "member", selectedMember.id)} onToggle={() => void toggleFavoriteTarget("member", selectedMember.id)} />
+                  <strong>{memberLoad(workspace, selectedMember.id, weekStart)}%</strong>
+                </div>
                 <div className="profile-skills">{memberSkillLevels(selectedMember).map((level) => <span key={level.name}>{level.name}<small>{level.proficiency}</small></span>)}</div>
                 <OrgFacts state={workspace} personId={selectedMember.id} />
                 <CustomFieldFacts fields={visibleCustomFields(workspace.customFields, "member", "detail")} values={selectedMember.customValues} />
@@ -2217,6 +2342,10 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                 <div className="profile-capacity">{[0, 1, 2, 3].map((offset) => { const load = memberLoad(workspace, selectedMember.id, addDays(weekStart, offset * 7)); const ratio = selectedMember.capacity > 0 ? load / selectedMember.capacity * 100 : load > 0 ? 100 : 0; return <div key={offset}><span>{offset === 0 ? "今週" : offset + 1 + "週後"}</span><i><b className={load > selectedMember.capacity ? "over" : ""} style={{ width: Math.min(100, ratio) + "%" }} /></i><strong>{load}% / {selectedMember.capacity}%</strong></div>; })}</div>
                 <div className="drawer-section-title"><span>現在のアサイン</span><small>{workspace.assignments.filter((assignment) => assignment.personId === selectedMember.id && overlaps(assignment.startDate, assignment.endDate, weekStart, weekEnd(weekStart))).length}件</small></div>
                 <div className="allocation-list">{workspace.assignments.filter((assignment) => assignment.personId === selectedMember.id && overlaps(assignment.startDate, assignment.endDate, weekStart, weekEnd(weekStart))).map((assignment) => <div key={assignment.id}><span className={"project-dot " + (projectById(workspace, assignment.projectId)?.tone || "plum")} /><span><strong>{assignment.label || projectById(workspace, assignment.projectId)?.name || "プロジェクト未登録"}</strong><small>{formatDate(assignment.startDate)} — {formatDate(assignment.endDate)}</small></span><b>{assignment.allocation}%</b></div>)}</div>
+                <div className="entity-action-row">
+                  <button className="drawer-secondary" type="button" onClick={() => void copyShareLink({ nav: "members", open: selectedMember.id }, "メンバーリンクをコピーしました")}>このメンバーのリンクをコピー</button>
+                  <button className="drawer-secondary" type="button" onClick={() => addMemberToProposal(selectedMember.id)}>提案ビューに追加</button>
+                </div>
                 {canEdit && <button className="drawer-primary" onClick={() => openAssignmentFor(selectedMember.id)}><Plus size={16} />この人へアサインを追加</button>}
                 {canManageMembers && <div className="entity-action-row"><button className="drawer-secondary" onClick={() => openMemberEditor(selectedMember)}>メンバー情報を編集</button><button className="drawer-danger" onClick={archiveMember}><Trash2 size={15} />メンバーをアーカイブ</button></div>}
               </div>

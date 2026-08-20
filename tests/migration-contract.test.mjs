@@ -112,3 +112,16 @@ test("lets authenticated users update only their own display name", async () => 
   assert.doesNotMatch(sql, /grant execute on function public\.update_my_profile\(text\) to anon/);
   assert.doesNotMatch(sql, /grant execute on function public\.update_my_profile\(text\) to public/);
 });
+
+test("keeps personal favorites off the shared workspace payload", async () => {
+  const sql = await readFile(path.join(migrations, "20260819180000_favorites.sql"), "utf8");
+  assert.match(sql, /create table app\.favorites/);
+  assert.match(sql, /create or replace function public\.list_favorites\(p_organization_id uuid\)/);
+  assert.match(sql, /create or replace function public\.set_favorite\(/);
+  assert.match(sql, /favorite limit is 100/);
+  assert.match(sql, /revoke all on table app\.favorites from public, anon, authenticated, service_role/);
+  assert.match(sql, /grant execute on function public\.list_favorites\(uuid\) to authenticated/);
+  assert.match(sql, /grant execute on function public\.set_favorite\(uuid, text, uuid, boolean\) to authenticated/);
+  assert.doesNotMatch(sql, /grant execute on function public\.list_favorites\(uuid\) to anon/);
+  assert.doesNotMatch(sql, /workspace_revision/);
+});

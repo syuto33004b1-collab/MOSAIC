@@ -7,6 +7,7 @@ import {
   ChevronRight,
   CircleAlert,
   ClipboardCheck,
+  EyeOff,
   Filter,
   Gauge,
   Layers3,
@@ -15,10 +16,17 @@ import {
   Search,
   SlidersHorizontal,
   Sparkles,
+  Star,
   Trash2,
   UserRoundPlus,
   UsersRound,
 } from "lucide-react";
+import {
+  anonymousCandidateLabel,
+  isFavorited,
+  MAX_PROPOSAL_MEMBERS,
+  type Favorite,
+} from "./collaboration";
 import {
   addDays,
   addOrgUnit,
@@ -49,6 +57,7 @@ import {
   orgUnitPath,
   orgUnitTree,
   matchMembers,
+  memberById,
   parseSkillInput,
   PROFICIENCY_LABELS,
   profileRequestScopeLabel,
@@ -62,6 +71,7 @@ import {
   type CustomFieldDefinition,
   type CustomFieldEntity,
   type CustomFieldType,
+  type Member,
   type OpportunityStage,
   type OrgUnit,
   type ProfileRequest,
@@ -82,6 +92,13 @@ type ProjectsViewProps = {
   onOpen: (projectId: string) => void;
   onCreate: () => void;
   canEdit?: boolean;
+  query?: string;
+  onQueryChange?: (query: string) => void;
+  favorites?: Favorite[];
+  favoritesOnly?: boolean;
+  onFavoritesOnlyChange?: (value: boolean) => void;
+  onToggleFavorite?: (projectId: string) => void;
+  onCopyQuery?: () => void;
 };
 
 type MembersViewProps = {
@@ -104,6 +121,27 @@ type MembersViewProps = {
   canEdit?: boolean;
   canManageMembers?: boolean;
   canManageScenes?: boolean;
+  query?: string;
+  onQueryChange?: (query: string) => void;
+  favorites?: Favorite[];
+  favoritesOnly?: boolean;
+  onFavoritesOnlyChange?: (value: boolean) => void;
+  onToggleFavorite?: (memberId: string) => void;
+  onAddToProposal?: (memberId: string) => void;
+  onCopyQuery?: () => void;
+};
+
+type ProposalViewProps = {
+  state: WorkspaceState;
+  weekOffset: number;
+  selectedIds: string[];
+  anonymous: boolean;
+  favorites?: Favorite[];
+  onSelectedIdsChange: (ids: string[]) => void;
+  onAnonymousChange: (value: boolean) => void;
+  onOpenMember: (memberId: string) => void;
+  onCopyLink: () => void;
+  onToggleFavorite?: (memberId: string) => void;
 };
 
 type ReportsViewProps = {
@@ -184,16 +222,53 @@ function formatMonthDay(iso?: string | null) {
   return month + "/" + day;
 }
 
-export function ProjectsView({ state, weekOffset, onOpen, onCreate, canEdit = true }: ProjectsViewProps) {
-  const [query, setQuery] = useState("");
+
+export function FavoriteStar({ name, pressed, onToggle }: { name: string; pressed: boolean; onToggle: () => void }) {
+  return (
+    <button
+      type="button"
+      className={"favorite-star" + (pressed ? " is-on" : "")}
+      aria-pressed={pressed}
+      aria-label={pressed ? `${name}のお気に入りを解除` : `${name}をお気に入りに追加`}
+      onClick={(event) => {
+        event.stopPropagation();
+        onToggle();
+      }}
+    >
+      <Star size={14} fill={pressed ? "currentColor" : "none"} />
+    </button>
+  );
+}
+
+export function ProjectsView({
+  state,
+  weekOffset,
+  onOpen,
+  onCreate,
+  canEdit = true,
+  query,
+  onQueryChange,
+  favorites = [],
+  favoritesOnly = false,
+  onFavoritesOnlyChange,
+  onToggleFavorite,
+  onCopyQuery,
+}: ProjectsViewProps) {
+  const [localQuery, setLocalQuery] = useState("");
   const [status, setStatus] = useState("すべて");
   const weekStart = getWeekStart(weekOffset);
-  const queryNeedle = query.toLowerCase();
+  const searchValue = query ?? localQuery;
+  const queryNeedle = searchValue.toLowerCase();
+  const setSearchValue = (value: string) => {
+    if (onQueryChange) onQueryChange(value);
+    else setLocalQuery(value);
+  };
   const filtered = state.projects.filter((project) => {
     const need = state.needs.some((item) => item.projectId === project.id && item.status !== "filled");
     const textMatch = projectSearchText(state, project).includes(queryNeedle);
     const statusMatch = status === "すべて" || project.status === status || (status === "欠員あり" && need);
-    return textMatch && statusMatch;
+    const favoriteMatch = !favoritesOnly || isFavorited(favorites, "project", project.id);
+    return textMatch && statusMatch && favoriteMatch;
   });
   const listFields = visibleCustomFields(state.customFields, "project", "list");
 
@@ -217,18 +292,20 @@ export function ProjectsView({ state, weekOffset, onOpen, onCreate, canEdit = tr
       </div>
 
       <div className="view-toolbar">
-        <div className="inline-search"><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="案件名・責任者を検索" aria-label="案件を検索" /></div>
+        <div className="inline-search"><Search size={15} /><input value={searchValue} onChange={(event) => setSearchValue(event.target.value)} placeholder="案件名・責任者を検索" aria-label="案件を検索" /></div>
         <label className="view-filter"><Filter size={14} /><select value={status} onChange={(event) => setStatus(event.target.value)} aria-label="プロジェクト状態で絞り込み">
           {["すべて", "進行中", "要注意", "準備中", "完了間近", "完了", "欠員あり"].map((option) => <option key={option}>{option}</option>)}
         </select></label>
+        <label className="view-toggle"><input type="checkbox" checked={favoritesOnly} onChange={(event) => onFavoritesOnlyChange?.(event.target.checked)} disabled={!onFavoritesOnlyChange} />お気に入りのみ</label>
         <span className="toolbar-result">{filtered.length}件を表示</span>
+        {onCopyQuery && searchValue.trim() && <button className="view-add-button ghost" type="button" onClick={onCopyQuery}>検索リンクをコピー</button>}
         {canEdit && <button className="view-add-button" onClick={onCreate}><Plus size={15} />プロジェクトを追加</button>}
       </div>
 
       <div className="portfolio-table-wrap">
         <table className="portfolio-table">
           <thead>
-            <tr><th>プロジェクト</th><th>状態</th>{listFields.map((field) => <th key={field.id}>{field.label}</th>)}<th>4週間の充足</th><th>進捗</th><th>次の節目</th><th>責任者</th><th><span className="sr-only">詳細</span></th></tr>
+            <tr><th><span className="sr-only">お気に入り</span></th><th>プロジェクト</th><th>状態</th>{listFields.map((field) => <th key={field.id}>{field.label}</th>)}<th>4週間の充足</th><th>進捗</th><th>次の節目</th><th>責任者</th><th><span className="sr-only">詳細</span></th></tr>
           </thead>
           <tbody>
             {filtered.map((project) => {
@@ -237,6 +314,7 @@ export function ProjectsView({ state, weekOffset, onOpen, onCreate, canEdit = tr
               const weeks = [0, 1, 2, 3].map((offset) => projectMembers(state, project.id, addDays(weekStart, offset * 7)));
               return (
                 <tr key={project.id}>
+                  <td>{onToggleFavorite ? <FavoriteStar name={project.name} pressed={isFavorited(favorites, "project", project.id)} onToggle={() => onToggleFavorite(project.id)} /> : null}</td>
                   <td>
                     <button className="project-name-cell" onClick={() => onOpen(project.id)}>
                       <span className={"project-code " + project.tone}>{project.code}</span>
@@ -260,7 +338,7 @@ export function ProjectsView({ state, weekOffset, onOpen, onCreate, canEdit = tr
             })}
           </tbody>
         </table>
-        {filtered.length === 0 && <div className="view-empty"><BriefcaseBusiness size={22} /><strong>条件に合うプロジェクトがありません</strong><p>検索語または状態を変更してください。</p></div>}
+        {filtered.length === 0 && <div className="view-empty"><BriefcaseBusiness size={22} /><strong>条件に合うプロジェクトがありません</strong><p>{favoritesOnly ? "お気に入りの条件を変更してください。" : "検索語または状態を変更してください。"}</p></div>}
       </div>
     </section>
   );
@@ -370,8 +448,27 @@ export function OpportunitiesView({ state, onOpen, onCreate, canEdit = true }: O
   );
 }
 
-export function MembersView({ state, weekOffset, onOpen, onAdd, onAssign, onAddScene, onDeleteScene, canEdit = true, canManageMembers = true, canManageScenes = false }: MembersViewProps) {
-  const [query, setQuery] = useState("");
+export function MembersView({
+  state,
+  weekOffset,
+  onOpen,
+  onAdd,
+  onAssign,
+  onAddScene,
+  onDeleteScene,
+  canEdit = true,
+  canManageMembers = true,
+  canManageScenes = false,
+  query,
+  onQueryChange,
+  favorites = [],
+  favoritesOnly = false,
+  onFavoritesOnlyChange,
+  onToggleFavorite,
+  onAddToProposal,
+  onCopyQuery,
+}: MembersViewProps) {
+  const [localQuery, setLocalQuery] = useState("");
   const [role, setRole] = useState("すべて");
   const [orgFilter, setOrgFilter] = useState("");
   const [sceneId, setSceneId] = useState("");
@@ -391,11 +488,17 @@ export function MembersView({ state, weekOffset, onOpen, onAdd, onAssign, onAddS
   const scenes = state.searchScenes ?? [];
   const selectedScene = scenes.find((scene) => scene.id === sceneId);
   const scoreById = new Map((selectedScene ? matchMembers(state, selectedScene) : []).map((match) => [match.member.id, match]));
-  const queryNeedle = query.toLowerCase();
+  const searchValue = query ?? localQuery;
+  const queryNeedle = searchValue.toLowerCase();
+  const setSearchValue = (value: string) => {
+    if (onQueryChange) onQueryChange(value);
+    else setLocalQuery(value);
+  };
   const scopedMembers = orgFilter ? membersInOrgSubtree(state, orgFilter, "any") : state.members;
   const filtered = (selectedScene ? scopedMembers.filter((member) => scoreById.has(member.id)) : scopedMembers).filter((member) => {
     const textMatch = memberSearchText(state, member).includes(queryNeedle);
-    return textMatch && (role === "すべて" || member.role === role);
+    const favoriteMatch = !favoritesOnly || isFavorited(favorites, "member", member.id);
+    return textMatch && favoriteMatch && (role === "すべて" || member.role === role);
   }).sort((a, b) => {
     if (selectedScene) return (scoreById.get(b.id)?.score ?? 0) - (scoreById.get(a.id)?.score ?? 0) || a.name.localeCompare(b.name, "ja");
     const aUtilization = a.capacity > 0 ? memberLoad(state, a.id, weekStart) / a.capacity : Number.POSITIVE_INFINITY;
@@ -452,7 +555,7 @@ export function MembersView({ state, weekOffset, onOpen, onAdd, onAssign, onAddS
       </div>
 
       <div className="view-toolbar">
-        <div className="inline-search"><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="名前・スキル・経歴を検索" aria-label="メンバーを検索" /></div>
+        <div className="inline-search"><Search size={15} /><input value={searchValue} onChange={(event) => setSearchValue(event.target.value)} placeholder="名前・スキル・経歴を検索" aria-label="メンバーを検索" /></div>
         <label className="view-filter"><Filter size={14} /><select value={role} onChange={(event) => setRole(event.target.value)} aria-label="職種で絞り込み">{roles.map((option) => <option key={option}>{option}</option>)}</select></label>
         {orgUnits.length > 0 && (
           <label className="view-filter"><Building2 size={14} /><select value={orgFilter} onChange={(event) => setOrgFilter(event.target.value)} aria-label="組織で絞り込み">
@@ -465,7 +568,9 @@ export function MembersView({ state, weekOffset, onOpen, onAdd, onAssign, onAddS
           {scenes.map((scene) => <option value={scene.id} key={scene.id}>{scene.name}</option>)}
         </select></label>
         {canManageScenes && selectedScene && <button className="view-add-button" type="button" onClick={() => { onDeleteScene(selectedScene.id); setSceneId(""); }}>このシーンを削除</button>}
+        <label className="view-toggle"><input type="checkbox" checked={favoritesOnly} onChange={(event) => onFavoritesOnlyChange?.(event.target.checked)} disabled={!onFavoritesOnlyChange} />お気に入りのみ</label>
         <span className="toolbar-result">{selectedScene ? "スコアの高い順" : "空き率の高い順"}</span>
+        {onCopyQuery && searchValue.trim() && <button className="view-add-button ghost" type="button" onClick={onCopyQuery}>検索リンクをコピー</button>}
         {canManageMembers && <button className="view-add-button" onClick={onAdd}><Plus size={15} />メンバーを追加</button>}
       </div>
 
@@ -487,7 +592,7 @@ export function MembersView({ state, weekOffset, onOpen, onAdd, onAssign, onAddS
 
       <div className="member-table-wrap">
         <table className="member-table">
-          <thead><tr><th>メンバー</th><th>スキル</th>{selectedScene && <th>スコア</th>}{listFields.map((field) => <th key={field.id}>{field.label}</th>)}<th>今週</th><th>4週間のキャパシティ</th><th>次の空き</th><th><span className="sr-only">操作</span></th></tr></thead>
+          <thead><tr><th><span className="sr-only">お気に入り</span></th><th>メンバー</th><th>スキル</th>{selectedScene && <th>スコア</th>}{listFields.map((field) => <th key={field.id}>{field.label}</th>)}<th>今週</th><th>4週間のキャパシティ</th><th>次の空き</th><th><span className="sr-only">操作</span></th></tr></thead>
           <tbody>
             {filtered.map((member) => {
               const load = memberLoad(state, member.id, weekStart);
@@ -497,6 +602,7 @@ export function MembersView({ state, weekOffset, onOpen, onAdd, onAssign, onAddS
               const match = scoreById.get(member.id);
               return (
                 <tr key={member.id}>
+                  <td>{onToggleFavorite ? <FavoriteStar name={member.name} pressed={isFavorited(favorites, "member", member.id)} onToggle={() => onToggleFavorite(member.id)} /> : null}</td>
                   <td><button className="member-name-cell" onClick={() => onOpen(member.id)}><span className={"avatar " + member.avatarTone}>{member.initials}</span><span><strong>{member.name}</strong><small>{member.role} · {member.department}{memberOrgMemberships(state, member.id).some((item) => !item.isPrimary) ? " · 兼務あり" : ""}</small></span></button></td>
                   <td><div className="member-skills">{memberSkillLevels(member).slice(0, 3).map((level) => <span key={level.name}>{level.name}<small>{level.proficiency}</small></span>)}</div></td>
                   {selectedScene && <td><span className="match-score">{match?.score ?? 0}点<small>{match?.availablePercent ?? 0}%空き</small></span></td>}
@@ -504,12 +610,146 @@ export function MembersView({ state, weekOffset, onOpen, onAdd, onAssign, onAddS
                   <td><span className={"load-ring " + (load > member.capacity ? "over" : member.capacity > 0 && load <= member.capacity * .6 ? "open" : "")} style={{ "--load": Math.min(100, loadRatio) } as React.CSSProperties}><strong>{load}%</strong></span><small className="capacity-limit">上限 {member.capacity}%</small></td>
                   <td><div className="member-week-rail">{weeklyLoads.map((value, index) => { const ratio = member.capacity > 0 ? value / member.capacity * 100 : value > 0 ? 100 : 0; return <i className={value > member.capacity ? "over" : member.capacity > 0 && value <= member.capacity * .6 ? "open" : ""} key={index}><b style={{ height: Math.max(12, Math.min(100, ratio)) + "%" }} /><small>{value}%</small></i>; })}</div></td>
                   <td><span className="next-open">{member.capacity === 0 ? "稼働不可 · 上限0%" : nextOpen === -1 ? "4週先まで満員" : nextOpen === 0 ? "今週 " + Math.max(0, member.capacity - load) + "%空き" : (nextOpen + 1) + "週目から"}<small>{member.location}</small></span></td>
-                  <td>{canEdit ? <button className="quick-assign" onClick={() => onAssign(member.id)}><UserRoundPlus size={14} />アサイン</button> : <span className="read-only-label">閲覧のみ</span>}</td>
+                  <td className="member-row-actions">{onAddToProposal && <button className="quick-assign quiet" onClick={() => onAddToProposal(member.id)}><Sparkles size={14} />提案へ</button>}{canEdit ? <button className="quick-assign" onClick={() => onAssign(member.id)}><UserRoundPlus size={14} />アサイン</button> : <span className="read-only-label">閲覧のみ</span>}</td>
                 </tr>
               );
             })}
           </tbody>
         </table>
+        {filtered.length === 0 && <div className="view-empty"><UsersRound size={22} /><strong>条件に合うメンバーがいません</strong><p>{favoritesOnly ? "お気に入りの条件を変更してください。" : "検索語または職種を変更してください。"}</p></div>}
+      </div>
+    </section>
+  );
+}
+
+
+function proposalWeeklyLoads(state: WorkspaceState, member: Member, weekStart: string) {
+  return [0, 1, 2, 3].map((offset) => memberLoad(state, member.id, addDays(weekStart, offset * 7)));
+}
+
+export function ProposalView({
+  state,
+  weekOffset,
+  selectedIds,
+  anonymous,
+  favorites = [],
+  onSelectedIdsChange,
+  onAnonymousChange,
+  onOpenMember,
+  onCopyLink,
+  onToggleFavorite,
+}: ProposalViewProps) {
+  const [pickerQuery, setPickerQuery] = useState("");
+  const weekStart = getWeekStart(weekOffset);
+  const selected = selectedIds
+    .map((id) => memberById(state, id))
+    .filter((member): member is Member => Boolean(member));
+  const needle = pickerQuery.toLowerCase();
+  const pickerMembers = state.members.filter((member) => {
+    if (selectedIds.includes(member.id)) return false;
+    return memberSearchText(state, member).includes(needle);
+  });
+  const favoriteMembers = state.members.filter((member) => isFavorited(favorites, "member", member.id) && !selectedIds.includes(member.id));
+
+  const addMember = (memberId: string) => {
+    if (selectedIds.includes(memberId) || selectedIds.length >= MAX_PROPOSAL_MEMBERS) return;
+    onSelectedIdsChange([...selectedIds, memberId]);
+  };
+
+  return (
+    <section className="section-view proposal-view" aria-labelledby="proposal-heading">
+      <h2 id="proposal-heading" className="sr-only">候補者提案</h2>
+      <div className="member-ribbon">
+        <div className="ribbon-lead">
+          <span className="ribbon-icon mint"><Sparkles size={18} /></span>
+          <div>
+            <small>ANONYMOUS PROPOSAL</small>
+            <strong>{anonymous ? "氏名を隠して候補を比較します" : "社内向けに候補を並べます"}</strong>
+          </div>
+        </div>
+        <div className="ribbon-stat"><strong>{selected.length}</strong><span>選定中</span></div>
+        <div className="ribbon-divider" />
+        <div className="ribbon-stat"><strong>{anonymous ? "匿名" : "記名"}</strong><span>表示モード</span></div>
+      </div>
+
+      <div className="view-toolbar">
+        <label className="view-toggle">
+          <input type="checkbox" checked={anonymous} onChange={(event) => onAnonymousChange(event.target.checked)} />
+          <EyeOff size={14} />氏名・勤務地を隠す
+        </label>
+        <span className="toolbar-result">最大{MAX_PROPOSAL_MEMBERS}名。社内リンクはログインが必要です。</span>
+        <button className="view-add-button" onClick={onCopyLink} disabled={selected.length === 0}>この提案のリンクをコピー</button>
+      </div>
+
+      <div className="proposal-layout">
+        <aside className="proposal-picker">
+          <div className="inline-search"><Search size={15} /><input value={pickerQuery} onChange={(event) => setPickerQuery(event.target.value)} placeholder="候補を検索して追加" aria-label="提案に追加するメンバーを検索" /></div>
+          {favoriteMembers.length > 0 && (
+            <div className="proposal-picker-group">
+              <small>お気に入り</small>
+              {favoriteMembers.slice(0, 8).map((member) => (
+                <button type="button" key={member.id} className="proposal-picker-item" onClick={() => addMember(member.id)} disabled={selectedIds.length >= MAX_PROPOSAL_MEMBERS}>
+                  <span className={"avatar " + member.avatarTone}>{member.initials}</span>
+                  <span><strong>{member.name}</strong><small>{member.role}</small></span>
+                  <Plus size={14} />
+                </button>
+              ))}
+            </div>
+          )}
+          <div className="proposal-picker-group">
+            <small>メンバー</small>
+            {pickerMembers.slice(0, 12).map((member) => (
+              <button type="button" key={member.id} className="proposal-picker-item" onClick={() => addMember(member.id)} disabled={selectedIds.length >= MAX_PROPOSAL_MEMBERS}>
+                <span className={"avatar " + member.avatarTone}>{member.initials}</span>
+                <span><strong>{member.name}</strong><small>{member.role}</small></span>
+                <Plus size={14} />
+              </button>
+            ))}
+            {pickerMembers.length === 0 && <p className="proposal-picker-empty">追加できるメンバーがありません。</p>}
+          </div>
+        </aside>
+
+        <div className="proposal-cards">
+          {selected.length === 0 && (
+            <div className="view-empty proposal-empty">
+              <UsersRound size={22} />
+              <strong>左側から候補を追加してください</strong>
+              <p>匿名にすると、共有リンクを開いた社内メンバーにも氏名は出ません。</p>
+            </div>
+          )}
+          {selected.map((member, index) => {
+            const label = anonymous ? anonymousCandidateLabel(index) : member.name;
+            const weeklyLoads = proposalWeeklyLoads(state, member, weekStart);
+            return (
+              <article className={"proposal-card" + (anonymous ? " is-anonymous" : "")} key={member.id}>
+                <header>
+                  <span className={"avatar " + (anonymous ? "sand" : member.avatarTone)}>{anonymous ? anonymousCandidateLabel(index).slice(-1) : member.initials}</span>
+                  <div>
+                    <h3>{label}</h3>
+                    <p>{member.role}{anonymous ? "" : ` · ${member.department}`}</p>
+                    {!anonymous && <small>{member.location}</small>}
+                  </div>
+                  {onToggleFavorite && !anonymous && <FavoriteStar name={member.name} pressed={isFavorited(favorites, "member", member.id)} onToggle={() => onToggleFavorite(member.id)} />}
+                  <button type="button" className="proposal-remove" onClick={() => onSelectedIdsChange(selectedIds.filter((id) => id !== member.id))}>外す</button>
+                </header>
+                <div className="member-skills">{memberSkillLevels(member).slice(0, 4).map((level) => <span key={level.name}>{level.name}<small>{level.proficiency}</small></span>)}</div>
+                <div className="proposal-weeks" aria-label={`${label}の4週間の稼働`}>
+                  {weeklyLoads.map((load, weekIndex) => {
+                    const ratio = member.capacity > 0 ? load / member.capacity * 100 : load > 0 ? 100 : 0;
+                    return (
+                      <div key={weekIndex}>
+                        <span>{weekIndex === 0 ? "今週" : `${weekIndex + 1}週後`}</span>
+                        <i><b className={load > member.capacity ? "over" : ""} style={{ width: Math.min(100, ratio) + "%" }} /></i>
+                        <strong>{load}% / {member.capacity}%</strong>
+                      </div>
+                    );
+                  })}
+                </div>
+                {!anonymous && <button type="button" className="proposal-open" onClick={() => onOpenMember(member.id)}>詳細を開く</button>}
+              </article>
+            );
+          })}
+        </div>
       </div>
     </section>
   );

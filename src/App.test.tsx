@@ -1,8 +1,9 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import axe from "axe-core";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import App, { type SharedWorkspaceAdapter } from "./App";
+import { DEMO_FAVORITES_KEY } from "./collaboration";
 import { addDays, getWeekStart, initialWorkspace, memberDailyLoads, type WorkspaceState } from "./domain";
 import type { ChatTransport } from "./lib/ai/chatClient";
 
@@ -15,6 +16,11 @@ function sharedAdapter(): SharedWorkspaceAdapter {
     subscribe: vi.fn().mockReturnValue(() => undefined),
   };
 }
+
+afterEach(() => {
+  window.history.replaceState({}, "", "/");
+  window.localStorage.removeItem(DEMO_FAVORITES_KEY);
+});
 
 function linkedStaffingWorkspace(): WorkspaceState {
   const member = initialWorkspace.members[0];
@@ -948,7 +954,7 @@ describe("role-aware workspace", () => {
     expect(screen.getByText("在留資格")).toBeInTheDocument();
 
     await user.click(navigation.getByRole("button", { name: "メンバー" }));
-    await user.click(screen.getByRole("button", { name: /佐伯 優斗/ }));
+    await user.click(screen.getAllByRole("button", { name: /佐伯 優斗/ }).find((button) => button.classList.contains("member-name-cell"))!);
     expect(screen.getByText("Studio North")).toBeInTheDocument();
     expect(screen.getAllByText("ビジネス").length).toBeGreaterThan(0);
     await user.click(document.querySelector(".close-button") as HTMLButtonElement);
@@ -1061,11 +1067,11 @@ describe("role-aware workspace", () => {
 
     await user.click(navigation.getByRole("button", { name: "メンバー" }));
     await user.type(screen.getByPlaceholderText("名前・スキル・経歴を検索"), "デザイン本部");
-    expect(screen.getByRole("button", { name: /佐伯 優斗/ })).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: /佐伯 優斗/ }).some((button) => button.classList.contains("member-name-cell"))).toBe(true);
     await user.clear(screen.getByPlaceholderText("名前・スキル・経歴を検索"));
     await user.selectOptions(screen.getByLabelText("組織で絞り込み"), "org-engineering");
-    expect(screen.getByRole("button", { name: /佐伯 優斗/ })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /中村 美咲/ })).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: /佐伯 優斗/ }).some((button) => button.classList.contains("member-name-cell"))).toBe(true);
+    expect(screen.getAllByRole("button", { name: /中村 美咲/ }).some((button) => button.classList.contains("member-name-cell"))).toBe(true);
 
     await user.click(navigation.getByRole("button", { name: "レポート" }));
     const engineering = screen.getByText("開発本部").closest("div");
@@ -1088,9 +1094,9 @@ describe("role-aware workspace", () => {
     await user.click(navigation.getByRole("button", { name: "メンバー" }));
     const sceneSelect = screen.getByLabelText("保存した検索シーン");
     await user.selectOptions(sceneSelect, within(sceneSelect).getByRole("option", { name: "フロントエンド候補" }));
-    expect(screen.getByRole("button", { name: /中村 美咲/ })).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: /中村 美咲/ }).some((button) => button.classList.contains("member-name-cell"))).toBe(true);
     expect(screen.getByText("60点")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /佐伯 優斗/ })).not.toBeInTheDocument();
+    expect(screen.queryAllByRole("button", { name: /佐伯 優斗/ }).find((button) => button.classList.contains("member-name-cell"))).toBeUndefined();
 
     await user.type(screen.getByPlaceholderText("フロントエンド候補"), "React実務者");
     await user.type(screen.getByPlaceholderText("React:3, TypeScript:3"), "React:3");
@@ -1153,3 +1159,62 @@ describe("role-aware workspace", () => {
     window.localStorage.removeItem("mosaic-local-workspace-v3");
   });
 });
+
+describe("favorites, share links, and anonymous proposals", () => {
+  it("opens a member drawer from an internal share URL", async () => {
+    window.history.replaceState({}, "", "/?nav=members&open=saeki");
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "計画 花子", email: "planner@example.com", role: "planner" }} shared={sharedAdapter()} />);
+    expect(await screen.findByRole("heading", { name: "佐伯 優斗" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "このメンバーのリンクをコピー" })).toBeInTheDocument();
+  });
+
+  it("copies a member share link from the profile drawer", async () => {
+    const user = userEvent.setup();
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "計画 花子", email: "planner@example.com", role: "planner" }} shared={sharedAdapter()} />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: "メンバー" }));
+    await user.click(screen.getByRole("button", { name: "佐伯 優斗をお気に入りに追加" }).closest("tr")!.querySelector(".member-name-cell")!);
+    await user.click(screen.getByRole("button", { name: "このメンバーのリンクをコピー" }));
+    await waitFor(() => expect(writeText).toHaveBeenCalled());
+    expect(String(writeText.mock.calls[0][0])).toContain("nav=members");
+    expect(String(writeText.mock.calls[0][0])).toContain("open=saeki");
+  });
+
+  it("persists a demo favorite in local storage", async () => {
+    const user = userEvent.setup();
+    window.localStorage.setItem(DEMO_FAVORITES_KEY, "[]");
+    render(<App />);
+    await waitFor(() => expect(screen.queryByText("保存データを読み込み中")).not.toBeInTheDocument());
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: "メンバー" }));
+    await user.click(screen.getByRole("button", { name: "佐伯 優斗をお気に入りに追加" }));
+    expect(JSON.parse(window.localStorage.getItem(DEMO_FAVORITES_KEY) ?? "[]")).toEqual([{ kind: "member", targetId: "saeki" }]);
+    expect(screen.getByRole("button", { name: "佐伯 優斗のお気に入りを解除" })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("hides names in the anonymized proposal view", async () => {
+    const user = userEvent.setup();
+    window.history.replaceState({}, "", "/?nav=proposal&members=saeki,nakamura&anonymous=1");
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "計画 花子", email: "planner@example.com", role: "planner" }} shared={sharedAdapter()} />);
+    expect(await screen.findByRole("heading", { name: "候補A" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "候補B" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "佐伯 優斗" })).not.toBeInTheDocument();
+    expect(screen.queryByText("東京")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "提案" }));
+    expect(screen.getByLabelText("氏名・勤務地を隠す")).toBeChecked();
+  });
+
+  it("loads and updates shared favorites through the workspace adapter", async () => {
+    const user = userEvent.setup();
+    const adapter = sharedAdapter();
+    adapter.listFavorites = vi.fn().mockResolvedValue([{ kind: "project", targetId: "atlas" }]);
+    adapter.setFavorite = vi.fn().mockResolvedValue([]);
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "閲覧 太郎", email: "viewer@example.com", role: "viewer" }} shared={adapter} />);
+    await waitFor(() => expect(adapter.listFavorites).toHaveBeenCalled());
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: "プロジェクト" }));
+    expect(screen.getByRole("button", { name: "Atlas リニューアルのお気に入りを解除" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Atlas リニューアルのお気に入りを解除" }));
+    await waitFor(() => expect(adapter.setFavorite).toHaveBeenCalledWith("project", "atlas", false));
+  });
+});
+
