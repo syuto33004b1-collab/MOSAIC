@@ -226,3 +226,18 @@ test("every comment, revoke, and grant names a signature the migration declares"
   const unknown = referenced.filter((entry) => !declared.has(entry.slice(entry.indexOf(": ") + 2)));
   assert.deepEqual(unknown, []);
 });
+
+test("binds an integration credential to its issuer without escalating", async () => {
+  const sql = await readFile(path.join(migrations, "20260820180000_integration_actor_no_fallback.sql"), "utf8");
+  assert.match(sql, /create or replace function private\.become_integration_actor\(p_client_id uuid\)/);
+  assert.match(sql, /and membership\.user_id = v_client\.created_by/);
+  assert.match(sql, /and membership\.role in \('owner', 'admin', 'planner'\)/);
+  // The fallback that picked an arbitrary administrator must be gone.
+  assert.doesNotMatch(sql, /order by case membership\.role when 'owner' then 0 else 1 end/);
+  assert.doesNotMatch(sql, /role in \('owner', 'admin'\)\s*\r?\n\s*order by/);
+  // Owners need to see why a credential stopped; it is computed, never stored.
+  assert.match(sql, /'actorEligible', exists \(/);
+  assert.doesNotMatch(sql, /alter table app\.integration_clients/);
+  assert.match(sql, /grant execute on function public\.list_integration_clients\(uuid\) to authenticated/);
+  assert.doesNotMatch(sql, /grant execute on function private\./);
+});

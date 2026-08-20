@@ -421,6 +421,42 @@ describe("OperationsPanel webhook endpoints", () => {
   });
 });
 
+describe("OperationsPanel stopped integration credentials", () => {
+  const organization = { id: "00000000-0000-4000-8000-000000000010", name: "共有ワークスペース", role: "owner" as const };
+
+  it("tells an owner that a credential stopped because its issuer lost its role", async () => {
+    const repository = {
+      listOrganizationMembers: vi.fn().mockResolvedValue([]),
+      listAuditEvents: vi.fn().mockResolvedValue({ events: [], nextBefore: undefined }),
+      listOrganizationInvitations: vi.fn().mockResolvedValue([]),
+      listIntegrationClients: vi.fn().mockResolvedValue([{
+        id: "00000000-0000-4000-8000-000000000060",
+        organizationId: organization.id,
+        name: "勤怠連携",
+        keyPrefix: "aaaaaaaaaaaa",
+        scopes: ["workspace:read"],
+        status: "active" as const,
+        actorEligible: false,
+      }]),
+      listWebhookEndpoints: vi.fn().mockResolvedValue([]),
+      listMcpServers: vi.fn().mockResolvedValue([]),
+    } as unknown as ProductionRepository;
+
+    render(
+      <OperationsPanel
+        currentUserId="00000000-0000-4000-8000-000000000001"
+        currentOrganization={organization}
+        organizations={[organization]}
+        repository={repository}
+        onClose={vi.fn()}
+        onSelectOrganization={vi.fn()}
+      />,
+    );
+
+    expect(await screen.findByText(/発行者が権限を失いました/u)).toBeInTheDocument();
+  });
+});
+
 describe("OperationsPanel external mcp servers", () => {
   const organization = { id: "00000000-0000-4000-8000-000000000010", name: "共有ワークスペース", role: "owner" as const };
   const approved = {

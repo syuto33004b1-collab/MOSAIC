@@ -182,6 +182,11 @@ export type IntegrationClient = {
   createdByName?: string;
   revokedAt?: string;
   lastUsedAt?: string;
+  /**
+   * False when the issuer no longer holds an active owner, admin, or planner
+   * role. The credential is refused with 42501 until it is re-issued.
+   */
+  actorEligible?: boolean;
 };
 
 export type CreateIntegrationClientResult = {

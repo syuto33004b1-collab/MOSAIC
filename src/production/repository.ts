@@ -921,6 +921,9 @@ export function normalizeIntegrationClient(value: unknown): IntegrationClient | 
     createdByName: readString(record, "created_by_name", "createdByName"),
     revokedAt: readString(record, "revoked_at", "revokedAt"),
     lastUsedAt: readString(record, "last_used_at", "lastUsedAt"),
+    // Absent on create and revoke results; only the list RPC computes it.
+    ...(typeof record.actorEligible === "boolean" ? { actorEligible: record.actorEligible } : {}),
+    ...(typeof record.actor_eligible === "boolean" ? { actorEligible: record.actor_eligible } : {}),
   };
 }
 

@@ -610,11 +610,15 @@ export function OperationsPanel({
             <div className="allocation-list production-integration-list">
               {clients.map((client) => (
                 <div key={client.id}>
-                  <span className={`notice-icon ${client.status === "revoked" ? "danger" : "info"}`}><KeyRound size={14} /></span>
+                  <span className={`notice-icon ${client.status === "revoked" || client.actorEligible === false ? "danger" : "info"}`}><KeyRound size={14} /></span>
                   <span>
                     <strong>{client.name}</strong>
                     <small>
-                      {client.status === "revoked" ? "失効済み" : "有効"}
+                      {client.status === "revoked"
+                        ? "失効済み"
+                        : client.actorEligible === false
+                          ? "停止中（発行者が権限を失いました。失効して再発行してください）"
+                          : "有効"}
                       {` · mosaic_sk_${client.keyPrefix}…`}
                       {` · ${formatScopes(client.scopes)}`}
                     </small>
@@ -647,7 +651,7 @@ export function OperationsPanel({
                   </label>
                 ))}
               </fieldset>
-              <div className="form-note"><ShieldCheck size={15} /><span>秘密鍵は発行直後に一度だけ表示します。任意のSQLやURLは実行できません。</span></div>
+              <div className="form-note"><ShieldCheck size={15} /><span>秘密鍵は発行直後に一度だけ表示します。任意のSQLやURLは実行できません。資格は発行した利用者として動くため、発行者が owner / admin / planner を外れると停止します。</span></div>
               <button className="drawer-primary" type="submit" disabled={issuingClient || !clientName.trim()}><KeyRound size={15} />{issuingClient ? "発行中…" : "連携資格を発行する"}</button>
             </form>
             <div className="drawer-section-title"><span>Webhook</span><small>{loading ? "読込中" : `${webhooks.length}件`}</small></div>
