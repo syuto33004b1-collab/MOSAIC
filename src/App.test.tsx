@@ -181,20 +181,24 @@ describe("role-aware workspace", () => {
    * The header carries one primary-action button whose label and handler change
    * per screen. On four screens the view rendered its own button calling the
    * same handler, so the same action had two entry points and no way to tell
-   * them apart. Counting accessible names is the direct check.
+   * them apart. Counting accessible names is the direct check — but it has to
+   * count by action, not by label: the proposal pair read 提案リンクをコピー and
+   * この提案のリンクをコピー while calling the same thing with the same
+   * arguments, so an exact-match count would not have noticed it come back.
    */
   it("offers each screen's primary action from one place only", async () => {
     const user = userEvent.setup();
     render(<App />);
     const navigation = within(screen.getByRole("navigation", { name: "メインナビゲーション" }));
     const cases = [
-      { nav: "プロジェクト", action: "プロジェクトを追加" },
-      { nav: "受注前", action: "受注前案件を追加" },
-      { nav: "メンバー", action: "メンバーを追加" },
-      { nav: "提案", action: "提案リンクをコピー" },
+      // `nav` is anchored at both ends because these labels carry a count badge.
+      { nav: /^プロジェクト\d*$/u, action: /^プロジェクトを追加$/u },
+      { nav: /^受注前\d*$/u, action: /^受注前案件を追加$/u },
+      { nav: /^メンバー$/u, action: /^メンバーを追加$/u },
+      { nav: /^提案$/u, action: /リンクをコピー$/u },
     ];
     for (const { nav, action } of cases) {
-      await user.click(navigation.getByRole("button", { name: new RegExp(`^${nav}`, "u") }));
+      await user.click(navigation.getByRole("button", { name: nav }));
       expect(screen.getAllByRole("button", { name: action })).toHaveLength(1);
     }
   });
