@@ -97,14 +97,14 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .toolbar-actions { display: flex; gap: 6px; }
 .toolbar-actions button { min-width: 52px; height: 31px; padding: 0 10px; border-radius: 8px; color: #747d90; font-size: 8px; }
 .toolbar-actions .arrow-button { min-width: 30px; padding: 0; font-family: var(--font-data); font-size: 17px; }
-.schedule-head { min-height: 46px; display: grid; grid-template-columns: 245px repeat(5, minmax(72px, 1fr)); border-bottom: 1px solid var(--line); background: #fafbfc; }
+.schedule-head { min-height: 46px; display: grid; grid-template-columns: var(--schedule-label-col) var(--schedule-day-tracks); border-bottom: 1px solid var(--line); background: #fafbfc; }
 .people-label { padding: 15px 18px; color: #7f8798; font-size: 8px; font-weight: 700; letter-spacing: .04em; }
 .people-label span { margin-left: 4px; color: #acb2bf; }
 .day-label { position: relative; border-left: 1px solid #edf0f5; display: flex; align-items: center; justify-content: center; gap: 7px; color: #858da0; font-size: 8px; }
 .day-label strong { color: #566073; font-family: var(--font-data); font-size: 11px; }
 .day-label.today::after { content: ""; position: absolute; bottom: -1px; left: 26%; right: 26%; height: 2px; border-radius: 2px; background: var(--cobalt); }
 .day-label.today strong { color: var(--cobalt); }
-.schedule-row { min-height: 78px; display: grid; grid-template-columns: 245px minmax(0, 1fr); border-bottom: 1px solid var(--line); }
+.schedule-row { min-height: 78px; display: grid; grid-template-columns: var(--schedule-label-col) minmax(0, 1fr); border-bottom: 1px solid var(--line); }
 .schedule-row:last-child { border-bottom: 0; }
 .person-cell { min-width: 0; padding: 14px 15px 14px 18px; display: flex; align-items: center; gap: 10px; }
 .avatar { width: 34px; height: 34px; flex: 0 0 34px; border-radius: 11px; display: inline-grid; place-items: center; color: #26314a; font-family: var(--font-data); font-size: 9px; font-weight: 800; }
@@ -118,8 +118,18 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .person-copy small { margin-top: 4px; color: #929aab; font-family: var(--font-data); font-size: 7px; }
 .load { padding: 4px 7px; border-radius: 7px; background: #eef1f5; color: #6f788a; font-family: var(--font-data); font-size: 8px; font-weight: 700; }
 .load.over { background: #ffebe9; color: #d7584e; }
-.week-cell { position: relative; padding: 14px 8px; display: grid; grid-template-columns: repeat(5, minmax(55px, 1fr)); grid-auto-rows: 23px; gap: 4px 0; overflow: hidden; }
-.day-grid { position: absolute; inset: 0; display: grid; grid-template-columns: repeat(5, 1fr); pointer-events: none; }
+/* No horizontal padding: it is what made the cell divide a different box from
+   the header. Deliberate consequence — the theme's later `.assignment` rule
+   sets margin-inline: 5px (search for `margin-inline: 5px`, it overrides the
+   `margin: 0 4px` two lines below), so the inset at the week's outer edges
+   goes from 8+5=13px to 5px, while the gap between two days stays 5+5=10px.
+   Every bar is now inset 5px from its own day boundary; before, the first and
+   last were 13px in from the cell edge and so did not line up at all. */
+.week-cell { position: relative; padding: 14px 0; display: grid; grid-template-columns: var(--schedule-day-tracks); grid-auto-rows: 23px; gap: 4px 0; overflow: hidden; }
+/* The same day tracks as the header and the cell. This was `repeat(5, 1fr)`
+   over the cell's padding box, which agreed with the header by coincidence —
+   that is why the boundary lines looked right while the bars did not. */
+.day-grid { position: absolute; inset: 0; display: grid; grid-template-columns: var(--schedule-day-tracks); pointer-events: none; }
 .day-grid i { border-left: 1px solid #edf0f5; }
 .assignment { z-index: 1; min-width: 0; margin: 0 4px; padding: 6px 9px; border-radius: 7px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #4351aa; font-size: 8px; font-weight: 700; line-height: 1.4; }
 .assignment.blue { background: #e6e9ff; }.assignment.mint { background: #dcf2ea; color: #317463; }.assignment.orange { background: #ffeadf; color: #a75e3f; }
@@ -771,8 +781,6 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 @media (min-width: 1500px) {
   .workspace { padding-left: 46px; padding-right: 46px; }
   .board-layout { grid-template-columns: minmax(760px, 1fr) 286px; }
-  .schedule-head, .schedule-row { grid-template-columns: 260px minmax(0, 1fr); }
-  .schedule-head { grid-template-columns: 260px repeat(5, minmax(78px, 1fr)); }
 }
 @media (max-width: 1280px) {
   .attention-panel { display: grid; grid-template-columns: 145px 1fr 1fr; align-items: stretch; }
@@ -2292,12 +2300,32 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   /* 描画される最小の文字サイズ。これより小さい値を新しく書かない。
      一括ルールと個別ルールの下限がこれを参照する */
   --text-min: 10px;
+  /* The schedule header and each row's week cell must divide the same box into
+     the same five days. Defining it twice is what made Thursday's bar sit under
+     Wednesday's label: the header split (width - label), the cell split
+     (width - label - 16px of its own padding), so the boundaries drifted
+     +8.00 / +4.79 / +1.58 / -1.64 / -4.83px across the week. */
+  --schedule-label-col: 245px;
+  --schedule-day-tracks: repeat(5, minmax(72px, 1fr));
   --fab-size: 56px;
   --fab-inset: max(22px, env(safe-area-inset-bottom));
   --fab-inset-raised: max(92px, calc(78px + env(safe-area-inset-bottom)));
   --fab-clearance: 8px;
   --shadow-float: 0 18px 55px rgba(52, 17, 3, .12);
   --ease-human: cubic-bezier(.16, .64, .32, 1);
+}
+
+/* Wider label and days on very wide screens. This has to come after the :root
+   above: two :root declarations both weigh (0,1,0) and a media query adds no
+   specificity, so while the query matches the later declaration wins. The old
+   version of this override did work — it set .schedule-head's own
+   grid-template-columns, after the base rule — but in token form the order
+   matters and getting it wrong makes the override silently do nothing. */
+@media (min-width: 1500px) {
+  :root {
+    --schedule-label-col: 260px;
+    --schedule-day-tracks: repeat(5, minmax(78px, 1fr));
+  }
 }
 
 html,
