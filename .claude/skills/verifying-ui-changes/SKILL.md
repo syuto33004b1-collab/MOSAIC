@@ -152,6 +152,19 @@ getComputedStyle(document.querySelector('.role-permission-form')).gridTemplateCo
 
 使ったブラウザ（Claude in Chrome / in-app）と、実際の URL も報告に書く。
 
+## 評価者へ渡す画像を残す
+
+`evaluating-before-pr` は UI 差分のときスクリーンショットを `-i` で添付する。そのためのファイルをここで作る。
+
+**ファイルへ保存できるのは chrome-devtools の `take_screenshot { filePath }` だけ**（`claude-in-chrome` の `save_to_disk` は保存先を特定できず、`Claude_Browser` にはパラメータが無い）。
+
+```
+chrome-devtools.new_page { url: <起動時の URL>, background: true }
+chrome-devtools.take_screenshot { filePath: "<scratchpad>/ui-desktop.png", format: "png" }
+```
+
+`確認済み` と判定した対象から、desktop と narrow を各1枚、最大4枚まで残す。scratchpad に置き、リポジトリへはコミットしない。
+
 ## 認証が必要な画面
 
 共有モードの画面はログインが必要で、**認証操作は代行しない**。
