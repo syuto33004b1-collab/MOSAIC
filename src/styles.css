@@ -1306,7 +1306,10 @@ button:focus-visible, a:focus-visible { outline: 3px solid rgba(86,104,232,.35);
 .csv-preset button + button { border-left: 1px solid #dce2eb; background: #fff; color: #687285; }
 .csv-issues { margin: 0; padding-left: 18px; color: #b42318; font-size: 11px; }
 .csv-import { padding-top: 8px; border-top: 1px solid #eef1f6; }
-.view-add-button.ghost { margin-left: 0; cursor: pointer; }
+/* No cursor here: the base rule already sets pointer, and repeating it at this
+   specificity out-ranked .view-add-button:disabled, so a disabled ghost showed
+   a pointer instead of not-allowed. */
+.view-add-button.ghost { margin-left: 0; }
 
 .member-table th:nth-child(1) { width: 24%; }
 .member-table th:nth-child(2) { width: 20%; }
@@ -2726,8 +2729,9 @@ h1 {
 }
 .view-add-button:hover { border-color: var(--ink); background: var(--ink); }
 /* .ghost is the unfilled variant. The rule above gives every .view-add-button a
-   coral fill, so the ghost has to opt out of the fill here, in the same layer —
-   piling a third override on top of the two pre-theme ones is how it broke. */
+   coral fill, so the ghost opts out of the fill right here, next to the rule it
+   has to answer. The two pre-theme .ghost rules only carried a text colour,
+   which is how a grey-on-coral button survived. */
 .view-add-button.ghost {
   border-color: var(--muted-readable);
   background: var(--paper);
