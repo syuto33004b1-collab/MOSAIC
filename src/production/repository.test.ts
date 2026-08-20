@@ -1,6 +1,6 @@
 import type { SupabaseClient, User } from "@supabase/supabase-js";
 import { describe, expect, it, vi } from "vitest";
-import { initialWorkspace } from "../domain";
+import { convertOpportunityToProject, initialWorkspace } from "../domain";
 import { normalizeAuditEvent, normalizeMyContext, normalizeOrganizationInvitation, normalizeWorkspace, ProductionRepository, sha256Hex, workspaceChangesPayload } from "./repository";
 
 const user = {
@@ -164,6 +164,44 @@ describe("production repository response adapters", () => {
       { id: "22222222-0000-4000-8000-000000000022", entityType: "project", key: "client_name", label: "顧客名", fieldType: "text" },
     ]);
     expect(() => workspaceChangesPayload(changed, previous, "planner")).toThrow("項目定義を保存できません");
+  });
+
+  it("includes opportunity and staffing-plan changes in the save payload", () => {
+    const previous = initialWorkspace;
+    const changed = {
+      ...previous,
+      opportunities: (previous.opportunities ?? []).map((item, index) => index === 0 ? { ...item, stage: "proposal" as const } : item),
+      opportunityNeeds: (previous.opportunityNeeds ?? []).slice(1),
+    };
+    const payload = workspaceChangesPayload(changed, previous, "planner");
+    expect(payload.opportunities?.upsert).toEqual([expect.objectContaining({ id: "opp-northwind", stage: "proposal" })]);
+    expect(payload.opportunityNeeds?.cancelIds).toEqual(["opp-need-northwind-fe"]);
+  });
+
+  it("copies a converted opportunity into a project payload without assignments", () => {
+    const converted = convertOpportunityToProject(initialWorkspace, "opp-northwind", {
+      projectId: "00000000-0000-4000-8000-000000000101",
+      needIdMap: {
+        "opp-need-northwind-fe": "00000000-0000-4000-8000-000000000201",
+        "opp-need-northwind-be": "00000000-0000-4000-8000-000000000202",
+      },
+    });
+    const payload = workspaceChangesPayload(converted, initialWorkspace, "planner");
+    expect(payload.projects?.upsert).toEqual([expect.objectContaining({
+      id: "00000000-0000-4000-8000-000000000101",
+      name: "北風商事 販売基盤",
+      status: "準備中",
+    })]);
+    expect(payload.needs?.upsert).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "00000000-0000-4000-8000-000000000201", status: "open", draftPersonId: null }),
+      expect.objectContaining({ id: "00000000-0000-4000-8000-000000000202", status: "open" }),
+    ]));
+    expect(payload.opportunities?.upsert).toEqual([expect.objectContaining({
+      id: "opp-northwind",
+      stage: "won",
+      convertedProjectId: "00000000-0000-4000-8000-000000000101",
+    })]);
+    expect(payload.assignments).toBeUndefined();
   });
 
   it("creates a deterministic lowercase SHA-256 payload hash", async () => {

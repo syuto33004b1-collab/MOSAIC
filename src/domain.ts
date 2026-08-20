@@ -75,6 +75,16 @@ export const PROFICIENCY_LABELS: Record<SkillProficiency, string> = {
   5: "指導",
 };
 
+export const OPPORTUNITY_STAGES: OpportunityStage[] = ["inquiry", "proposal", "negotiation", "won", "lost"];
+export const ACTIVE_OPPORTUNITY_STAGES: OpportunityStage[] = ["inquiry", "proposal", "negotiation"];
+export const OPPORTUNITY_STAGE_LABELS: Record<OpportunityStage, string> = {
+  inquiry: "引き合い",
+  proposal: "提案",
+  negotiation: "商談",
+  won: "受注",
+  lost: "失注",
+};
+
 export type Member = {
   id: string;
   initials: string;
@@ -135,6 +145,35 @@ export type StaffingNeed = {
   draftPersonId?: string | null;
 };
 
+export type OpportunityStage = "inquiry" | "proposal" | "negotiation" | "won" | "lost";
+
+export type Opportunity = {
+  id: string;
+  code: string;
+  name: string;
+  summary: string;
+  stage: OpportunityStage;
+  tone: Tone;
+  ownerPersonId?: string;
+  ownerName?: string | null;
+  ownerInitials?: string | null;
+  startDate: string;
+  endDate: string;
+  demand: number;
+  convertedProjectId?: string | null;
+};
+
+export type OpportunityNeed = {
+  id: string;
+  opportunityId: string;
+  role: string;
+  skills: string[];
+  skillRequirements?: NeedSkillRequirement[];
+  startDate: string;
+  endDate: string;
+  allocation: number;
+};
+
 export type WorkspaceState = {
   members: Member[];
   projects: Project[];
@@ -142,6 +181,8 @@ export type WorkspaceState = {
   needs: StaffingNeed[];
   skillCatalog?: SkillDefinition[];
   customFields?: CustomFieldDefinition[];
+  opportunities?: Opportunity[];
+  opportunityNeeds?: OpportunityNeed[];
 };
 
 export type WeekDay = {
@@ -252,7 +293,20 @@ const needs: StaffingNeed[] = [
   { id: "need-orion-be", projectId: "orion", role: "Backend Engineer", skills: ["API", "AWS"], skillRequirements: [{ name: "API", minProficiency: 3 }, { name: "AWS", minProficiency: 4 }], startDate: "2026-08-31", endDate: "2026-09-30", allocation: 40, status: "open" },
 ];
 
-export const initialWorkspace: WorkspaceState = { members, projects, assignments, needs, skillCatalog, customFields };
+const opportunities: Opportunity[] = [
+  { id: "opp-northwind", code: "NWD", name: "北風商事 販売基盤", summary: "基幹販売の刷新に向けた引き合い。受注後にプロジェクト化する。", stage: "inquiry", tone: "sky", ownerPersonId: "hayashi", ownerName: "林 葵", ownerInitials: "AH", startDate: "2026-09-01", endDate: "2026-12-25", demand: 4 },
+  { id: "opp-harbor", code: "HBR", name: "Harbor 会員アプリ", summary: "会員証とクーポンを統合する提案段階の案件。", stage: "proposal", tone: "mint", ownerPersonId: "takahashi", ownerName: "高橋 直樹", ownerInitials: "NT", startDate: "2026-10-05", endDate: "2027-01-29", demand: 3 },
+  { id: "opp-ledger", code: "LDG", name: "Ledger 会計連携", summary: "会計システムのAPI連携。商談中で要員計画を先に置いている。", stage: "negotiation", tone: "orange", ownerPersonId: "suzuki", ownerName: "鈴木 健太", ownerInitials: "KS", startDate: "2026-08-24", endDate: "2026-11-27", demand: 2 },
+];
+
+const opportunityNeeds: OpportunityNeed[] = [
+  { id: "opp-need-northwind-fe", opportunityId: "opp-northwind", role: "Frontend Engineer", skills: ["React", "TypeScript"], skillRequirements: [{ name: "React", minProficiency: 3 }, { name: "TypeScript", minProficiency: 3 }], startDate: "2026-11-02", endDate: "2026-12-18", allocation: 60 },
+  { id: "opp-need-northwind-be", opportunityId: "opp-northwind", role: "Backend Engineer", skills: ["Java", "API"], skillRequirements: [{ name: "Java", minProficiency: 3 }, { name: "API", minProficiency: 3 }], startDate: "2026-09-07", endDate: "2026-12-18", allocation: 50 },
+  { id: "opp-need-harbor-mobile", opportunityId: "opp-harbor", role: "Mobile Engineer", skills: ["iOS", "Swift"], skillRequirements: [{ name: "iOS", minProficiency: 3 }, { name: "Swift", minProficiency: 3 }], startDate: "2026-10-05", endDate: "2027-01-22", allocation: 40 },
+  { id: "opp-need-ledger-be", opportunityId: "opp-ledger", role: "Backend Engineer", skills: ["AWS", "API"], skillRequirements: [{ name: "AWS", minProficiency: 4 }, { name: "API", minProficiency: 3 }], startDate: "2026-08-24", endDate: "2026-11-20", allocation: 40 },
+];
+
+export const initialWorkspace: WorkspaceState = { members, projects, assignments, needs, skillCatalog, customFields, opportunities, opportunityNeeds };
 
 function isoDate(date: Date) {
   return date.toISOString().slice(0, 10);
@@ -458,7 +512,7 @@ export function memberSkillLevels(member: Pick<Member, "skills" | "skillLevels">
   });
 }
 
-export function needSkillRequirements(need: Pick<StaffingNeed, "skills" | "skillRequirements">): NeedSkillRequirement[] {
+export function needSkillRequirements(need: Pick<StaffingNeed | OpportunityNeed, "skills" | "skillRequirements">): NeedSkillRequirement[] {
   if (need.skillRequirements?.length) {
     const seen = new Set<string>();
     return need.skillRequirements.flatMap((requirement) => {
@@ -495,7 +549,7 @@ export function formatSkillInput(levels: SkillLevel[]): string {
   return levels.map((level) => `${level.name}:${level.proficiency}`).join(", ");
 }
 
-export function memberMatchesNeed(member: Pick<Member, "role" | "skills" | "skillLevels">, need: Pick<StaffingNeed, "role" | "skills" | "skillRequirements">) {
+export function memberMatchesNeed(member: Pick<Member, "role" | "skills" | "skillLevels">, need: Pick<StaffingNeed | OpportunityNeed, "role" | "skills" | "skillRequirements">) {
   if (member.role.toLocaleLowerCase() !== need.role.toLocaleLowerCase()) return false;
   const levels = memberSkillLevels(member);
   return needSkillRequirements(need).every((requirement) => {
@@ -508,12 +562,13 @@ function catalogIdForName(name: string) {
   return `skill:${skillKey(name)}`;
 }
 
-export function inferSkillCatalog(state: Pick<WorkspaceState, "members" | "needs" | "skillCatalog">): SkillDefinition[] {
+export function inferSkillCatalog(state: Pick<WorkspaceState, "members" | "needs" | "skillCatalog" | "opportunityNeeds">): SkillDefinition[] {
   const catalog = [...(state.skillCatalog ?? [])];
   const known = new Set(catalog.filter((item) => item.kind === "skill").map((item) => skillKey(item.name)));
   const names = new Set<string>();
   state.members.forEach((member) => memberSkillLevels(member).forEach((level) => names.add(level.name)));
   state.needs.forEach((need) => needSkillRequirements(need).forEach((requirement) => names.add(requirement.name)));
+  (state.opportunityNeeds ?? []).forEach((need) => needSkillRequirements(need).forEach((requirement) => names.add(requirement.name)));
   names.forEach((name) => {
     if (known.has(skillKey(name))) return;
     catalog.push({ id: catalogIdForName(name), name, kind: "skill", sortOrder: catalog.length + 1 });
@@ -532,6 +587,10 @@ export function hydrateWorkspaceSkills(state: WorkspaceState): WorkspaceState {
       return { ...member, skillLevels, skills: skillLevels.map((level) => level.name) };
     }),
     needs: state.needs.map((need) => {
+      const skillRequirements = needSkillRequirements(need);
+      return { ...need, skillRequirements, skills: skillRequirements.map((requirement) => requirement.name) };
+    }),
+    opportunityNeeds: (state.opportunityNeeds ?? []).map((need) => {
       const skillRequirements = needSkillRequirements(need);
       return { ...need, skillRequirements, skills: skillRequirements.map((requirement) => requirement.name) };
     }),
@@ -881,4 +940,89 @@ export function projectSearchText(state: Pick<WorkspaceState, "customFields">, p
     project.customValues,
     [project.code, project.name, project.summary, project.ownerName ?? ""],
   );
+}
+
+export function isActiveOpportunity(opportunity: Pick<Opportunity, "stage">) {
+  return opportunity.stage === "inquiry" || opportunity.stage === "proposal" || opportunity.stage === "negotiation";
+}
+
+export function canConvertOpportunity(opportunity: Pick<Opportunity, "stage" | "convertedProjectId">) {
+  return isActiveOpportunity(opportunity) && !opportunity.convertedProjectId;
+}
+
+export function opportunityById(state: Pick<WorkspaceState, "opportunities">, id: string) {
+  return (state.opportunities ?? []).find((opportunity) => opportunity.id === id);
+}
+
+export function opportunityNeedsFor(state: Pick<WorkspaceState, "opportunityNeeds">, opportunityId: string) {
+  return (state.opportunityNeeds ?? []).filter((need) => need.opportunityId === opportunityId);
+}
+
+export function opportunitySearchText(opportunity: Opportunity, needs: OpportunityNeed[] = []) {
+  const needText = needs.flatMap((need) => [need.role, ...need.skills]);
+  return [opportunity.code, opportunity.name, opportunity.summary, opportunity.ownerName ?? "", OPPORTUNITY_STAGE_LABELS[opportunity.stage], ...needText].join(" ").toLocaleLowerCase();
+}
+
+export function pipelineDemandForWeek(state: Pick<WorkspaceState, "opportunities">, weekStart: string) {
+  const weekClose = weekEnd(weekStart);
+  return (state.opportunities ?? [])
+    .filter((opportunity) => isActiveOpportunity(opportunity) && overlaps(opportunity.startDate, opportunity.endDate, weekStart, weekClose))
+    .reduce((sum, opportunity) => sum + opportunity.demand, 0);
+}
+
+function nextEntityId(prefix: string, seed: string) {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
+  return `${prefix}:${seed}`;
+}
+
+export function convertOpportunityToProject(
+  state: WorkspaceState,
+  opportunityId: string,
+  options?: { projectId?: string; needIdMap?: Record<string, string> },
+): WorkspaceState {
+  const opportunity = opportunityById(state, opportunityId);
+  if (!opportunity) throw new Error("受注前案件が見つかりません");
+  if (!canConvertOpportunity(opportunity)) throw new Error("受注できる段階ではありません");
+  const owner = opportunity.ownerPersonId ? memberById(state, opportunity.ownerPersonId) : undefined;
+  const projectId = options?.projectId ?? nextEntityId("project", opportunity.id);
+  const project: Project = {
+    id: projectId,
+    code: createProjectCode(opportunity.name, projectId),
+    name: opportunity.name,
+    summary: opportunity.summary,
+    status: "準備中",
+    tone: opportunity.tone,
+    ownerPersonId: owner?.id ?? opportunity.ownerPersonId,
+    ownerName: owner?.name ?? opportunity.ownerName ?? null,
+    ownerInitials: owner?.initials ?? opportunity.ownerInitials ?? null,
+    startDate: opportunity.startDate,
+    endDate: opportunity.endDate,
+    nextMilestone: "キックオフ",
+    nextMilestoneDate: opportunity.startDate,
+    progress: 0,
+    demand: opportunity.demand,
+  };
+  const staffingNeeds: StaffingNeed[] = opportunityNeedsFor(state, opportunity.id).map((need) => {
+    const skillRequirements = needSkillRequirements(need);
+    return {
+      id: options?.needIdMap?.[need.id] ?? nextEntityId("need", need.id),
+      projectId,
+      role: need.role,
+      skills: skillRequirements.map((requirement) => requirement.name),
+      skillRequirements,
+      startDate: need.startDate,
+      endDate: need.endDate,
+      allocation: need.allocation,
+      status: "open",
+      draftPersonId: null,
+    };
+  });
+  return hydrateWorkspaceSkills({
+    ...state,
+    projects: [...state.projects, project],
+    needs: [...state.needs, ...staffingNeeds],
+    opportunities: (state.opportunities ?? []).map((item) => item.id === opportunity.id
+      ? { ...item, stage: "won", convertedProjectId: projectId }
+      : item),
+  });
 }
