@@ -214,6 +214,7 @@ export const RESTRICTABLE_FEATURES = [
   "profileRequests",
   "opportunities",
   "favorites",
+  "externalMcp",
 ] as const;
 export type RestrictableFeature = (typeof RESTRICTABLE_FEATURES)[number];
 

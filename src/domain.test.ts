@@ -417,6 +417,7 @@ describe("role permissions", () => {
   it("refuses unknown field keys, unknown features, and hidden/read-only overlap", () => {
     expect(() => setRolePermission([], customFields, { role: "viewer", hiddenFieldKeys: ["nope"] })).toThrow("見つかりません");
     expect(() => setRolePermission([], customFields, { role: "viewer", disabledFeatures: ["aiChat"] })).toThrow("対象ではありません");
+    expect(setRolePermission([], customFields, { role: "viewer", disabledFeatures: ["externalMcp"] })[0].disabledFeatures).toEqual(["externalMcp"]);
     expect(() => setRolePermission([], customFields, {
       role: "viewer",
       hiddenFieldKeys: ["english"],

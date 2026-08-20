@@ -39,6 +39,17 @@ npm exec supabase -- secrets set MCP_SECRET_ACME_HR=...
 - 応答テキストから次のツール呼び出しへは進みません（`toolChoice: "none"`）。プロンプトインジェクションの連鎖を止めます
 - テキストブロック以外（埋め込みリソース、バイナリ）はモデルへ渡しません
 
+## ロール別権限
+
+`app.role_permissions.disabled_features` に `externalMcp` を設定したロールは、承認済みサーバーへ到達できません。
+
+- `begin_mcp_call` が `42501` で拒否します。**接続先を解決する前**、かつ**監査行を開く前**に止まります
+- `list_mcp_tools` が空を返すので、AI 秘書の tool 宣言から消えます。モデルは社外サーバーの存在自体を知りません
+- owner は他の機能キーと同様に常に無制限です
+- 権限による拒否は `app.mcp_call_logs` へ記録しません。外部呼び出しの失敗ではないためです
+
+サーバー単位・tool 単位の出し分けは今段では作っていません（未起票）。
+
 ## 制限
 
 | 項目 | 値 |
@@ -60,6 +71,5 @@ npm exec supabase -- secrets set MCP_SECRET_ACME_HR=...
 ## 今段の対象外
 
 - 社外への書込み。確認フロー付きで次段に回します。今段は管理者が参照専用と確認した tool を承認する運用です → [#56](https://github.com/syuto33004b1-collab/MOSAIC/issues/56)
-- ロール別権限（項目・機能・参照範囲）との連動。`begin_mcp_call` の認可は現在 `private.is_org_member` だけです → [#55](https://github.com/syuto33004b1-collab/MOSAIC/issues/55)
 - OAuth / Authorization Server、SSE、セッションの永続化（未起票）
 - `resources/list` / `resources/read`（toolのみ。未起票）

@@ -1152,6 +1152,7 @@ const FEATURE_LABELS: Record<RestrictableFeature, string> = {
   profileRequests: "更新依頼",
   opportunities: "受注前案件",
   favorites: "お気に入り",
+  externalMcp: "社外MCP参照",
 };
 
 const RESTRICTABLE_ROLE_LABELS: Record<RestrictableRole, string> = {
