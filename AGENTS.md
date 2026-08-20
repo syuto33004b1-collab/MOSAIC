@@ -100,7 +100,13 @@ npm exec supabase -- test db supabase/tests --local
 原則は環境を問わず同じ。
 
 - 対象を**画面 × 状態**で列挙してから見る（初期表示、入力後、検証エラー、送信中、開閉、0件・複数件）
+- **初期表示だけを見て「確認した」と書かない。** データ量で崩れ方が変わるものは、少なくとも次を変えて測る
+  - 一覧に出す独自項目を 0件 / 1件 / 複数件（カラム数が実行時に変わる。#75 がこれで壊れていた）
+  - 最長の文言（改行できない長い値で列が伸びないか）
+  - 開閉・展開後に追加される要素
 - **目視だけに頼らず測る。** スクリーンショットの幅とビューポートの幅は一致しない。逆に、要素の重なりや文字の切詰めは測って検出できないので目視で見る
+- **計測対象を件数で打ち切らない。** 「先頭N件だけ比較する」は、範囲外の不具合を「0件」と報告することになる。実際にそれで既存の重なりを見落とし、PR 本文に誤った数字を書いた（#96）。O(n²) の比較が重いなら、件数で切るのではなく対象を絞る（同一行の中だけ、隣接する要素だけ、対象コンテナだけ）
+- **宣言の数と描画された要素の数を混同しない。** CSS の宣言は後続ルールに上書きされる。「`font-size` 宣言のうち何割が12px未満」は描画の実態ではない。実際に、既存の一括ルールが多くを10pxへ引き上げていたのに、宣言を数えて別の数字を報告した（#72）。数えるなら `getComputedStyle` で描画後を数える
 - **確認できなかったことを必ず書く。** 見ていないものを「確認済み」と書かない
 - **差分が影響する対象に `未確認` が残るなら、評価と PR へ進む前に利用者へ判断を仰ぐ。** 認証が必要な画面に限らない。撮影に失敗した、状態を再現できなかった場合も同じ。`未確認` と書けば通るなら、この段階を飛ばせてしまう
 - **認証操作は代行しない。** ログインが必要な画面は利用者へ依頼し、その結果を記録する
@@ -179,13 +185,40 @@ npm exec supabase -- test db supabase/tests --local
 
 ### 13. CI
 
-ruleset「Protect main with verified CI」が**マージをブロックする**のは Quality gate / Database policy tests / Dependency review の3つ。CodeQL の skipped は可。
+**必須チェックの一覧をここに書き写さない。** 正典は ruleset で、ここに複製するとズレる。実際にズレていた。読むならこれ。
 
-`Evaluation record` は**まだ ruleset に登録されていない。** 落ちても機械的にはマージできる。登録するにはリポジトリ設定の変更が必要で、利用者の判断待ち。登録されるまでは、赤い `Evaluation record` を見たら手で止める。
+```bash
+gh api repos/syuto33004b1-collab/MOSAIC/rulesets/20937625 \
+  --jq '.rules[] | select(.type=="required_status_checks") | .parameters.required_status_checks[].context'
+```
+
+必須に入っていないチェックが赤い場合、**機械的にはマージできる。** その場合は手で止める。緑にするか、なぜ落ちて構わないかを PR に書く。
+
+CodeQL は `pull_request` では動かないので skipped になる。これは可。
 
 ### 14. マージ
 
-**squash merge のみ。** base は `main`。スタック PR を作るなら、下の PR を main に入れてから次の base を main に付け替える。
+**squash merge のみ。** base は `main`。
+
+**ruleset は `strict` なので、head が main の最新に追いついていないとマージできない。** 先行 PR がマージされた時点で後続は `BEHIND` になり、`gh pr merge` は何もせず
+「To have the pull request merged after all the requirements have been met, add the `--auto` flag.」
+を返す。全チェックが緑でもこうなる。
+
+追いつかせ方はこれ。
+
+```bash
+gh pr update-branch <番号>
+```
+
+**リベースで追いつかせてはいけない。** リベースはコミットSHAを書き換えるので、PR 本文の
+`評価対象コミット` が「この PR のコミット」でなくなり、`Evaluation record` が落ちる。
+`update-branch` は main を head へマージする方向なのでSHAが残る。
+
+追いつかせると CI が再実行される。緑を待ってから squash merge する。
+
+複数 PR を並行して出したときは、**1本ずつマージして、次を追いつかせる。**
+
+スタック PR を作るなら、下の PR を main に入れてから次の base を main に付け替える。
 
 ## セッション終了時
 

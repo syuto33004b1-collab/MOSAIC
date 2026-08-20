@@ -86,7 +86,30 @@ getComputedStyle(document.querySelector('.role-permission-form')).gridTemplateCo
 - `horizontalOverflow` が `true` → **ページ全体が横スクロールしている。不具合**
 - `horizontalOverflow` が `false` で `outOfBounds` に要素がある → **自前スクロールのコンテナかもしれない。** 親が `overflow-x: auto` かを確認してから判断する
 
-検出できるのは左右のはみ出しと対象コンテナの clip だけ。**要素同士の重なり、文字の切詰め、意図しない clipping は検出できない。** それらはスクリーンショットの目視で見る。
+### 要素同士の重なりは測れる
+
+矩形の交差で検出できる。目視より確実で、この方法で #75 / #96 が見つかった。
+
+```javascript
+const vis = el => { const r = el.getBoundingClientRect(); const cs = getComputedStyle(el);
+  return r.width >= 1 && r.height >= 1 && cs.visibility !== 'hidden' && cs.display !== 'none'; };
+const own = el => [...el.childNodes].filter(n => n.nodeType === 3).map(n => n.textContent.trim()).join(' ').trim();
+const nodes = [...document.querySelector('<対象コンテナ>').querySelectorAll('*')].filter(el => vis(el) && own(el));
+const hits = [];
+for (let i = 0; i < nodes.length; i++) for (let j = i + 1; j < nodes.length; j++) {
+  const a = nodes[i], b = nodes[j];
+  if (a.contains(b) || b.contains(a)) continue;
+  const ra = a.getBoundingClientRect(), rb = b.getBoundingClientRect();
+  const ox = Math.min(ra.right, rb.right) - Math.max(ra.left, rb.left);
+  const oy = Math.min(ra.bottom, rb.bottom) - Math.max(ra.top, rb.top);
+  if (ox > 3 && oy > 3) hits.push({ a: own(a).slice(0, 16), b: own(b).slice(0, 16), overlap: `${Math.round(ox)}x${Math.round(oy)}` });
+}
+({ total: hits.length, sample: hits.slice(0, 5) })
+```
+
+**`nodes` を `.slice(0, N)` で切らない。** 切ると範囲外の重なりを「0件」と報告することになる（#96 でそれをやった）。重いなら件数ではなく対象を絞る。
+
+検出できるのは左右のはみ出し、対象コンテナの clip、要素同士の重なりまで。**文字の切詰めが許容できるかの判断と、視覚的な階層・整列の良し悪しは測れない。** それらはスクリーンショットの目視で見る。
 
 ### ラベルから到達できるか
 

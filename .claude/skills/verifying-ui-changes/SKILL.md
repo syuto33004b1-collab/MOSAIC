@@ -110,7 +110,34 @@ CSS を新規に書いたなら、意図した値が実際に効いているか�
 getComputedStyle(document.querySelector('.role-permission-form')).gridTemplateColumns
 ```
 
-**この測定の限界を理解しておく。** 検出できるのは左右のはみ出しと対象コンテナの clip だけ。**要素同士の重なり、文字の切詰め、意図しない clipping は検出できない。** それらはスクリーンショットの目視で見る。
+### 要素同士の重なりは測れる
+
+矩形の交差で検出できる。目視より確実で、この方法で #75 / #96 が見つかった。
+
+```javascript
+const vis = el => { const r = el.getBoundingClientRect(); const cs = getComputedStyle(el);
+  return r.width >= 1 && r.height >= 1 && cs.visibility !== 'hidden' && cs.display !== 'none'; };
+const own = el => [...el.childNodes].filter(n => n.nodeType === 3).map(n => n.textContent.trim()).join(' ').trim();
+const root = document.querySelector('<対象コンテナ>');
+// 自前のテキストを持つ可視要素だけを見る。件数で打ち切らない
+const nodes = [...root.querySelectorAll('*')].filter(el => vis(el) && own(el));
+const hits = [];
+for (let i = 0; i < nodes.length; i++) for (let j = i + 1; j < nodes.length; j++) {
+  const a = nodes[i], b = nodes[j];
+  if (a.contains(b) || b.contains(a)) continue;   // 親子は重なって当然
+  const ra = a.getBoundingClientRect(), rb = b.getBoundingClientRect();
+  const ox = Math.min(ra.right, rb.right) - Math.max(ra.left, rb.left);
+  const oy = Math.min(ra.bottom, rb.bottom) - Math.max(ra.top, rb.top);
+  if (ox > 3 && oy > 3) hits.push({ a: own(a).slice(0, 16), b: own(b).slice(0, 16), overlap: `${Math.round(ox)}x${Math.round(oy)}` });
+}
+({ total: hits.length, sample: hits.slice(0, 5) })
+```
+
+**`nodes` を `.slice(0, N)` で切らない。** 切ると範囲外の重なりを「0件」と報告することになる。実際にそれで既存の重なりを見落とし、PR 本文に誤った数字を書いた（#96）。重いなら件数ではなく対象を絞る（同一行の中だけ、対象コンテナだけ）。
+
+同じ形で、幅0のカラム（内容があるのに幅が0）も測れる。可変カラムのテーブルでは必須。
+
+**この測定の限界を理解しておく。** 検出できるのは左右のはみ出し、対象コンテナの clip、要素同士の重なりまで。**文字の切詰めの妥当性（切れて困るのか困らないのか）と、視覚的な階層・整列の良し悪しは測れない。** それらはスクリーンショットの目視で見る。
 
 そして **`outOfBounds` は意図的に横スクロールするコンテナで誤検出する。** 実測では 375px 幅でアサインボードの `schedule-table` / `schedule-head` / `day-label` が8件並んだが、`horizontalOverflow` は `false` で、週表が自前のコンテナ内でスクロールする設計どおりだった。
 
@@ -202,6 +229,6 @@ npm exec supabase -- stop --no-backup      # ローカル Supabase を起動し�
 
 - 体系的なレスポンシブ検証（2幅の smoke check までとする）
 - 体系的なアクセシビリティ検査（`eslint-plugin-jsx-a11y` と `axe-core` に任せる）
-- 要素の重なり・文字の切詰めの機械検出（目視に頼る）
+- 文字の切詰めが許容できるかの判断、視覚的な階層・整列の評価（目視に頼る）
 - 認証操作の代行
 - スクリーンショットの自動比較による回帰検出
