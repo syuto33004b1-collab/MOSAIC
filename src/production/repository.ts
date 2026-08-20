@@ -1,5 +1,5 @@
 import type { AuthError, PostgrestError, SupabaseClient, User } from "@supabase/supabase-js";
-import type { Assignment, CustomFieldDefinition, CustomFieldEntity, CustomFieldType, Member, Opportunity, OpportunityNeed, OpportunityStage, OrgMembership, OrgUnit, Project, SearchScene, SearchSkillFilter, SkillDefinition, SkillImportance, SkillKind, StaffingNeed, WorkHistoryEntry, WorkspaceState } from "../domain";
+import type { Assignment, CustomFieldDefinition, CustomFieldEntity, CustomFieldType, Member, Opportunity, OpportunityNeed, OpportunityStage, OrgMembership, OrgUnit, Project, ReportGroupBy, ReportMetric, ReportSource, SavedReport, SearchScene, SearchSkillFilter, SkillDefinition, SkillImportance, SkillKind, StaffingNeed, WorkHistoryEntry, WorkspaceState } from "../domain";
 import { hydrateWorkspaceSkills, OPPORTUNITY_STAGES, normalizeSkillProficiency, normalizeWorkHistory } from "../domain";
 import { appAuthRedirectUrl } from "./authRecovery";
 import {
@@ -33,6 +33,9 @@ const opportunityStages = new Set<OpportunityStage>(OPPORTUNITY_STAGES);
 const customFieldEntities = new Set<CustomFieldEntity>(["member", "project"]);
 const customFieldTypes = new Set<CustomFieldType>(["text", "number", "date", "select"]);
 const skillImportances = new Set<SkillImportance>(["must", "nice"]);
+const reportSources = new Set<ReportSource>(["members", "projects"]);
+const reportGroupBy = new Set<ReportGroupBy>(["department", "role", "location", "status"]);
+const reportMetrics = new Set<ReportMetric>(["count", "avgLoad"]);
 const isoDatePattern = /^\d{4}-\d{2}-\d{2}$/;
 
 function asRecord(value: unknown): UnknownRecord | undefined {
@@ -208,6 +211,26 @@ function normalizeSearchScene(value: unknown): SearchScene | undefined {
     ...(skillValues.length ? { skills: skillValues as SearchSkillFilter[] } : {}),
     ...(startDate ? { startDate, endDate } : {}),
     ...(minAvailablePercent !== undefined ? { minAvailablePercent } : {}),
+  };
+}
+
+function normalizeSavedReport(value: unknown): SavedReport | undefined {
+  const record = asRecord(value);
+  if (!record) return undefined;
+  const id = readString(record, "id");
+  const name = readString(record, "name");
+  const source = record.source;
+  const groupBy = record.groupBy;
+  const metric = record.metric;
+  if (!id || !name || !reportSources.has(source as ReportSource) || !reportGroupBy.has(groupBy as ReportGroupBy) || !reportMetrics.has(metric as ReportMetric)) {
+    return undefined;
+  }
+  return {
+    id,
+    name,
+    source: source as ReportSource,
+    groupBy: groupBy as ReportGroupBy,
+    metric: source === "projects" ? "count" : metric as ReportMetric,
   };
 }
 
@@ -496,6 +519,8 @@ function normalizeWorkspaceState(value: unknown): WorkspaceState | undefined {
   if (orgMembershipValues && orgMembershipValues.some((item) => !item)) return undefined;
   const searchSceneValues = record.searchScenes === undefined ? undefined : readArray(record, "searchScenes").map(normalizeSearchScene);
   if (searchSceneValues && searchSceneValues.some((item) => !item)) return undefined;
+  const savedReportValues = record.savedReports === undefined ? undefined : readArray(record, "savedReports").map(normalizeSavedReport);
+  if (savedReportValues && savedReportValues.some((item) => !item)) return undefined;
   return hydrateWorkspaceSkills({
     members: members as Member[],
     projects: projects as Project[],
@@ -508,6 +533,7 @@ function normalizeWorkspaceState(value: unknown): WorkspaceState | undefined {
     ...(orgUnitValues ? { orgUnits: orgUnitValues as OrgUnit[] } : {}),
     ...(orgMembershipValues ? { orgMemberships: orgMembershipValues as OrgMembership[] } : {}),
     ...(searchSceneValues ? { searchScenes: searchSceneValues as SearchScene[] } : {}),
+    ...(savedReportValues ? { savedReports: savedReportValues as SavedReport[] } : {}),
   });
 }
 
@@ -733,6 +759,7 @@ export function normalizeWorkspace(value: unknown): WorkspaceEnvelope {
     orgUnits: record.orgUnits,
     orgMemberships: record.orgMemberships,
     searchScenes: record.searchScenes,
+    savedReports: record.savedReports,
   } : value);
   const rawState = typeof stateCandidate === "string" ? JSON.parse(stateCandidate) as unknown : stateCandidate;
   const state = normalizeWorkspaceState(rawState);
@@ -938,6 +965,18 @@ export function workspaceChangesPayload(
     if (sceneUpsert.length || sceneArchiveIds.length) payload.searchScenes = { upsert: sceneUpsert, archiveIds: sceneArchiveIds };
   } else if (sceneUpsert.length || sceneArchiveIds.length) {
     throw new ProductionRepositoryError("権限が変更されたため、検索シーンを保存できません。未保存内容を確認して再読み込みしてください。", {
+      code: "FORBIDDEN",
+      retryable: false,
+    });
+  }
+  const nextReports = (state.savedReports ?? []).filter((item) => persistedId(item.id));
+  const previousReports = (previous.savedReports ?? []).filter((item) => persistedId(item.id));
+  const reportUpsert = changedRows(nextReports, previousReports);
+  const reportArchiveIds = removedIds(nextReports, previousReports);
+  if (role === "owner" || role === "admin") {
+    if (reportUpsert.length || reportArchiveIds.length) payload.savedReports = { upsert: reportUpsert, archiveIds: reportArchiveIds };
+  } else if (reportUpsert.length || reportArchiveIds.length) {
+    throw new ProductionRepositoryError("権限が変更されたため、レポート定義を保存できません。未保存内容を確認して再読み込みしてください。", {
       code: "FORBIDDEN",
       retryable: false,
     });

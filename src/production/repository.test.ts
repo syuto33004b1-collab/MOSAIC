@@ -256,6 +256,28 @@ describe("production repository response adapters", () => {
     expect(() => workspaceChangesPayload(changed, previous, "planner")).toThrow("検索シーンを保存できません");
   });
 
+  it("sends UUID saved report changes and rejects planner catalog edits", () => {
+    const reportId = "11111111-0000-4000-8000-000000000041";
+    const previous = {
+      ...initialWorkspace,
+      savedReports: [{ id: reportId, name: "既存レポート", source: "members" as const, groupBy: "department" as const, metric: "count" as const }],
+    };
+    const changed = {
+      ...previous,
+      savedReports: [
+        { id: reportId, name: "既存レポート", source: "members" as const, groupBy: "department" as const, metric: "count" as const },
+        { id: "report-demo", name: "デモレポート", source: "members" as const, groupBy: "role" as const, metric: "count" as const },
+        { id: "22222222-0000-4000-8000-000000000042", name: "状態別件数", source: "projects" as const, groupBy: "status" as const, metric: "count" as const },
+      ],
+    };
+
+    const payload = workspaceChangesPayload(changed, previous, "admin");
+    expect(payload.savedReports?.upsert).toEqual([
+      { id: "22222222-0000-4000-8000-000000000042", name: "状態別件数", source: "projects", groupBy: "status", metric: "count" },
+    ]);
+    expect(() => workspaceChangesPayload(changed, previous, "planner")).toThrow("レポート定義を保存できません");
+  });
+
   it("creates a deterministic lowercase SHA-256 payload hash", async () => {
     const first = await sha256Hex({ beta: [2, 1], alpha: { y: true, x: "value" } });
     const second = await sha256Hex({ alpha: { x: "value", y: true }, beta: [2, 1] });

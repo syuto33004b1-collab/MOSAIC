@@ -36,6 +36,7 @@ import {
   addDays,
   addOrgUnit,
   addSearchScene,
+  addSavedReport,
   addSkillCatalogEntry,
   archiveOrgUnit,
   assignmentGrid,
@@ -88,6 +89,9 @@ import {
   type OpportunityStage,
   type Project,
   type ProjectStatus,
+  type ReportGroupBy,
+  type ReportMetric,
+  type ReportSource,
   type SearchSkillFilter,
   type SkillKind,
   type StaffingNeed,
@@ -1849,6 +1853,21 @@ export default function Home({ mode = "demo", organizationId, organizationName =
     setToast("検索シーンを削除しました");
   };
 
+  const handleAddSavedReport = (input: { name: string; source: ReportSource; groupBy: ReportGroupBy; metric: ReportMetric }) => {
+    if (!canManageMembers) throw new Error("レポート定義を変更する権限がありません");
+    const savedReports = addSavedReport(workspace.savedReports ?? [], input);
+    setWorkspace((current) => ({ ...current, savedReports }));
+    markUnsaved();
+    setToast("レポートを保存しました");
+  };
+
+  const handleDeleteSavedReport = (reportId: string) => {
+    if (!canManageMembers) return;
+    setWorkspace((current) => ({ ...current, savedReports: (current.savedReports ?? []).filter((report) => report.id !== reportId) }));
+    markUnsaved();
+    setToast("レポートを削除しました");
+  };
+
   const primaryAction = () => {
     if (activeNav === "board" && canAddAssignment) openNewAssignment();
     if (activeNav === "projects" && canEdit) setDrawer("newProject");
@@ -2026,7 +2045,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
         {activeNav === "org" && <OrgView state={workspace} onAddUnit={handleAddOrgUnit} onMoveUnit={handleMoveOrgUnit} onArchiveUnit={handleArchiveOrgUnit} canManage={canManageMembers} />}
         {activeNav === "skills" && <SkillsView state={hydrateWorkspaceSkills(workspace)} onAddCatalogEntry={handleAddCatalogEntry} onOpenMember={openMember} onResolveNeed={openStaffingNeed} canEdit={canEdit} />}
         {activeNav === "fields" && <FieldsView state={workspace} onAddField={handleAddCustomField} canManage={canManageMembers} />}
-        {activeNav === "reports" && <ReportsView state={workspace} onOpenWeek={openWeekFromReport} onResolveNeed={openStaffingNeed} onOpenOpportunity={openOpportunity} canEdit={canEdit} />}
+        {activeNav === "reports" && <ReportsView state={workspace} onOpenWeek={openWeekFromReport} onResolveNeed={openStaffingNeed} onOpenOpportunity={openOpportunity} onAddReport={handleAddSavedReport} onDeleteReport={handleDeleteSavedReport} canEdit={canEdit} canManageReports={canManageMembers} />}
       </section>
 
       {unsavedChanges > 0 && (
