@@ -1200,7 +1200,7 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .portfolio-table .col-owner,
 .member-table .col-score { width: 104px; }
 .portfolio-table .col-open { width: 56px; }
-.member-table .col-actions { width: 172px; }
+.member-table .col-actions { width: 180px; }
 .portfolio-table .col-name,
 .member-table .col-name { width: 190px; }
 .portfolio-table .col-period { width: 150px; }
