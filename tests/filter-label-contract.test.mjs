@@ -47,6 +47,26 @@ test("every filter says what it filters, in the control", async () => {
 });
 
 /**
+ * The same visible label must not appear on two filters. The 項目定義 screen shows
+ * the field list's own filter and the CSV panel's entity picker together, and
+ * both read 「対象」 at one point — which is #88's defect, on a new screen.
+ *
+ * Uniqueness is checked across the whole file rather than per screen: which
+ * components render together is not something this file says, and a first
+ * attempt that split on `export function` missed exactly this pair because
+ * `CsvTransferPanel` is its own export. Every label is distinct today, so the
+ * stricter rule costs nothing; if two unrelated screens ever want the same word,
+ * that is a decision to make rather than a check to weaken quietly.
+ */
+test("no two filters show the same visible label", async () => {
+  const tsx = await source();
+  const labels = [...tsx.matchAll(/className="filter-label">([^<]+)</gu)].map(([, text]) => text.trim());
+  assert.ok(labels.length >= 9, `expected every filter to carry a label, found ${labels.length}`);
+  const repeated = [...new Set(labels.filter((label, index) => labels.indexOf(label) !== index))];
+  assert.deepEqual(repeated, [], `two filters share a visible label: ${repeated.join(", ")}`);
+});
+
+/**
  * The sort order and the result count shared `.toolbar-result`. They answer
  * different questions — how the list is ordered, and what is in it — and the
  * sort text also sat unlabelled next to bordered controls, which is what made it
@@ -86,18 +106,25 @@ test("the scene form says it makes a new scene", async () => {
  */
 test("the form inputs are styled like the app's other enabled inputs", async () => {
   const css = (await readFile(path.join(root, "src", "styles.css"), "utf8")).replace(/\/\*[\s\S]*?\*\//gu, "");
-  const rule = (selector) => {
-    const match = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/gu)].filter(([, sel]) => sel.includes(selector));
-    return match.map(([, , body]) => body).join(";");
+  /**
+   * The value that wins, not "a rule somewhere says this". Several layers of this
+   * file redeclare the same selectors, so concatenating every match would pass
+   * while a later layer put the grey back. Same-selector, same-specificity means
+   * document order decides; this does not model `!important`.
+   */
+  const winning = (selector, property) => {
+    const bodies = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/gu)]
+      .filter(([, sel]) => sel.includes(selector))
+      .map(([, , body]) => body).join(";");
+    const matches = [...bodies.matchAll(new RegExp(`(?:^|;)[\\s]*${property}[\\s]*:[\\s]*([^;]+)`, "gu"))];
+    return matches.length > 0 ? matches.at(-1)[1].trim() : null;
   };
-  const catalog = rule(".field-catalog-form input");
-  assert.match(catalog, /background:\s*var\(--paper-pure\)/u, "an enabled input takes the paper background");
-  assert.doesNotMatch(catalog, /background:\s*#f7f9fc/u, "the cool grey is what read as disabled");
-
+  assert.equal(winning(".field-catalog-form input", "background"), "var(--paper-pure)",
+    "an enabled input takes the paper background — the cool grey read as disabled");
   // A token, not a literal, and on this form specifically: the placeholder
   // carries the examples, so it has to clear AA rather than inherit the browser
   // default grey. Matching any `::placeholder` rule passed while this form's own
   // had been deleted.
-  assert.match(rule(".field-catalog-form input::placeholder"), /color:\s*var\(--[a-z-]+\)/u,
+  assert.match(winning(".field-catalog-form input::placeholder", "color") ?? "", /^var\(--[a-z-]+\)$/u,
     "this form's placeholder colour must be a token");
 });

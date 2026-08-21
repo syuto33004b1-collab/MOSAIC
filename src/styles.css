@@ -4006,7 +4006,11 @@ h1 {
   color: var(--ink);
   font: inherit;
 }
-.skill-catalog-error { grid-column: 1 / -1; margin: 0; color: #c65b53; font-size: 10px; }
+/* var(--coral-deep), the token the theme already uses for coral text: the
+   literal #c65b53 measured 4.18:1 on white and 3.85:1 on the page ground, under
+   AA on a message that says why a save failed. The token gives 5.25 and 4.84
+   (#84 found this while verifying the forms it restyles). */
+.skill-catalog-error { grid-column: 1 / -1; margin: 0; color: var(--coral-deep); font-size: 10px; }
 .skill-map-wrap {
   overflow: auto;
   border: 1px solid #dfe4ed;

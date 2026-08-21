@@ -1884,8 +1884,11 @@ export function CsvTransferPanel({ state, organizationId, canImport = false, onI
       <h2 id="csv-heading">CSV入出力</h2>
       <p className="csv-lead">UTF-8（BOM付き）で出力します。メンバーCSVは氏名・職種・部署・勤務地があれば新規登録できます。IDがある行は更新です。</p>
       <div className="csv-toolbar">
-        <label className="view-filter"><span className="filter-label">対象</span>
-          <select aria-label="対象で絞り込み" value={source} onChange={(event) => changeSource(event.target.value as CsvSource)}>
+        {/* 「CSVの対象」 rather than 「対象」: the field list on this screen has a
+            filter of its own, and one screen must not show the same visible
+            label on two controls that do different things (#88). */}
+        <label className="view-filter"><span className="filter-label">CSVの対象</span>
+          <select aria-label="CSVの対象を選ぶ" value={source} onChange={(event) => changeSource(event.target.value as CsvSource)}>
             <option value="members">メンバー</option>
             <option value="projects">プロジェクト</option>
           </select>
