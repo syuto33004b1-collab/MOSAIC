@@ -35,9 +35,12 @@ const read = () => readFile(path.join(root, "src", "styles.css"), "utf8");
 const withoutComments = (css) => css.replace(/\/\*[\s\S]*?\*\//gu, "");
 
 /**
- * The value that wins for `property` among rules naming `selectorPart`. Document
- * order decides for the same selector at the same specificity, which is what
- * this file's layers are; `!important` is not modelled.
+ * The last declaration of `property` among rules whose selector text mentions
+ * `selectorPart`. This is a *static* check on what the stylesheet says, not the
+ * computed cascade: it does not weigh specificity, `!important`, media
+ * conditions, inheritance, or a pseudo-element that `includes` also matches. It
+ * catches a declaration being removed or put back, which is what regressed here.
+ * The rendered result is measured in the browser and reported in the PR.
  */
 const winningValue = (css, selectorPart, property) => {
   const bodies = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/gu)]
@@ -50,6 +53,9 @@ const winningValue = (css, selectorPart, property) => {
 /** The four that were cut, and now wrap. */
 const WRAPPING = [".person-copy strong", ".person-copy small", ".project-name-cell small", ".member-name-cell small"];
 
+/** Dropping `nowrap` only helps a string that has a break opportunity in it. */
+const WRAP_ANYWHERE = ["overflow-wrap", "anywhere"];
+
 /** Kept short on purpose, with a detail panel behind them. */
 const TRUNCATING = [".member-name-cell strong", ".project-name-cell strong", ".custom-field-cell"];
 
@@ -60,6 +66,8 @@ test("the subtitles that were cut are allowed to wrap", async () => {
       `${selector} must be able to wrap — truncating it left the value reachable by hover only (#87)`);
     assert.notEqual(winningValue(css, selector, "text-overflow"), "ellipsis",
       `${selector} must not truncate`);
+    assert.equal(winningValue(css, selector, WRAP_ANYWHERE[0]), WRAP_ANYWHERE[1],
+      `${selector} needs ${WRAP_ANYWHERE.join(": ")} — an unbroken run of Latin has no break opportunity and would spill instead`);
   }
 });
 

@@ -119,8 +119,11 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
    value behind a hover, and the board's row header is not clickable, so there was
    no route to it at all. Measured at 1440px: the five cut subtitles go to zero
    and the row heights do not change; with a name 34px and a role 167px too long
-   for the cell, still zero, and one row grows 105→110px. */
-.person-copy strong, .person-copy small { display: block; }
+   for the cell, still zero, and one row grows 105→110px.
+   `overflow-wrap: anywhere` because removing `nowrap` only helps a string with a
+   break opportunity in it — an unbroken run of Latin would have spilled out of
+   the cell instead, which is the same defect wearing different clothes. */
+.person-copy strong, .person-copy small { display: block; overflow-wrap: anywhere; }
 .person-copy strong { font-size: 10px; }
 .person-copy small { margin-top: 4px; color: #929aab; font-family: var(--font-data); font-size: 7px; }
 .load { padding: 4px 7px; border-radius: 7px; background: #eef1f5; color: #6f788a; font-family: var(--font-data); font-size: 8px; font-weight: 700; }
@@ -1344,7 +1347,7 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
    above the fold where five did. Free on the project list, the board, and at
    390px. */
 .project-name-cell small,
-.member-name-cell small { margin-top: 4px; color: #9199a9; font-size: 7px; }
+.member-name-cell small { margin-top: 4px; overflow-wrap: anywhere; color: #9199a9; font-size: 7px; }
 /* min-width: 0 is the point. A flex item defaults to min-width: auto, so this
    wrapper refused to shrink below its text and spilled over the next column —
    16 measured text-on-text overlaps on the project table. */
