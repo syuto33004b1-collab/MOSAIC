@@ -1445,6 +1445,19 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
      Content-driven widths cannot starve a column; the wrapper scrolls instead. */
   table-layout: auto;
 }
+/* 968, not the 960px the two tables share, and declared here rather than further
+   down: the `@media (min-width: 1360px)` block below raises this same property to
+   1120px, and both selectors weigh the same, so a copy placed after that block
+   would win at every width and undo #136's floor. Measured — it did, and the table
+   came back 1064px at 1440px.
+
+   Why 968 at all: `.col-week` is `nowrap` and its header names the week now (#146),
+   so its min-content went 88px → 95.9px, up to its own declared 96px. At the shared
+   floor those 8px came out of the columns that can be squeezed — the name column
+   lost 3.4px of the width #75 gave it, leaving a three-character name 0.3px of
+   headroom at 605px. Only this table has a week column, so only this table pays;
+   the project table keeps 960. This wrapper already scrolls 385px there. */
+.member-table { min-width: 968px; }
 /* The member table asks for more than the wrapper gives it: nine columns, and a
    1440px viewport leaves 1066px. Left to squeeze, the auto layout takes the
    width out of whichever cell can wrap — the two row-action buttons onto a
@@ -1942,7 +1955,11 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .profile-hero > strong { color: #5665c2; font-family: var(--font-data); font-size: 20px; }
 .profile-skills { margin-bottom: 22px; display: flex; flex-wrap: wrap; gap: 5px; }
 .profile-capacity { margin-bottom: 22px; display: flex; flex-direction: column; gap: 9px; }
-.profile-capacity > div { display: grid; grid-template-columns: 42px 1fr 31px; align-items: center; gap: 8px; }
+/* 52px, not 42: the first label names its week now rather than saying 「今週」
+   (#146), and the longest that gets is 「12/28週」 at 41.1px — 0.9px of headroom
+   in the old track. Same number as `.proposal-weeks`, which holds the same
+   labels. The bar loses 10px of about 250. */
+.profile-capacity > div { display: grid; grid-template-columns: 52px 1fr 31px; align-items: center; gap: 8px; }
 .profile-capacity span { color: #848d9e; font-size: 7px; }
 .profile-capacity i { height: 6px; border-radius: 99px; background: #edf0f4; overflow: hidden; }
 .profile-capacity b { display: block; height: 100%; border-radius: inherit; background: #8391e7; }

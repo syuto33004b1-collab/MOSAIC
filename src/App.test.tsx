@@ -4,7 +4,7 @@ import axe from "axe-core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import App, { type SharedWorkspaceAdapter } from "./App";
 import { DEMO_FAVORITES_KEY } from "./collaboration";
-import { addDays, boardRange, getWeekDays, getWeekStart, initialWorkspace, memberDailyLoads, type WorkspaceState } from "./domain";
+import { addDays, boardRange, getWeekDays, getWeekStart, initialWorkspace, memberDailyLoads, memberLoad, type WorkspaceState } from "./domain";
 import type { ChatTransport } from "./lib/ai/chatClient";
 
 function sharedAdapter(): SharedWorkspaceAdapter {
@@ -1637,13 +1637,16 @@ describe("one word per quantity", () => {
     const table = screen.getByRole("table");
     const headers = [...table.querySelectorAll("thead th")].map((th) => th.textContent ?? "");
 
-    expect(headers).toContain("今週の稼働");
+    // #146 named the week instead of claiming the current one: this column follows
+    // the board's paging, so 「今週」 was wrong as soon as the board moved.
+    const weekHeader = headers.find((text) => /^\d+\/\d+週の稼働$/u.test(text));
+    expect(weekHeader, `no week-scoped header among ${headers.join(" | ")}`).toBeDefined();
     expect(headers).toContain("4週間の稼働");
-    expect(headers).not.toContain("今週");
+    expect(headers.filter((text) => text.includes("今週"))).toEqual([]);
     expect(headers).not.toContain("4週間のキャパシティ");
 
     // And the cell under that header really is the load, not the 空き.
-    const cell = table.querySelectorAll("tbody tr")[0].children[headers.indexOf("今週の稼働")];
+    const cell = table.querySelectorAll("tbody tr")[0].children[headers.indexOf(weekHeader!)];
     expect(cell.querySelector(".load-ring strong")!.textContent).toBe("30%");
     expect(cell.textContent).toContain("稼働上限 50%");
   });
@@ -1924,7 +1927,7 @@ describe("a key for what colour and position encode", () => {
     expect(rail.querySelectorAll("i")).toHaveLength(4);
 
     // And the one number under the rail says which week it is.
-    expect(document.querySelector(".staffed-label")!.textContent).toMatch(/^(今週 \d+\/\d+名|必要人数未設定)$/u);
+    expect(document.querySelector(".staffed-label")!.textContent).toMatch(/^(\d+\/\d+週 \d+\/\d+名|必要人数未設定)$/u);
   });
 
   it("puts every proficiency level into the rail's accessible name", async () => {
@@ -1946,7 +1949,7 @@ describe("a key for what colour and position encode", () => {
     await goTo(user, /^プロジェクト 登録 \d+件$/u);
 
     const projectCaption = document.querySelector(".viz-caption")!;
-    expect(projectCaption.textContent).toContain("今週から4週間の充足率");
+    expect(projectCaption.textContent).toMatch(/\d+\/\d+週から4週間の充足率/u);
     // Adjacency is for the eye; the table points at it for everyone else.
     expect(document.querySelector(".portfolio-table")).toHaveAttribute("aria-describedby", projectCaption.id);
     expect(projectCaption.id).not.toBe("");
@@ -2864,5 +2867,170 @@ describe("a proposal answers something", () => {
     // The fit survives the anonymising, which is the point of showing it: a
     // reader can weigh the candidate without being told who they are.
     expect(cards).toMatch(/適合 \d+点|この要件には適合していません/u);
+  });
+});
+
+/**
+ * #146: eleven labels said 「今週」 while the value came from whatever week the
+ * board is paged to. Paging moved the number and left the word behind, and #139
+ * made it worse — in month mode these figures cover the month's *first* week,
+ * which can be several weeks from today.
+ *
+ * The word is now reserved for a figure computed from `getWeekStart(0)`, which is
+ * the reports screen and nothing else. Every other week-scoped figure names its
+ * week, the shape #119 already gave the sidebar.
+ */
+describe("a week-scoped figure names the week it measures", () => {
+  afterEach(() => { vi.useRealTimers(); });
+
+  /**
+   * A Wednesday, so the current week (8/17) and the month's first week (8/3) are
+   * different and neither is the other's neighbour. On a date where they coincide
+   * the month-mode assertion below would pass against the bug.
+   */
+  const onWednesday = () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date("2026-08-19T09:00:00+09:00"));
+    return userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+  };
+
+  const pulseLabel = () => {
+    const metric = [...document.querySelectorAll(".pulse-metric")]
+      .find((node) => /の空き$/u.test(node.querySelector("span")?.textContent ?? ""));
+    expect(metric, "the pulse strip should carry a 空き metric").toBeDefined();
+    return metric!.querySelector("span")!.textContent ?? "";
+  };
+
+  it("names the week, and the name follows paging", async () => {
+    const user = onWednesday();
+    render(<App />);
+    expect(pulseLabel()).toBe("8/17週の空き");
+    await user.click(screen.getByRole("button", { name: "次の週" }));
+    expect(pulseLabel()).toBe("8/24週の空き");
+    await user.click(screen.getByRole("button", { name: "前の週" }));
+    await user.click(screen.getByRole("button", { name: "前の週" }));
+    expect(pulseLabel()).toBe("8/10週の空き");
+  });
+
+  /**
+   * The month-mode case, which is the one 「今週」 could not survive: the figure is
+   * measured over 8/3–8/7 while the board shows 8/3–8/31, so a label reading
+   * 「今週」 would be two weeks out and a label reading 「8月」 would claim a month's
+   * figure for a week's (#115).
+   */
+  it("month mode names the week inside the month, not the month", async () => {
+    const user = onWednesday();
+    render(<App />);
+    await user.click(within(screen.getByRole("group", { name: "表示する期間" })).getByRole("button", { name: "月" }));
+    expect(document.querySelector(".date-range")!.textContent).toBe("2026年 8月3日 — 8月31日");
+    expect(pulseLabel()).toBe("8/3週の空き");
+  });
+
+  /**
+   * The screens that take the board's week — everything but the reports screen —
+   * must not carry the word at all. Asserted on the rendered text rather than on
+   * the sources, so a label assembled at runtime is covered too; the source-level
+   * counterpart is in tests/vocabulary-contract.test.mjs.
+   */
+  it("no screen that follows the board says 今週", async () => {
+    const user = onWednesday();
+    render(<App />);
+    const navigation = within(screen.getByRole("navigation", { name: "メインナビゲーション" }));
+    // The nav names carry a badge count, so each is matched by its leading word.
+    for (const screenName of ["アサインボード", "メンバー", "プロジェクト", "受注前", "提案", "スキルマップ", "組織"]) {
+      await user.click(navigation.getByRole("button", { name: new RegExp(`^${screenName}( |$)`, "u") }));
+      expect(document.body.textContent, `${screenName} should not claim 今週`).not.toContain("今週");
+    }
+    // The reports screen may, and does: its figures come from getWeekStart(0) and
+    // it takes no week from the board. Asserted so the reservation is not vacuous.
+    await user.click(navigation.getByRole("button", { name: "レポート" }));
+    expect(document.body.textContent).toContain("今週");
+  });
+
+  /**
+   * The label and the value have to name the same week, not merely both be named.
+   * An evaluator reading this change took `weekStart` and the `currentWeekStart`
+   * alias beside it for two different weeks and read a mismatch into the assignment
+   * form and this rail. There was none — the alias was an assignment of the other —
+   * but nothing pinned it, so a later edit could introduce the very bug that was
+   * reported. This pins it, in month mode, where the two would diverge if they ever
+   * did: the board shows 8/3–8/31 while these figures cover 8/3–8/7 only.
+   *
+   * The expected values come from `memberLoad` on the week the label names, so this
+   * fails both if the label moves off the value's week and if the value moves off
+   * the label's.
+   */
+  it("month mode pairs each label with the value for that same week", async () => {
+    window.localStorage.removeItem("mosaic-local-workspace-v3");
+    const user = onWednesday();
+    render(<App />);
+    await user.click(within(screen.getByRole("group", { name: "表示する期間" })).getByRole("button", { name: "月" }));
+
+    const mondayFrom = (label: string) => {
+      const m = label.match(/^(\d+)\/(\d+)週/u);
+      expect(m, `expected a week name, got 「${label}」`).not.toBeNull();
+      return `2026-${String(m![1]).padStart(2, "0")}-${String(m![2]).padStart(2, "0")}`;
+    };
+
+    // The assignment form: 「{氏名} · {M/D週} {n}%」.
+    await user.click(screen.getByRole("button", { name: /アサインを追加/u }));
+    // By id: 「メンバー」 also names the nav item, so a label lookup is ambiguous.
+    const options = [...(document.getElementById("assignment-member") as HTMLSelectElement).options];
+    expect(options.length).toBeGreaterThan(0);
+    for (const option of options) {
+      const parsed = option.textContent!.match(/^(.+) · (\d+\/\d+週) (\d+)%$/u);
+      expect(parsed, `unexpected option shape: ${option.textContent}`).not.toBeNull();
+      const member = initialWorkspace.members.find((item) => item.name === parsed![1])!;
+      expect(Number(parsed![3]), `${parsed![1]} at ${parsed![2]}`)
+        .toBe(memberLoad(initialWorkspace, member.id, mondayFrom(parsed![2])));
+    }
+    // 8/3, not 8/17: the month opens two weeks before today, and that is the whole
+    // point — a literal here so a regression cannot satisfy this by self-consistency.
+    expect(options[0].textContent).toMatch(/ 8\/3週 /u);
+    // `.close-button`, not the role lookup: the backdrop carries the same
+    // accessible name, which is #122. Two matches would fail here for a reason
+    // that has nothing to do with this test.
+    await user.click(document.querySelector(".drawer .close-button") as HTMLElement);
+
+    // The member drawer's rail: label, then 「{n}% / {capacity}%」.
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^メンバー( |$)/u }));
+    await user.click(document.querySelector(".member-table tbody tr .member-name-cell") as HTMLElement);
+    const rail = await waitFor(() => {
+      const node = document.querySelector(".profile-capacity");
+      expect(node).not.toBeNull();
+      return node!;
+    });
+    const name = document.querySelector(".drawer .profile-headline strong, .drawer h2, .drawer h3")?.textContent ?? "";
+    const member = initialWorkspace.members.find((item) => name.includes(item.name));
+    expect(member, `could not identify the member from 「${name}」`).toBeDefined();
+    const rows = [...rail.querySelectorAll(":scope > div")];
+    expect(rows).toHaveLength(4);
+    const monday = mondayFrom(rows[0].querySelector("span")!.textContent!);
+    expect(monday).toBe("2026-08-03");
+    rows.forEach((row, index) => {
+      const load = Number(row.querySelector("strong")!.textContent!.match(/^(\d+)%/u)![1]);
+      expect(load, `rail cell ${index}`).toBe(memberLoad(initialWorkspace, member!.id, addDays(monday, index * 7)));
+    });
+  });
+
+  /**
+   * The two detail panels carry a four-week rail whose first cell was 「今週」 while
+   * the other three are relative to it. Naming the first cell keeps the sequence
+   * readable — 「8/17週 · 2週後 · 3週後 · 4週後」 — and stops the rail claiming a
+   * week it is not on after paging.
+   */
+  it("the detail panel's four-week rail names its first week", async () => {
+    const user = onWednesday();
+    render(<App />);
+    await user.click(screen.getByRole("button", { name: "次の週" }));
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: "メンバー" }));
+    await user.click(document.querySelector(".member-table tbody tr .member-name-cell") as HTMLElement);
+    const rail = await waitFor(() => {
+      const node = document.querySelector(".profile-capacity");
+      expect(node).not.toBeNull();
+      return node!;
+    });
+    const cells = [...rail.querySelectorAll(":scope > div > span")].map((node) => node.textContent);
+    expect(cells).toEqual(["8/24週", "2週後", "3週後", "4週後"]);
   });
 });

@@ -56,6 +56,7 @@ import {
   formatSkillInput,
   formatWorkHistoryPeriod,
   getWeekStart,
+  weekLabel,
   isActiveOpportunity,
   isActiveProfileRequest,
   canActAsProfileRequestSubject,
@@ -378,6 +379,8 @@ export function ProjectsView({
   const [status, setStatus] = useState("すべて");
   const [order, setOrder] = useState<ProjectOrder>("registered");
   const weekStart = getWeekStart(weekOffset);
+  // Named, not 「今週」: these screens follow the board's paging (#146).
+  const weekName = weekLabel(weekStart);
   const searchValue = query ?? localQuery;
   // Trimmed, for the reason at MembersView: the chip and the filter have to agree
   // on what counts as searching (#138).
@@ -447,7 +450,7 @@ export function ProjectsView({
           accessible name and the reading of the bars goes here, once, rather
           than per row. `aria-describedby` rather than adjacency alone: jumping
           straight to the table would otherwise miss this (#85). */}
-      <p className="viz-caption" id="portfolio-rail-key">「4週間の充足」は、今週から4週間の充足率を示します。バーの長さが充足率で、必要人数に届かない週は橙色、必要人数が未設定の週は空になります。</p>
+      <p className="viz-caption" id="portfolio-rail-key">「4週間の充足」は、{weekName}から4週間の充足率を示します。バーの長さが充足率で、必要人数に届かない週は橙色、必要人数が未設定の週は空になります。</p>
 
       <div className="portfolio-table-wrap">
         <table className="portfolio-table" aria-describedby="portfolio-rail-key">
@@ -481,7 +484,7 @@ export function ProjectsView({
                     <div className="four-week-rail" role="img" aria-label={project.name + "の4週間の充足人数：" + weeks.map((count, index) => weekStaffingLabel(index, count, project.demand)).join("、")}>
                       {weeks.map((count, index) => <i key={index} title={weekStaffingLabel(index, count, project.demand)}><b className={project.demand > 0 && count < project.demand ? "short" : ""} style={{ width: (project.demand === 0 ? 0 : Math.min(100, count / project.demand * 100)) + "%" }} /></i>)}
                     </div>
-                    <span className="staffed-label">{project.demand === 0 ? "必要人数未設定" : `今週 ${currentMembers}/${project.demand}名`}</span>
+                    <span className="staffed-label">{project.demand === 0 ? "必要人数未設定" : `${weekName} ${currentMembers}/${project.demand}名`}</span>
                   </td>
                   <td><div className="progress-cell"><span><b style={{ width: project.progress + "%" }} /></span><strong>{project.progress}%</strong></div></td>
                   <td><span className="milestone-cell"><strong>{project.nextMilestone}</strong><small>{formatMonthDay(project.nextMilestoneDate)}</small></span></td>
@@ -635,6 +638,8 @@ export function MembersView({
   const [order, setOrder] = useState<MemberOrder>("score");
   const [error, setError] = useState("");
   const weekStart = getWeekStart(weekOffset);
+  // Named, not 「今週」: these screens follow the board's paging (#146).
+  const weekName = weekLabel(weekStart);
   const roles = ["すべて", ...Array.from(new Set(state.members.map((member) => member.role)))];
   const orgUnits = orgUnitTree(state.orgUnits);
   const scenes = state.searchScenes ?? [];
@@ -805,7 +810,7 @@ export function MembersView({
 
       <div className="member-table-wrap">
         <table className="member-table">
-          <thead><tr><th className="col-favorite"><span className="sr-only">お気に入り</span></th><th className="col-name">メンバー</th><th className="col-skills">スキル</th>{selectedScene && <th className="col-score">スコア</th>}{listFields.map((field) => <th key={field.id} className="col-custom">{field.label}</th>)}<th className="col-week">今週の稼働</th><th className="col-rail">4週間の稼働</th><th className="col-next">次に稼働率60%以下</th><th className="col-actions"><span className="sr-only">操作</span></th></tr></thead>
+          <thead><tr><th className="col-favorite"><span className="sr-only">お気に入り</span></th><th className="col-name">メンバー</th><th className="col-skills">スキル</th>{selectedScene && <th className="col-score">スコア</th>}{listFields.map((field) => <th key={field.id} className="col-custom">{field.label}</th>)}<th className="col-week">{weekName}の稼働</th><th className="col-rail">4週間の稼働</th><th className="col-next">次に稼働率60%以下</th><th className="col-actions"><span className="sr-only">操作</span></th></tr></thead>
           <tbody>
             {filtered.map((member) => {
               const load = memberLoad(state, member.id, weekStart);
@@ -822,7 +827,7 @@ export function MembersView({
                   {listFields.map((field) => <td key={field.id}><span className="custom-field-cell">{formatCustomValue(field, customValue(member.customValues, field.id))}</span></td>)}
                   <td><span className={"load-ring " + (load > member.capacity ? "over" : member.capacity > 0 && load <= member.capacity * .6 ? "open" : "")} style={{ "--load": Math.min(100, loadRatio) } as React.CSSProperties}><strong>{load}%</strong></span><small className="capacity-limit">稼働上限 {member.capacity}%</small></td>
                   <td><div className="member-week-rail">{weeklyLoads.map((value, index) => { const ratio = member.capacity > 0 ? value / member.capacity * 100 : value > 0 ? 100 : 0; /* The label is a sibling of the bar, not a child: it belongs to its own grid track so it cannot overlap the next week's. */ return <Fragment key={index}><i className={value > member.capacity ? "over" : member.capacity > 0 && value <= member.capacity * .6 ? "open" : ""}><b style={{ height: Math.max(12, Math.min(100, ratio)) + "%" }} /></i><small>{value}%</small></Fragment>; })}</div></td>
-                  <td><span className="next-open">{member.capacity === 0 ? "稼働不可 · 稼働上限0%" : nextOpen === -1 ? "4週間で該当なし" : nextOpen === 0 ? "今週 空き" + Math.max(0, member.capacity - load) + "%" : (nextOpen + 1) + "週後"}<small>{member.location}</small></span></td>
+                  <td><span className="next-open">{member.capacity === 0 ? "稼働不可 · 稼働上限0%" : nextOpen === -1 ? "4週間で該当なし" : nextOpen === 0 ? weekName + " 空き" + Math.max(0, member.capacity - load) + "%" : (nextOpen + 1) + "週後"}<small>{member.location}</small></span></td>
                   <td className="member-row-actions">{onAddToProposal && <button className="quick-assign quiet" onClick={() => onAddToProposal(member.id)}><Sparkles size={14} />提案へ</button>}{canEdit ? <button className="quick-assign" onClick={() => onAssign(member.id)}><UserRoundPlus size={14} />アサイン</button> : <span className="read-only-label">閲覧のみ</span>}</td>
                 </tr>
               );
@@ -855,6 +860,8 @@ export function ProposalView({
 }: ProposalViewProps) {
   const [pickerQuery, setPickerQuery] = useState("");
   const weekStart = getWeekStart(weekOffset);
+  // Named, not 「今週」: these screens follow the board's paging (#146).
+  const weekName = weekLabel(weekStart);
   /**
    * What the proposal answers. A project's unfilled staffing need or an
    * opportunity's staffing plan — the screen could build a list of people and
@@ -1024,7 +1031,7 @@ export function ProposalView({
                     const ratio = member.capacity > 0 ? load / member.capacity * 100 : load > 0 ? 100 : 0;
                     return (
                       <div key={weekIndex}>
-                        <span>{weekIndex === 0 ? "今週" : `${weekIndex + 1}週後`}</span>
+                        <span>{weekIndex === 0 ? weekName : `${weekIndex + 1}週後`}</span>
                         <i><b className={load > member.capacity ? "over" : ""} style={{ width: Math.min(100, ratio) + "%" }} /></i>
                         <strong>{load}% / {member.capacity}%</strong>
                       </div>

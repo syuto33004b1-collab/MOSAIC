@@ -21,6 +21,7 @@ import {
   getCurrentWeekStart,
   getIsoWeekNumber,
   getWeekStartForDate,
+  weekLabel,
   hydrateWorkspaceSkills,
   inferSkillCatalog,
   initialWorkspace,
@@ -67,6 +68,21 @@ describe("calendar helpers", () => {
     expect(getWeekStartForDate("2026-08-17")).toBe("2026-08-17");
     expect(getWeekStartForDate("2026-08-21")).toBe("2026-08-17");
     expect(getWeekStartForDate("2026-08-23")).toBe("2026-08-17");
+  });
+
+  /**
+   * #146: 「今週」 was on figures measured over whatever week the board was paged
+   * to. This is what they say instead, and it takes any day of the week so a
+   * caller cannot name one week while measuring another.
+   */
+  it("names the week a figure covers, from any day in it", () => {
+    expect(weekLabel("2026-08-17")).toBe("8/17週");
+    expect(weekLabel("2026-08-21")).toBe("8/17週");
+    expect(weekLabel("2026-08-23")).toBe("8/17週");
+    expect(weekLabel("2026-08-24")).toBe("8/24週");
+    // No zero padding, and a week that straddles a month keeps its Monday's month.
+    expect(weekLabel("2026-09-01")).toBe("8/31週");
+    expect(weekLabel("2027-01-01")).toBe("12/28週");
   });
 
   it("creates distinct database-safe project codes for duplicate names", () => {
