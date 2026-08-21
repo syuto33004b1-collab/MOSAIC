@@ -96,13 +96,30 @@ test("a container query sheds columns where the tracks stop fitting", async () =
   const css = withoutComments(await read()).replaceAll("\r\n", "\n");
   assert.match(css, /\.section-view,\s*\n\.balance-card\s*\{[^}]*container-type:\s*inline-size/u,
     "the forms' ancestors must be inline-size containers, or @container cannot resolve");
-  const block = css.match(/@container[^{]*\{([\s\S]*?)\n\}/u);
-  assert.ok(block, "no @container block");
+  // The file has more than one @container block — the detail panel added its own
+  // for two-column layout (#137) and it comes first — so this looks for the block
+  // that holds these forms rather than for whichever block is nearest the top.
+  const blocks = [];
+  const marker = /@container[^{]*\{/gu;
+  let found;
+  while ((found = marker.exec(css)) !== null) {
+    let depth = 1;
+    let index = found.index + found[0].length;
+    const start = index;
+    while (depth > 0 && index < css.length) {
+      if (css[index] === "{") depth += 1;
+      else if (css[index] === "}") depth -= 1;
+      index += 1;
+    }
+    blocks.push(css.slice(start, index - 1));
+  }
+  const block = blocks.filter((body) => body.includes(".field-catalog-form"));
+  assert.equal(block.length, 1, `expected one @container block holding the forms, found ${block.length}`);
   // Keyed off the container rather than the viewport because these forms sit at
   // different depths: a 620px media query left the nested report form at
   // `120px 0px 147px 120px` while the others still fitted.
-  assert.match(block[1], /\.field-catalog-form\s*\{[^}]*repeat\(auto-fit/u);
-  assert.match(block[1], /\.role-permission-form\s*\{[^}]*repeat\(auto-fit/u);
+  assert.match(block[0], /\.field-catalog-form\s*\{[^}]*repeat\(auto-fit/u);
+  assert.match(block[0], /\.role-permission-form\s*\{[^}]*repeat\(auto-fit/u);
 });
 
 test("the toolbar's search box can give up width", async () => {

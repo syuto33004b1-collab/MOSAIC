@@ -500,7 +500,18 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .drawer {
   position: relative;
   z-index: 1;
-  width: min(410px, 100%);
+  /* 410px was the width at every viewport, so on a 1440px screen the panel used
+     28% of it while its own content overflowed by 268px and the other 1030px sat
+     behind a dim backdrop doing nothing (#137). */
+  width: min(100%, clamp(410px, 52vw, 760px));
+  /* The panel's own width is what decides whether its blocks can sit side by
+     side, not the viewport's — the two differ by a sidebar and two paddings. See
+     the @container rule after `.drawer-footnote`.
+     Named, not anonymous: an anonymous query walks outwards for the nearest
+     eligible container, so switching this one off on the mobile sheet would let
+     the query find `.section-view` instead. It happens not to match today only
+     because that element is under 600px at those widths — arithmetic, again. */
+  container: detail-panel / inline-size;
   height: 100%;
   padding: 23px 24px 25px;
   border: 1px solid rgba(255, 255, 255, .72);
@@ -737,6 +748,62 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 }
 .candidate-list button:hover { border-color: #91a0ff; background: #f4f5ff; }
 .drawer-footnote { margin: 16px 2px 0; color: #9aa2b1; font-size: 7px; line-height: 1.65; }
+
+/* Widening the panel does not by itself shorten it. Measured on a project's
+   panel, the 1038px of content is almost no wrapped prose — it is blocks stacked
+   in a column: two fact grids at 114 and 64, a five-person member list at 283,
+   and four action rows at 44 each. Nothing there gets shorter from more width.
+   What gets it shorter is letting the blocks sit beside each other, which is what
+   the extra width is for (#137).
+
+   Everything spans both columns by default and specific blocks opt out, rather
+   than the reverse: a section title beside its own content, or two unrelated
+   lists side by side, would read worse than the scroll did.
+
+   Keyed off the panel's own width, and a container query measures the *content*
+   box: the panel's width less its 48px of padding and 2px of border. So 600 here
+   is a 650px panel — confirmed by stepping the width, where the columns appear at
+   650 and not at 649 — which at 52vw is about a 1250px viewport, with each column
+   near 300px. Enough for a name, a role and a percentage side by side.
+   A first attempt at 640 silently did nothing at 1280px, where the panel is 666px
+   and its content box 616. The number to compare is never the one you can see,
+   and `clientWidth` is not it either: that excludes the scrollbar and reads 15px
+   under what the query uses.
+   The mobile sheet drops out of this by turning the container off outright, in the
+   620px block, rather than by arithmetic: full-bleed at 620px, with that block's
+   narrower padding, its content box is 582 — eighteen pixels short of the switch,
+   which one padding change would close. */
+@container detail-panel (min-width: 600px) {
+  .drawer .drawer-content {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    /* Column gap only. Each block keeps its own margin-bottom, so the vertical
+       rhythm stays where it was rather than being doubled by a row gap. */
+    gap: 0 14px;
+    align-items: start;
+  }
+  .drawer .drawer-content > * { grid-column: 1 / -1; }
+  /* The two fact grids are adjacent siblings and the same kind of thing, so they
+     pair. The primary and secondary actions likewise. */
+  .drawer .drawer-content > .detail-facts,
+  .drawer .drawer-content > .drawer-primary,
+  .drawer .drawer-content > .drawer-secondary { grid-column: auto; }
+  .drawer .drawer-content > .drawer-secondary { margin-top: 0; }
+  /* And the tallest single blocks go two-up inside themselves. Each is a list of
+     short, uniform rows — a person and a percentage, a week and a bar — so
+     halving the rows costs no legibility.
+     Prefixed with `.drawer` for the specificity, not for the scope: these blocks
+     are declared again further down the file (`.profile-capacity` at its own
+     rule, the theme layer after that), and a bare class here loses to every one
+     of them on source order. */
+  .drawer .detail-member-list,
+  .drawer .detail-need-list,
+  .drawer .profile-capacity,
+  .drawer .allocation-list { display: grid; grid-template-columns: 1fr 1fr; }
+  /* `:not(:last-child)`: with an odd number of rows the last one sits alone in the
+     left column, and a right border there would draw a rule into empty space. */
+  .drawer .detail-member-list button:nth-child(odd):not(:last-child) { border-right: 1px solid var(--line); }
+}
 .report-hero {
   margin-bottom: 20px;
   padding: 18px;
@@ -860,6 +927,11 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   .save-button { flex: 1; }
   .overlay { padding: 0; align-items: flex-end; }
   .drawer {
+    /* Not a container here. This sheet is full-bleed and a different shape, and
+       its content box sits near the two-column threshold (#137). Name dropped as
+       well as type, so `detail-panel` resolves to nothing at all rather than to
+       some ancestor that happens to carry the name later. */
+    container: none;
     width: 100%;
     height: min(88vh, 760px);
     padding: 15px 18px 25px;
