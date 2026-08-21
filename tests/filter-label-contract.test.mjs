@@ -107,10 +107,11 @@ test("the scene form says it makes a new scene", async () => {
 test("the form inputs are styled like the app's other enabled inputs", async () => {
   const css = (await readFile(path.join(root, "src", "styles.css"), "utf8")).replace(/\/\*[\s\S]*?\*\//gu, "");
   /**
-   * The value that wins, not "a rule somewhere says this". Several layers of this
+   * The last declaration, not "a rule somewhere says this": several layers of this
    * file redeclare the same selectors, so concatenating every match would pass
-   * while a later layer put the grey back. Same-selector, same-specificity means
-   * document order decides; this does not model `!important`.
+   * while a later layer put the grey back. A static check on the stylesheet text —
+   * it does not weigh specificity, `!important`, or media conditions, so it is not
+   * the computed cascade.
    */
   const winning = (selector, property) => {
     const bodies = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/gu)]

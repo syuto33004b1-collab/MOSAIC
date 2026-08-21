@@ -65,7 +65,12 @@ const rulesFor = (body, selectorPart) => [...body.matchAll(/([^{}]+)\{([^{}]*)\}
   .filter(([, selector]) => selector.includes(selectorPart))
   .map(([, , declarations]) => declarations);
 
-/** The value that wins for `property`, among the rules mentioning `selectorPart`. */
+/**
+ * The last declaration of `property` among rules whose selector text mentions
+ * `selectorPart`. A *static* check on what the stylesheet says: it does not weigh
+ * specificity, `!important`, or inheritance. It catches a declaration being moved
+ * between breakpoints or removed, which is what regressed here.
+ */
 const winningValue = (blocks, selectorPart, property) => {
   const declarations = blocks.flatMap((body) => rulesFor(body, selectorPart)).join(";");
   const matches = [...declarations.matchAll(new RegExp(`(?:^|;)[\\s]*${property}[\\s]*:[\\s]*([^;]+)`, "gu"))];

@@ -2082,3 +2082,89 @@ describe("the current screen stays in the scrolling nav", () => {
     expect(scrollIntoView.mock.instances.at(-1)).toBe(navigation.getByRole("button", { name: "アサインボード" }));
   });
 });
+
+/**
+ * #87: a value must not be reachable by hover alone. The subtitles that were cut
+ * wrap now; the values that stay capped — the names, because the name column has
+ * to be able to shrink (#75), the custom-field cells, which #75 caps on purpose,
+ * and the board's assignment bars — are reachable from the row or the bar. Those
+ * are `<button>`s, so pointer, touch and keyboard all get there. This asserts the
+ * route, not the CSS.
+ */
+describe("no value is reachable by hover alone", () => {
+  const navigate = async (user: ReturnType<typeof userEvent.setup>, nav: RegExp) => {
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: nav }));
+  };
+  const rowFor = (cellClass: string, name: string) => {
+    const cell = [...document.querySelectorAll(cellClass)].find((el) => (el.textContent ?? "").includes(name));
+    expect(cell, `${name} row`).toBeTruthy();
+    return cell as HTMLElement;
+  };
+  /** A route has to be operable by more than a pointer, which means a real button. */
+  const expectOperableByAnyInput = (element: HTMLElement, what: string) => {
+    expect(element.tagName, `${what} must be a button, not a clickable div`).toBe("BUTTON");
+    expect(element.tabIndex, `${what} must be tabbable`).toBeGreaterThanOrEqual(0);
+    element.focus();
+    expect(document.activeElement, `${what} must take focus`).toBe(element);
+  };
+
+  it("opens the member's name, role, department and concurrent post from the row", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await navigate(user, /^メンバー$/u);
+    const row = rowFor(".member-name-cell", "佐伯 優斗");
+    expectOperableByAnyInput(row, "the member row");
+
+    const name = row.querySelector("strong")!.textContent ?? "";
+    const subtitle = row.querySelector("small")!.textContent ?? "";
+    // 「{role} · {department} · 兼務あり」. The first part is what the panel repeats
+    // verbatim; 兼務あり is a hint the panel answers with the actual posting.
+    const roleAndDepartment = subtitle.replace(" · 兼務あり", "");
+    expect(subtitle).toContain("兼務あり");
+
+    await user.click(row);
+    const dialog = within(screen.getByRole("dialog", { name: "詳細パネル" }));
+    expect(dialog.getByRole("heading", { name })).toBeInTheDocument();
+    // Exact, not a substring of the whole panel: the parts appear elsewhere too,
+    // and a panel missing this line would still contain each word somewhere.
+    expect(dialog.getByText(roleAndDepartment)).toBeInTheDocument();
+    // And the concurrent post the row could only hint at.
+    expect(dialog.getByText("兼務")).toBeInTheDocument();
+  });
+
+  it("opens the project's name, summary and custom field values from the row", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await navigate(user, /^プロジェクト 登録 \d+件$/u);
+    const row = rowFor(".project-name-cell", "モバイル会員証");
+    expectOperableByAnyInput(row, "the project row");
+
+    const name = row.querySelector("strong")!.textContent ?? "";
+    const summary = row.querySelector("small")!.textContent ?? "";
+    expect(summary.length).toBeGreaterThan(8);
+    // The custom-field cells stay capped (#75), so their values need the route too.
+    const customValues = [...row.closest("tr")!.querySelectorAll(".custom-field-cell")].map((el) => el.textContent ?? "").filter(Boolean);
+    expect(customValues.length).toBeGreaterThan(0);
+
+    await user.click(row);
+    const dialog = within(screen.getByRole("dialog", { name: "詳細パネル" }));
+    expect(dialog.getByRole("heading", { name })).toBeInTheDocument();
+    expect(dialog.getByText(summary)).toBeInTheDocument();
+    for (const value of customValues) {
+      expect(dialog.getAllByText(value).length, `${value} in the panel`).toBeGreaterThan(0);
+    }
+  });
+
+  it("opens an assignment bar's project from the board", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    const bar = document.querySelector("button.assignment") as HTMLElement;
+    expectOperableByAnyInput(bar, "an assignment bar");
+    const label = bar.querySelector("span")!.textContent ?? "";
+
+    await user.click(bar);
+    const dialog = within(screen.getByRole("dialog", { name: "詳細パネル" }));
+    // Exact: the bar's label is a whole project name, not a fragment of one.
+    expect(dialog.getAllByText(label).length, `${label} in the panel`).toBeGreaterThan(0);
+  });
+});
