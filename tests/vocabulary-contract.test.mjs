@@ -127,3 +127,76 @@ test("stripComments trades two known holes for being a regex", () => {
   assert.equal(stripComments(`  ${slashes} 余白 was the old word\nconst label = "稼働";`).includes("余白"), false,
     "a comment on its own line is stripped, which is the shape the sources actually use");
 });
+
+/**
+ * #146: 「今週」 sat on eleven figures and none of them measured this week. They
+ * all measure whatever week the board is paged to — `viewWeekOffset` exists so the
+ * member, project and proposal screens follow the board — and #139 widened the gap
+ * by letting the board show a month, where these figures cover the month's *first*
+ * week. Paging moved the number and left the word.
+ *
+ * The word is now reserved for a figure computed from `getWeekStart(0)`. That is
+ * the reports screen, which takes no week from the board. Everywhere else names its
+ * week through `weekLabel()`: 「8/17週の空き」.
+ *
+ * ## What this checks, and what it cannot
+ *
+ * Scoped by `export function` chunks — the same approximation
+ * `filter-label-contract.test.mjs` uses, and it has the same limit: it cannot see
+ * which `weekStart` a given line reads. What it can see is that the word is absent
+ * from every component that takes the board's week, and present in the one that
+ * does not. The rendered counterpart is in `src/App.test.tsx`, which walks the
+ * screens and asserts the text; this covers the branches those tests do not enter.
+ *
+ * The reason for the exception is asserted too, rather than trusted: the excused
+ * chunk has to read `getWeekStart(0)` and must not read the board's offset. An
+ * exception that stops being true should fail here instead of quietly widening.
+ */
+const CURRENT_WEEK = "今週";
+const MAY_SAY_CURRENT_WEEK = { "src/App.tsx": [], "src/expanded-views.tsx": ["ReportsView"] };
+
+/** `export function Name(` → its body, up to the next top-level export. */
+function exportedFunctions(source) {
+  return source.split(/\nexport function /u).slice(1).map((chunk) => ({
+    name: chunk.slice(0, chunk.search(/[(<\s]/u)),
+    body: chunk,
+  }));
+}
+
+test("「今週」 is only on a figure that measures this week", async () => {
+  for (const file of SOURCES) {
+    const source = stripComments(await readFile(path.join(root, file), "utf8"));
+    const excused = MAY_SAY_CURRENT_WEEK[file];
+
+    // Anything outside an exported function — module constants, `pageMeta` — is
+    // held to the rule unconditionally, since no chunk can excuse it.
+    const chunks = exportedFunctions(source);
+    const outside = chunks.length > 0 ? source.slice(0, source.indexOf("\nexport function ")) : source;
+    assert.ok(!outside.includes(CURRENT_WEEK),
+      `${file} says 「${CURRENT_WEEK}」 outside any component — name the week with weekLabel() (#146)`);
+
+    for (const { name, body } of chunks) {
+      if (excused.includes(name)) continue;
+      assert.ok(!body.includes(CURRENT_WEEK),
+        `${file} → ${name} says 「${CURRENT_WEEK}」. These screens follow the board's paging, so the `
+        + "figure is not this week's; name the week with weekLabel() (#146)");
+    }
+
+    for (const name of excused) {
+      const chunk = chunks.find((item) => item.name === name);
+      assert.ok(chunk, `${file} no longer exports ${name} — drop the exception`);
+      assert.ok(chunk.body.includes(CURRENT_WEEK),
+        `${name} is excused but no longer says 「${CURRENT_WEEK}」 — drop the exception rather than leaving it`);
+      // The reason for the exception, not just the exception. `getWeekStart(0)` is
+      // what makes 「今週」 true; not being handed the board's week is what keeps it
+      // true. Its own `getWeekStart(offset)` in the horizon chart counts weeks from
+      // this one, so the offset alone says nothing — the call site does.
+      assert.ok(chunk.body.includes("getWeekStart(0)"),
+        `${name} may say 「${CURRENT_WEEK}」 only because it measures from getWeekStart(0)`);
+      const mounted = (await readFile(path.join(root, "src", "App.tsx"), "utf8")).match(new RegExp(`<${name}[^>]*>`, "u"));
+      assert.ok(mounted, `${name} is not mounted in App.tsx — drop the exception`);
+      assert.ok(!/\bweekOffset=/u.test(mounted[0]),
+        `${name} is now handed the board's week, so 「${CURRENT_WEEK}」 can be wrong there too (#146)`);
+    }
+  }
+});

@@ -721,6 +721,23 @@ export function formatDate(iso: string) {
   return year + "年" + month + "月" + day + "日";
 }
 
+/**
+ * The name of the week a figure was measured over — 「8/17週」.
+ *
+ * 「今週」 is reserved for the week containing today. Every other week-scoped
+ * figure on these screens follows the board's paging, and once the board can show
+ * a month the week it opens in is not the range either — so those figures name
+ * their own week rather than claiming to be the current one (#146; #115 and #119
+ * are the same defect from the other end).
+ *
+ * Takes any date in the week, not only its Monday, so a caller cannot name one
+ * week while measuring another.
+ */
+export function weekLabel(iso: string) {
+  const monday = getWeekStartForDate(iso);
+  return Number(monday.slice(5, 7)) + "/" + Number(monday.slice(8, 10)) + "週";
+}
+
 export function getIsoWeekNumber(iso: string) {
   const date = new Date(iso + "T00:00:00Z");
   const day = date.getUTCDay() || 7;
