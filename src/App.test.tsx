@@ -2082,3 +2082,53 @@ describe("the current screen stays in the scrolling nav", () => {
     expect(scrollIntoView.mock.instances.at(-1)).toBe(navigation.getByRole("button", { name: "アサインボード" }));
   });
 });
+
+/**
+ * #87: a value must not be reachable by hover alone. The subtitles that were cut
+ * wrap now, and the names that stay capped (#75 needs the column to shrink) are
+ * reachable from the row — which is a button, so pointer, touch and keyboard all
+ * get there. This asserts the route, not the CSS.
+ */
+describe("no value is reachable by hover alone", () => {
+  const openRow = async (user: ReturnType<typeof userEvent.setup>, nav: RegExp, cellClass: string, name: string) => {
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: nav }));
+    const cell = [...document.querySelectorAll(cellClass)].find((el) => (el.textContent ?? "").includes(name));
+    expect(cell, `${name} row`).toBeTruthy();
+    return cell as HTMLElement;
+  };
+
+  it("opens the member's full role, department and concurrent posts from the row", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    const row = await openRow(user, /^メンバー$/u, ".member-name-cell", "佐伯 優斗");
+
+    // A button, so Enter reaches it as well as a tap.
+    expect(row.tagName).toBe("BUTTON");
+    expect(row.tabIndex).toBeGreaterThanOrEqual(0);
+    const subtitle = row.querySelector("small")!.textContent ?? "";
+    expect(subtitle).toContain("Product Designer");
+
+    await user.click(row);
+    const dialog = within(screen.getByRole("dialog", { name: "詳細パネル" }));
+    // Every part of the subtitle, and the concurrent post it only hinted at.
+    // `queryAllByText` rather than `getByText`: 「デザイン」 legitimately appears
+    // more than once in the panel (the department and the org path), and a
+    // multiple-match error would look like a failure of the route.
+    const panel = screen.getByRole("dialog", { name: "詳細パネル" });
+    for (const part of subtitle.split("·").map((piece) => piece.replace("あり", "").trim()).filter(Boolean)) {
+      expect(panel.textContent, `${part} in the panel`).toContain(part);
+    }
+    expect(dialog.getByText("兼務")).toBeInTheDocument();
+  });
+
+  it("opens the project's full summary from the row", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    const row = await openRow(user, /^プロジェクト 登録 \d+件$/u, ".project-name-cell", "モバイル会員証");
+    const summary = row.querySelector("small")!.textContent ?? "";
+    expect(summary.length).toBeGreaterThan(8);
+
+    await user.click(row);
+    expect(within(screen.getByRole("dialog", { name: "詳細パネル" })).getByText(summary)).toBeInTheDocument();
+  });
+});

@@ -115,7 +115,12 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
    with no background at all, which reads as a meaningful difference. */
 .avatar.lavender { background: var(--lavender); }.avatar.peach { background: var(--peach); }.avatar.sky { background: var(--sky); }.avatar.mint { background: var(--mint); }.avatar.sand { background: var(--sand); }.avatar.rose { background: var(--rose); }
 .person-copy { min-width: 0; flex: 1; }
-.person-copy strong, .person-copy small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* These wrap rather than ellipsis (#87). Truncating them put the only copy of a
+   value behind a hover, and the board's row header is not clickable, so there was
+   no route to it at all. Measured at 1440px: the five cut subtitles go to zero
+   and the row heights do not change; with a name 34px and a role 167px too long
+   for the cell, still zero, and one row grows 105→110px. */
+.person-copy strong, .person-copy small { display: block; }
 .person-copy strong { font-size: 10px; }
 .person-copy small { margin-top: 4px; color: #929aab; font-family: var(--font-data); font-size: 7px; }
 .load { padding: 4px 7px; border-radius: 7px; background: #eef1f5; color: #6f788a; font-family: var(--font-data); font-size: 8px; font-weight: 700; }
@@ -1331,8 +1336,15 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .member-name-cell small { display: block; }
 .project-name-cell strong,
 .member-name-cell strong { color: var(--ink); font-size: 10px; }
+/* The subtitle wraps; the name above it keeps its ellipsis, because the name
+   column has to be able to shrink (#75) and the row opens a detail panel that
+   shows it in full. One rule for the screen: a value is either visible whole or
+   reachable from the row by pointer, touch and keyboard — never hover only (#87).
+   Cost, measured: the member list's rows go 77→98px at 1440px, so four rows fit
+   above the fold where five did. Free on the project list, the board, and at
+   390px. */
 .project-name-cell small,
-.member-name-cell small { margin-top: 4px; overflow: hidden; color: #9199a9; font-size: 7px; text-overflow: ellipsis; white-space: nowrap; }
+.member-name-cell small { margin-top: 4px; color: #9199a9; font-size: 7px; }
 /* min-width: 0 is the point. A flex item defaults to min-width: auto, so this
    wrapper refused to shrink below its text and spilled over the next column —
    16 measured text-on-text overlaps on the project table. */
