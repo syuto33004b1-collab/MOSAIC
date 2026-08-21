@@ -21,6 +21,8 @@ import {
   getCurrentWeekStart,
   getIsoWeekNumber,
   getWeekStartForDate,
+  matchScore,
+  matchScoreMax,
   weekLabel,
   hydrateWorkspaceSkills,
   inferSkillCatalog,
@@ -50,6 +52,8 @@ import {
   submitProfileRequest,
   visibleCustomFields,
   type WorkspaceState,
+  type SearchScene,
+  type SearchSkillFilter,
 } from "./domain";
 
 describe("calendar helpers", () => {
@@ -234,6 +238,60 @@ describe("capacity calculations", () => {
     } satisfies WorkspaceState;
 
     expect(memberPeakLoad(state, "m", "2026-08-17", "9999-12-31")).toBe(70);
+  });
+});
+
+/**
+ * #150: 「適合 n点」 was printed with no denominator, and the denominator is not a
+ * constant — it moves with how many 「あると良い」 skills the scene names.
+ */
+describe("what the fit score is out of", () => {
+  const scene = (skills: SearchSkillFilter[]): SearchScene => ({ id: "s", name: "s", skills });
+
+  it("tops out at 40 plus 20 per nice-to-have, capped at 60", () => {
+    expect(matchScoreMax(scene([]))).toBe(40);
+    expect(matchScoreMax(scene([{ name: "A", minProficiency: 3 as const, importance: "nice" as const }]))).toBe(60);
+    expect(matchScoreMax(scene([
+      { name: "A", minProficiency: 3 as const, importance: "nice" as const },
+      { name: "B", minProficiency: 3 as const, importance: "nice" as const },
+    ]))).toBe(80);
+    expect(matchScoreMax(scene([
+      { name: "A", minProficiency: 3 as const, importance: "nice" as const },
+      { name: "B", minProficiency: 3 as const, importance: "nice" as const },
+      { name: "C", minProficiency: 3 as const, importance: "nice" as const },
+      { name: "D", minProficiency: 3 as const, importance: "nice" as const },
+    ]))).toBe(100);
+  });
+
+  it("counts must-have skills for nothing, because they are a filter", () => {
+    expect(matchScoreMax(scene([
+      { name: "A", minProficiency: 3 as const, importance: "must" as const },
+      { name: "B", minProficiency: 5 as const, importance: "must" as const },
+    ]))).toBe(40);
+    // And the ceiling is reachable: full availability, no nice-to-haves.
+    expect(matchScore(100, 0)).toBe(40);
+    expect(matchScore(250, 0)).toBe(40);
+  });
+
+  /**
+   * Why the proposal screen and the resolution guide stopped printing a score.
+   * `searchSceneFromNeed` forces every skill to 「必須」 — the requirement type has no
+   * importance field to carry anything else — so for those screens the score reduced
+   * to `round(空き% × 0.4)`, which is the number printed beside it.
+   *
+   * If requirements ever gain a nice-to-have, this fails, and showing a score on
+   * those screens becomes worth reconsidering. That is the point of pinning it.
+   */
+  it("a score built from a requirement is the availability and nothing else", () => {
+    const need = {
+      id: "n", role: "QA Engineer", skills: ["QA", "Mobile"],
+      skillRequirements: [{ name: "QA", minProficiency: 3 as const }, { name: "Mobile", minProficiency: 4 as const }],
+      startDate: "2026-08-24", endDate: "2026-09-04", allocation: 60,
+    };
+    expect(matchScoreMax(searchSceneFromNeed(need))).toBe(40);
+    for (const available of [0, 25, 60, 100, 140]) {
+      expect(matchScore(available, 0)).toBe(Math.min(40, Math.round(available * 0.4)));
+    }
   });
 });
 

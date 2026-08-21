@@ -1869,6 +1869,22 @@ export function matchScore(availablePercent: number, matchedNiceCount: number) {
   return Math.min(60, matchedNiceCount * 20) + Math.min(40, Math.round(availablePercent * 0.4));
 }
 
+/**
+ * The highest score this scene can produce, which is not always 100.
+ *
+ * `matchScore` gives 20 per satisfied 「あると良い」 skill up to 60, plus 40 for the
+ * availability. A scene with one such skill therefore tops out at 60, and one with
+ * none at 40 — so 「n/100点」 would be a lie for most scenes, and 「n点」 alone leaves
+ * the reader with no denominator at all (#150).
+ *
+ * The 「必須」 skills are absent on purpose: `matchMember` drops a candidate that
+ * misses one, so they gate inclusion rather than earn points.
+ */
+export function matchScoreMax(scene: SearchScene) {
+  const nice = searchSceneSkills(scene).filter((skill) => skill.importance === "nice").length;
+  return Math.min(60, nice * 20) + 40;
+}
+
 export function matchMember(state: WorkspaceState, member: Member, scene: SearchScene): MemberMatch | null {
   if (scene.role && member.role.toLocaleLowerCase() !== scene.role.toLocaleLowerCase()) return null;
   if (scene.location && member.location.toLocaleLowerCase() !== scene.location.toLocaleLowerCase()) return null;
