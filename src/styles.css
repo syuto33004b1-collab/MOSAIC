@@ -957,9 +957,9 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .section-view { width: 100%; max-width: 100%; min-width: 0; overflow-x: hidden; animation: rise-in .46s .04s ease-out backwards; /* `backwards` on purpose (#135) */ }
 .portfolio-ribbon,
 .member-ribbon {
-  min-height: 92px;
+  /* No min-height; see the theme layer below, which is the rule that wins. */
   margin-bottom: 16px;
-  padding: 15px 18px;
+  padding: 10px 18px;
   border: 1px solid #dfe4ed;
   border-radius: 17px;
   background: #fff;
@@ -1150,6 +1150,14 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 }
 .favorite-star:hover { background: #f7f4ea; color: #c4a35a; }
 .favorite-star.is-on { color: #d4a017; }
+/* Wraps by default. The two buttons come to 158px and the cell gives them 133px,
+   so they fall onto a second line and make the row 78px tall — the tallest cell
+   in it, taller than the name and its subtitle (#136). But `nowrap` only helps
+   when the table may also be wider than its wrapper, and that bargain is only
+   worth making on a wide screen: both halves live in the `min-width: 1360px`
+   block further down. Setting this one alone made the 620px rows 211px tall,
+   because the width came out of the name and skills cells rather than out of the
+   table. */
 .member-row-actions { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
 .quick-assign.quiet { color: #687285; }
 .proposal-layout {
@@ -1273,6 +1281,41 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
      Content-driven widths cannot starve a column; the wrapper scrolls instead. */
   table-layout: auto;
 }
+/* The member table asks for more than the wrapper gives it: nine columns, and a
+   1440px viewport leaves 1066px. Left to squeeze, the auto layout takes the
+   width out of whichever cell can wrap — the two row-action buttons onto a
+   second line, then the skills chips onto a third — and pays for it in row
+   height, which is the axis actually in short supply (#136).
+
+   A floor the columns fit inside spends the other axis instead, and the wrapper
+   is `overflow-x: auto` precisely so it can.
+
+   The threshold is measured: at 1080 the rows are still 94px, at 1100 they drop
+   to 67px. 1120 is that threshold plus 20px, which is a choice rather than a
+   measurement. It is not headroom for arbitrary data — the floor is a fixed
+   budget, and a row given a longer name and three extra skill chips came to
+   150px. What it does hold is the two cells this is here for: under that same
+   stress the actions stayed 48px and the ring 54px, and only the name and the
+   chips grew, which is the growth #87 asked for.
+
+   The breakpoint is here because the trade does not scale down. The wrapper runs
+   about the viewport less 374px, so this floor costs 56px of sideways scroll at
+   1440px and 130px at 1360px, and would cost about 530px at 620px. Below 1360 the
+   table squeezes and the rows stay tall — which is where they already were, and
+   the lever there is the number of columns, not this (#132). */
+@media (min-width: 1360px) {
+  .member-table { min-width: 1120px; }
+  /* Paired with the floor above, and only here. Now that the table may be wider
+     than its wrapper, asking these two cells not to wrap buys row height at the
+     price of sideways scroll. Measured at 1440x900: rows 92px -> 67px across the
+     nine member rows, for 56px of sideways scroll; at 1360px, the narrow end of
+     this block, the same rows for 130px. Do not lift either of these out of this
+     block without the floor — see the note at `.member-row-actions`. While the
+     table is scrolled sideways the name and the actions scroll away together,
+     which is #142. */
+  .member-row-actions { flex-wrap: nowrap; }
+  .capacity-limit { white-space: nowrap; }
+}
 /* Widths key off identity, not position, so adding a column cannot shift them.
    These are hints under `auto` layout — the browser still grows a column whose
    content needs it, which is why the text cells cap and ellipsis below. */
@@ -1316,7 +1359,8 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .member-table td.member-row-actions { height: auto; align-content: center; }
 .portfolio-table th,
 .member-table th {
-  height: 40px;
+  /* 32px: the label is one 12px line, so 40 was 24px of padding (#136). */
+  height: 32px;
   padding: 0 12px;
   border-bottom: 1px solid var(--line);
   background: #fafbfc;
@@ -1327,9 +1371,11 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 }
 .portfolio-table td,
 .member-table td {
-  height: 68px;
-  /* #87 で副題を折り返せるようにしてから、行は 96〜98px（指定の 68px は下限として
-     効いていない）。12px 化でさらに伸びる分を padding で戻す。実測 90〜94px */
+  /* 56px, not 68: this is a floor so an empty row does not collapse, and it was
+     binding instead. Measured on the project table, the tallest cell in a row
+     holds 53px of content, so 68px was adding 3px to every row and hiding the
+     fact that the member rows were 92px for a different reason (#136). */
+  height: 56px;
   padding: 6px 12px;
   border-bottom: 1px solid #edf0f4;
   vertical-align: middle;
@@ -1472,8 +1518,11 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 }
 .load-ring {
   --load: 0;
-  width: 39px;
-  height: 39px;
+  /* 34px, not 39: with the capacity label on one line under it this cell came to
+     59px and was the tallest in the row, holding every member row at 72px when
+     the name and its subtitle only need 53px (#136). */
+  width: 34px;
+  height: 34px;
   border-radius: 50%;
   background: conic-gradient(#8290e6 calc(var(--load) * 1%), #edf0f4 0);
   position: relative;
@@ -2040,6 +2089,9 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .detail-need-list strong { font-size: var(--text-min); }
 .detail-need-list small { margin-top: 3px; color: #7d8798; font-size: 9px; }
 .detail-need-list em { color: #5968c7; font-size: 9px; font-style: normal; font-weight: 800; white-space: nowrap; }
+/* Wraps by default, for the reason at `.member-row-actions` (#136): 「稼働上限
+   100%」 breaks over two lines in a 92px cell and makes the ring's cell 75px, and
+   the fix belongs with the width floor rather than on its own. */
 .capacity-limit { display: block; margin-top: 4px; color: #727d8f; font-size: 9px; text-align: center; }
 
 @media (max-width: 620px) {
@@ -2706,11 +2758,12 @@ body {
 }
 
 /* 見出しから最初の結果までに 193px（900px ビューポートの21%）を使っていた。
-   padding + margin で 59px あった区切りを 40px に。全画面に効く */
+   padding + margin で 59px あった区切りを 40px にし（#100）、そこから 28px に（#136）。
+   全画面に効く */
 .topbar {
   align-items: center;
-  margin-bottom: 22px;
-  padding-bottom: 18px;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
   border-bottom: 1px solid var(--line);
 }
 
@@ -2955,9 +3008,12 @@ h1 {
 .portfolio-ribbon,
 .member-ribbon {
   position: relative;
-  min-height: 96px;
+  /* No min-height, and 12px of it rather than 20px. The tallest thing inside is a
+     45px stat, so 96px was 27px of nothing on every list screen — the second
+     biggest block between the heading and the first row (#136). This layer wins
+     over the base rule above; changing only that one changed nothing. */
   margin-bottom: 16px;
-  padding: 20px 24px;
+  padding: 12px 24px;
   overflow: hidden;
   border: 0;
   border-radius: 4px;
