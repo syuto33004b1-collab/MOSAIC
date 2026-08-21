@@ -710,13 +710,24 @@ export default function Home({ mode = "demo", organizationId, organizationName =
   /**
    * Below 620px the nav is one scrolling row (#83), so the current screen's item
    * can sit past the right edge — a deep link like `?nav=reports` at 390px opens
-   * with 229px of the row off-screen and the active item at the far end. Both
-   * axes are "nearest", so on the desktop column, where the item is already in
-   * view, this does nothing.
+   * with 194px of the row off-screen and the active item at the far end.
+   *
+   * Guarded by the same query the layout uses, rather than relying on
+   * `"nearest"` to be a no-op on the desktop column: it is, at the top of the
+   * page, but that was measured in one scroll position and this is not the place
+   * to depend on it. Re-run on resize because the item can go off-screen without
+   * `activeNav` changing — a rotation, or dragging a desktop window narrow while
+   * レポート is open.
    */
   const activeNavItemRef = useRef<HTMLButtonElement | null>(null);
   useEffect(() => {
-    activeNavItemRef.current?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    const bringIntoView = () => {
+      if (!window.matchMedia("(max-width: 620px)").matches) return;
+      activeNavItemRef.current?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    };
+    bringIntoView();
+    window.addEventListener("resize", bringIntoView);
+    return () => window.removeEventListener("resize", bringIntoView);
   }, [activeNav]);
 
   const days = useMemo(() => getWeekDays(weekOffset), [weekOffset]);

@@ -3204,9 +3204,8 @@ h1 {
     gap: 2px;
     overflow-x: auto;
     overscroll-behavior-x: contain;
-    scrollbar-width: none;
+    scrollbar-width: thin;
   }
-  .app-shell:not(.production-shell) > .sidebar .primary-nav::-webkit-scrollbar { display: none; }
   .app-shell:not(.production-shell) > .sidebar .nav-item {
     min-height: 50px;
     flex: 0 0 auto;
