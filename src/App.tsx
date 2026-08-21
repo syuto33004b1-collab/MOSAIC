@@ -707,6 +707,29 @@ export default function Home({ mode = "demo", organizationId, organizationName =
     await refreshWorkspaceRef.current(remoteRevision, true);
   }, []);
 
+  /**
+   * Below 620px the nav is one scrolling row (#83), so the current screen's item
+   * can sit past the right edge — a deep link like `?nav=reports` at 390px opens
+   * with 194px of the row off-screen and the active item at the far end.
+   *
+   * Guarded by the same query the layout uses, rather than relying on
+   * `"nearest"` to be a no-op on the desktop column: it is, at the top of the
+   * page, but that was measured in one scroll position and this is not the place
+   * to depend on it. Re-run on resize because the item can go off-screen without
+   * `activeNav` changing — a rotation, or dragging a desktop window narrow while
+   * レポート is open.
+   */
+  const activeNavItemRef = useRef<HTMLButtonElement | null>(null);
+  useEffect(() => {
+    const bringIntoView = () => {
+      if (!window.matchMedia("(max-width: 620px)").matches) return;
+      activeNavItemRef.current?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    };
+    bringIntoView();
+    window.addEventListener("resize", bringIntoView);
+    return () => window.removeEventListener("resize", bringIntoView);
+  }, [activeNav]);
+
   const days = useMemo(() => getWeekDays(weekOffset), [weekOffset]);
   const weekStart = getWeekStart(weekOffset);
   const visibleProposalIds = retainedMemberIds(proposalMemberIds, workspace.members.map((member) => member.id));
@@ -2180,7 +2203,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
               : item.id === "opportunities" ? { count: (workspace.opportunities ?? []).filter(isActiveOpportunity).length, meaning: "進行中" }
                 : null;
             return (
-              <button className={"nav-item " + (active ? "active" : "")} aria-label={badge ? `${item.label} ${badge.meaning} ${badge.count}件` : item.label} aria-current={active ? "page" : undefined} onClick={() => setActiveNav(item.id as keyof typeof pageMeta)} key={item.id}>
+              <button ref={active ? activeNavItemRef : undefined} className={"nav-item " + (active ? "active" : "")} aria-label={badge ? `${item.label} ${badge.meaning} ${badge.count}件` : item.label} aria-current={active ? "page" : undefined} onClick={() => setActiveNav(item.id as keyof typeof pageMeta)} key={item.id}>
                 <span className="nav-icon"><Icon size={18} strokeWidth={1.8} /></span><span className="nav-label">{item.label}</span>
                 {badge && <span className="nav-count">{badge.meaning} {badge.count}</span>}
               </button>

@@ -2026,3 +2026,58 @@ describe("a key for what colour and position encode", () => {
     }
   });
 });
+
+/**
+ * #83: below 620px the nav is one scrolling row, so the current screen's item can
+ * sit past the right edge. Measured at 390px: 194px of the row is off-screen and
+ * a deep link like `?nav=reports` puts the active item at the far end.
+ */
+describe("the current screen stays in the scrolling nav", () => {
+  /** Answers the layout's own media query, which the effect is guarded by. */
+  const atWidth = (narrow: boolean) => {
+    vi.spyOn(window, "matchMedia").mockImplementation(((query: string) => ({
+      matches: narrow && query.includes("620"),
+      media: query,
+      onchange: null,
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+      addListener: () => undefined,
+      removeListener: () => undefined,
+      dispatchEvent: () => false,
+    })) as unknown as typeof window.matchMedia);
+  };
+
+  it("brings the active item into view when the screen changes", async () => {
+    const user = userEvent.setup();
+    atWidth(true);
+    const scrollIntoView = vi.spyOn(Element.prototype, "scrollIntoView");
+    render(<App />);
+    const navigation = within(screen.getByRole("navigation", { name: "メインナビゲーション" }));
+
+    // The mount call: the board is the first item, but the effect runs anyway so
+    // a deep link to the last one is covered by the same path.
+    expect(scrollIntoView.mock.instances.at(-1)).toBe(navigation.getByRole("button", { name: "アサインボード" }));
+
+    scrollIntoView.mockClear();
+    await user.click(navigation.getByRole("button", { name: "レポート" }));
+    // Both axes "nearest", so nothing outside the row is scrolled.
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: "nearest", inline: "nearest" });
+    expect(scrollIntoView.mock.instances.at(-1)).toBe(navigation.getByRole("button", { name: "レポート" }));
+  });
+
+  it("follows a resize into the bar layout, where activeNav has not changed", async () => {
+    atWidth(false);
+    const scrollIntoView = vi.spyOn(Element.prototype, "scrollIntoView");
+    render(<App />);
+    // Wide: the nav is a column and nothing needs scrolling.
+    expect(scrollIntoView).not.toHaveBeenCalled();
+
+    // Dragging the window narrow, or rotating a tablet, does not change the
+    // screen — so the effect has to listen for it.
+    atWidth(true);
+    await act(async () => { window.dispatchEvent(new Event("resize")); });
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: "nearest", inline: "nearest" });
+    const navigation = within(screen.getByRole("navigation", { name: "メインナビゲーション" }));
+    expect(scrollIntoView.mock.instances.at(-1)).toBe(navigation.getByRole("button", { name: "アサインボード" }));
+  });
+});

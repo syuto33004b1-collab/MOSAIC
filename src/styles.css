@@ -1677,7 +1677,9 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   .inline-search { width: 100%; }
   .view-filter { flex: 1; }
   .view-add-button { margin-left: 0; }
-  .toolbar-result { display: none; }
+  /* The sort order and the result count are the answer to 「何が出ているのか」,
+     so they stay at narrow widths (#83). They were the only thing this
+     breakpoint dropped outright. */
   .report-toolbar { align-items: flex-start; flex-direction: column; }
   .horizon-card { padding-inline: 11px; }
   .report-insight { align-items: flex-start; }
@@ -3190,14 +3192,33 @@ h1 {
   .app-shell:not(.production-shell) > .sidebar .profile-row > .avatar,
   .app-shell:not(.production-shell) > .sidebar .profile-row > span:nth-child(2) { display: none; }
   .app-shell:not(.production-shell) > .sidebar .brand-mark { width: 27px; height: 27px; flex-basis: 27px; }
-  .app-shell:not(.production-shell) > .sidebar .primary-nav { gap: 2px; }
+  /* One scrolling row rather than nine squeezed columns (#83). `flex: 1 1 25%`
+     below asked for four per row, but `.primary-nav` never wraps, so the nine
+     items were 45px each and three labels broke — two of them mid-word
+     (「プロジェ／クト」「スキルマ／ップ」). `width: auto` is needed because the
+     base `.nav-item` is `width: 100%`, which wins once the basis is `auto`.
+     `min-width` keeps the two shortest labels at a tappable width; they measure
+     36px without it. Measured at 485px: labels 3 broken → 0, height 62 → 50px,
+     134px to scroll, and the overlay scrollbar takes no height. */
+  .app-shell:not(.production-shell) > .sidebar .primary-nav {
+    gap: 2px;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: thin;
+  }
   .app-shell:not(.production-shell) > .sidebar .nav-item {
     min-height: 50px;
+    flex: 0 0 auto;
+    width: auto;
+    min-width: 44px;
+    padding-inline: 8px;
     border-left: 0;
     border-bottom: 2px solid transparent;
     border-radius: 2px;
     color: var(--muted);
+    scroll-margin-inline: 12px;
   }
+  .app-shell:not(.production-shell) > .sidebar .nav-label { white-space: nowrap; }
   .app-shell:not(.production-shell) > .sidebar .nav-item.active {
     border-bottom-color: var(--coral);
     background: var(--paper-pure);
@@ -3221,7 +3242,10 @@ h1 {
   }
   .app-shell:not(.production-shell) > .workspace { padding: 24px 14px 34px; }
   .workspace::before { left: 14px; width: 58px; }
-  .topbar { margin-bottom: 24px; padding-bottom: 22px; }
+  /* The theme sets `align-items: center` on `.topbar`, which is vertical while
+     the bar is a row and horizontal once it stacks below 620px. That centred the
+     title block at 72px while every other block sat at 14px (#83). */
+  .topbar { align-items: stretch; margin-bottom: 24px; padding-bottom: 22px; }
   h1 { font-size: clamp(31px, 10vw, 40px); }
   .pulse-strip { padding: 20px; }
   .portfolio-ribbon,
@@ -3261,7 +3285,6 @@ h1 {
 @media (max-width: 410px) {
   .app-shell:not(.production-shell) > .sidebar { grid-template-columns: minmax(0, 1fr) auto; }
   .app-shell:not(.production-shell) > .sidebar .brand { display: none; }
-  .app-shell:not(.production-shell) > .sidebar .nav-item { min-width: 0; }
   .app-shell:not(.production-shell) > .sidebar .profile-actions button { min-width: 34px; padding-inline: 4px; font-size: var(--text-min); }
   .production-sidebar .brand-copy small,
   .production-sidebar .workspace-mode small { display: none; }
