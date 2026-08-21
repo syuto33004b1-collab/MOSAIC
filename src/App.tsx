@@ -2162,7 +2162,13 @@ export default function Home({ mode = "demo", organizationId, organizationName =
 
         <div className="sidebar-spacer" />
         <div className="month-card">
-          <div className="month-card-label"><span>{days[0].month}月のチーム稼働</span><strong>{averageLoad}%</strong></div>
+          {/* `averageLoad` is week-scoped: memberDailyLoads skips Saturday and
+              Sunday, and capacity is a per-day percentage, so the denominator is
+              capacity x 5 weekdays. This label said 「{month}月のチーム稼働」,
+              presenting a week's figure as a month's — and paging the board moved
+              the month in the label while the metric stayed week-scoped (#115).
+              It names the Monday now, the way the board's own header does. */}
+          <div className="month-card-label"><span>{days[0].month}/{days[0].date}週のチーム稼働率</span><strong>{averageLoad}%</strong></div>
           <div className="month-track"><span style={{ width: Math.min(100, averageLoad) + "%" }} /></div>
           <p>{totalCapacity > 0 ? `余力はあと ${Math.max(0, 100 - averageLoad)}%。` : "稼働上限が未設定です。"}{mode === "shared" ? "変更は組織内で共有されます。" : "サンプルデータはこの端末だけに保存されます。"}</p>
         </div>

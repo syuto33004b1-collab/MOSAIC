@@ -1502,3 +1502,53 @@ describe("the member screen's scene form", () => {
     expect(await screen.findByRole("option", { name: "バックエンド候補" })).toBeInTheDocument();
   });
 });
+
+describe("the sidebar's utilisation card", () => {
+  /**
+   * `averageLoad` is week-scoped: `memberDailyLoads` skips Saturday and Sunday
+   * and `capacity` is a per-day percentage, so the denominator is capacity times
+   * five weekdays. The card labelled it 「{month}月のチーム稼働」, so a week's
+   * figure read as a month's, and paging the board moved the month in the label
+   * while the metric stayed week-scoped (#115).
+   */
+  it("names the week it measures, and follows the board when the week changes", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    const card = document.querySelector(".month-card-label");
+    expect(card).not.toBeNull();
+    const label = () => card!.querySelector("span")!.textContent ?? "";
+
+    // The board's header is the other place the same week is named, so the two
+    // are compared against each other rather than against a hardcoded date.
+    // Read the board's own date range element rather than searching the whole
+    // screen for a date, which would match any other one.
+    const heading = () => document.querySelector(".date-range")!.textContent ?? "";
+    const mondayOf = (text: string) => {
+      const m = text.match(/^(\d+)\/(\d+)週のチーム稼働率$/u);
+      expect(m, `label should name a Monday: ${text}`).not.toBeNull();
+      return { month: Number(m![1]), date: Number(m![2]) };
+    };
+    const headingStart = (text: string) => {
+      const m = text.match(/(\d+)月(\d+)日 — /u);
+      expect(m, `board header should name a week: ${text}`).not.toBeNull();
+      return { month: Number(m![1]), date: Number(m![2]) };
+    };
+
+    // 稼働率 rather than 稼働: the value is a percentage.
+    expect(label()).toMatch(/^\d+\/\d+週のチーム稼働率$/u);
+    expect(label()).not.toMatch(/月のチーム稼働/u);
+    expect(card!.querySelector("strong")!.textContent).toMatch(/^\d+%$/u);
+    expect(mondayOf(label())).toEqual(headingStart(heading()));
+
+    // Paging moves the label to the next Monday, and the header agrees there too
+    // — checking only "the string changed" would pass on any other date.
+    const before = mondayOf(label());
+    await user.click(screen.getByRole("button", { name: "次の週" }));
+    const after = mondayOf(label());
+    expect(after).not.toEqual(before);
+    expect(after).toEqual(headingStart(heading()));
+
+    const asDate = ({ month, date }: { month: number; date: number }) => new Date(2026, month - 1, date).getTime();
+    expect((asDate(after) - asDate(before)) / 86400000).toBe(7);
+  });
+});
