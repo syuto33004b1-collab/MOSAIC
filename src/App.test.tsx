@@ -3108,10 +3108,15 @@ describe("the sticky columns' position in the row", () => {
 /**
  * #122: the panel's backdrop was a `<button>` carrying the same accessible name as
  * the ✕ inside the panel, so a screen reader listing buttons saw 「詳細パネルを閉じる」
- * twice. And the focus trap never let Tab reach that one — measured with real key
- * presses at 1440x900: 72 focusable elements, two with that name, the backdrop at
- * document position 63 with `tabIndex: 0`, and Shift+Tab from the ✕ landing on
- * `.drawer-danger` rather than on it. A button that cannot be pressed.
+ * twice — and that one sat outside the focus cycle the trap maintains. Measured with
+ * real key presses at 1440x900: 72 focusable elements, two with that name, the
+ * backdrop at document position 63 with `tabIndex: 0`, and Shift+Tab from the ✕
+ * landing on `.drawer-danger` rather than on it.
+ *
+ * That is one route, not a proof of unreachability — a screen reader's button list
+ * and the pointer could both still get there. The defect is the duplicate name for an
+ * operation that already had one, on an element advertised as focusable while the
+ * panel's own focus order excluded it.
  *
  * It is a div now. The keyboard keeps Escape and the ✕; the pointer keeps the
  * backdrop.

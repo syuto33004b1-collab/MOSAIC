@@ -2495,11 +2495,16 @@ export default function Home({ mode = "demo", organizationId, organizationName =
         <div className="overlay">
           {/* A div, not a button. As a `<button>` it carried the same accessible name
               as the ✕ inside the panel, so a screen reader listing buttons saw
-              「詳細パネルを閉じる」 twice — and the focus trap above never lets Tab reach
-              this one, so one of the two could not be pressed. Measured: 72 focusable
-              elements, two with that name, this one at document position 63 with
-              `tabIndex: 0`, and Shift+Tab from the ✕ landing on `.drawer-danger`
-              rather than here (#122).
+              「詳細パネルを閉じる」 twice, and the second one was outside the focus cycle
+              the trap above maintains. Measured: 72 focusable elements, two with that
+              name, this one at document position 63 with `tabIndex: 0`, and Shift+Tab
+              from the ✕ landing on `.drawer-danger` rather than here (#122).
+
+              That measurement covers one route, not every route — a screen reader's
+              button list and the pointer could both still reach it. What it shows is
+              that it was advertised as a focusable control while being excluded from
+              the panel's own focus order: a duplicate name for an operation that
+              already had one.
 
               The keyboard already has two ways out — Escape, measured, and the ✕ — so
               dropping this from the accessible tree removes a phantom rather than a
