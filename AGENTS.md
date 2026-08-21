@@ -248,10 +248,11 @@ PR 本文の `評価対象コミット` を書き換えないままリベース�
 
 ## Cursor Cloud specific instructions
 
-Cursor Cloud VM で開発するときの、非自明な注意点だけを書く。標準コマンドは重複させない（検証は §8、実行は README、フィールドの意味は各 `docs/`）。
+Cursor Cloud VM で開発するときの、非自明な注意点だけを書く。標準コマンドは重複させない（検証は §8、実行は README、フィールドの意味は各 `docs/`）。VM 固有の記述は保存済み Cloud 環境の状態に依存する。環境を差し替えたら見直す。
 
-- **Node のバージョン解決に注意する。** このリポジトリは Node `>=24 <25`（`package.json` の `engines`）。VM 既定の `/exec-daemon/node` は v22 で PATH 上 nvm より前にあるため、素の `node` は v22 を指すことがある。セットアップ時に `~/.bashrc` の末尾で nvm の現行 Node（v24）を PATH 先頭へ差す設定を入れてある。更新スクリプト（VM 起動時に自動実行）も nvm で v24 を選んでから `npm ci` する。もしコマンドが v22 で動いていたら `nvm use 24` を実行する。`nvm` は `. "$HOME/.nvm/nvm.sh"` で読み込む。
-- **開発サーバの URL は `/MOSAIC/` を必ず付ける。** `npm run dev` は `http://127.0.0.1:5173/MOSAIC/` で配信する（`vite.config.ts` の `base: "/MOSAIC/"`）。ルート `/` ではアプリは出ない。
-- **既定は DEMO モードで単体起動する。** `.env.local`（`VITE_SUPABASE_*`）が無ければアプリは Supabase 無しの DEMO モードで完全に動く。DEMO の編集は「デモへ保存」で `localStorage` キー `mosaic-local-workspace-v3` に保存され、リロード後も残る（`src/App.tsx`）。共有モード・ログイン・AI チャットは Supabase 接続と secret（Gemini など）が要るため、既定のローカル開発では対象外。
-- **SQL 系検証（§8 後半の `supabase db reset/lint/test`）には Docker が要る。** この VM には Docker は既定で入っていない。フロントの lint/test/build/実行だけなら Docker は不要。
+- **Node のバージョン解決に注意する。** このリポジトリは Node `>=24.0.0 <25`（`package.json` の `engines`）。現在の保存済み Cloud 環境では既定の `/exec-daemon/node` が v22 で、PATH 上 nvm より前にあるため素の `node` が v22 を指すことがある。対策として `~/.bashrc` 末尾で nvm の現行 Node（v24）を PATH 先頭へ差してあり、更新スクリプト（VM 起動時に自動実行）も nvm で v24 を選んでから `npm ci` する。コマンドが v22 で動いていたら `. "$HOME/.nvm/nvm.sh"` を読み込んで `nvm use 24` を実行する。
+- **開発サーバは `/MOSAIC/` 配下で配信される。** `vite.config.ts` の `base: "/MOSAIC/"` のため、ルート `/` ではアプリは出ない。`npm run dev` の起動ログに出る URL（既定は `http://127.0.0.1:5173/MOSAIC/`。ポート使用中は Vite が別ポートを選ぶ）を開く。
+- **既定は DEMO モードで単体起動する。** `VITE_SUPABASE_URL` と `VITE_SUPABASE_PUBLISHABLE_KEY` がともに空で、かつ `VITE_REQUIRE_SHARED_MODE` が未設定または `true` 以外なら DEMO モードになる（`src/lib/supabase.ts`。接続値は `.env.local` に限らず任意の `.env*` や環境変数から入る）。DEMO では Supabase 無しで DEMO 機能の範囲が動き、「デモへ保存」で `localStorage` キー `mosaic-local-workspace-v3` に保存され、リロード後も残る（`src/App.tsx`）。
+- **共有モードとの接続値・secret を混同しない。** 共有モード（ログイン・組織・Realtime）にはブラウザが使う Supabase URL と publishable key（公開接続値。`.env.local` に置く）が要る。secret key はブラウザに置かない。AI チャットの Gemini API キーは server 側 Edge Function の secret で、これらとは別（README / `docs/AI_CHAT.md`）。既定のローカル開発では共有モード・AI チャットは対象外。
+- **SQL 系検証（§8 後半の `supabase db reset/lint/test`）は Docker が要るが、この Cloud VM には既定で Docker が無い。** フロントの lint/test/build/実行だけなら Docker は不要。
 - **画面確認（§9）は実 VM のブラウザで行う。** 手段は `.cursor/skills/verifying-ui-changes` に従う。
