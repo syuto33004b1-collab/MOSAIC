@@ -4,7 +4,7 @@ import axe from "axe-core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import App, { type SharedWorkspaceAdapter } from "./App";
 import { DEMO_FAVORITES_KEY } from "./collaboration";
-import { addDays, getWeekStart, initialWorkspace, memberDailyLoads, type WorkspaceState } from "./domain";
+import { addDays, getWeekDays, getWeekStart, initialWorkspace, memberDailyLoads, type WorkspaceState } from "./domain";
 import type { ChatTransport } from "./lib/ai/chatClient";
 
 function sharedAdapter(): SharedWorkspaceAdapter {
@@ -430,7 +430,7 @@ describe("role-aware workspace", () => {
     adapter.save = save;
     render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
 
-    await user.click(screen.getAllByRole("button", { name: "Atlas リニューアルのアサイン詳細" })[0]);
+    await user.click(screen.getAllByRole("button", { name: /^Atlas リニューアルのアサイン詳細（/u })[0]);
     const dialog = within(screen.getByRole("dialog", { name: "詳細パネル" }));
     await user.clear(dialog.getByLabelText("終了日"));
     await user.type(dialog.getByLabelText("終了日"), "2026-09-18");
@@ -453,7 +453,7 @@ describe("role-aware workspace", () => {
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
     render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
 
-    await user.click(screen.getByRole("button", { name: "Atlas リニューアルのアサイン詳細" }));
+    await user.click(screen.getByRole("button", { name: /^Atlas リニューアルのアサイン詳細（/u }));
     await user.click(screen.getByRole("button", { name: "アサインを取消" }));
     expect(confirm).toHaveBeenCalledWith(expect.stringContaining("取消予定"));
     await user.click(screen.getByRole("button", { name: "チームへ保存" }));
@@ -472,7 +472,7 @@ describe("role-aware workspace", () => {
     adapter.save = save;
     render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
 
-    await user.click(screen.getByRole("button", { name: "Atlas リニューアルのアサイン詳細" }));
+    await user.click(screen.getByRole("button", { name: /^Atlas リニューアルのアサイン詳細（/u }));
     const dialog = within(screen.getByRole("dialog", { name: "詳細パネル" }));
     await user.clear(dialog.getByLabelText("稼働配分（%）"));
     await user.type(dialog.getByLabelText("稼働配分（%）"), "20");
@@ -600,7 +600,7 @@ describe("role-aware workspace", () => {
     await user.click(screen.getByRole("button", { name: /ボードで確認/ }));
 
     expect(screen.getByRole("heading", { name: "今週のチーム編成" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "メンバー", pressed: true })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "メンバー別", pressed: true })).toBeInTheDocument();
   });
 
   it("requires role, every skill, and capacity across the whole staffing period", async () => {
@@ -810,7 +810,7 @@ describe("role-aware workspace", () => {
   it("rejects assignment edits outside the selected project period", async () => {
     const user = userEvent.setup();
     render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={sharedAdapter()} />);
-    await user.click(screen.getAllByRole("button", { name: "Atlas リニューアルのアサイン詳細" })[0]);
+    await user.click(screen.getAllByRole("button", { name: /^Atlas リニューアルのアサイン詳細（/u })[0]);
     const dialog = within(screen.getByRole("dialog", { name: "詳細パネル" }));
     const endDate = dialog.getByLabelText("終了日");
     await user.clear(endDate);
@@ -1745,5 +1745,143 @@ describe("one word per quantity", () => {
     await user.click(screen.getByText("佐伯 優斗").closest("button")!);
     expect(within(screen.getByRole("dialog", { name: "詳細パネル" })).getByText("4週間の稼働")).toBeInTheDocument();
     clean("the member drawer");
+  });
+});
+
+/**
+ * #88: the board had one label meaning two things — the sidebar's 「メンバー」
+ * leaves the screen, the schedule card's 「メンバー」 changed what the rows are —
+ * and its assignment bars shared accessible names. Measured on the board at
+ * 1440px: five names covering twelve of the thirty-seven visible buttons, and
+ * three of the four 「Atlas リニューアル」 bars shared a name *and* a day range,
+ * so only the row told them apart.
+ */
+describe("one name per control on the board", () => {
+  const weekStart = getWeekStart(0);
+  const owner = { name: "管理 花子", email: "owner@example.com", role: "owner" as const };
+
+  /**
+   * The accessible names Testing Library computes, not an approximation of them.
+   * `name` accepts a matcher function and is handed the *computed* name, so
+   * returning false collects every one without matching anything — no
+   * hand-rolled `aria-label ?? textContent`, which got 「3件 要調整」 wrong.
+   */
+  const controlNames = () => {
+    const names: string[] = [];
+    for (const role of ["button", "link"] as const) {
+      screen.queryAllByRole(role, { name: (accessibleName: string) => { names.push(accessibleName); return false; } });
+    }
+    return names;
+  };
+
+  /**
+   * A drawer's backdrop and its ✕ both carry 「詳細パネルを閉じる」. They do the
+   * same thing, so it is redundancy rather than #88's one-label-two-meanings —
+   * and the backdrop being a focusable tab stop ahead of the dialog is its own
+   * defect with its own measurements (#122). Named here, and only here, so the
+   * scan stays strict about everything else.
+   */
+  const KNOWN_REPEATS = ["詳細パネルを閉じる"];
+
+  /** Returns the names it checked, so a caller can assert it looked at something. */
+  const expectDistinctNames = (where: string) => {
+    const names = controlNames();
+    const repeated = [...new Set(names.filter((name, index) => names.indexOf(name) !== index))];
+    expect(repeated.filter((name) => !KNOWN_REPEATS.includes(name)), `controls sharing a name in ${where}`).toEqual([]);
+    expect(names.filter((name) => name === ""), `unnamed controls in ${where}`).toEqual([]);
+    return names;
+  };
+
+  it("gives the view-axis tabs a name the sidebar does not also use", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    const navigation = within(screen.getByRole("navigation", { name: "メインナビゲーション" }));
+
+    // The label was on a bare <div>, where it reached nothing.
+    const axis = screen.getByRole("group", { name: "表示軸" });
+    expect(within(axis).getByRole("button", { name: "メンバー別", pressed: true })).toBeInTheDocument();
+    expect(within(axis).getByRole("button", { name: "プロジェクト別", pressed: false })).toBeInTheDocument();
+
+    // Each of these now resolves to one button on the whole screen. Before, the
+    // only way to tell the pair apart was `pressed`, which the sidebar's nav
+    // button does not carry.
+    expect(screen.getAllByRole("button", { name: "メンバー別" })).toHaveLength(1);
+    expect(screen.getAllByRole("button", { name: "メンバー" })).toHaveLength(1);
+    // The nav keeps its own name, and it is a different element from the tab.
+    expect(navigation.getByRole("button", { name: "メンバー" })).not.toBe(within(axis).getByRole("button", { name: "メンバー別" }));
+    expect(within(axis).queryByRole("button", { name: "メンバー" })).not.toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "プロジェクト別" })).toHaveLength(1);
+    expect(screen.getAllByRole("button", { name: "プロジェクト" })).toHaveLength(1);
+
+    // Switching the axis relabels the grid and the row header, not the tabs.
+    await user.click(within(axis).getByRole("button", { name: "プロジェクト別" }));
+    expect(screen.getByRole("grid", { name: "プロジェクト別の週間アサイン" })).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "プロジェクト別" })).toHaveLength(1);
+  });
+
+  it("leaves no two controls on the board sharing a name, on either axis and with a panel open", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    expect(expectDistinctNames("the members axis").length).toBeGreaterThan(20);
+
+    await user.click(screen.getByRole("button", { name: "プロジェクト別" }));
+    expectDistinctNames("the projects axis");
+
+    // The default view is not the only state on this screen. Each of these adds
+    // controls, and a name that is unique among the rows can still collide with
+    // one of them.
+    await user.click(screen.getByRole("button", { name: "通知" }));
+    expectDistinctNames("the notification popover");
+    await user.keyboard("{Escape}");
+
+    await user.click(screen.getAllByRole("button", { name: /のアサイン詳細（/u })[0]);
+    expectDistinctNames("the assignment drawer");
+    // Two carry this name (#122); the ✕ inside the dialog is the one to press.
+    await user.click(within(screen.getByRole("dialog", { name: "詳細パネル" })).getByRole("button", { name: "詳細パネルを閉じる" }));
+
+    await user.click(screen.getByRole("button", { name: "アサインを追加" }));
+    expectDistinctNames("the new-assignment drawer");
+  });
+
+  it("tells two rows apart when the project and the days are the same", async () => {
+    const project = { ...initialWorkspace.projects[0], id: "project", name: "Atlas リニューアル" };
+    const first = { ...initialWorkspace.members[0], id: "first", name: "同日 一郎" };
+    const second = { ...initialWorkspace.members[1], id: "second", name: "同日 二郎" };
+    const span = { startDate: weekStart, endDate: addDays(weekStart, 4) };
+    const adapter = sharedAdapter();
+    adapter.initialState = {
+      members: [first, second],
+      projects: [project],
+      assignments: [
+        { id: "a", personId: first.id, projectId: project.id, ...span, allocation: 50, status: "confirmed" },
+        { id: "b", personId: second.id, projectId: project.id, ...span, allocation: 50, status: "confirmed" },
+      ],
+      needs: [],
+    } as unknown as WorkspaceState;
+    render(<App mode="shared" organizationName="Example Inc." identity={owner} shared={adapter} />);
+
+    // Same project, same 8/17〜8/21, same 50%: the row is the only difference,
+    // so the name carries it — and the day range too, for two bars in one row.
+    const days = getWeekDays(0);
+    const range = `${days[0].month}/${days[0].date}〜${days[4].month}/${days[4].date}`;
+    expect(screen.getByRole("button", { name: `Atlas リニューアルのアサイン詳細（同日 一郎・${range}）` })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: `Atlas リニューアルのアサイン詳細（同日 二郎・${range}）` })).toBeInTheDocument();
+    expectDistinctNames("two rows on the same project and days");
+  });
+
+  it("names a single day without a range", async () => {
+    const project = { ...initialWorkspace.projects[0], id: "project", name: "単日 案件" };
+    const member = { ...initialWorkspace.members[0], id: "one-day", name: "単日 三郎" };
+    const wednesday = addDays(weekStart, 2);
+    const adapter = sharedAdapter();
+    adapter.initialState = {
+      members: [member], projects: [project],
+      assignments: [{ id: "a", personId: member.id, projectId: project.id, startDate: wednesday, endDate: wednesday, allocation: 30, status: "confirmed" }],
+      needs: [],
+    } as unknown as WorkspaceState;
+    render(<App mode="shared" organizationName="Example Inc." identity={owner} shared={adapter} />);
+
+    const days = getWeekDays(0);
+    expect(screen.getByRole("button", { name: `単日 案件のアサイン詳細（単日 三郎・${days[2].month}/${days[2].date}）` })).toBeInTheDocument();
   });
 });

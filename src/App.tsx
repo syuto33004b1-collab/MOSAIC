@@ -107,6 +107,7 @@ import {
   type SkillKind,
   type StaffingNeed,
   type Tone,
+  type WeekDay,
   type WorkHistoryEntry,
   type WorkspaceState,
 } from "./domain";
@@ -276,6 +277,24 @@ const pageMeta = {
 } as const;
 
 const storageKey = "mosaic-local-workspace-v3";
+
+/**
+ * The days an assignment bar covers, for the button's accessible name (#88).
+ *
+ * Three of the four 「Atlas リニューアル」 bars on the board shared a name *and* a
+ * day range — only the row told them apart — so the name carries both. `start`
+ * is the 1-based grid column `assignmentGrid` produced. That function clamps to
+ * `weekEnd`, four days after Monday, and `getWeekDays` returns five, so the
+ * indices land in range; the clamp here is because that invariant lives in
+ * another file and a `days[undefined]` would blank the board.
+ */
+function assignmentDayRange(days: WeekDay[], start: number, span: number) {
+  const at = (index: number) => days[Math.min(Math.max(index, 0), days.length - 1)];
+  const first = at(start - 1);
+  const last = at(start + span - 2);
+  const label = (day: WeekDay) => day.month + "/" + day.date;
+  return first === last ? label(first) : label(first) + "〜" + label(last);
+}
 
 function cloneState(state: WorkspaceState): WorkspaceState {
   return JSON.parse(JSON.stringify(state)) as WorkspaceState;
@@ -2240,9 +2259,15 @@ export default function Home({ mode = "demo", organizationId, organizationName =
             <div className="board-layout">
               <section className="schedule-card" aria-label="週間アサイン表">
                 <div className="schedule-toolbar">
-                  <div className="view-tabs" aria-label="表示切替">
-                    <button className={viewMode === "members" ? "selected" : ""} aria-pressed={viewMode === "members"} onClick={() => changeView("members")}><UsersRound size={13} />メンバー</button>
-                    <button className={viewMode === "projects" ? "selected" : ""} aria-pressed={viewMode === "projects"} onClick={() => changeView("projects")}><BriefcaseBusiness size={13} />プロジェクト</button>
+                  {/* 「メンバー別」 not 「メンバー」: the sidebar has a nav button
+                      called 「メンバー」 that leaves this screen, and one label
+                      cannot mean two things (#88). The wording is the grid's own
+                      aria-label, 「メンバー別の週間アサイン」, rather than a third
+                      way of saying it. `role="group"` so the label below is
+                      actually exposed — on a bare div it was not. */}
+                  <div className="view-tabs" role="group" aria-label="表示軸">
+                    <button className={viewMode === "members" ? "selected" : ""} aria-pressed={viewMode === "members"} onClick={() => changeView("members")}><UsersRound size={13} />メンバー別</button>
+                    <button className={viewMode === "projects" ? "selected" : ""} aria-pressed={viewMode === "projects"} onClick={() => changeView("projects")}><BriefcaseBusiness size={13} />プロジェクト別</button>
                   </div>
                   <div className="toolbar-actions">
                     <label className="filter-select"><SlidersHorizontal size={13} /><select aria-label={viewMode === "members" ? "職種で絞り込み" : "状態で絞り込み"} value={filter} onChange={(event) => setFilter(event.target.value)}>
@@ -2270,7 +2295,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                           <div className="week-cell" role="gridcell" aria-label={row.name + "のアサイン"}>
                             <div className="day-grid" aria-hidden="true">{[0, 1, 2, 3, 4].map((index) => <i key={index} />)}</div>
                             {row.assignments.map((assignment) => (
-                              <button className={"assignment " + assignment.tone + (assignment.status === "draft" ? " provisional" : "")} style={{ gridColumn: assignment.start + " / span " + assignment.span }} onClick={() => openAssignment(assignment.id)} aria-label={assignment.name + "のアサイン詳細"} title={assignment.name + " · " + assignment.allocation + "%"} key={assignment.id}>
+                              <button className={"assignment " + assignment.tone + (assignment.status === "draft" ? " provisional" : "")} style={{ gridColumn: assignment.start + " / span " + assignment.span }} onClick={() => openAssignment(assignment.id)} aria-label={assignment.name + "のアサイン詳細（" + row.name + "・" + assignmentDayRange(days, assignment.start, assignment.span) + "）"} title={assignment.name + " · " + assignment.allocation + "%"} key={assignment.id}>
                                 <span>{assignment.name}</span>{assignment.allocation > 0 && <small>{assignment.allocation}%</small>}
                               </button>
                             ))}
