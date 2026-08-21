@@ -78,6 +78,7 @@ import {
   orgUnitTree,
   formatDate,
   matchMembers,
+  matchScoreMax,
   memberById,
   projectById,
   searchSceneFromNeed,
@@ -644,6 +645,8 @@ export function MembersView({
   const scenes = state.searchScenes ?? [];
   const selectedScene = scenes.find((scene) => scene.id === sceneId);
   const scoreById = new Map((selectedScene ? matchMembers(state, selectedScene) : []).map((match) => [match.member.id, match]));
+  // Not 100: the ceiling moves with how many 「あると良い」 skills the scene names (#150).
+  const scoreCeiling = selectedScene ? matchScoreMax(selectedScene) : 0;
   const searchValue = query ?? localQuery;
   // Trimmed, so a box holding only spaces filters nothing rather than matching
   // literal whitespace and emptying the list with no chip to explain it — the
@@ -807,8 +810,21 @@ export function MembersView({
         </details>
       )}
 
+      {/* Only while a scene is picked, because the score column only exists then. The
+          numbers are the ones `matchScore` actually applies: 20 per satisfied 「あると良い」
+          skill up to 60, and `round(空き% × 0.4)` up to 40. 「必須」 skills are absent on
+          purpose — `matchMember` drops a candidate that misses one, so they gate
+          inclusion rather than earn points (#150).
+          `aria-describedby` rather than adjacency alone, the same as the portfolio and
+          skill rails: jumping straight to the table would otherwise miss it (#85). */}
+      {selectedScene && (
+        <p className="viz-caption" id="member-score-key">
+          スコアは、このシーンで満点となる {scoreCeiling} 点のうち何点かです。あると良いスキル1つで20点（最大60点）、要件期間の最小空きを0.4倍して四捨五入した点（最大40点）。必須スキルは満たしていることが前提なので、点数には入りません。
+        </p>
+      )}
+
       <div className="member-table-wrap">
-        <table className="member-table">
+        <table className="member-table" aria-describedby={selectedScene ? "member-score-key" : undefined}>
           <thead><tr><th className="col-favorite"><span className="sr-only">お気に入り</span></th><th className="col-name">メンバー</th><th className="col-skills">スキル</th>{selectedScene && <th className="col-score">スコア</th>}{listFields.map((field) => <th key={field.id} className="col-custom">{field.label}</th>)}<th className="col-week">{weekName}の稼働</th><th className="col-rail">4週間の稼働</th><th className="col-next">次に稼働率60%以下</th><th className="col-actions"><span className="sr-only">操作</span></th></tr></thead>
           <tbody>
             {filtered.map((member) => {
@@ -822,7 +838,7 @@ export function MembersView({
                   <td>{onToggleFavorite ? <FavoriteStar name={member.name} pressed={isFavorited(favorites, "member", member.id)} onToggle={() => onToggleFavorite(member.id)} /> : null}</td>
                   <td><button className="member-name-cell" onClick={() => onOpen(member.id)}><span className={"avatar " + member.avatarTone}>{member.initials}</span><span className="row-name-copy"><strong>{member.name}</strong><small>{member.role} · {member.department}{memberOrgMemberships(state, member.id).some((item) => !item.isPrimary) ? " · 兼務あり" : ""}</small></span></button></td>
                   <td><div className="member-skills">{memberSkillLevels(member).slice(0, 3).map((level) => <span key={level.name}>{level.name}<small>{level.proficiency}</small></span>)}</div></td>
-                  {selectedScene && <td><span className="match-score">{match?.score ?? 0}点<small>空き{match?.availablePercent ?? 0}%</small></span></td>}
+                  {selectedScene && <td><span className="match-score">{match?.score ?? 0}/{scoreCeiling}点<small>空き{match?.availablePercent ?? 0}%</small></span></td>}
                   {listFields.map((field) => <td key={field.id}><span className="custom-field-cell">{formatCustomValue(field, customValue(member.customValues, field.id))}</span></td>)}
                   <td><span className={"load-ring " + (load > member.capacity ? "over" : member.capacity > 0 && load <= member.capacity * .6 ? "open" : "")} style={{ "--load": Math.min(100, loadRatio) } as React.CSSProperties}><strong>{load}%</strong></span><small className="capacity-limit">稼働上限 {member.capacity}%</small></td>
                   <td><div className="member-week-rail">{weeklyLoads.map((value, index) => { const ratio = member.capacity > 0 ? value / member.capacity * 100 : value > 0 ? 100 : 0; /* The label is a sibling of the bar, not a child: it belongs to its own grid track so it cannot overlap the next week's. */ return <Fragment key={index}><i className={value > member.capacity ? "over" : member.capacity > 0 && value <= member.capacity * .6 ? "open" : ""}><b style={{ height: Math.max(12, Math.min(100, ratio)) + "%" }} /></i><small>{value}%</small></Fragment>; })}</div></td>
@@ -1020,7 +1036,7 @@ export function ProposalView({
                   return (
                     <p className={"proposal-match" + (match ? "" : " is-unmatched")}>
                       {match
-                        ? <>適合 {match.score}点 · 要件期間の最小空き {match.availablePercent}% {match.matchedMust.length > 0 && <em><Check size={11} />{match.matchedMust.join("・")}</em>}</>
+                        ? <>要件期間の最小空き {match.availablePercent}% {match.matchedMust.length > 0 && <em><Check size={11} />{match.matchedMust.join("・")}</em>}</>
                         : <>この要件には適合していません</>}
                     </p>
                   );

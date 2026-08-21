@@ -1136,7 +1136,12 @@ describe("role-aware workspace", () => {
     const sceneSelect = screen.getByLabelText("シーンを選ぶ");
     await user.selectOptions(sceneSelect, within(sceneSelect).getByRole("option", { name: "フロントエンド候補" }));
     expect(screen.getAllByRole("button", { name: /中村 美咲/ }).some((button) => button.classList.contains("member-name-cell"))).toBe(true);
-    expect(screen.getByText("60点")).toBeInTheDocument();
+    // 60/60: the ceiling, not 100, because this scene names one 「あると良い」 skill —
+    // 20 for it plus 40 for the availability. The candidate is at the top of the scale
+    // and the cell now says so (#150).
+    expect(screen.getByText("60/60点")).toBeInTheDocument();
+    expect(document.querySelector(".viz-caption#member-score-key")!.textContent).toContain("満点となる 60 点");
+    expect(document.querySelector(".member-table")).toHaveAttribute("aria-describedby", "member-score-key");
     expect(screen.queryAllByRole("button", { name: /佐伯 優斗/ }).find((button) => button.classList.contains("member-name-cell"))).toBeUndefined();
 
     await user.type(screen.getByPlaceholderText("フロントエンド候補"), "React実務者");
@@ -2650,9 +2655,12 @@ describe("a proposal answers something", () => {
     const items = rest.querySelectorAll(".proposal-picker-item");
     await user.click(items[items.length - 1] as HTMLElement);
 
+    // The availability, not a score: for a subject built from a requirement every
+    // skill is 「必須」, so `matchScore` reduced to `round(空き% × 0.4)` and the cards no
+    // longer print it (#150). The order it produced is the order of this number.
     const scoreOf = (card: Element) => {
       const text = card.querySelector(".proposal-match")!.textContent ?? "";
-      const found = /適合 (\d+)点/u.exec(text);
+      const found = /要件期間の最小空き (\d+)%/u.exec(text);
       // No match at all is the bottom of the order, not a missing value.
       return found ? Number(found[1]) : -1;
     };
@@ -2660,7 +2668,9 @@ describe("a proposal answers something", () => {
     expect(cards).toHaveLength(2);
     expect(scoreOf(cards[0])).toBeGreaterThanOrEqual(scoreOf(cards[1]));
     // And the leader is a real match, not merely first.
-    expect(cards[0].querySelector(".proposal-match")!.textContent).toMatch(/適合 \d+点 · 要件期間の最小空き \d+%/u);
+    expect(cards[0].querySelector(".proposal-match")!.textContent).toMatch(/^要件期間の最小空き \d+%/u);
+    // And the number it replaced is gone from the card rather than moved.
+    expect(cards[0].querySelector(".proposal-match")!.textContent).not.toMatch(/適合|点/u);
   });
 
   /**
@@ -2684,7 +2694,7 @@ describe("a proposal answers something", () => {
     }
 
     const scores = [...document.querySelectorAll(".proposal-card .proposal-match")].map((element) => {
-      const found = /適合 (\d+)点/u.exec(element.textContent ?? "");
+      const found = /要件期間の最小空き (\d+)%/u.exec(element.textContent ?? "");
       return found ? Number(found[1]) : -1;
     });
     expect(scores.length).toBeGreaterThan(4);
@@ -3321,5 +3331,119 @@ describe("a way into the proposal screen", () => {
     expect(screen.getByRole("button", { name: ROUTE })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "要員要件を編集" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "仮置き" })).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * #150: 「適合 n点」 was printed with no denominator, and the denominator is not a
+ * constant. `matchScore` gives 20 per satisfied 「あると良い」 skill up to 60 plus
+ * `round(空き% × 0.4)` up to 40, so a scene naming one such skill tops out at 60 and
+ * one naming none at 40.
+ *
+ * Where a requirement is the subject — the proposal cards and the resolution guide —
+ * `searchSceneFromNeed` forces every skill to 「必須」, because the requirement type has
+ * no field to carry anything else. The score there reduced to `round(空き% × 0.4)`: a
+ * restatement of the number printed beside it. Those two stopped printing it. The
+ * member list, where a saved scene can name 「あると良い」 skills, prints the ceiling.
+ */
+describe("what the fit score is out of", () => {
+  const openScene = async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^メンバー( |$)/u }));
+    const picker = screen.getByLabelText("シーンを選ぶ") as HTMLSelectElement;
+    const scene = [...picker.options].find((option) => option.value);
+    expect(scene, "the demo data should carry a saved scene").toBeDefined();
+    await user.selectOptions(picker, scene!.value);
+    return user;
+  };
+
+  it("prints the ceiling beside the score, and the ceiling is the scene's own", async () => {
+    await openScene();
+    const cells = [...document.querySelectorAll(".match-score")];
+    expect(cells.length).toBeGreaterThan(0);
+    const ceilings = new Set<string>();
+    for (const cell of cells) {
+      const parsed = cell.textContent!.match(/^(\d+)\/(\d+)点空き(\d+)%$/u);
+      expect(parsed, `unexpected score cell: ${cell.textContent}`).not.toBeNull();
+      const [, score, ceiling, available] = parsed!;
+      ceilings.add(ceiling);
+      // The ceiling is 40 plus 20 per nice-to-have, so it is one of four values —
+      // never 100 unless the scene names three of them.
+      expect([40, 60, 80, 100]).toContain(Number(ceiling));
+      expect(Number(score)).toBeLessThanOrEqual(Number(ceiling));
+      // And the score's own arithmetic, so a cell cannot print a ceiling it is not on.
+      // A first version of this compared the value with itself — `ceiling >= 40` always
+      // holds, so the conditional collapsed to `x === x` and asserted nothing. The
+      // evaluator caught it. What matters is that the part not explained by the
+      // availability is a whole number of nice-to-haves, and fits under the ceiling.
+      const fromAvailability = Math.min(40, Math.round(Number(available) * 0.4));
+      const fromSkills = Number(score) - fromAvailability;
+      expect(fromSkills, `${cell.textContent}: score below its own availability half`).toBeGreaterThanOrEqual(0);
+      expect(fromSkills, `${cell.textContent}: more skill points than the ceiling allows`).toBeLessThanOrEqual(Number(ceiling) - 40);
+      expect(fromSkills % 20, `${cell.textContent}: skill points come 20 at a time`).toBe(0);
+    }
+    // One scene, one ceiling: it is a property of the scene, not of the candidate.
+    expect(ceilings.size).toBe(1);
+  });
+
+  it("says what the ceiling means, where the table can point at it", async () => {
+    const user = await openScene();
+    const caption = document.querySelector(".viz-caption#member-score-key");
+    expect(caption, "the score column needs its key (#85's pattern)").not.toBeNull();
+    const ceiling = document.querySelector(".match-score")!.textContent!.match(/\/(\d+)点/u)![1];
+    expect(caption!.textContent).toContain(`満点となる ${ceiling} 点`);
+    // The three things that move the number, and the one that does not.
+    expect(caption!.textContent).toContain("20点");
+    expect(caption!.textContent).toContain("40点");
+    expect(caption!.textContent).toContain("必須スキルは満たしていることが前提");
+    expect(document.querySelector(".member-table")).toHaveAttribute("aria-describedby", "member-score-key");
+
+    // And it is gone with the column, not left behind explaining nothing.
+    await user.selectOptions(screen.getByLabelText("シーンを選ぶ") as HTMLSelectElement, "");
+    expect(document.querySelector(".match-score")).toBeNull();
+    expect(document.querySelector(".viz-caption#member-score-key")).toBeNull();
+    expect(document.querySelector(".member-table")).not.toHaveAttribute("aria-describedby");
+  });
+
+  /**
+   * The two screens that stopped printing it. Both still print the availability the
+   * score was derived from, so nothing a reader could act on has gone.
+   */
+  it("neither requirement-scored screen prints a score any more", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    const navigation = within(screen.getByRole("navigation", { name: "メインナビゲーション" }));
+
+    await user.click(navigation.getByRole("button", { name: /^提案( |$)/u }));
+    const picker = screen.getByLabelText("提案先を選ぶ") as HTMLSelectElement;
+    await user.selectOptions(picker, [...picker.options].find((option) => option.value)!.value);
+    const candidate = document.querySelector(".proposal-picker-item") as HTMLElement;
+    await user.click(candidate);
+    const card = document.querySelector(".proposal-match")!;
+    expect(card.textContent).not.toMatch(/適合 \d+点/u);
+    expect(card.textContent).toMatch(/要件期間の最小空き \d+%|この要件には適合していません/u);
+
+    // The resolution guide, reached from the board's unfilled-role card.
+    await user.click(navigation.getByRole("button", { name: /^アサインボード( |$)/u }));
+    // `.alert-card` is itself the button, so there is nothing to look for inside it.
+    const resolve = [...document.querySelectorAll("button.alert-card")]
+      .find((element) => element.textContent?.includes("未充足")) as HTMLElement;
+    expect(resolve, "the demo data should carry an unfilled role").toBeDefined();
+    await user.click(resolve);
+    const list = await waitFor(() => {
+      const node = document.querySelector(".candidate-list, .candidate-empty");
+      expect(node).not.toBeNull();
+      return node!;
+    });
+    expect(list.textContent).not.toMatch(/適合 \d+点/u);
+    if (list.classList.contains("candidate-list")) {
+      expect(list.textContent).toMatch(/要件期間の最小空き \d+%/u);
+    }
+    // The heading named the order as 「スコア順」, and the score is no longer on screen.
+    // A list cannot say it is sorted by something the reader cannot see (#150).
+    const heading = document.querySelector(".candidate-label")!.textContent ?? "";
+    expect(heading).not.toContain("スコア");
+    expect(heading).toContain("要件期間の最小空き");
   });
 });

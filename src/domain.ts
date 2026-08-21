@@ -1869,6 +1869,25 @@ export function matchScore(availablePercent: number, matchedNiceCount: number) {
   return Math.min(60, matchedNiceCount * 20) + Math.min(40, Math.round(availablePercent * 0.4));
 }
 
+/**
+ * The highest score this scene can produce, which is not always 100.
+ *
+ * `matchScore` gives 20 per satisfied 「あると良い」 skill up to 60, plus 40 for the
+ * availability. A scene with one such skill therefore tops out at 60, and one with
+ * none at 40 — so 「n/100点」 would be a lie for most scenes, and 「n点」 alone leaves
+ * the reader with no denominator at all (#150).
+ *
+ * The 「必須」 skills are absent on purpose: `matchMember` drops a candidate that
+ * misses one, so they gate inclusion rather than earn points.
+ */
+export function matchScoreMax(scene: SearchScene) {
+  const nice = searchSceneSkills(scene).filter((skill) => skill.importance === "nice").length;
+  // Through `matchScore` rather than repeating its two caps: full availability is by
+  // definition the top of the availability half, so this stays correct if the weights
+  // move.
+  return matchScore(100, nice);
+}
+
 export function matchMember(state: WorkspaceState, member: Member, scene: SearchScene): MemberMatch | null {
   if (scene.role && member.role.toLocaleLowerCase() !== scene.role.toLocaleLowerCase()) return null;
   if (scene.location && member.location.toLocaleLowerCase() !== scene.location.toLocaleLowerCase()) return null;
@@ -1896,9 +1915,19 @@ export function matchMember(state: WorkspaceState, member: Member, scene: Search
   };
 }
 
+/**
+ * Best first: score, then availability, then name.
+ *
+ * Availability is the tie-break because `matchScore` rounds — 60% and 61% both give 24
+ * — and the screens that consume this order print the availability rather than the
+ * score (#150). Without it the heading 「要件期間の最小空きが多い順」 was false for any
+ * pair inside the same 2.5-point band, and the name decided which came first.
+ */
 export function matchMembers(state: WorkspaceState, scene: SearchScene): MemberMatch[] {
   return state.members.flatMap((member) => {
     const match = matchMember(state, member, scene);
     return match ? [match] : [];
-  }).sort((left, right) => right.score - left.score || left.member.name.localeCompare(right.member.name, "ja"));
+  }).sort((left, right) => right.score - left.score
+    || right.availablePercent - left.availablePercent
+    || left.member.name.localeCompare(right.member.name, "ja"));
 }
