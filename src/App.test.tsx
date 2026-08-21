@@ -2576,3 +2576,293 @@ describe("the board can show a month", () => {
     expect(document.querySelector(".date-range")!.textContent).toBe(before);
   });
 });
+
+/**
+ * #140. The proposal screen let you build a shortlist of up to twelve people,
+ * optionally anonymised, and never said what they were being proposed *for*. The
+ * app has staffing needs on confirmed projects and staffing plans on
+ * opportunities, each with a role, a period, an allocation and required skills,
+ * and the screen was connected to none of it. Its only output — the share link —
+ * was in the command palette, so a reader of the screen had no way to finish.
+ */
+describe("a proposal answers something", () => {
+  const openProposal = async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: "提案" }));
+    return user;
+  };
+  const ribbon = () => document.querySelector(".proposal-view .member-ribbon")!.textContent ?? "";
+
+  it("says what the screen is for before a subject is picked", async () => {
+    await openProposal();
+    // Not 「氏名を隠して候補を比較します」, which described a display mode.
+    expect(ribbon()).toContain("提案先を選ぶと、要件に合う候補から並びます");
+    expect(screen.getByLabelText("提案先を選ぶ")).toBeInTheDocument();
+  });
+
+  it("names the subject, its period and its allocation once one is picked", async () => {
+    const user = await openProposal();
+    const picker = screen.getByLabelText("提案先を選ぶ") as HTMLSelectElement;
+    const subject = [...picker.options].find((option) => option.value !== "")!;
+    expect(subject, "the demo data should offer at least one need or plan").toBeTruthy();
+
+    await user.selectOptions(picker, subject.value);
+    // The option's own label is 「案件名 / ロール」, and the ribbon states it.
+    expect(ribbon()).toContain(subject.textContent!);
+    expect(ribbon()).toContain("に提案");
+
+    // The subject's real period and allocation, not merely something shaped like
+    // them. `need:` ids are the project staffing needs.
+    const need = initialWorkspace.needs.find((item) => `need:${item.id}` === subject.value)!;
+    expect(need, subject.value).toBeTruthy();
+    expect(ribbon()).toContain(`稼働配分 ${need.allocation}%`);
+    for (const iso of [need.startDate, need.endDate]) {
+      const [year, month, day] = iso.split("-").map(Number);
+      expect(ribbon(), iso).toContain(`${year}年${month}月${day}日`);
+    }
+  });
+
+  /**
+   * Ordering, actually asserted. A first version clicked the top candidate and
+   * accepted either 「適合」 or 「適合していません」 on the card, which is true of any
+   * order at all.
+   */
+  it("puts the matching candidates first, and says how each one matches", async () => {
+    const user = await openProposal();
+    const picker = screen.getByLabelText("提案先を選ぶ") as HTMLSelectElement;
+    await user.selectOptions(picker, [...picker.options].find((option) => option.value !== "")!.value);
+
+    // The 「メンバー」 group is the ranked one; favourites keep their own order.
+    const group = [...document.querySelectorAll(".proposal-picker-group")]
+      .find((element) => element.querySelector("small")?.textContent === "メンバー")!;
+    const names = [...group.querySelectorAll(".proposal-picker-item strong")].map((el) => el.textContent);
+    expect(names.length).toBeGreaterThan(3);
+
+    // Add the first and the last, and read their scores off the cards. Ranked
+    // means the first cannot score below the last.
+    await user.click(group.querySelectorAll(".proposal-picker-item")[0] as HTMLElement);
+    const rest = [...document.querySelectorAll(".proposal-picker-group")]
+      .find((element) => element.querySelector("small")?.textContent === "メンバー")!;
+    const items = rest.querySelectorAll(".proposal-picker-item");
+    await user.click(items[items.length - 1] as HTMLElement);
+
+    const scoreOf = (card: Element) => {
+      const text = card.querySelector(".proposal-match")!.textContent ?? "";
+      const found = /適合 (\d+)点/u.exec(text);
+      // No match at all is the bottom of the order, not a missing value.
+      return found ? Number(found[1]) : -1;
+    };
+    const cards = [...document.querySelectorAll(".proposal-card")];
+    expect(cards).toHaveLength(2);
+    expect(scoreOf(cards[0])).toBeGreaterThanOrEqual(scoreOf(cards[1]));
+    // And the leader is a real match, not merely first.
+    expect(cards[0].querySelector(".proposal-match")!.textContent).toMatch(/適合 \d+点 · 要件期間の最小空き \d+%/u);
+  });
+
+  /**
+   * The whole sequence, not just its ends. Comparing the first with the last
+   * cannot see an inversion in the middle, so this adds every candidate — the
+   * cards then stand in the order they were picked in — and checks the scores
+   * never rise.
+   */
+  it("ranks the whole member list, not just its ends", async () => {
+    const user = await openProposal();
+    const picker = screen.getByLabelText("提案先を選ぶ") as HTMLSelectElement;
+    await user.selectOptions(picker, [...picker.options].find((option) => option.value !== "")!.value);
+
+    const memberGroup = () => [...document.querySelectorAll(".proposal-picker-group")]
+      .find((element) => element.querySelector("small")?.textContent === "メンバー");
+    // Always the top of the remaining list, so the cards come out in picker order.
+    for (let index = 0; index < 8; index += 1) {
+      const next = memberGroup()?.querySelector(".proposal-picker-item") as HTMLElement | null;
+      if (!next || next.hasAttribute("disabled")) break;
+      await user.click(next);
+    }
+
+    const scores = [...document.querySelectorAll(".proposal-card .proposal-match")].map((element) => {
+      const found = /適合 (\d+)点/u.exec(element.textContent ?? "");
+      return found ? Number(found[1]) : -1;
+    });
+    expect(scores.length).toBeGreaterThan(4);
+    expect(scores).toEqual([...scores].sort((a, b) => b - a));
+  });
+
+  /**
+   * The two kinds of subject come from two tables. Nothing guarantees their ids
+   * are distinct, so this gives them the *same* raw id and checks both survive as
+   * separate, addressable subjects. A first version only asserted the prefix was
+   * there, which is not the same as showing it does anything.
+   */
+  it("keeps two subjects with the same raw id apart", async () => {
+    const user = userEvent.setup();
+    const adapter = sharedAdapter();
+    adapter.initialState = {
+      ...initialWorkspace,
+      members: initialWorkspace.members.slice(0, 3),
+      needs: [{ id: "same", projectId: initialWorkspace.projects[0].id, role: "確定側ロール", skills: [], startDate: "2026-09-01", endDate: "2026-09-30", allocation: 40, status: "open" }],
+      opportunityNeeds: [{ id: "same", opportunityId: (initialWorkspace.opportunities ?? [])[0].id, role: "受注前側ロール", skills: [], startDate: "2026-10-01", endDate: "2026-10-31", allocation: 70 }],
+    } as unknown as WorkspaceState;
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: "提案" }));
+
+    const picker = screen.getByLabelText("提案先を選ぶ") as HTMLSelectElement;
+    const values = [...picker.options].map((option) => option.value).filter(Boolean);
+    expect(values).toEqual(["need:same", "plan:same"]);
+
+    await user.selectOptions(picker, "need:same");
+    expect(document.querySelector(".proposal-view .member-ribbon")!.textContent).toContain("確定側ロール");
+    await user.selectOptions(picker, "plan:same");
+    const ribbonText = document.querySelector(".proposal-view .member-ribbon")!.textContent!;
+    expect(ribbonText).toContain("受注前側ロール");
+    expect(ribbonText).toContain("稼働配分 70%");
+  });
+
+  /**
+   * A subject that has gone must not travel. The screen falls back to 未選択, and
+   * the link it hands over has to agree with the screen rather than carrying an id
+   * that resolves to nothing.
+   */
+  it("leaves a subject it cannot resolve out of the link", async () => {
+    const user = userEvent.setup();
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+    window.history.replaceState({}, "", "?nav=proposal&need=need:gone-away");
+    render(<App />);
+    expect((screen.getByLabelText("提案先を選ぶ") as HTMLSelectElement).value).toBe("");
+
+    await user.click(document.querySelector(".proposal-picker-item") as HTMLElement);
+    await user.click(screen.getByRole("button", { name: "提案リンクをコピー" }));
+    await waitFor(() => expect(writeText).toHaveBeenCalled());
+    const href = String(writeText.mock.calls[0][0]);
+    expect(href).toContain("nav=proposal");
+    expect(href).toContain("members=");
+    expect(href).not.toContain("need=");
+    window.history.replaceState({}, "", "/");
+  });
+
+  /**
+   * A link from before the subject existed carries members and nothing else. It
+   * has to open on those members with no subject, rather than on an empty screen.
+   */
+  it("opens a link that names members and no subject", async () => {
+    const [first, second] = initialWorkspace.members;
+    window.history.replaceState({}, "", `?nav=proposal&members=${first.id},${second.id}`);
+    render(<App />);
+    expect((screen.getByLabelText("提案先を選ぶ") as HTMLSelectElement).value).toBe("");
+    expect([...document.querySelectorAll(".proposal-card h3")].map((el) => el.textContent))
+      .toEqual([first.name, second.name]);
+    // No subject, so no claim about matching one.
+    expect(document.querySelector(".proposal-match")).toBeNull();
+    window.history.replaceState({}, "", "/");
+  });
+
+  /**
+   * Favourites are a list somebody curated; the member list is a ranking. Sorting
+   * the favourites by score too would quietly overwrite the first with the second.
+   */
+  it("leaves the favourites in their own order", async () => {
+    const user = userEvent.setup();
+    // Two favourites whose workspace order is not their score order against the
+    // subject: the designer comes first in the workspace and cannot match a
+    // Frontend Engineer requirement.
+    const designer = initialWorkspace.members.find((member) => member.role === "Product Designer")!;
+    const frontend = initialWorkspace.members.find((member) => member.role === "Frontend Engineer")!;
+    expect(initialWorkspace.members.indexOf(designer)).toBeLessThan(initialWorkspace.members.indexOf(frontend));
+    window.localStorage.setItem(DEMO_FAVORITES_KEY, JSON.stringify([
+      { kind: "member", targetId: designer.id },
+      { kind: "member", targetId: frontend.id },
+    ]));
+    render(<App />);
+    await waitFor(() => expect(screen.queryByText("保存データを読み込み中")).not.toBeInTheDocument());
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: "提案" }));
+
+    const picker = screen.getByLabelText("提案先を選ぶ") as HTMLSelectElement;
+    const frontendSubject = [...picker.options].find((option) => option.textContent?.includes("Frontend Engineer"))!;
+    await user.selectOptions(picker, frontendSubject.value);
+
+    const group = [...document.querySelectorAll(".proposal-picker-group")]
+      .find((element) => element.querySelector("small")?.textContent === "お気に入り")!;
+    expect(group, "two seeded favourites should make a favourites group").toBeTruthy();
+    expect([...group.querySelectorAll(".proposal-picker-item strong")].map((el) => el.textContent))
+      .toEqual([designer.name, frontend.name]);
+    window.localStorage.removeItem(DEMO_FAVORITES_KEY);
+  });
+
+  /**
+   * A link can name a subject. It can also name one that has since been filled or
+   * deleted, and then the screen has to fall back rather than claim a subject it
+   * cannot show.
+   */
+  it("opens on the subject a link names, and shrugs off one it cannot find", async () => {
+    const user = userEvent.setup();
+    const openNeed = initialWorkspace.needs.find((need) => need.status !== "filled")!;
+    window.history.replaceState({}, "", `?nav=proposal&need=need:${openNeed.id}`);
+    render(<App />);
+    const picker = screen.getByLabelText("提案先を選ぶ") as HTMLSelectElement;
+    expect(picker.value).toBe(`need:${openNeed.id}`);
+    expect(document.querySelector(".proposal-view .member-ribbon")!.textContent).toContain("に提案");
+
+    // A well-formed id for nothing: the picker falls back to 未選択 and the screen
+    // says what it is for instead of naming a subject.
+    window.history.replaceState({}, "", "?nav=proposal&need=need:does-not-exist");
+    render(<App />);
+    const pickers = screen.getAllByLabelText("提案先を選ぶ") as HTMLSelectElement[];
+    expect(pickers[pickers.length - 1].value).toBe("");
+    window.history.replaceState({}, "", "/");
+    void user;
+  });
+
+  /**
+   * #140 claimed the only way out was the command palette. Reading
+   * `primaryActions` showed otherwise: the header's primary slot is
+   * 「提案リンクをコピー」 on this screen, disabled until somebody is selected. That
+   * is the one meaning that slot carries on every screen (#111), so the fix was to
+   * leave it alone — and not to add a second control with the same name (#124).
+   */
+  it("offers its one output from the header, enabled once there is something to send", async () => {
+    const user = await openProposal();
+    const copy = screen.getByRole("button", { name: "提案リンクをコピー" });
+    expect(copy).toBeDisabled();
+    // One control, one name.
+    expect(screen.getAllByRole("button", { name: "提案リンクをコピー" })).toHaveLength(1);
+
+    await user.click(document.querySelector(".proposal-picker-item") as HTMLElement);
+    expect(screen.getByRole("button", { name: "提案リンクをコピー" })).toBeEnabled();
+    expect(screen.getAllByRole("button", { name: "提案リンクをコピー" })).toHaveLength(1);
+  });
+
+  /**
+   * The screen worked without a subject before and has to keep working without
+   * one. A link from before this change carries members and no need, which the
+   * URL test above covers; this one is the picker left alone.
+   */
+  it("still works with no subject picked", async () => {
+    const user = await openProposal();
+    await user.click(document.querySelector(".proposal-picker-item") as HTMLElement);
+    expect(document.querySelectorAll(".proposal-card").length).toBe(1);
+    // No requirement, so no claim about matching one.
+    expect(document.querySelector(".proposal-match")).toBeNull();
+  });
+
+  it("keeps names and locations out of the anonymous view, subject or not", async () => {
+    const user = await openProposal();
+    const picker = screen.getByLabelText("提案先を選ぶ") as HTMLSelectElement;
+    await user.selectOptions(picker, [...picker.options].find((option) => option.value !== "")!.value);
+    const candidate = document.querySelector(".proposal-picker-item") as HTMLElement;
+    const name = candidate.querySelector("strong")!.textContent!;
+    await user.click(candidate);
+
+    const location = initialWorkspace.members.find((member) => member.name === name)!.location;
+    expect(document.querySelector(".proposal-cards")!.textContent).toContain(location);
+
+    await user.click(screen.getByLabelText("氏名・勤務地を隠す"));
+    const cards = document.querySelector(".proposal-cards")!.textContent ?? "";
+    expect(cards).not.toContain(name);
+    expect(cards).not.toContain(location);
+    expect(cards).toMatch(/候補[A-Z]/u);
+    // The fit survives the anonymising, which is the point of showing it: a
+    // reader can weigh the candidate without being told who they are.
+    expect(cards).toMatch(/適合 \d+点|この要件には適合していません/u);
+  });
+});

@@ -54,6 +54,17 @@ describe("favorites", () => {
 describe("share links", () => {
   it("parses member detail, search, and anonymous proposal URLs", () => {
     expect(parseShareSearch("?nav=members&open=saeki")).toEqual({ nav: "members", open: "saeki" });
+    // A proposal carries what it is for, not only who is in it (#140).
+    expect(parseShareSearch("?nav=proposal&members=a,b&need=need-1"))
+      .toEqual({ nav: "proposal", memberIds: ["a", "b"], needId: "need-1" });
+    // Validated like `open`, and only on the screen that has a use for it.
+    expect(parseShareSearch("?nav=proposal&need=" + encodeURIComponent("../../etc"))).toEqual({ nav: "proposal" });
+    expect(parseShareSearch("?nav=members&need=need-1")).toEqual({ nav: "members" });
+    expect(serializeShareSearch({ nav: "proposal", memberIds: ["a"], needId: "need-1" }))
+      .toBe("?nav=proposal&members=a&need=need-1");
+    // A round trip cannot produce a value the parser would have rejected.
+    expect(serializeShareSearch({ nav: "proposal", memberIds: ["a"], needId: "no spaces allowed" }))
+      .toBe("?nav=proposal&members=a");
     expect(parseShareSearch("nav=members&q=React")).toEqual({ nav: "members", q: "React" });
     expect(parseShareSearch("?members=saeki,nakamura,saeki&anonymous=1")).toEqual({
       nav: "proposal",

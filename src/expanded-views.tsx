@@ -4,6 +4,7 @@ import {
   BriefcaseBusiness,
   Building2,
   CalendarClock,
+  Check,
   ChevronRight,
   CircleAlert,
   ClipboardCheck,
@@ -74,8 +75,11 @@ import {
   orgUnitLoadRows,
   orgUnitPath,
   orgUnitTree,
+  formatDate,
   matchMembers,
   memberById,
+  projectById,
+  searchSceneFromNeed,
   parseSkillInput,
   PROFICIENCY_LABELS,
   profileRequestScopeLabel,
@@ -158,6 +162,9 @@ type ProposalViewProps = {
   selectedIds: string[];
   anonymous: boolean;
   favorites?: Favorite[];
+  /** The staffing need or staffing plan this proposal answers, if one was picked. */
+  needId?: string;
+  onNeedIdChange: (needId: string) => void;
   onSelectedIdsChange: (ids: string[]) => void;
   onAnonymousChange: (value: boolean) => void;
   onOpenMember: (memberId: string) => void;
@@ -843,9 +850,44 @@ export function ProposalView({
   onAnonymousChange,
   onOpenMember,
   onToggleFavorite,
+  needId,
+  onNeedIdChange,
 }: ProposalViewProps) {
   const [pickerQuery, setPickerQuery] = useState("");
   const weekStart = getWeekStart(weekOffset);
+  /**
+   * What the proposal answers. A project's unfilled staffing need or an
+   * opportunity's staffing plan — the screen could build a list of people and
+   * never say who it was for (#140).
+   *
+   * Both kinds carry the same fields, so `searchSceneFromNeed` takes either and
+   * `matchMembers` scores against it. No new matching logic; the machinery that
+   * ranks candidates for a saved search does this already.
+   */
+  const subjects = [
+    ...(state.needs ?? [])
+      .filter((need) => need.status !== "filled")
+      .map((need) => ({
+        // Prefixed, because these are two tables. Nothing guarantees a staffing
+        // need and a staffing plan cannot share an id, and if they did, the bare id
+        // would pick whichever came first here — and collide as an <option> value
+        // and a React key besides.
+        id: `need:${need.id}`,
+        need,
+        label: `${projectById(state, need.projectId)?.name ?? "案件未登録"} / ${need.role}`,
+        kind: "確定案件の不足ロール",
+      })),
+    ...(state.opportunityNeeds ?? []).map((need) => ({
+      id: `plan:${need.id}`,
+      need,
+      label: `${(state.opportunities ?? []).find((item) => item.id === need.opportunityId)?.name ?? "受注前案件"} / ${need.role}`,
+      kind: "受注前案件の要員計画",
+    })),
+  ];
+  const subject = subjects.find((item) => item.id === needId);
+  const matches = subject ? matchMembers(state, searchSceneFromNeed(subject.need)) : [];
+  const matchById = new Map(matches.map((match) => [match.member.id, match]));
+
   const selected = selectedIds
     .map((id) => memberById(state, id))
     .filter((member): member is Member => Boolean(member));
@@ -853,7 +895,10 @@ export function ProposalView({
   const pickerMembers = state.members.filter((member) => {
     if (selectedIds.includes(member.id)) return false;
     return memberSearchText(state, member).includes(needle);
-  });
+  })
+    // With a subject, the people who fit it come first, and by how well. Without
+    // one there is nothing to fit, so the workspace's own order stands.
+    .sort((a, b) => (matchById.get(b.id)?.score ?? -1) - (matchById.get(a.id)?.score ?? -1));
   const favoriteMembers = state.members.filter((member) => isFavorited(favorites, "member", member.id) && !selectedIds.includes(member.id));
 
   const addMember = (memberId: string) => {
@@ -864,20 +909,43 @@ export function ProposalView({
   return (
     <section className="section-view proposal-view" aria-labelledby="proposal-heading">
       <h2 id="proposal-heading" className="sr-only">候補者提案</h2>
+      {/* The ribbon said 「氏名を隠して候補を比較します」 — a description of a display
+          mode, on a screen whose job was never stated. It names the thing being
+          answered now, and falls back to saying what the screen is for (#140). */}
       <div className="member-ribbon">
         <div className="ribbon-lead">
           <span className="ribbon-icon mint"><Sparkles size={18} /></span>
           <div>
-            <small>ANONYMOUS PROPOSAL</small>
-            <strong>{anonymous ? "氏名を隠して候補を比較します" : "社内向けに候補を並べます"}</strong>
+            <small>{subject ? subject.kind : "候補者提案"}</small>
+            <strong>{subject
+              ? `${subject.label} に提案`
+              : "提案先を選ぶと、要件に合う候補から並びます"}</strong>
+            {subject && <small className="proposal-subject-terms">{formatDate(subject.need.startDate)} — {formatDate(subject.need.endDate)} · 稼働配分 {subject.need.allocation}%</small>}
           </div>
         </div>
         <div className="ribbon-stat"><strong>{selected.length}</strong><span>選定中</span></div>
         <div className="ribbon-divider" />
-        <div className="ribbon-stat"><strong>{anonymous ? "匿名" : "記名"}</strong><span>表示モード</span></div>
+        {/* 「匿名」 was the wrong word for it: this hides two fields on this screen,
+            it does not anonymise anything (#148). The stat says what the toggle
+            does, in the toggle's own words. The prop and the URL parameter keep
+            their names — renaming those would break links already handed out. */}
+        <div className="ribbon-stat"><strong>{anonymous ? "氏名なし" : "氏名あり"}</strong><span>表示モード</span></div>
       </div>
 
+      {/* No copy button here. #140 said the only way out was the command palette;
+          reading `primaryActions` showed that wrong — the header's primary slot is
+           「提案リンクをコピー」 for this screen, disabled until somebody is selected,
+          which is the one meaning that slot carries everywhere (#111). A second
+          control with the same name is what #124 is about. */}
       <div className="view-toolbar">
+        <label className="view-filter"><span className="filter-label">提案先</span><select value={needId ?? ""} onChange={(event) => onNeedIdChange(event.target.value)} aria-label="提案先を選ぶ">
+          <option value="">未選択</option>
+          {subjects.map((item) => <option value={item.id} key={item.id}>{item.label}</option>)}
+        </select></label>
+        {/* This hides the names on *this* screen. It is not anonymisation: the
+            link carries real member ids and the reader can untick the box. The
+            toolbar has always said the link needs a login; #148 is the question of
+            whether an external-safe proposal should exist at all. */}
         <label className="view-toggle">
           <input type="checkbox" checked={anonymous} onChange={(event) => onAnonymousChange(event.target.checked)} />
           <EyeOff size={14} />氏名・勤務地を隠す
@@ -918,7 +986,7 @@ export function ProposalView({
             <div className="view-empty proposal-empty">
               <UsersRound size={22} />
               <strong>左側から候補を追加してください</strong>
-              <p>匿名にすると、共有リンクを開いた社内メンバーにも氏名は出ません。</p>
+              <p>氏名を隠すと、共有リンクを開いた社内メンバーの画面でも既定で隠れます。開いた側で表示に戻すこともできます。</p>
             </div>
           )}
           {selected.map((member, index) => {
@@ -937,6 +1005,20 @@ export function ProposalView({
                   <button type="button" className="proposal-remove" onClick={() => onSelectedIdsChange(selectedIds.filter((id) => id !== member.id))}>外す</button>
                 </header>
                 <div className="member-skills">{memberSkillLevels(member).slice(0, 4).map((level) => <span key={level.name}>{level.name}<small>{level.proficiency}</small></span>)}</div>
+                {/* Against the requirement, not in the abstract. The same score the
+                    saved-search ranking uses, and the required skills this person
+                    actually meets (#140). What the score is out of goes unsaid on
+                    both screens that show it — #150. */}
+                {subject && (() => {
+                  const match = matchById.get(member.id);
+                  return (
+                    <p className={"proposal-match" + (match ? "" : " is-unmatched")}>
+                      {match
+                        ? <>適合 {match.score}点 · 要件期間の最小空き {match.availablePercent}% {match.matchedMust.length > 0 && <em><Check size={11} />{match.matchedMust.join("・")}</em>}</>
+                        : <>この要件には適合していません</>}
+                    </p>
+                  );
+                })()}
                 <div className="proposal-weeks" aria-label={`${label}の4週間の稼働`}>
                   {weeklyLoads.map((load, weekIndex) => {
                     const ratio = member.capacity > 0 ? load / member.capacity * 100 : load > 0 ? 100 : 0;
