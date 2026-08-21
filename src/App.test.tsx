@@ -581,14 +581,23 @@ describe("role-aware workspace", () => {
     expect(screen.getByRole("heading", { name: "Backend Engineerの候補" })).toBeInTheDocument();
   });
 
-  it("returns to the member board from the reports primary action", async () => {
+  /**
+   * The reports screen used to reach the board from the header's primary slot as
+   * well, which made that slot mean "add something here" on six screens and "go
+   * elsewhere" on three (#104). The slot now means only the first, and this
+   * asserts the navigation survived in the place it belongs — inside the view,
+   * where it was already one of three paths.
+   */
+  it("returns to the member board from inside the reports view", async () => {
     const user = userEvent.setup();
     render(<App />);
     const navigation = within(screen.getByRole("navigation", { name: "メインナビゲーション" }));
 
     await user.click(navigation.getByRole("button", { name: "レポート" }));
     expect(screen.getByRole("heading", { name: "キャパシティ予測" })).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "ボードで調整" }));
+    expect(screen.queryByRole("button", { name: "ボードで調整" })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /ボードで確認/ }));
 
     expect(screen.getByRole("heading", { name: "今週のチーム編成" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "メンバー", pressed: true })).toBeInTheDocument();
@@ -1299,6 +1308,93 @@ describe("four-week capacity rail", () => {
         .map((label) => label.textContent ?? "")
         .filter((text) => !/^\d+%$/u.test(text));
       expect(notAPercentage).toEqual([]);
+    }
+  });
+});
+
+describe("the header's primary slot", () => {
+  /**
+   * The slot used to hold two different kinds of thing: "add something here" on
+   * six screens, and "go to another screen" on three — org and fields both read
+   * 「メンバーを確認」 and reports read 「ボードで調整」 (#104). Same position,
+   * same styling, unpredictable result.
+   *
+   * The contract is now one meaning: the main action that completes on this
+   * screen. A screen with no such action shows no button rather than borrowing
+   * the slot for navigation.
+   */
+  // Not "screens without a primary action" — skills has one. These are the
+  // screens checked for the three labels that were removed from the slot.
+  const screensCheckedForRemovedLabels = ["組織", "スキルマップ", "項目定義", "レポート"] as const;
+  const expectedLabels: Record<string, string | null> = {
+    アサインボード: "アサインを追加",
+    プロジェクト: "プロジェクトを追加",
+    受注前: "受注前案件を追加",
+    メンバー: "メンバーを追加",
+    提案: "提案リンクをコピー",
+    組織: null,
+    スキルマップ: "不足ロールを確認",
+    項目定義: null,
+    レポート: null,
+  };
+
+  it("holds at most one primary action per screen, and it is the expected one", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    const navigation = within(screen.getByRole("navigation", { name: "メインナビゲーション" }));
+    const header = screen.getByRole("banner");
+
+    for (const [nav, label] of Object.entries(expectedLabels)) {
+      // The nav labels for projects and opportunities carry a count badge.
+      await user.click(navigation.getByRole("button", { name: new RegExp(`^${nav}\\d*$`, "u") }));
+      // The slot itself, rather than "header buttons whose label is not 検索 or
+      // 通知": that filter would excuse an unlabelled button and would swallow a
+      // primary action that happened to read 検索.
+      const slot = [...header.querySelectorAll(".primary-button")].map((button) => button.textContent?.trim() ?? "");
+      expect(slot).toEqual(label === null ? [] : [label]);
+    }
+  });
+
+  /**
+   * The disabled condition moved from four parallel ternaries to one `enabled`
+   * field per screen, and inverted in the process
+   * (`needs.every(filled)` -> `needs.some(!filled)`,
+   * `visibleProposalIds.length === 0` -> `length > 0`). A viewer is the case
+   * where those conditions actually bite.
+   */
+  it("still disables rather than hides the slot for a viewer", async () => {
+    const user = userEvent.setup();
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "閲覧 太郎", email: "viewer@example.com", role: "viewer" }} shared={sharedAdapter()} />);
+    const navigation = within(screen.getByRole("navigation", { name: "メインナビゲーション" }));
+
+    for (const [nav, label] of [["アサインボード", "アサインを追加"], ["プロジェクト", "プロジェクトを追加"], ["メンバー", "メンバーを追加"]] as const) {
+      await user.click(navigation.getByRole("button", { name: new RegExp(`^${nav}\\d*$`, "u") }));
+      // Present but disabled: a viewer should see what the screen is for.
+      expect(screen.getByRole("button", { name: label })).toBeDisabled();
+    }
+
+    // And the three screens that lost their button lose it for a viewer too.
+    const header = within(screen.getByRole("banner"));
+    for (const nav of ["組織", "項目定義", "レポート"] as const) {
+      await user.click(navigation.getByRole("button", { name: nav }));
+      expect(header.queryByRole("button", { name: /メンバーを確認|ボードで調整/u })).not.toBeInTheDocument();
+    }
+  });
+
+  it("keeps the three removed labels out of the header", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    const navigation = within(screen.getByRole("navigation", { name: "メインナビゲーション" }));
+    const header = within(screen.getByRole("banner"));
+
+    for (const nav of screensCheckedForRemovedLabels) {
+      await user.click(navigation.getByRole("button", { name: nav }));
+      // Scoped to the header: 「メンバーを確認」 also exists inside SkillsView,
+      // where a link to another part of the app is legible for what it is. The
+      // contract is about the slot, not about the string.
+      for (const gone of ["メンバーを確認", "ボードで調整"]) {
+        expect(header.queryByRole("button", { name: gone })).not.toBeInTheDocument();
+      }
     }
   });
 });
