@@ -33,14 +33,48 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
  * **211px**, and the page from 1845px to 3097px. Strictly worse.
  *
  * It works only paired with a `min-width` the columns fit inside, which lets the
- * table exceed its wrapper and scroll sideways instead. And that bargain does
- * not scale down: the wrapper is roughly the viewport less 374px, so the same
- * 1120px floor costs 56px of sideways scroll at 1440px and 130px at 1360px, and
- * would cost about 530px at 620px. Hence a breakpoint, with both halves inside
- * it.
+ * table exceed its wrapper and scroll sideways instead.
  *
- * So: the `nowrap` declarations and the `min-width` floor live or die together,
- * in the same block. That is what these check.
+ * ## #132 moved the pair out of its breakpoint
+ *
+ * #136 put both halves inside `@media (min-width: 1360px)`, reasoning that the bargain
+ * does not scale down — the wrapper is roughly the viewport less 374px, so a 1120px
+ * floor costs 56px of sideways scroll at 1440px and 130px at 1360px. True as far as it
+ * was measured, and it was measured with the floor left at 960 below the breakpoint.
+ * There the nine columns — 1086px of declared width plus cell padding — were all
+ * starved, and the name cell became the tallest thing in the row at 84.9px.
+ *
+ * Sweeping the floor at 605px, nine columns, with both nowraps:
+ *
+ * | floor       | page | rows    | visible | sideways | name column |
+ * | ----------- | ---- | ------- | ------- | -------- | ----------- |
+ * | 968 (was)   | 1838 | 111-130 | 3/9     | 393px    | 111.8px     |
+ * | 1100        | 1462 |  67- 94 | 4/9     | 525px    | 159px       |
+ * | 1140        | 1433 |  67- 94 | 4/9     | 565px    | 181px       |
+ * | 1160        | 1433 |  67- 94 | 4/9     | 585px    | 190px       |
+ * | 1240        | 1433 |  67- 94 | 4/9     | 665px    | 190px       |
+ * | max-content | 1433 |  67- 94 | 4/9     | 581px    | 190px       |
+ *
+ * So the pair does scale down, given a floor the columns fit inside. And #142 removed
+ * the other half of #136's cost by pinning the name column at every width, so the extra
+ * sideways scroll no longer costs the row's identity.
+ *
+ * ## Why the floor is not a number
+ *
+ * 1160 was the knee — and only for nine columns. The column count changes at runtime: a
+ * user can put any number of custom fields in the list view. With five list fields
+ * instead of two, twelve columns at 1425px, a 1160px floor left the name column 80px and
+ * the rows 243-372px, for a page of 3291 — the same defect, and the same numbers the old
+ * 968 floor gave. `max-content` instead: page 1270, rows 67-94, 9 of 9 rows visible.
+ *
+ * It does not run away either. The text cells cap and ellipsis — `.col-custom` is
+ * `max-width: 150px` — so `max-content` is bounded by the declarations. With a 72-char
+ * unbreakable value in all 45 custom cells the columns grew 88px → 174px and the scroll
+ * 356px → 786px, while the page stayed 1270 and the rows stayed 67-94.
+ *
+ * So: the `nowrap` declarations and the floor still live or die together, at every width
+ * rather than behind a breakpoint, and the floor is `max-content` rather than a number
+ * that goes stale when a column is added. That is what these check.
  *
  * ## What they cannot do
  *
@@ -48,11 +82,12 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
  * scroll are browser measurements, recorded in the PR. jsdom has no layout and
  * this repo has no browser test harness.
  *
- * Nor do they say anything about data the demo does not contain. The floor is a
- * fixed budget: a row given a longer name and three extra skill chips measured
- * 150px, with the two cells this is about holding at 48px and 54px while the name
- * and the chips grew. Column counts vary at runtime too — a user can add list
- * fields — and no width here adapts to that.
+ * Nor do they say anything about data the demo does not contain, beyond what the
+ * measurements above cover. `max-content` follows the column count, which is what #132
+ * changed — twelve columns and a 72-char unbreakable value were both measured — but a
+ * row given a longer name and three extra skill chips still measured 150px, with the two
+ * cells this file is about holding at 48px and 54px while the name and the chips grew.
+ * That growth is #87's, on purpose, and nothing here bounds it.
  */
 
 const read = async () => (await readFile(path.join(root, "src", "styles.css"), "utf8")).replaceAll("\r\n", "\n");
@@ -82,65 +117,47 @@ const NOWRAPS = [
   [".capacity-limit", /\.capacity-limit[^{}]*\{[^}]*white-space:\s*nowrap/u],
 ];
 
-/**
- * Both are contract values, so both ends are checked. A floor below 1100 does not
- * stop the wrapping (measured: 1080 leaves the rows at 94px, 1100 drops them to
- * 67px); one far above it buys scroll nobody asked for. A breakpoint below 1360
- * applies the trade where the sideways cost is worse than the height it saves;
- * one far above it withholds the fix from the screens that can afford it.
- */
-const FLOOR = { min: 1100, max: 1200 };
-const BREAKPOINT = { min: 1360, max: 1440 };
-
-test("the two nowraps only exist where the table may outgrow its wrapper", async () => {
+test("the nowraps and the floor apply together, at every width", async () => {
   const css = withoutComments(await read());
   const blocks = minWidthBlocks(css);
 
-  for (const [name, pattern] of NOWRAPS) {
-    const holders = blocks.filter((block) => pattern.test(block.body));
-    // Outside any min-width block, the declaration would apply at every width,
-    // including the narrow ones where it makes the rows taller rather than
-    // shorter. Compare the whole file against the blocks that hold it.
-    const outside = blocks.reduce((rest, block) => rest.replace(block.body, ""), css);
-    assert.doesNotMatch(outside, pattern,
-      `${name} must not carry nowrap outside a min-width block — on a narrow screen it moves `
-      + "the squeeze onto the name and skills cells and the rows get taller (#136)");
-    assert.ok(holders.length > 0, `${name} should take nowrap inside a min-width block`);
+  const floor = css.match(/(?:^|\})\s*\.member-table\s*\{[^}]*min-width:\s*([^;}]+)/u);
+  assert.ok(floor, "expected an unconditional .member-table min-width floor (#132)");
+  // Content-derived, not a number. Any number is a guess about how many columns there
+  // are, and the count changes at runtime — 1160 was the knee for nine columns and left
+  // twelve at rows 243-372px, page 3291 (measured, and in the docstring above).
+  assert.equal(floor[1].trim(), "max-content",
+    `the floor is 「${floor[1].trim()}」. A fixed width starves the columns as soon as a list `
+    + "field is added, which is the defect #75 was about and #132 measured again (#132)");
 
-    for (const block of holders) {
-      // The floor has to be there, wide enough to actually stop the wrapping, and
-      // the block has to start where the sideways cost is still tolerable. A
-      // `min-width: 1px` or a 700px breakpoint would satisfy "there is a floor"
-      // and reintroduce the defect.
-      const floor = block.body.match(/\.member-table\s*\{[^}]*min-width:\s*(\d+)px/u);
-      assert.ok(floor,
-        `the @media (min-width: ${block.width}px) block sets nowrap on ${name} without the `
-        + ".member-table min-width floor that makes it pay off (#136)");
-      const width = Number(floor[1]);
-      assert.ok(width >= FLOOR.min && width <= FLOOR.max,
-        `the floor is ${width}px, outside ${FLOOR.min}-${FLOOR.max}: below that the cells wrap `
-        + "anyway and the nowrap just moves the squeeze onto the name and skills cells, above it "
-        + "the sideways scroll grows for nothing (#136)");
-      assert.ok(block.width >= BREAKPOINT.min && block.width <= BREAKPOINT.max,
-        `this block starts at ${block.width}px, outside ${BREAKPOINT.min}-${BREAKPOINT.max}: the `
-        + "floor costs about (1120 - (viewport - 374))px of sideways scroll, already 130px at "
-        + `${BREAKPOINT.min} (#136)`);
+  for (const [name, pattern] of NOWRAPS) {
+    // Unconditional, now that the floor is. Behind a breakpoint they would leave the
+    // narrow widths with a floor that widens the table and cells that still wrap —
+    // worse than either half alone (#132).
+    const outside = blocks.reduce((rest, block) => rest.replace(block.body, ""), css);
+    assert.match(outside, pattern,
+      `${name} must take nowrap outside every min-width block: the floor applies at every width `
+      + "now, and half the pair behind a breakpoint is worse than neither (#132)");
+    for (const block of blocks) {
+      assert.doesNotMatch(block.body, pattern,
+        `${name} also takes nowrap inside @media (min-width: ${block.width}px). One place, or the `
+        + "two can drift apart");
     }
   }
 });
 
 /**
- * The other half of the pairing, and the one a tidy-up would take out. The base
- * rule has to say `wrap` out loud: deleting it does not restore wrapping, it
- * leaves the initial value, which is `nowrap` — the broken state at every width
- * below the breakpoint, with nothing in the file to show it was ever a choice.
+ * The 1360px block held the pair and nothing else. A floor put back into a breakpoint
+ * wins there over the unconditional one, and since that one already asks for exactly
+ * what the columns need, a second can only ask for less.
  */
-test("the row actions wrap by default", async () => {
+test("no min-width block sets a second floor for this table", async () => {
   const css = withoutComments(await read());
-  const base = css.match(/\.member-row-actions\s*\{([^}]*)\}/u);
-  assert.ok(base, "expected the base .member-row-actions rule");
-  assert.match(base[1], /flex-wrap:\s*wrap/u,
-    "the base rule must declare wrap; the initial value is nowrap, which is the defect (#136)");
+  for (const block of minWidthBlocks(css)) {
+    assert.doesNotMatch(block.body, /\.member-table\s*\{[^}]*min-width:/u,
+      `@media (min-width: ${block.width}px) sets a second .member-table floor, which wins over the `
+      + "unconditional one at that width and can only lower it (#132)");
+  }
 });
 
 /**

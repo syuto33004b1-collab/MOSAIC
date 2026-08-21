@@ -1274,7 +1274,12 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
    block further down. Setting this one alone made the 620px rows 211px tall,
    because the width came out of the name and skills cells rather than out of the
    table. */
-.member-row-actions { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
+/* `nowrap`, paired with `.member-table`'s floor and meaningless without it. The floor
+   makes the table wider than its wrapper at every width, so refusing to wrap here buys
+   row height at the price of sideways scroll: rows 92 → 67 at 1425px, 83 → 67 at 605px.
+   Take the floor away and this does the opposite — the squeeze moves onto the name and
+   skills cells and the rows grow, which is the measurement #136 stopped at (#132). */
+.member-row-actions { display: flex; flex-wrap: nowrap; gap: 6px; justify-content: flex-end; }
 .quick-assign.quiet { color: #687285; }
 .proposal-layout {
   display: grid;
@@ -1433,11 +1438,45 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 
    Why 968 at all: `.col-week` is `nowrap` and its header names the week now (#146),
    so its min-content went 88px → 95.9px, up to its own declared 96px. At the shared
-   floor those 8px came out of the columns that can be squeezed — the name column
-   lost 3.4px of the width #75 gave it, leaving a three-character name 0.3px of
-   headroom at 605px. Only this table has a week column, so only this table pays;
-   the project table keeps 960. This wrapper already scrolls 385px there. */
-.member-table { min-width: 968px; }
+   floor those 8px came out of the columns that can be squeezed. Only this table has a
+   week column, so only this table pays; the project table keeps 960.
+
+   `max-content`, and the same at every width. The floor's job is to let the columns
+   have the widths they declare; a number cannot say that, because the column count
+   changes at runtime — a user can put any number of custom fields in the list view.
+
+   Measured with the DEMO's two list fields at 605px, nine columns declaring 1086px plus
+   cell padding. Any numeric floor below that starves all of them: the name column got
+   111.8px of its declared 190 and 「QA Engineer · 品質保証」 wrapped to three lines,
+   making the name cell the tallest thing in the row at 84.9px.
+
+     968 (was)   page 1838   rows 111-130   3/9 visible   393px sideways
+     1120        page 1447   rows  67- 94   4/9           545px
+     1160        page 1433   rows  67- 94   4/9           585px
+     max-content page 1433   rows  67- 94   4/9           585px
+
+   1160 was the knee for nine columns — and only for nine. With five list fields instead
+   of two, twelve columns at 1425px, a 1160px floor left the name column 80px and the
+   rows 243-372px, for a page of 3291. That is the same defect, and it was there before
+   this floor moved: at the old 968 the same twelve columns measured identically. Asking
+   for `max-content` instead: page 1270, rows 67-94, 9 of 9 rows visible.
+
+   It does not run away. The text cells cap and ellipsis — `.col-custom` is
+   `max-width: 150px` — so `max-content` is bounded by the declarations. With a 72-char
+   unbreakable value in all 45 custom cells the columns grew 88px → 174px and the scroll
+   356px → 786px, while the page stayed 1270 and the rows stayed 67-94.
+
+   #136 kept this trade above 1360px because 「the trade does not scale down」, and that
+   was measured — but measured with the floor left at 960 below the breakpoint, where the
+   two nowraps below do make narrow rows taller. It is the pair that pays off. #142
+   removed the other half of #136's cost by pinning the name column at every width, so
+   the extra sideways scroll no longer costs the row's identity.
+
+   The trade with the DEMO's two fields: 1425px page 1215 → 1200 for 56 → 116px sideways,
+   605px 1838 → 1433 for 393 → 585px, 375px 2018 → 1613 for 623 → 815px. Vertical has to
+   be read to the end; sideways can be moved to the column you want, with the name still
+   there (#132). */
+.member-table { min-width: max-content; }
 /* The member table asks for more than the wrapper gives it: nine columns, and a
    1440px viewport leaves 1066px. Left to squeeze, the auto layout takes the
    width out of whichever cell can wrap — the two row-action buttons onto a
@@ -1455,24 +1494,9 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
    stress the actions stayed 48px and the ring 54px, and only the name and the
    chips grew, which is the growth #87 asked for.
 
-   The breakpoint is here because the trade does not scale down. The wrapper runs
-   about the viewport less 374px, so this floor costs 56px of sideways scroll at
-   1440px and 130px at 1360px, and would cost about 530px at 620px. Below 1360 the
-   table squeezes and the rows stay tall — which is where they already were, and
-   the lever there is the number of columns, not this (#132). */
-@media (min-width: 1360px) {
-  .member-table { min-width: 1120px; }
-  /* Paired with the floor above, and only here. Now that the table may be wider
-     than its wrapper, asking these two cells not to wrap buys row height at the
-     price of sideways scroll. Measured at 1440x900: rows 92px -> 67px across the
-     nine member rows, for 56px of sideways scroll; at 1360px, the narrow end of
-     this block, the same rows for 130px. Do not lift either of these out of this
-     block without the floor — see the note at `.member-row-actions`. While the
-     table is scrolled sideways the name and the actions scroll away together,
-     which is #142. */
-  .member-row-actions { flex-wrap: nowrap; }
-  .capacity-limit { white-space: nowrap; }
-}
+/* The other half of the pair — see `.member-row-actions` for why both belong with the
+   floor above rather than behind a breakpoint. */
+.capacity-limit { white-space: nowrap; }
 /* Widths key off identity, not position, so adding a column cannot shift them.
    These are hints under `auto` layout — the browser still grows a column whose
    content needs it, which is why the text cells cap and ellipsis below. */
