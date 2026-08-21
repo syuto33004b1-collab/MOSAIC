@@ -3902,9 +3902,15 @@ describe("how deep a tree row says it is", () => {
  * for every other control. The selects looked right because `.assignment-form select` is
  * written without the `>`, which is what hid it.
  *
- * jsdom has no layout, so this holds the structure the CSS depends on: a custom field's
- * label is a direct child of the form, exactly like every built-in field. The widths are
- * in the PR.
+ * The fix removed the wrapper rather than loosening the selectors, because loosened they
+ * would reach the nested labels of the 兼務 checkbox rows and give each one `display:
+ * block` and a full-width input. So both halves of that are what these hold: a custom
+ * field's label is a direct child of the form, and the 兼務 labels are not.
+ *
+ * They check the outcome, not the CSS text — an earlier version of this asserted that the
+ * rules still used `>`, which fixes the shape of the fix rather than what it has to
+ * achieve, and cannot see a later rule overriding it either. jsdom has no layout, so the
+ * widths are browser measurements, in the PR.
  */
 describe("custom fields in a drawer form", () => {
   /** Every custom field type the app has, on the entity that carries them. */
@@ -3936,6 +3942,17 @@ describe("custom fields in a drawer form", () => {
     // And no element stands between the form and them.
     expect(document.querySelector(".drawer form .custom-field-inputs"),
       "the wrapper is back, and it takes the form's layout away from these fields").toBeNull();
+
+    // The other half: the 兼務 rows are nested labels on purpose, and the form's rules
+    // must not reach them. If they did, each checkbox would become a full-width control
+    // on its own block — which is what removing the wrapper avoided having to risk.
+    const form = document.querySelector(".drawer form")!;
+    const checkboxes = [...form.querySelectorAll('input[type="checkbox"]')];
+    expect(checkboxes.length, "the 兼務 rows should be on this form").toBeGreaterThan(0);
+    for (const box of checkboxes) {
+      expect(box.closest("label")!.parentElement, "a 兼務 checkbox label is a direct child of the form now")
+        .not.toBe(form);
+    }
   });
 
   it("does the same in the project form, where the text input was the visible one", async () => {
