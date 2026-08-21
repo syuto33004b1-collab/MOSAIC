@@ -712,6 +712,47 @@ export function memberById(state: WorkspaceState, id: string) {
   return state.members.find((member) => member.id === id);
 }
 
+/**
+ * Everyone an owner field could be naming.
+ *
+ * Projects and opportunities carry both `ownerPersonId` and a denormalised `ownerName`,
+ * and the seeded projects carry only the name. Three places resolved the name with
+ * `members.find(member => member.name === ownerName)`, which returns whoever comes
+ * first: opening a project's edit form bound it to that person, renaming a member
+ * rewrote the owner of every project holding the old name — taking over a namesake's
+ * projects — and the archive guard counted somebody else's.
+ *
+ * The list is what those three need, because they want opposite things from an
+ * ambiguous answer. Rewriting somebody's record needs certainty; refusing to archive
+ * needs only the possibility.
+ */
+export function ownerCandidates(state: WorkspaceState, owner: { ownerPersonId?: string; ownerName?: string | null }): Member[] {
+  if (owner.ownerPersonId) {
+    const member = memberById(state, owner.ownerPersonId);
+    return member ? [member] : [];
+  }
+  const name = owner.ownerName?.trim();
+  if (!name) return [];
+  return state.members.filter((member) => member.name.trim() === name);
+}
+
+/**
+ * Whom an owner field names, when that can be known — nobody when two people share the
+ * name, because a name two people answer to does not name a person. Callers that write
+ * use this; a caller that guards asks `ownerCandidates` instead, or it treats 「I cannot
+ * tell」 as 「not them」 and lets the thing through.
+ */
+export function ownerMember(state: WorkspaceState, owner: { ownerPersonId?: string; ownerName?: string | null }) {
+  const candidates = ownerCandidates(state, owner);
+  return candidates.length === 1 ? candidates[0] : undefined;
+}
+
+/** What to print for an owner: the member's label when it is theirs, else the stored name. */
+export function ownerLabel(state: WorkspaceState, owner: { ownerPersonId?: string; ownerName?: string | null }) {
+  const member = ownerMember(state, owner);
+  return member ? memberLabel(state, member) : owner.ownerName ?? null;
+}
+
 export function projectById(state: WorkspaceState, id: string) {
   return state.projects.find((project) => project.id === id);
 }
@@ -744,6 +785,116 @@ export function getIsoWeekNumber(iso: string) {
   date.setUTCDate(date.getUTCDate() + 4 - day);
   const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
   return Math.ceil((((date.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
+}
+
+/**
+ * A member's name, with just enough beside it to tell them from a namesake.
+ *
+ * #123: nothing stops two members having the same name — `handleCreateMember` rejects
+ * only an empty one — and two of them are indistinguishable on the screens that pick
+ * people. Measured, with a second 「林 葵」 given the same role, the same primary org unit
+ * and the same location as the first:
+ *
+ * | place                          | showed                              | told apart |
+ * | ------------------------------ | ----------------------------------- | ---------- |
+ * | member row                     | 林 葵 / Project Manager · 事業推進  | no         |
+ * | detail panel heading           | 林 葵                               | no         |
+ * | assignment form's options      | 林 葵 · 8/17週 60% / … 0%           | no         |
+ * | assignment bar's aria-label    | 採用サイトのアサイン詳細（林 葵・…） | no         |
+ * | board row, proposal picker     | AH 林 葵 / 林葵 林 葵               | by accident |
+ *
+ * The accident is that seeded members carry romanised `initials` while a new one gets
+ * `makeInitials`, so the avatars differed. Not a designed distinction.
+ *
+ * What the same measurement showed is that **no member attribute is guaranteed unique**.
+ * Those two shared their org unit, their location, and every custom field (all unset).
+ * So this tries the one attribute every member has, then falls back to the id:
+ *
+ * 1. `location`, when it is unique among the namesakes — 「林 葵（大阪）」
+ * 2. otherwise the tail of the id — 「林 葵（#4f2a）」
+ *
+ * `department` is deliberately not in that list: it is already printed beside the name in
+ * the member list and on the board, and the measurement above is a case where it
+ * collides. Something already on screen cannot do the distinguishing. Custom fields are
+ * out too — they can be unset, and both of those were.
+ *
+ * A name shared by nobody comes back untouched, which is almost every row.
+ */
+export function memberLabel(state: Pick<WorkspaceState, "members">, member: Pick<Member, "id" | "name" | "location">) {
+  return memberLabels(state.members).get(member.id) ?? member.name;
+}
+
+/**
+ * Every member's label, in one pass, cached against the array itself.
+ *
+ * `memberLabel` is called once per row, and a filter over all members inside it made
+ * the member list O(n²) — a thousand people is a million name comparisons per render.
+ * React hands back the same `members` array until the workspace changes, so a WeakMap
+ * keyed on it turns that into one pass, and the cache goes away with the array.
+ */
+const labelCache = new WeakMap<readonly Pick<Member, "id" | "name" | "location">[], Map<string, string>>();
+
+export function memberLabels(members: readonly Pick<Member, "id" | "name" | "location">[]): ReadonlyMap<string, string> {
+  const cached = labelCache.get(members);
+  if (cached) return cached;
+  const byName = new Map<string, Pick<Member, "id" | "name" | "location">[]>();
+  for (const member of members) {
+    const key = member.name.trim();
+    const group = byName.get(key) ?? [];
+    group.push(member);
+    byName.set(key, group);
+  }
+  const labels = new Map<string, string>();
+  for (const [name, group] of byName) {
+    if (group.length < 2) {
+      labels.set(group[0].id, group[0].name);
+      continue;
+    }
+    // The whole group takes the same kind of suffix. Deciding per person let one
+    // namesake read 「（大阪）」 while another read 「（#4f2a）」, and adding a third person
+    // could change an existing label's kind — the evaluator on #123 asked for this.
+    // A location only counts when it is written: 「林 葵（）」 tells nobody anything, and
+    // 「東京」 against 「 東京 」 is one place typed twice.
+    const locations = group.map((member) => member.location.trim());
+    const byLocation = locations.every(Boolean) && new Set(locations).size === group.length;
+    const ids = group.map((item) => item.id);
+    for (const [index, member] of group.entries()) {
+      labels.set(member.id, byLocation
+        ? `${name}（${locations[index]}）`
+        : `${name}（#${idTail(member.id, ids)}）`);
+    }
+  }
+  labelCache.set(members, labels);
+  return labels;
+}
+
+/**
+ * Enough of `id` to tell it from the others, and never a fragment of a word.
+ *
+ * New ids are `crypto.randomUUID()`, where any tail is meaningless hex and four
+ * characters read as what they are. Anything else is printed whole: the seeded members
+ * carry readable slugs — `hayashi`, `saeki` — and the tail of one of those is a word
+ * fragment. 「#ashi」 out of `hayashi` looked like it meant something, measured on the
+ * DEMO data, which is what a reader sees.
+ *
+ * A UUID is recognised rather than guessed at by length. A first version trimmed
+ * anything over twelve characters, which is a number taken from the seed slugs and
+ * would have cut a thirteen-character one into a fragment.
+ *
+ * The loop is there because a fixture or a migration can produce ids that share a tail;
+ * printing the same token for two different people would be the defect wearing a
+ * different hat.
+ */
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
+
+function idTail(id: string, among: string[]) {
+  if (!UUID.test(id)) return id;
+  const others = among.filter((other) => other !== id);
+  for (let length = 4; length < id.length; length += 1) {
+    const tail = id.slice(-length);
+    if (!others.some((other) => other.endsWith(tail))) return tail;
+  }
+  return id;
 }
 
 export function makeInitials(name: string) {

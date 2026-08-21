@@ -705,6 +705,10 @@ describe("role-aware workspace", () => {
     await user.click(screen.getByText("Atlas リニューアル").closest("button")!);
     await user.click(screen.getByRole("button", { name: "案件情報を編集" }));
     const dialog = within(screen.getByRole("dialog", { name: "詳細パネル" }));
+    // This fixture keeps two members and a project whose 「林 葵」 is neither of them, so
+    // the form cannot say who the owner is and asks. #123 made that refusal explicit.
+    expect((dialog.getByLabelText("責任者") as HTMLSelectElement).value).toBe("");
+    await user.selectOptions(dialog.getByLabelText("責任者"), initialWorkspace.members[0].id);
     await user.clear(dialog.getByLabelText("開始日"));
     await user.type(dialog.getByLabelText("開始日"), addDays(getWeekStart(0), 1));
     await user.click(dialog.getByRole("button", { name: "変更を仮置き" }));
@@ -3445,5 +3449,297 @@ describe("what the fit score is out of", () => {
     const heading = document.querySelector(".candidate-label")!.textContent ?? "";
     expect(heading).not.toContain("スコア");
     expect(heading).toContain("要件期間の最小空き");
+  });
+});
+
+/**
+ * #123: nothing stops two members having the same name, and the screens that pick
+ * people showed them identically. Measured with a second 「林 葵」 given the same role,
+ * the same primary org unit and the same location: the member row, the panel heading,
+ * the assignment form's options and the assignment bar's accessible name were all
+ * indistinguishable, and the board row and proposal picker differed only because seeded
+ * members carry romanised `initials` while a new one gets `makeInitials`.
+ *
+ * These check the rendered screens rather than the label function, which
+ * `src/domain.test.ts` covers: what matters here is that every place a person is chosen
+ * uses it.
+ */
+describe("two members with one name", () => {
+  const twins = (): WorkspaceState => {
+    const [first, second] = initialWorkspace.members;
+    return {
+      ...initialWorkspace,
+      members: [
+        ...initialWorkspace.members,
+        // Same name, same role, same department, same location as `first`: the case with
+        // nothing left to distinguish but the id.
+        { ...first, id: "twin-9c81" },
+        // A second pair, in two different places, so both branches of the label are on
+        // the one screen. `second` is in 東京 in the seed.
+        { ...second, id: "twin-osaka", location: "大阪" },
+      ],
+    };
+  };
+
+  /** Two people, one location: nothing left but the id. */
+  const sharedName = initialWorkspace.members[0].name;
+  /** Two people, two locations: the location tells them apart. */
+  const placedName = initialWorkspace.members[1].name;
+
+  it("distinguishes them in the member list", async () => {
+    const user = userEvent.setup();
+    const adapter = sharedAdapter();
+    adapter.initialState = twins();
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^メンバー( |$)/u }));
+
+    const names = [...document.querySelectorAll(".member-table .row-name-copy strong")].map((el) => el.textContent ?? "");
+    const shared = names.filter((name) => name.startsWith(sharedName));
+    expect(shared, `expected two rows for 「${sharedName}」, got ${names.join(" | ")}`).toHaveLength(2);
+    // Two rows, two different labels — and both still lead with the name.
+    expect(new Set(shared).size).toBe(2);
+    // The seeded members and the twin share a location, so both fall back to the id.
+    for (const name of shared) expect(name).toMatch(new RegExp(`^${sharedName}（#[0-9a-z-]+）$`, "u"));
+
+    // The other pair is in two places, so the location is enough and no id is printed.
+    const placed = names.filter((name) => name.startsWith(placedName));
+    expect(placed, `expected two rows for 「${placedName}」, got ${names.join(" | ")}`).toHaveLength(2);
+    expect(new Set(placed)).toEqual(new Set([`${placedName}（東京）`, `${placedName}（大阪）`]));
+  });
+
+  it("distinguishes them in the board, the assignment form and the proposal picker", async () => {
+    const user = userEvent.setup();
+    const adapter = sharedAdapter();
+    adapter.initialState = twins();
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
+    const navigation = within(screen.getByRole("navigation", { name: "メインナビゲーション" }));
+
+    // The board's row headings, and the accessible name of each row's week cell.
+    const headings = [...document.querySelectorAll(".person-cell .person-copy strong")].map((el) => el.textContent ?? "");
+    const boardShared = headings.filter((name) => name.startsWith(sharedName));
+    expect(boardShared).toHaveLength(2);
+    expect(new Set(boardShared).size).toBe(2);
+    const cellNames = [...document.querySelectorAll('.week-cell[aria-label]')].map((el) => el.getAttribute("aria-label") ?? "")
+      .filter((name) => name.startsWith(sharedName));
+    expect(new Set(cellNames).size).toBe(cellNames.length);
+
+    // The assignment form's member picker.
+    await user.click(screen.getByRole("button", { name: /アサインを追加/u }));
+    const options = [...(document.getElementById("assignment-member") as HTMLSelectElement).options]
+      .map((option) => option.textContent ?? "").filter((text) => text.startsWith(sharedName));
+    expect(options).toHaveLength(2);
+    expect(new Set(options).size).toBe(2);
+    await user.click(document.querySelector(".drawer .close-button") as HTMLElement);
+
+    // The proposal picker.
+    await user.click(navigation.getByRole("button", { name: /^提案( |$)/u }));
+    for (const name of [sharedName, placedName]) {
+      const picker = [...document.querySelectorAll(".proposal-picker-copy strong")].map((el) => el.textContent ?? "")
+        .filter((text) => text.startsWith(name));
+      expect(picker, `the proposal picker should list both 「${name}」`).toHaveLength(2);
+      expect(new Set(picker).size).toBe(2);
+    }
+  });
+
+  /**
+   * The favourite buttons are the one control whose only text is the name — the star
+   * itself carries no words — so two namesakes gave the screen two buttons with the
+   * same accessible name. Found by the evaluation on this issue, not by the tests above.
+   */
+  it("distinguishes them in the favourite buttons' accessible names", async () => {
+    const user = userEvent.setup();
+    const adapter = sharedAdapter();
+    adapter.initialState = twins();
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^メンバー( |$)/u }));
+
+    const stars = [...document.querySelectorAll(".member-table button[aria-label]")]
+      .map((el) => el.getAttribute("aria-label") ?? "")
+      .filter((label) => label.includes(sharedName) || label.includes(placedName));
+    expect(stars.length, "expected a favourite button per row for each pair").toBe(4);
+    expect(new Set(stars).size, `two buttons share a name: ${stars.join(" | ")}`).toBe(4);
+  });
+
+  it("leaves every other name untouched", async () => {
+    const user = userEvent.setup();
+    const adapter = sharedAdapter();
+    adapter.initialState = twins();
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^メンバー( |$)/u }));
+
+    // Every member but the twins keeps a bare name: the suffix is for collisions only,
+    // and almost every row is not one.
+    const others = initialWorkspace.members.map((member) => member.name);
+    const names = [...document.querySelectorAll(".member-table .row-name-copy strong")].map((el) => el.textContent ?? "");
+    for (const name of others) {
+      if (name === sharedName || name === placedName) continue;
+      expect(names, `「${name}」 should be printed as-is`).toContain(name);
+    }
+    // Only the pair with nothing else to go on pays the id, and only that pair.
+    expect(names.filter((name) => name.includes("（#"))).toHaveLength(2);
+    expect(names.filter((name) => name.includes("（")).length).toBe(4);
+  });
+});
+
+/**
+ * #123, second finding: a project records its owner as a name. The seeded projects have
+ * `ownerName` and no `ownerPersonId`, and three places turned that name into a person
+ * with `members.find(member => member.name === ownerName)` — which answers with whoever
+ * comes first. 「林 葵」 owns two of the seeded projects, so a second 林 葵 was enough to
+ * hand them to the wrong person.
+ *
+ * These go through the screen because the rename lives in `saveMember`, not in a
+ * function a unit test can reach.
+ */
+describe("renaming one of two people with one name", () => {
+  /**
+   * A second 林 葵 — the name the seed gives two projects, by name and with no id.
+   *
+   * The twin goes first so `members[0]` is one of the two. A fallback to the head of the
+   * list passes a test where the head happens to be a stranger, and the evaluation on
+   * #123 pointed out that mine did.
+   */
+  const namesakeOwners = (): WorkspaceState => {
+    const hayashi = initialWorkspace.members.find((member) => member.name === "林 葵")!;
+    return { ...initialWorkspace, members: [{ ...hayashi, id: "t-hayashi" }, ...initialWorkspace.members] };
+  };
+
+  const rename = async (user: ReturnType<typeof userEvent.setup>, rowLabel: string, to: string) => {
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^メンバー( |$)/u }));
+    await user.click(screen.getByText(rowLabel).closest("button")!);
+    await user.click(screen.getByRole("button", { name: "メンバー情報を編集" }));
+    const dialog = within(screen.getByRole("dialog", { name: "詳細パネル" }));
+    await user.clear(dialog.getByLabelText("氏名"));
+    await user.type(dialog.getByLabelText("氏名"), to);
+    await user.click(dialog.getByRole("button", { name: "変更を仮置き" }));
+    await user.click(screen.getByRole("button", { name: "チームへ保存" }));
+  };
+
+  it("leaves the projects that only say the shared name alone", async () => {
+    const user = userEvent.setup();
+    const adapter = sharedAdapter();
+    const save = vi.fn().mockResolvedValue({ revision: 8, savedAt: "2026-08-17T10:00:00Z" });
+    adapter.initialState = namesakeOwners();
+    adapter.save = save;
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
+
+    // The seeded 林 葵 is the one the projects name. The twin is here only to make that
+    // name ambiguous, which is the whole condition under test.
+    await rename(user, "林 葵（#hayashi）", "林 葵子");
+    await waitFor(() => expect(save).toHaveBeenCalledOnce());
+    const saved = save.mock.calls[0][0] as WorkspaceState;
+
+    expect(saved.members.find((member) => member.id === "hayashi")?.name).toBe("林 葵子");
+    expect(saved.members.find((member) => member.id === "t-hayashi")?.name).toBe("林 葵");
+    // 「林 葵」 named two projects and neither said which one. Both keep the name they
+    // had: taking them over would have moved somebody else's projects.
+    const byName = saved.projects.filter((project) => !project.ownerPersonId);
+    expect(byName.filter((project) => project.ownerName === "林 葵").length).toBe(2);
+    expect(byName.some((project) => project.ownerName === "林 葵子")).toBe(false);
+  });
+
+  /**
+   * The edit form used the same name lookup for its initial 責任者, so opening an
+   * ambiguously-owned project pre-selected one of the two namesakes — a form that looks
+   * already-correct, and binds that person on save. It now offers no one in particular;
+   * the dropdown labels both 林 葵, so the person editing picks.
+   */
+  it("does not pre-select either namesake as the owner", async () => {
+    const user = userEvent.setup();
+    const adapter = sharedAdapter();
+    adapter.initialState = namesakeOwners();
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
+
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^プロジェクト( |$)/u }));
+    await user.click(screen.getByText("Atlas リニューアル").closest("button")!);
+    await user.click(screen.getByRole("button", { name: "案件情報を編集" }));
+
+    const select = screen.getByLabelText("責任者") as HTMLSelectElement;
+    // Nobody, not the first of the two and not the head of the member list — which is
+    // itself a 林 葵 in this fixture.
+    expect(select.value).toBe("");
+    expect(["hayashi", "t-hayashi"]).not.toContain(select.value);
+    // Both are on offer, told apart, so the choice can be made.
+    const named = [...select.options].map((option) => option.textContent ?? "").filter((text) => text.startsWith("林 葵"));
+    expect(named).toHaveLength(2);
+    expect(new Set(named).size).toBe(2);
+  });
+
+  /**
+   * The form looking wrong is not the same as the save being safe. Editing a date on an
+   * ambiguously-owned project must not write an owner the person editing never chose.
+   */
+  it("will not save the project until the owner is chosen", async () => {
+    const user = userEvent.setup();
+    const adapter = sharedAdapter();
+    const save = vi.fn().mockResolvedValue({ revision: 8, savedAt: "2026-08-17T10:00:00Z" });
+    adapter.initialState = namesakeOwners();
+    adapter.save = save;
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
+
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^プロジェクト( |$)/u }));
+    await user.click(screen.getByText("Atlas リニューアル").closest("button")!);
+    await user.click(screen.getByRole("button", { name: "案件情報を編集" }));
+    const dialog = within(screen.getByRole("dialog", { name: "詳細パネル" }));
+    await user.clear(dialog.getByLabelText("次のマイルストーン"));
+    await user.type(dialog.getByLabelText("次のマイルストーン"), "受入テスト");
+    await user.click(dialog.getByRole("button", { name: "変更を仮置き" }));
+
+    // The empty `required` select fails constraint validation, so the form never
+    // submits; `handleEditProject` also refuses an owner it cannot resolve, so the
+    // change is held either way.
+    expect(dialog.getByRole("button", { name: "変更を仮置き" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "チームへ保存" })).not.toBeInTheDocument();
+    expect(save).not.toHaveBeenCalled();
+
+    // Choosing settles it, and then the change goes through.
+    await user.selectOptions(dialog.getByLabelText("責任者"), "t-hayashi");
+    await user.click(dialog.getByRole("button", { name: "変更を仮置き" }));
+    await user.click(screen.getByRole("button", { name: "チームへ保存" }));
+    await waitFor(() => expect(save).toHaveBeenCalledOnce());
+    const atlas = (save.mock.calls[0][0] as WorkspaceState).projects.find((project) => project.id === "atlas")!;
+    expect(atlas).toMatchObject({ ownerPersonId: "t-hayashi", nextMilestone: "受入テスト" });
+  });
+
+  /**
+   * The archive guard wants the opposite of the rename: it stops on a project that might
+   * be theirs. Reading 「I cannot tell」 as 「not theirs」 would let a member be archived
+   * out from under a project that names them — the evaluation on #123 called this
+   * fail-open, and it was.
+   */
+  it("refuses to archive a member a project might still name", async () => {
+    const user = userEvent.setup();
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const adapter = sharedAdapter();
+    adapter.initialState = namesakeOwners();
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
+
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^メンバー( |$)/u }));
+    // The twin owns nothing by id. 「林 葵」 on two projects could be either of them.
+    await user.click(screen.getByText("林 葵（#t-hayashi）").closest("button")!);
+    await user.click(screen.getByRole("button", { name: "メンバーをアーカイブ" }));
+
+    expect(confirm).not.toHaveBeenCalled();
+    expect(await screen.findByText(/別メンバーへ変更してからアーカイブ/u)).toBeInTheDocument();
+    confirm.mockRestore();
+  });
+
+  it("still follows the name when it belongs to one person", async () => {
+    const user = userEvent.setup();
+    const adapter = sharedAdapter();
+    const save = vi.fn().mockResolvedValue({ revision: 8, savedAt: "2026-08-17T10:00:00Z" });
+    adapter.initialState = namesakeOwners();
+    adapter.save = save;
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
+
+    // 高橋 直樹 is nobody else's name, and owns モバイル会員証 by name. The denormalised
+    // string still has to follow the rename, or the project shows a name nobody has.
+    await rename(user, "高橋 直樹", "高橋 直");
+    await waitFor(() => expect(save).toHaveBeenCalledOnce());
+    const saved = save.mock.calls[0][0] as WorkspaceState;
+
+    const mobile = saved.projects.find((project) => project.id === "mobile")!;
+    expect(mobile.ownerName).toBe("高橋 直");
+    expect(mobile.ownerPersonId).toBe("takahashi");
   });
 });

@@ -23,6 +23,7 @@ import {
   getWeekStartForDate,
   matchScore,
   matchScoreMax,
+  memberLabel,
   weekLabel,
   hydrateWorkspaceSkills,
   inferSkillCatalog,
@@ -57,6 +58,8 @@ import {
   type SkillProficiency,
   type StaffingNeed,
   type SearchSkillFilter,
+  ownerLabel,
+  ownerMember,
 } from "./domain";
 
 describe("calendar helpers", () => {
@@ -494,6 +497,132 @@ describe("what 「不足」 counts", () => {
   });
 });
 
+/**
+ * #123: nothing stops two members having the same name, and two of them were
+ * indistinguishable on the screens that pick people — measured with a second 「林 葵」
+ * given the same role, the same primary org unit, the same location and the same
+ * (unset) custom fields as the first. No member attribute is guaranteed unique, so the
+ * label tries the one every member has and then falls back to the id.
+ */
+describe("telling two people with one name apart", () => {
+  const person = (id: string, name: string, location: string): Member => ({
+    id, name, role: "Engineer", department: "D", location, capacity: 100,
+    skills: [], initials: "XX", avatarTone: "mint",
+  });
+  const label = (members: Member[], id: string) =>
+    memberLabel({ members }, members.find((item) => item.id === id)!);
+
+  it("leaves a name nobody shares alone", () => {
+    const members = [person("a", "林 葵", "東京"), person("b", "佐伯 優斗", "大阪")];
+    expect(label(members, "a")).toBe("林 葵");
+    expect(label(members, "b")).toBe("佐伯 優斗");
+  });
+
+  /**
+   * A location has to be written to count. 「林 葵（）」 names nobody, and 「東京」 against
+   * 「 東京 」 is one place typed twice — the evaluator on #123 found both reading as
+   * distinct places, because an unequal string was taken for an unequal location.
+   */
+  it("ignores a location that is blank or the same place typed twice", () => {
+    const blank = [person("a", "林 葵", ""), person("b", "林 葵", "東京")];
+    expect(label(blank, "a")).toBe("林 葵（#a）");
+    expect(label(blank, "b")).toBe("林 葵（#b）");
+
+    const spaced = [person("a", "林 葵", "東京"), person("b", "林 葵", " 東京 ")];
+    expect(label(spaced, "a")).toBe("林 葵（#a）");
+
+    // Written on both sides, and genuinely different: the padding is not printed.
+    const padded = [person("a", "林 葵", " 東京 "), person("b", "林 葵", "大阪")];
+    expect(label(padded, "a")).toBe("林 葵（東京）");
+    expect(label(padded, "b")).toBe("林 葵（大阪）");
+  });
+
+  it("uses the location when that is what differs", () => {
+    const members = [person("a", "林 葵", "東京"), person("b", "林 葵", "大阪")];
+    expect(label(members, "a")).toBe("林 葵（東京）");
+    expect(label(members, "b")).toBe("林 葵（大阪）");
+    // And a third person elsewhere does not disturb them.
+    const withThird = [...members, person("c", "佐伯 優斗", "東京")];
+    expect(label(withThird, "c")).toBe("佐伯 優斗");
+  });
+
+  /**
+   * The measured case: same name, same location. There is nothing left to say except
+   * which record this is. A short id is printed whole — the seeded ids are readable
+   * slugs and the tail of one is a word fragment, 「#ashi」 out of `hayashi`, which looked
+   * like it meant something.
+   */
+  it("falls back to the id when the location matches too", () => {
+    const members = [person("hayashi", "林 葵", "東京"), person("hayashi-2", "林 葵", "東京")];
+    expect(label(members, "hayashi")).toBe("林 葵（#hayashi）");
+    expect(label(members, "hayashi-2")).toBe("林 葵（#hayashi-2）");
+  });
+
+  /**
+   * A UUID's tail is meaningless hex either way, so it is the one shape that gets
+   * trimmed. Recognised by pattern rather than by length: a first version cut anything
+   * over twelve characters, a number taken from the seed slugs, which would have turned
+   * a thirteen-character slug into a fragment.
+   */
+  it("trims a UUID to a tail and prints anything else whole", () => {
+    const members = [
+      person("0f7c8a12-4b2e-4a55-9d31-aa0000004f2a", "林 葵", "東京"),
+      person("0f7c8a12-4b2e-4a55-9d31-aa0000009c81", "林 葵", "東京"),
+    ];
+    expect(label(members, "0f7c8a12-4b2e-4a55-9d31-aa0000004f2a")).toBe("林 葵（#4f2a）");
+    expect(label(members, "0f7c8a12-4b2e-4a55-9d31-aa0000009c81")).toBe("林 葵（#9c81）");
+    // Thirteen characters, not a UUID: printed whole rather than cut mid-word.
+    const slugs = [person("kawasaki-aoi", "林 葵", "東京"), person("kawasaki-aoi2", "林 葵", "東京")];
+    expect(label(slugs, "kawasaki-aoi2")).toBe("林 葵（#kawasaki-aoi2）");
+  });
+
+  /**
+   * All of a group or none of it. Choosing per person let one namesake read 「（大阪）」
+   * while another read 「（#4f2a）」, and adding a third person could change an existing
+   * label's kind — which the evaluator on #123 pointed out is unstable.
+   */
+  it("gives a whole group the same kind of suffix", () => {
+    const members = [
+      person("aaaa1111", "林 葵", "東京"),
+      person("bbbb2222", "林 葵", "東京"),
+      person("cccc3333", "林 葵", "大阪"),
+    ];
+    // Two of the three share 東京, so nobody in the group gets a location.
+    expect(label(members, "cccc3333")).toBe("林 葵（#cccc3333）");
+    expect(label(members, "aaaa1111")).toBe("林 葵（#aaaa1111）");
+    expect(label(members, "bbbb2222")).toBe("林 葵（#bbbb2222）");
+
+    // Make the locations distinct and the whole group switches together.
+    const distinct = [person("a", "林 葵", "東京"), person("b", "林 葵", "大阪"), person("c", "林 葵", "福岡")];
+    expect(distinct.map((item) => label(distinct, item.id)))
+      .toEqual(["林 葵（東京）", "林 葵（大阪）", "林 葵（福岡）"]);
+  });
+
+  /**
+   * Four characters is the starting length, not a fixed one. Ids that share a tail —
+   * a fixture, a migration that appends a suffix — would otherwise print the same
+   * token for two different people, which is the defect wearing a different hat.
+   */
+  it("lengthens the tail rather than printing the same token twice", () => {
+    // Two UUIDs sharing their last five characters, which a fixture or a migration can
+    // produce. Four would print the same token for both.
+    const members = [
+      person("0f7c8a12-4b2e-4a55-9d31-aaaaaa14f2a1", "林 葵", "東京"),
+      person("0f7c8a12-4b2e-4a55-9d31-bbbbbb24f2a1", "林 葵", "東京"),
+    ];
+    const first = label(members, "0f7c8a12-4b2e-4a55-9d31-aaaaaa14f2a1");
+    const second = label(members, "0f7c8a12-4b2e-4a55-9d31-bbbbbb24f2a1");
+    expect(first).not.toBe(second);
+    expect(first.startsWith("林 葵（#")).toBe(true);
+    expect(first.length).toBeGreaterThan("林 葵（#f2a1）".length);
+  });
+
+  it("ignores surrounding whitespace when deciding whether a name is shared", () => {
+    const members = [person("a", "林 葵", "東京"), person("b", " 林 葵 ", "大阪")];
+    expect(label(members, "a")).toBe("林 葵（東京）");
+  });
+});
+
 describe("custom fields and work history", () => {
   it("adds unique field definitions and rejects invalid keys or select options", () => {
     const catalog = addCustomField(initialWorkspace.customFields ?? [], {
@@ -765,5 +894,60 @@ describe("role permissions", () => {
     const marked = customFields.map((field) => field.key === "english" ? { ...field, canEdit: false } : field);
     expect(visibleCustomFields(marked, "member", "detail").map((field) => field.key)).toContain("english");
     expect(editableCustomFields(marked, "member", "detail").map((field) => field.key)).not.toContain("english");
+  });
+});
+
+/**
+ * #123, second finding: projects and opportunities carry a denormalised `ownerName`
+ * beside `ownerPersonId`, and the seeded projects carry only the name. Three places
+ * resolved it with `members.find(member => member.name === ownerName)`, which answers
+ * with whoever comes first — so with two namesakes, opening a project's edit form bound
+ * it to one of them, renaming a member rewrote the other's projects too, and the archive
+ * guard counted projects that were not theirs.
+ */
+describe("whom an owner name names", () => {
+  const person = (id: string, name: string): Member => ({
+    id, name, role: "Engineer", department: "D", location: "東京", capacity: 100,
+    skills: [], initials: "XX", avatarTone: "mint",
+  });
+  const state = (...members: Member[]) => ({ ...initialWorkspace, members });
+
+  it("answers with the member the id names", () => {
+    const one = person("a", "林 葵");
+    expect(ownerMember(state(one, person("b", "佐伯 優斗")), { ownerPersonId: "a", ownerName: "佐伯 優斗" })?.id)
+      .toBe("a");
+    // The id wins over a stale name, which is the point of storing it.
+    expect(ownerLabel(state(one, person("b", "佐伯 優斗")), { ownerPersonId: "a", ownerName: "佐伯 優斗" }))
+      .toBe("林 葵");
+  });
+
+  it("answers with the one person a name fits", () => {
+    const members = state(person("a", "林 葵"), person("b", "佐伯 優斗"));
+    expect(ownerMember(members, { ownerName: "林 葵" })?.id).toBe("a");
+    // Padding in the stored string is not a different person.
+    expect(ownerMember(members, { ownerName: " 林 葵 " })?.id).toBe("a");
+  });
+
+  it("refuses to guess when two people share the name", () => {
+    const members = state(person("a", "林 葵"), person("b", "林 葵"));
+    expect(ownerMember(members, { ownerName: "林 葵" })).toBeUndefined();
+    // The record still says a name, so that is what the screen prints. It is not
+    // labelled, because a label would claim to know which of them it is.
+    expect(ownerLabel(members, { ownerName: "林 葵" })).toBe("林 葵");
+  });
+
+  it("has no answer for an owner nobody recorded", () => {
+    const members = state(person("a", "林 葵"));
+    expect(ownerMember(members, {})).toBeUndefined();
+    expect(ownerMember(members, { ownerName: "  " })).toBeUndefined();
+    expect(ownerMember(members, { ownerName: "退職 済み" })).toBeUndefined();
+    expect(ownerLabel(members, {})).toBeNull();
+    // A name that is nobody's now still gets printed: the row records what it records.
+    expect(ownerLabel(members, { ownerName: "退職 済み" })).toBe("退職 済み");
+  });
+
+  it("labels an owner whose name two people share, once the id says which", () => {
+    const members = state(person("a", "林 葵"), person("b", "林 葵"));
+    expect(ownerLabel(members, { ownerPersonId: "b", ownerName: "林 葵" })).toBe("林 葵（#b）");
   });
 });
