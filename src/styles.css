@@ -100,7 +100,21 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .toolbar-actions button { min-width: 52px; height: 31px; padding: 0 10px; border-radius: 8px; color: #747d90; font-size: 8px; }
 .toolbar-actions .arrow-button { min-width: 30px; padding: 0; font-family: var(--font-data); font-size: 17px; }
 .schedule-head { min-height: 46px; display: grid; grid-template-columns: var(--schedule-label-col) var(--schedule-day-tracks); border-bottom: 1px solid var(--line); background: #fafbfc; }
-.people-label { padding: 15px 18px; color: #7f8798; font-size: 8px; font-weight: 700; letter-spacing: .04em; }
+/* Sticky, both of these. A month is 21 columns and the grid scrolls sideways —
+   369px of it at 620px — and at the far end the name column had gone entirely off
+   screen, so the row you were reading belonged to nobody (#139). Backgrounds are
+   opaque because the bars pass underneath, and `z-index: 2` clears the bars' 1. */
+.people-label {
+  position: sticky;
+  z-index: 2;
+  left: 0;
+  padding: 15px 18px;
+  background: #fafbfc;
+  color: #7f8798;
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: .04em;
+}
 .people-label span { margin-left: 4px; color: #acb2bf; }
 .day-label { position: relative; border-left: 1px solid #edf0f5; display: flex; align-items: center; justify-content: center; gap: 7px; color: #858da0; font-size: 8px; }
 .day-label strong { color: #566073; font-family: var(--font-data); font-size: var(--text-min); }
@@ -108,7 +122,10 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .day-label.today strong { color: var(--cobalt); }
 .schedule-row { min-height: 78px; display: grid; grid-template-columns: var(--schedule-label-col) minmax(0, 1fr); border-bottom: 1px solid var(--line); }
 .schedule-row:last-child { border-bottom: 0; }
-.person-cell { min-width: 0; padding: 14px 15px 14px 18px; display: flex; align-items: center; gap: 10px; }
+.person-cell { position: sticky; z-index: 2; left: 0; min-width: 0; padding: 14px 15px 14px 18px; background: var(--paper); display: flex; align-items: center; gap: 10px; }
+/* The row's hover tint has to reach the sticky cell too, or the cell stays pale
+   while the rest of the row lights up. */
+.schedule-row:hover .person-cell { background: #fafbfe; }
 .avatar { width: 34px; height: 34px; flex: 0 0 34px; border-radius: 11px; display: inline-grid; place-items: center; color: #26314a; font-family: var(--font-data); font-size: 9px; font-weight: 800; }
 .avatar-dark { background: #31405e; color: #d9def0; }
 /* One rule per AvatarTone in src/domain.ts. A tone with no rule here renders
@@ -3080,6 +3097,7 @@ h1 {
 .day-label.today strong { color: var(--coral-deep); }
 .schedule-row { border-bottom-color: var(--line); }
 .person-cell { background: #fffdfc; }
+.schedule-row:hover .person-cell { background: #fcf6f3; }
 .person-copy strong { color: var(--ink); }
 .person-copy small { color: var(--muted); }
 .avatar { border-radius: 50%; color: var(--ink); }

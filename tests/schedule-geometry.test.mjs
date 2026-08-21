@@ -131,6 +131,30 @@ test("only :root sets the schedule tokens", async () => {
   assert.deepEqual(setters, [], `these redefine the schedule tokens outside :root: ${setters.join(", ")}`);
 });
 
+/**
+ * The one exception, and why it is not one. The board can show a month, so the
+ * number of day columns is data — five, or the 20 to 23 weekdays of a month — and
+ * a stylesheet cannot know it. App.tsx sets `--schedule-day-tracks` inline.
+ *
+ * What the rule above is really protecting is that the header row and every row's
+ * cell divide the same box the same way (#106). An inline value on their common
+ * ancestor does not break that; one on either of them would. So it goes on
+ * `.schedule-card`, and this checks that it does.
+ */
+test("the board's own track count is set on the ancestor both halves read", async () => {
+  const tsx = (await readFile(path.join(root, "src", "App.tsx"), "utf8")).replaceAll("\r\n", "\n");
+  const setters = [...tsx.matchAll(/--schedule-day-tracks/gu)];
+  assert.equal(setters.length, 1, `expected exactly one inline setter in App.tsx, found ${setters.length}`);
+
+  // The element carrying it has to be the card: `.schedule-head` and `.week-cell`
+  // are both inside it, and nothing else that reads the token is.
+  const at = tsx.indexOf("--schedule-day-tracks");
+  const tag = tsx.slice(tsx.lastIndexOf("<", at), at);
+  assert.match(tag, /className="schedule-card"/u,
+    "the track count belongs on .schedule-card, the common ancestor of the header row and the week cells "
+    + "— on either of those it would reinstate the drift #106 fixed");
+});
+
 test("the wide-screen override comes after the tokens it overrides", async () => {
   const css = withoutComments(await read()).replaceAll("\r\n", "\n");
   // A plain :root later in the file beats a media query earlier in it, both
