@@ -2026,3 +2026,31 @@ describe("a key for what colour and position encode", () => {
     }
   });
 });
+
+/**
+ * #83: below 620px the nav is one scrolling row, so the current screen's item can
+ * sit past the right edge. Measured at 390px: 229px of the row is off-screen and
+ * a deep link like `?nav=reports` puts the active item at the far end.
+ */
+describe("the current screen stays in the scrolling nav", () => {
+  it("brings the active item into view when the screen changes", async () => {
+    const user = userEvent.setup();
+    const scrollIntoView = vi.spyOn(Element.prototype, "scrollIntoView");
+    render(<App />);
+    const navigation = within(screen.getByRole("navigation", { name: "メインナビゲーション" }));
+
+    // The mount call: the board is the first item, but the effect runs anyway so
+    // a deep link to the last one is covered by the same path.
+    expect(scrollIntoView).toHaveBeenCalled();
+    const onMount = scrollIntoView.mock.instances.at(-1);
+    expect(onMount).toBe(navigation.getByRole("button", { name: "アサインボード" }));
+
+    scrollIntoView.mockClear();
+    await user.click(navigation.getByRole("button", { name: "レポート" }));
+    // Both axes "nearest", so the desktop column is untouched and the page does
+    // not jump vertically.
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: "nearest", inline: "nearest" });
+    expect(scrollIntoView.mock.instances.at(-1)).toBe(navigation.getByRole("button", { name: "レポート" }));
+    scrollIntoView.mockRestore();
+  });
+});
