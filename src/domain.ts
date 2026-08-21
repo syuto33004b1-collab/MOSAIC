@@ -713,7 +713,7 @@ export function memberById(state: WorkspaceState, id: string) {
 }
 
 /**
- * Whom an owner field names, when that can be known.
+ * Everyone an owner field could be naming.
  *
  * Projects and opportunities carry both `ownerPersonId` and a denormalised `ownerName`,
  * and the seeded projects carry only the name. Three places resolved the name with
@@ -722,16 +722,29 @@ export function memberById(state: WorkspaceState, id: string) {
  * rewrote the owner of every project holding the old name — taking over a namesake's
  * projects — and the archive guard counted somebody else's.
  *
- * A name that two people share does not name a person, so this returns nobody rather
- * than the first of them. The callers then leave the record alone, which is the honest
- * answer: what the row records is a name, and the name is not enough.
+ * The list is what those three need, because they want opposite things from an
+ * ambiguous answer. Rewriting somebody's record needs certainty; refusing to archive
+ * needs only the possibility.
+ */
+export function ownerCandidates(state: WorkspaceState, owner: { ownerPersonId?: string; ownerName?: string | null }): Member[] {
+  if (owner.ownerPersonId) {
+    const member = memberById(state, owner.ownerPersonId);
+    return member ? [member] : [];
+  }
+  const name = owner.ownerName?.trim();
+  if (!name) return [];
+  return state.members.filter((member) => member.name.trim() === name);
+}
+
+/**
+ * Whom an owner field names, when that can be known — nobody when two people share the
+ * name, because a name two people answer to does not name a person. Callers that write
+ * use this; a caller that guards asks `ownerCandidates` instead, or it treats 「I cannot
+ * tell」 as 「not them」 and lets the thing through.
  */
 export function ownerMember(state: WorkspaceState, owner: { ownerPersonId?: string; ownerName?: string | null }) {
-  if (owner.ownerPersonId) return memberById(state, owner.ownerPersonId);
-  const name = owner.ownerName?.trim();
-  if (!name) return undefined;
-  const named = state.members.filter((member) => member.name.trim() === name);
-  return named.length === 1 ? named[0] : undefined;
+  const candidates = ownerCandidates(state, owner);
+  return candidates.length === 1 ? candidates[0] : undefined;
 }
 
 /** What to print for an owner: the member's label when it is theirs, else the stored name. */

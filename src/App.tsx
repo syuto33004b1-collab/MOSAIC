@@ -43,6 +43,7 @@ import {
   archiveOrgUnit,
   assignmentSpan,
   boardRange,
+  ownerCandidates,
   ownerLabel,
   ownerMember,
   type BoardUnit,
@@ -1080,7 +1081,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
       name: project.name,
       summary: project.summary,
       status: project.status,
-      ownerId: ownerMember(workspace, project)?.id ?? workspace.members[0]?.id ?? "",
+      ownerId: ownerMember(workspace, project)?.id ?? "",
       startDate: project.startDate,
       endDate: project.endDate,
       nextMilestone: project.nextMilestone,
@@ -1647,7 +1648,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
 
   const archiveMember = () => {
     if (!canManageMembers || !selectedMember) return;
-    const ownedProjects = workspace.projects.filter((project) => ownerMember(workspace, project)?.id === selectedMember.id);
+    const ownedProjects = workspace.projects.filter((project) => ownerCandidates(workspace, project).some((member) => member.id === selectedMember.id));
     if (ownedProjects.length > 0) {
       setToast(`責任者になっている案件（${ownedProjects[0].name}）を別メンバーへ変更してからアーカイブしてください`);
       return;
@@ -2687,7 +2688,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                 <div className="drawer-heading"><span className="drawer-icon cobalt"><BriefcaseBusiness size={19} /></span><div><h2>プロジェクトを編集</h2><p>{selectedProject.code} · 期間変更時は範囲外の配員も整合します。</p></div></div>
                 <label>プロジェクト名<input required value={projectEditForm.name} onChange={(event) => setProjectEditForm({ ...projectEditForm, name: event.target.value })} /></label>
                 <label>概要<textarea value={projectEditForm.summary} onChange={(event) => setProjectEditForm({ ...projectEditForm, summary: event.target.value })} rows={3} /></label>
-                <div className="form-grid"><label htmlFor="project-edit-status">状態<select id="project-edit-status" aria-label="状態" value={projectEditForm.status} onChange={(event) => setProjectEditForm({ ...projectEditForm, status: event.target.value as ProjectStatus })}>{["準備中", "進行中", "要注意", "完了間近", "完了"].map((status) => <option key={status}>{status}</option>)}</select></label><label htmlFor="project-edit-owner">責任者<select id="project-edit-owner" aria-label="責任者" required value={projectEditForm.ownerId} onChange={(event) => setProjectEditForm({ ...projectEditForm, ownerId: event.target.value })}>{workspace.members.map((member) => <option value={member.id} key={member.id}>{memberLabel(workspace, member)}</option>)}</select></label></div>
+                <div className="form-grid"><label htmlFor="project-edit-status">状態<select id="project-edit-status" aria-label="状態" value={projectEditForm.status} onChange={(event) => setProjectEditForm({ ...projectEditForm, status: event.target.value as ProjectStatus })}>{["準備中", "進行中", "要注意", "完了間近", "完了"].map((status) => <option key={status}>{status}</option>)}</select></label><label htmlFor="project-edit-owner">責任者<select id="project-edit-owner" aria-label="責任者" required value={projectEditForm.ownerId} onChange={(event) => setProjectEditForm({ ...projectEditForm, ownerId: event.target.value })}>{!projectEditForm.ownerId && <option value="">責任者を選ぶ</option>}{workspace.members.map((member) => <option value={member.id} key={member.id}>{memberLabel(workspace, member)}</option>)}</select></label></div>
                 <div className="form-grid"><label>開始日<input required type="date" value={projectEditForm.startDate} onChange={(event) => setProjectEditForm({ ...projectEditForm, startDate: event.target.value })} /></label><label>終了日<input required type="date" min={projectEditForm.startDate} value={projectEditForm.endDate} onChange={(event) => setProjectEditForm({ ...projectEditForm, endDate: event.target.value })} /></label></div>
                 <label>次のマイルストーン<input value={projectEditForm.nextMilestone} onChange={(event) => setProjectEditForm({ ...projectEditForm, nextMilestone: event.target.value })} /></label>
                 <label>マイルストーン日<input type="date" min={projectEditForm.startDate} max={projectEditForm.endDate} value={projectEditForm.nextMilestoneDate} onChange={(event) => setProjectEditForm({ ...projectEditForm, nextMilestoneDate: event.target.value })} /></label>

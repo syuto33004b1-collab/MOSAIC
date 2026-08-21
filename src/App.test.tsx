@@ -705,6 +705,10 @@ describe("role-aware workspace", () => {
     await user.click(screen.getByText("Atlas リニューアル").closest("button")!);
     await user.click(screen.getByRole("button", { name: "案件情報を編集" }));
     const dialog = within(screen.getByRole("dialog", { name: "詳細パネル" }));
+    // This fixture keeps two members and a project whose 「林 葵」 is neither of them, so
+    // the form cannot say who the owner is and asks. #123 made that refusal explicit.
+    expect((dialog.getByLabelText("責任者") as HTMLSelectElement).value).toBe("");
+    await user.selectOptions(dialog.getByLabelText("責任者"), initialWorkspace.members[0].id);
     await user.clear(dialog.getByLabelText("開始日"));
     await user.type(dialog.getByLabelText("開始日"), addDays(getWeekStart(0), 1));
     await user.click(dialog.getByRole("button", { name: "変更を仮置き" }));
@@ -3588,10 +3592,16 @@ describe("two members with one name", () => {
  * function a unit test can reach.
  */
 describe("renaming one of two people with one name", () => {
-  /** A second 林 葵 — the name the seed gives two projects, by name and with no id. */
+  /**
+   * A second 林 葵 — the name the seed gives two projects, by name and with no id.
+   *
+   * The twin goes first so `members[0]` is one of the two. A fallback to the head of the
+   * list passes a test where the head happens to be a stranger, and the evaluation on
+   * #123 pointed out that mine did.
+   */
   const namesakeOwners = (): WorkspaceState => {
     const hayashi = initialWorkspace.members.find((member) => member.name === "林 葵")!;
-    return { ...initialWorkspace, members: [...initialWorkspace.members, { ...hayashi, id: "t-hayashi" }] };
+    return { ...initialWorkspace, members: [{ ...hayashi, id: "t-hayashi" }, ...initialWorkspace.members] };
   };
 
   const rename = async (user: ReturnType<typeof userEvent.setup>, rowLabel: string, to: string) => {
@@ -3645,11 +3655,73 @@ describe("renaming one of two people with one name", () => {
     await user.click(screen.getByRole("button", { name: "案件情報を編集" }));
 
     const select = screen.getByLabelText("責任者") as HTMLSelectElement;
+    // Nobody, not the first of the two and not the head of the member list — which is
+    // itself a 林 葵 in this fixture.
+    expect(select.value).toBe("");
     expect(["hayashi", "t-hayashi"]).not.toContain(select.value);
     // Both are on offer, told apart, so the choice can be made.
     const named = [...select.options].map((option) => option.textContent ?? "").filter((text) => text.startsWith("林 葵"));
     expect(named).toHaveLength(2);
     expect(new Set(named).size).toBe(2);
+  });
+
+  /**
+   * The form looking wrong is not the same as the save being safe. Editing a date on an
+   * ambiguously-owned project must not write an owner the person editing never chose.
+   */
+  it("will not save the project until the owner is chosen", async () => {
+    const user = userEvent.setup();
+    const adapter = sharedAdapter();
+    const save = vi.fn().mockResolvedValue({ revision: 8, savedAt: "2026-08-17T10:00:00Z" });
+    adapter.initialState = namesakeOwners();
+    adapter.save = save;
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
+
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^プロジェクト( |$)/u }));
+    await user.click(screen.getByText("Atlas リニューアル").closest("button")!);
+    await user.click(screen.getByRole("button", { name: "案件情報を編集" }));
+    const dialog = within(screen.getByRole("dialog", { name: "詳細パネル" }));
+    await user.clear(dialog.getByLabelText("次のマイルストーン"));
+    await user.type(dialog.getByLabelText("次のマイルストーン"), "受入テスト");
+    await user.click(dialog.getByRole("button", { name: "変更を仮置き" }));
+
+    // The empty `required` select fails constraint validation, so the form never
+    // submits; `handleEditProject` also refuses an owner it cannot resolve, so the
+    // change is held either way.
+    expect(dialog.getByRole("button", { name: "変更を仮置き" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "チームへ保存" })).not.toBeInTheDocument();
+    expect(save).not.toHaveBeenCalled();
+
+    // Choosing settles it, and then the change goes through.
+    await user.selectOptions(dialog.getByLabelText("責任者"), "t-hayashi");
+    await user.click(dialog.getByRole("button", { name: "変更を仮置き" }));
+    await user.click(screen.getByRole("button", { name: "チームへ保存" }));
+    await waitFor(() => expect(save).toHaveBeenCalledOnce());
+    const atlas = (save.mock.calls[0][0] as WorkspaceState).projects.find((project) => project.id === "atlas")!;
+    expect(atlas).toMatchObject({ ownerPersonId: "t-hayashi", nextMilestone: "受入テスト" });
+  });
+
+  /**
+   * The archive guard wants the opposite of the rename: it stops on a project that might
+   * be theirs. Reading 「I cannot tell」 as 「not theirs」 would let a member be archived
+   * out from under a project that names them — the evaluation on #123 called this
+   * fail-open, and it was.
+   */
+  it("refuses to archive a member a project might still name", async () => {
+    const user = userEvent.setup();
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const adapter = sharedAdapter();
+    adapter.initialState = namesakeOwners();
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
+
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^メンバー( |$)/u }));
+    // The twin owns nothing by id. 「林 葵」 on two projects could be either of them.
+    await user.click(screen.getByText("林 葵（#t-hayashi）").closest("button")!);
+    await user.click(screen.getByRole("button", { name: "メンバーをアーカイブ" }));
+
+    expect(confirm).not.toHaveBeenCalled();
+    expect(await screen.findByText(/別メンバーへ変更してからアーカイブ/u)).toBeInTheDocument();
+    confirm.mockRestore();
   });
 
   it("still follows the name when it belongs to one person", async () => {
