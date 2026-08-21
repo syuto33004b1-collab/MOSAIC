@@ -54,29 +54,67 @@ test("every filter says what it filters, in the control", async () => {
  * Uniqueness is checked across the whole file rather than per screen: which
  * components render together is not something this file says, and a first
  * attempt that split on `export function` missed exactly this pair because
- * `CsvTransferPanel` is its own export. Every label is distinct today, so the
- * stricter rule costs nothing; if two unrelated screens ever want the same word,
- * that is a decision to make rather than a check to weaken quietly.
+ * `CsvTransferPanel` is its own export.
+ *
+ * That is blunter than the real rule, so the exceptions are listed rather than
+ * the check being loosened. 「並び順」 is on the member list and the project list
+ * (#138): a sort control belongs to one list, the two lists never render
+ * together, and calling one of them something else to satisfy a test would make
+ * the screens harder to read, not easier. Adding to this list is the decision the
+ * blunt rule exists to force into the open — it should be a considered one, and
+ * 「対象」 was not.
  */
+const SHARED_ACROSS_SCREENS = new Map([["並び順", 2]]);
+
 test("no two filters show the same visible label", async () => {
   const tsx = await source();
   const labels = [...tsx.matchAll(/className="filter-label">([^<]+)</gu)].map(([, text]) => text.trim());
   assert.ok(labels.length >= 9, `expected every filter to carry a label, found ${labels.length}`);
-  const repeated = [...new Set(labels.filter((label, index) => labels.indexOf(label) !== index))];
+  const repeated = [...new Set(labels.filter((label, index) => labels.indexOf(label) !== index))]
+    .filter((label) => !SHARED_ACROSS_SCREENS.has(label));
   assert.deepEqual(repeated, [], `two filters share a visible label: ${repeated.join(", ")}`);
+  // The exception is a count, not a licence. Two screens each wanting 並び順 is the
+  // decision that was made; a third occurrence is a new one, and an occurrence
+  // that went away means the entry should go too.
+  for (const [label, expected] of SHARED_ACROSS_SCREENS) {
+    assert.equal(labels.filter((item) => item === label).length, expected,
+      `「${label}」 is excused for exactly ${expected} screens — a different number is a new decision, `
+      + "not something this list already covers");
+    // And "on two screens" has to mean two screens. A count alone would let both
+    // land in one component, which is the defect the rule is about. Splitting on
+    // `export function` is the approximation named in the docstring: it cannot see
+    // two components rendering together, but it does see one component twice.
+    for (const chunk of tsx.split(/\nexport function /u).slice(1)) {
+      const inChunk = [...chunk.matchAll(/className="filter-label">([^<]+)</gu)]
+        .filter(([, text]) => text.trim() === label).length;
+      assert.ok(inChunk <= 1,
+        `「${label}」 appears ${inChunk} times in ${chunk.slice(0, chunk.indexOf("("))} — the exception is for `
+        + "one per screen, not two on the same one");
+    }
+  }
 });
 
 /**
  * The sort order and the result count shared `.toolbar-result`. They answer
- * different questions — how the list is ordered, and what is in it — and the
- * sort text also sat unlabelled next to bordered controls, which is what made it
- * look pressable.
+ * different questions — how the list is ordered, and what is in it.
+ *
+ * #84 pulled the ordering into its own `.toolbar-status` and labelled it, which
+ * fixed it reading as a pressable control by making it read as a state. #138 went
+ * the other way: it is a control now, so it looks like one and the `.toolbar-status`
+ * is gone. What survives from #84 is the half that still applies — the count's
+ * container says nothing about ordering.
  */
-test("the sort order and the result count are not the same container", async () => {
+test("the sort order is a control, and not inside the result count", async () => {
   const tsx = await source();
-  const status = [...tsx.matchAll(/<span className="toolbar-status">([\s\S]*?)<\/span>/gu)].map(([, body]) => body);
-  assert.equal(status.length, 1, "expected one .toolbar-status, the member list's ordering");
-  assert.match(status[0], /並び順:/u, "the ordering is labelled, so it reads as a state rather than a control");
+  assert.doesNotMatch(tsx, /className="toolbar-status"/u,
+    "the ordering is a control now (#138); a status span would be a second, stale answer to the same question");
+
+  const sorts = [...tsx.matchAll(/<label className="view-filter"><span className="filter-label">並び順<\/span>([\s\S]*?)<\/label>/gu)];
+  assert.ok(sorts.length >= 2, `expected the member and project lists to offer an order, found ${sorts.length}`);
+  for (const [, body] of sorts) {
+    assert.match(body, /<select/u, "the order has to be a select, not text");
+    assert.match(body, /aria-label="並び順を選ぶ"/u, "the control names what it does");
+  }
 
   const results = [...tsx.matchAll(/<span className="toolbar-result">([\s\S]*?)<\/span>/gu)].map(([, body]) => body);
   assert.ok(results.length > 0, "expected .toolbar-result to still carry the counts");

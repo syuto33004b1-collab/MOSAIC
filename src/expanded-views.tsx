@@ -21,6 +21,7 @@ import {
   Upload,
   UserRoundPlus,
   UsersRound,
+  X,
 } from "lucide-react";
 import {
   anonymousCandidateLabel,
@@ -275,6 +276,85 @@ export function FavoriteStar({ name, pressed, onToggle }: { name: string; presse
   );
 }
 
+/**
+ * The orders a project list can be read in. `registered` keeps the order the
+ * workspace hands over, which is what the list did before anything could be
+ * chosen (#129 via #138) — so it stays the default rather than quietly
+ * re-ordering everyone's list.
+ *
+ * `.sort` mutates, and these run on the array `filter` just returned, which is a
+ * fresh one. Calling them on `state.projects` would reorder the workspace.
+ */
+const PROJECT_ORDERS = {
+  registered: { label: "登録順", compare: () => 0 },
+  name: { label: "案件名順", compare: (a: Project, b: Project) => a.name.localeCompare(b.name, "ja") },
+  progress: {
+    label: "進捗の低い順",
+    compare: (a: Project, b: Project) => a.progress - b.progress || a.name.localeCompare(b.name, "ja"),
+  },
+} as const;
+type ProjectOrder = keyof typeof PROJECT_ORDERS;
+
+/**
+ * The same for members, where two of these already existed as hidden behaviour: a
+ * search scene sorted by its score and everything else sorted by utilisation,
+ * with a line of text naming whichever was in force and no way to change it.
+ *
+ * `score` is only offered while a scene is picked, because without one there is
+ * nothing to score — and it is the default then, since ranking candidates is what
+ * choosing a scene is for.
+ */
+const MEMBER_ORDERS = {
+  utilization: { label: "稼働率の低い順" },
+  utilizationDesc: { label: "稼働率の高い順" },
+  name: { label: "名前順" },
+  score: { label: "スコアの高い順" },
+} as const;
+type MemberOrder = keyof typeof MEMBER_ORDERS;
+
+/**
+ * The filters that are actually narrowing the list, each one removable, plus a
+ * way out of all of them.
+ *
+ * The controls on the member toolbar all read 「すべて」 or 「なし」 when idle, so
+ * the only way to know whether a list was filtered was to open each select and
+ * look (#138). This says it in words instead.
+ *
+ * It renders nothing when nothing is applied, which is what keeps the toolbar one
+ * row tall in the state it is usually in — #136 spent real effort on the space
+ * above the first row and this is not the place to give it back.
+ */
+export function ActiveFilters({ applied, result, onClearAll }: {
+  applied: { key: string; label: string; value: string; onClear: () => void }[];
+  /** What the filters left, said where it matters — including 0. */
+  result: string;
+  onClearAll: () => void;
+}) {
+  if (applied.length === 0) return null;
+  return (
+    <div className="toolbar-chips">
+      <span className="toolbar-chips-lead">絞り込み中 · {result}</span>
+      {applied.map((item) => (
+        <button
+          type="button"
+          className="filter-chip"
+          key={item.key}
+          onClick={item.onClear}
+          // The name carries what it does, not just what it is: 「職種: QA」 alone
+          // reads as a label rather than a control (#84's lesson, one screen over).
+          aria-label={`${item.label}の絞り込み「${item.value}」を外す`}
+        >
+          <span>{item.label}: {item.value}</span>
+          <X size={12} />
+        </button>
+      ))}
+      {applied.length > 1 && (
+        <button type="button" className="view-add-button ghost toolbar-clear-all" onClick={onClearAll}>条件をクリア</button>
+      )}
+    </div>
+  );
+}
+
 export function ProjectsView({
   state,
   weekOffset,
@@ -289,9 +369,12 @@ export function ProjectsView({
 }: ProjectsViewProps) {
   const [localQuery, setLocalQuery] = useState("");
   const [status, setStatus] = useState("すべて");
+  const [order, setOrder] = useState<ProjectOrder>("registered");
   const weekStart = getWeekStart(weekOffset);
   const searchValue = query ?? localQuery;
-  const queryNeedle = searchValue.toLowerCase();
+  // Trimmed, for the reason at MembersView: the chip and the filter have to agree
+  // on what counts as searching (#138).
+  const queryNeedle = searchValue.trim().toLowerCase();
   const setSearchValue = (value: string) => {
     if (onQueryChange) onQueryChange(value);
     else setLocalQuery(value);
@@ -302,7 +385,7 @@ export function ProjectsView({
     const statusMatch = status === "すべて" || project.status === status || (status === "欠員あり" && need);
     const favoriteMatch = !favoritesOnly || isFavorited(favorites, "project", project.id);
     return textMatch && statusMatch && favoriteMatch;
-  });
+  }).sort(PROJECT_ORDERS[order].compare);
   const listFields = visibleCustomFields(state.customFields, "project", "list");
 
   const portfolioRisks = state.projects.filter((project) => project.status === "要注意").length;
@@ -324,14 +407,32 @@ export function ProjectsView({
         <div className="portfolio-weave" aria-hidden="true">{[64, 82, 71, 92, 76, 55, 88, 69].map((value, index) => <i key={index}><b style={{ width: value + "%" }} /></i>)}</div>
       </div>
 
+      {/* Two jobs, told apart by position: everything that narrows the list on the
+          left, everything that does something on the right (#138). They were one
+          undifferentiated flow, so on the member screen 「このシーンを削除」 sat
+          between two selects and read like one of them. */}
       <div className="view-toolbar">
         <div className="inline-search"><Search size={15} /><input value={searchValue} onChange={(event) => setSearchValue(event.target.value)} placeholder="案件名・責任者を検索" aria-label="案件を検索" /></div>
         <label className="view-filter"><span className="filter-label">状態</span><select value={status} onChange={(event) => setStatus(event.target.value)} aria-label="状態で絞り込み">
           {["すべて", "進行中", "要注意", "準備中", "完了間近", "完了", "欠員あり"].map((option) => <option key={option}>{option}</option>)}
         </select></label>
+        <label className="view-filter"><span className="filter-label">並び順</span><select value={order} onChange={(event) => setOrder(event.target.value as ProjectOrder)} aria-label="並び順を選ぶ">
+          {Object.entries(PROJECT_ORDERS).map(([key, item]) => <option value={key} key={key}>{item.label}</option>)}
+        </select></label>
         <label className="view-toggle"><input type="checkbox" checked={favoritesOnly} onChange={(event) => onFavoritesOnlyChange?.(event.target.checked)} disabled={!onFavoritesOnlyChange} />お気に入りのみ</label>
         <span className="toolbar-result">{filtered.length}件を表示</span>
-        {onCopyQuery && searchValue.trim() && <button className="view-add-button ghost" type="button" onClick={onCopyQuery}>検索リンクをコピー</button>}
+        <div className="toolbar-actions-group">
+          {onCopyQuery && searchValue.trim() && <button className="view-add-button ghost" type="button" onClick={onCopyQuery}>検索リンクをコピー</button>}
+        </div>
+        <ActiveFilters
+          applied={[
+            ...(searchValue.trim() ? [{ key: "query", label: "検索", value: searchValue.trim(), onClear: () => setSearchValue("") }] : []),
+            ...(status !== "すべて" ? [{ key: "status", label: "状態", value: status, onClear: () => setStatus("すべて") }] : []),
+            ...(favoritesOnly ? [{ key: "favorites", label: "お気に入り", value: "のみ", onClear: () => onFavoritesOnlyChange?.(false) }] : []),
+          ]}
+          result={`${filtered.length}件`}
+          onClearAll={() => { setSearchValue(""); setStatus("すべて"); onFavoritesOnlyChange?.(false); }}
+        />
       </div>
 
       {/* The rail is four bars with no week labels and no key. `title` puts the
@@ -524,6 +625,7 @@ export function MembersView({
   const [sceneStart, setSceneStart] = useState("");
   const [sceneEnd, setSceneEnd] = useState("");
   const [sceneMinAvailable, setSceneMinAvailable] = useState("");
+  const [order, setOrder] = useState<MemberOrder>("score");
   const [error, setError] = useState("");
   const weekStart = getWeekStart(weekOffset);
   const roles = ["すべて", ...Array.from(new Set(state.members.map((member) => member.role)))];
@@ -532,22 +634,52 @@ export function MembersView({
   const selectedScene = scenes.find((scene) => scene.id === sceneId);
   const scoreById = new Map((selectedScene ? matchMembers(state, selectedScene) : []).map((match) => [match.member.id, match]));
   const searchValue = query ?? localQuery;
-  const queryNeedle = searchValue.toLowerCase();
+  // Trimmed, so a box holding only spaces filters nothing rather than matching
+  // literal whitespace and emptying the list with no chip to explain it — the
+  // chip and the filter have to agree on what counts as searching (#138).
+  const queryNeedle = searchValue.trim().toLowerCase();
   const setSearchValue = (value: string) => {
     if (onQueryChange) onQueryChange(value);
     else setLocalQuery(value);
   };
   const scopedMembers = orgFilter ? membersInOrgSubtree(state, orgFilter, "any") : state.members;
+  /**
+   * `score` needs a scene to score against, so a choice left over from a scene
+   * that has since been cleared falls back rather than sorting by nothing — and
+   * while a scene *is* picked, score is where the order starts, because ranking is
+   * what the scene is for. Both were the shipped behaviour; what changed is that
+   * they are visible and can be overridden (#138).
+   */
+  const effectiveOrder: MemberOrder = selectedScene ? order : order === "score" ? "utilization" : order;
+  const utilization = (member: Member) => (member.capacity > 0
+    ? memberLoad(state, member.id, weekStart) / member.capacity
+    : Number.POSITIVE_INFINITY);
+  const byOrder = (a: Member, b: Member) => {
+    const byName = a.name.localeCompare(b.name, "ja");
+    if (effectiveOrder === "name") return byName;
+    if (effectiveOrder === "score") {
+      return (scoreById.get(b.id)?.score ?? 0) - (scoreById.get(a.id)?.score ?? 0) || byName;
+    }
+    const first = utilization(a);
+    const second = utilization(b);
+    // A member with no capacity has no utilisation, so they go last in both
+    // directions rather than topping 稼働率の高い順 with a number nobody set.
+    // Compared rather than subtracted: `0.5 - Infinity` is also non-finite, so a
+    // subtract-then-test-for-finite would have ordered a real 50% against an
+    // unknown by name.
+    if (!Number.isFinite(first) || !Number.isFinite(second)) {
+      if (Number.isFinite(first)) return -1;
+      if (Number.isFinite(second)) return 1;
+      return byName;
+    }
+    if (first === second) return byName;
+    return (first < second ? -1 : 1) * (effectiveOrder === "utilizationDesc" ? -1 : 1);
+  };
   const filtered = (selectedScene ? scopedMembers.filter((member) => scoreById.has(member.id)) : scopedMembers).filter((member) => {
     const textMatch = memberSearchText(state, member).includes(queryNeedle);
     const favoriteMatch = !favoritesOnly || isFavorited(favorites, "member", member.id);
     return textMatch && favoriteMatch && (role === "すべて" || member.role === role);
-  }).sort((a, b) => {
-    if (selectedScene) return (scoreById.get(b.id)?.score ?? 0) - (scoreById.get(a.id)?.score ?? 0) || a.name.localeCompare(b.name, "ja");
-    const aUtilization = a.capacity > 0 ? memberLoad(state, a.id, weekStart) / a.capacity : Number.POSITIVE_INFINITY;
-    const bUtilization = b.capacity > 0 ? memberLoad(state, b.id, weekStart) / b.capacity : Number.POSITIVE_INFINITY;
-    return aUtilization - bUtilization;
-  });
+  }).sort(byOrder);
 
   const available = state.members.filter((member) => member.capacity > 0 && memberLoad(state, member.id, weekStart) <= member.capacity * .6).length;
   const overloaded = state.members.filter((member) => memberLoad(state, member.id, weekStart) > member.capacity).length;
@@ -610,10 +742,31 @@ export function MembersView({
           <option value="">なし</option>
           {scenes.map((scene) => <option value={scene.id} key={scene.id}>{scene.name}</option>)}
         </select></label>
-        {canManageScenes && selectedScene && <button className="view-add-button" type="button" onClick={() => { onDeleteScene(selectedScene.id); setSceneId(""); }}>このシーンを削除</button>}
+        <label className="view-filter"><span className="filter-label">並び順</span><select value={effectiveOrder} onChange={(event) => setOrder(event.target.value as MemberOrder)} aria-label="並び順を選ぶ">
+          {Object.entries(MEMBER_ORDERS)
+            // Without a scene there is nothing to score, so the option is not offered.
+            .filter(([key]) => key !== "score" || selectedScene)
+            .map(([key, item]) => <option value={key} key={key}>{item.label}</option>)}
+        </select></label>
         <label className="view-toggle"><input type="checkbox" checked={favoritesOnly} onChange={(event) => onFavoritesOnlyChange?.(event.target.checked)} disabled={!onFavoritesOnlyChange} />お気に入りのみ</label>
-        <span className="toolbar-status">並び順: {selectedScene ? "スコアの高い順" : "稼働率の低い順"}</span>
-        {onCopyQuery && searchValue.trim() && <button className="view-add-button ghost" type="button" onClick={onCopyQuery}>検索リンクをコピー</button>}
+        {/* No result count here, unlike the project list: the ribbon above already
+            says 登録メンバー n, and a second number would have pushed this row onto
+            a third line (#138). */}
+        <div className="toolbar-actions-group">
+          {canManageScenes && selectedScene && <button className="view-add-button" type="button" onClick={() => { onDeleteScene(selectedScene.id); setSceneId(""); }}>このシーンを削除</button>}
+          {onCopyQuery && searchValue.trim() && <button className="view-add-button ghost" type="button" onClick={onCopyQuery}>検索リンクをコピー</button>}
+        </div>
+        <ActiveFilters
+          applied={[
+            ...(searchValue.trim() ? [{ key: "query", label: "検索", value: searchValue.trim(), onClear: () => setSearchValue("") }] : []),
+            ...(role !== "すべて" ? [{ key: "role", label: "職種", value: role, onClear: () => setRole("すべて") }] : []),
+            ...(orgFilter ? [{ key: "org", label: "部門", value: orgUnitPath(state.orgUnits, orgFilter).join(" / "), onClear: () => setOrgFilter("") }] : []),
+            ...(selectedScene ? [{ key: "scene", label: "シーン", value: selectedScene.name, onClear: () => setSceneId("") }] : []),
+            ...(favoritesOnly ? [{ key: "favorites", label: "お気に入り", value: "のみ", onClear: () => onFavoritesOnlyChange?.(false) }] : []),
+          ]}
+          result={`${filtered.length}名`}
+          onClearAll={() => { setSearchValue(""); setRole("すべて"); setOrgFilter(""); setSceneId(""); onFavoritesOnlyChange?.(false); }}
+        />
       </div>
 
       {/* Folded by default: this screen exists to show candidates, and the nine

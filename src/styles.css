@@ -1095,6 +1095,19 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   gap: 5px;
 }
 .view-filter select { border: 0; background: transparent; color: inherit; font-size: var(--text-min); }
+/* A select is as wide as its widest option, and the 部門 filter's options are full
+   org paths — 「開発本部 / プロダクト部」 made that one control 219px and pushed the
+   member toolbar onto a third line (#138).
+   Capped on these two screens only. A closed select showing an ellipsis is only
+   acceptable where the value is recoverable, and here it is: any of these that is
+   actually filtering is spelled out in full by its chip. The 並び順 select has no
+   chip, so it has to fit — measured 104px at 1440px, against this 130px.
+   Elsewhere (レポート names, 段階, 対象) there are no chips, so no cap. */
+.members-view .view-filter select,
+.projects-view .view-filter select {
+  max-width: 130px;
+  text-overflow: ellipsis;
+}
 .view-filter { gap: 4px; }
 /* What the filter filters, said in the control rather than left to an icon
    (#84). Its text is inside the select's accessible name too, so speaking the
@@ -1104,6 +1117,40 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
    answers how it is ordered. They were the same class. */
 .toolbar-result,
 .toolbar-status { margin-left: 4px; color: #929aaa; font-size: 8px; }
+/* Everything that *does* something, pushed to the far end. The row held filters,
+   a status line and two buttons in one flow, so 「このシーンを削除」 sat between two
+   selects and read like one of them (#138). Position is the whole distinction; no
+   rule, no separator. */
+.toolbar-actions-group { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+/* The chips row. `flex: 1 0 100%` puts it on its own line inside the toolbar's
+   existing wrap, so it costs nothing until there is something to say — the
+   toolbar stays the height it was in the state it is usually in, which is the
+   space #136 worked to get back. */
+.toolbar-chips {
+  flex: 1 0 100%;
+  margin-top: 2px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.toolbar-chips-lead { color: #929aaa; font-size: var(--text-min); font-weight: 700; white-space: nowrap; }
+.filter-chip {
+  min-height: 26px;
+  padding: 3px 8px;
+  border: 1px solid #ccd4ea;
+  border-radius: 99px;
+  background: #f4f6fd;
+  color: #4f5a75;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--text-min);
+}
+.filter-chip:hover { border-color: #9ba7e8; background: #ecf0fe; }
+.filter-chip svg { flex: 0 0 auto; color: #7b86a6; }
+.toolbar-clear-all { margin-left: 2px; }
 .view-add-button {
   height: 34px;
   margin-left: auto;
@@ -3072,6 +3119,18 @@ h1 {
 .view-add-button.ghost:hover { border-color: var(--ink); background: var(--paper-deep); }
 .toolbar-result,
 .toolbar-status { color: var(--muted); }
+.toolbar-chips-lead { color: var(--muted); }
+/* The chips take the theme's tokens rather than the cool blues of the layer
+   above, which would read as a different component (#138). Square corners to
+   match the buttons beside them; the pill shape belonged to the other look. */
+.filter-chip {
+  border-radius: 3px;
+  border-color: var(--line);
+  background: var(--paper);
+  color: var(--ink);
+}
+.filter-chip:hover { border-color: var(--ink); background: var(--paper-deep); }
+.filter-chip svg { color: var(--muted-readable); }
 
 .portfolio-table-wrap,
 .member-table-wrap { overflow: auto; }
