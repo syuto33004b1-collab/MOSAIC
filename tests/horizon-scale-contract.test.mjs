@@ -32,18 +32,25 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
  *
  * ## What this checks
  *
- * That the two halves still agree, expressed the only way a stylesheet can be asked:
- * the tick for a value and the line for the same value name the same offset, and that
- * offset is the fraction the value implies. A drift like the one above shows up as a
- * mismatch here rather than as a chart that quietly reads 20% off.
+ * A declaration contract, not the rendered geometry: that the tick for a value and the
+ * line for the same value name the same offset, that the offset is the fraction the
+ * value implies, and that the structure which lets them share a row is intact. A drift
+ * like the one above shows up as a mismatch here rather than as a chart that quietly
+ * reads 20% off.
+ *
+ * The structural half exists because of one spec detail. A scroll container establishes
+ * an independent formatting context, which makes `grid-template-rows: subgrid` compute
+ * to `none` — so the sideways scroll has to belong to the plot rather than to the grid
+ * that borrows its rows, and the ticks have to be sticky inside it. Chrome 148 honours
+ * subgrid on a scroller either way, measured, and an earlier version of this change
+ * relied on that; a conforming browser would have put the ticks back on their own scale
+ * with every assertion here still green. That is what the `overflow-x` checks are for.
  *
  * ## What it cannot do
  *
- * It reads declarations, not the cascade or the render. In particular it cannot see
- * whether `grid-template-rows: subgrid` is honoured — the spec makes a scroll container
- * an independent formatting context, which would turn `subgrid` into `none` and let the
- * ticks drift again while every assertion here still passed. Chrome 148 does honour it;
- * that is a browser measurement, and it is in the PR along with the after figures.
+ * It reads declarations, so it does not weigh the cascade and cannot see a rendered
+ * coordinate. The figures above and below are browser measurements, in the PR: at 1425,
+ * 605 and 375, and at 4, 8 and 12 weeks.
  */
 
 const readCss = async () => (await readFile(path.join(root, "src", "styles.css"), "utf8")).replaceAll("\r\n", "\n");
@@ -84,14 +91,33 @@ const expected = (value) => (CEILING - value) / CEILING;
 
 test("every tick sits where its own value does on the bar's track", async () => {
   const css = withoutComments(await readCss());
-  for (const [index, value] of TICKS.entries()) {
-    const top = declaration(css, `.horizon-y-labels span:nth-child(${index + 1})`, "top");
-    assert.ok(top !== null, `no offset for the ${value}% tick — is it still :nth-child(${index + 1})?`);
+  for (const value of TICKS) {
+    const top = declaration(css, `.horizon-y-labels .t${value}`, "top");
+    assert.ok(top !== null, `no offset for the ${value}% tick — is it still .t${value}?`);
     const got = fraction(top);
     assert.ok(typeof got === "number", `the ${value}% tick is at 「${top}」, which this file cannot read (#133)`);
     assert.ok(Math.abs(got - expected(value)) < 1e-9,
       `the ${value}% tick is at ${(got * 100).toFixed(3)}% of the track; ${value} of ${CEILING} is `
       + `${(expected(value) * 100).toFixed(3)}%`);
+  }
+});
+
+/**
+ * Which side of its own offset each tick's box sits on. The interior ticks are centred,
+ * because being centred on the line is the pairing the issue was about. The two at the
+ * ends turn inward: centred, half of 「120%」 sat above the plot and was cut by
+ * `overflow-y: hidden` — 8.1px of a 16.2px line box, measured. So the ceiling label
+ * hangs from its line and the baseline label sits on it, and both stay legible.
+ */
+test("the end ticks turn inward so nothing is clipped", async () => {
+  const css = withoutComments(await readCss());
+  const transform = (value) => declaration(css, `.horizon-y-labels .t${value}`, "transform")
+    ?? declaration(css, ".horizon-y-labels span", "transform");
+  assert.equal(transform(120), "none", "the ceiling tick hangs from its line, or its top half is clipped");
+  assert.equal(transform(0), "translateY(-100%)", "the baseline tick sits on the baseline rather than straddling it");
+  for (const value of [100, 60]) {
+    assert.equal(transform(value), "translateY(-50%)",
+      `the ${value}% tick has to be centred on its line — that pairing is the whole of #133`);
   }
 });
 
@@ -102,25 +128,27 @@ test("each grid line names the same offset as its tick", async () => {
   for (const value of TICKS.filter((tick) => tick !== 0)) {
     const guide = declaration(css, `.horizon-guide.g${value}`, "top");
     assert.ok(guide !== null, `no .horizon-guide.g${value}`);
-    const tick = declaration(css, `.horizon-y-labels span:nth-child(${TICKS.indexOf(value) + 1})`, "top");
+    const tick = declaration(css, `.horizon-y-labels .t${value}`, "top");
     assert.deepEqual(fraction(guide), fraction(tick),
       `the ${value}% line is at 「${guide}」 and its tick at 「${tick}」. Two scales for one chart is #133`);
   }
-  assert.equal(fraction(declaration(css, ".horizon-y-labels span:nth-child(4)", "top")), 1,
+  assert.equal(fraction(declaration(css, ".horizon-y-labels .t0", "top")), 1,
     "the 0 tick belongs at the bar's baseline, which is the bottom of the track");
 });
 
 /**
- * `:nth-child` couples the offsets to the order the labels are written in. Reordering
- * the markup would move every tick without touching a single offset.
+ * The offsets key off a class per tick rather than a position, so the markup has to
+ * carry those classes and each has to sit on the label for that value. A first version
+ * used `:nth-child`, which made the document order load-bearing for every tick at once.
  */
-test("the labels are written in the order the offsets assume", async () => {
+test("each label carries the class its offset is keyed on", async () => {
   const tsx = await readTsx();
   const block = /<div className="horizon-y-labels">([\s\S]*?)<\/div>/u.exec(tsx);
   assert.ok(block, "expected the tick labels");
-  const written = [...block[1].matchAll(/<span>([^<]+)<\/span>/gu)].map(([, text]) => text.trim());
-  assert.deepEqual(written, ["120%", "100%", "60%", "0"],
-    "the offsets are keyed by position, so this order is load-bearing (#133)");
+  const written = [...block[1].matchAll(/<span className="(t\d+)">([^<]+)<\/span>/gu)]
+    .map(([, className, text]) => [className, text.trim()]);
+  assert.deepEqual(written, [["t120", "120%"], ["t100", "100%"], ["t60", "60%"], ["t0", "0"]],
+    "each tick's class has to name the value it labels (#133)");
 });
 
 /**
@@ -141,6 +169,19 @@ test("one element owns the rows, and the grid borrows them", async () => {
 
   assert.equal(declaration(css, ".horizon-grid", "grid-template-rows"), "subgrid",
     ".horizon-grid must borrow the rows rather than define its own (#133)");
+  // The one that keeps the borrowing legal. A scroll container is an independent
+  // formatting context, which makes `subgrid` compute to `none` — so the sideways
+  // scroll has to be the plot's, and the ticks sticky inside it. Chrome 148 honours
+  // subgrid on a scroller anyway, measured; this is so a conforming browser does not
+  // quietly put the ticks back on their own scale.
+  assert.equal(declaration(css, ".horizon-grid", "overflow-x"), null,
+    ".horizon-grid must not be the scroll container, or `subgrid` is allowed to become `none`");
+  assert.equal(declaration(css, ".horizon-plot", "overflow-x"), "auto",
+    "the sideways scroll belongs to the plot");
+  assert.equal(declaration(css, ".horizon-y-labels", "position"), "sticky",
+    "inside the scroller the ticks have to be pinned, or they scroll away with the columns");
+  assert.ok((declaration(css, ".horizon-y-labels", "background") ?? "").length > 0,
+    "a sticky tick column needs an opaque background — the bars pass underneath");
   // The height and the bottom reserve moved to the wrapper. Left on the grid they would
   // apply to a box that no longer sizes the rows.
   assert.equal(declaration(css, ".horizon-grid", "height"), null,
