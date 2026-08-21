@@ -3195,3 +3195,111 @@ describe("one way to name closing the panel", () => {
     expect(results.violations.filter((violation) => violation.impact === "serious" || violation.impact === "critical")).toEqual([]);
   });
 });
+
+/**
+ * #149: #140 gave the proposal screen a subject picker and left the entry points for
+ * later, so the only way to a subject was to walk into the screen and pick it. Both
+ * places that already show candidates for a requirement now lead there.
+ *
+ * The words matter as much as the route. 「候補を見る」 exists in two places already and
+ * both keep you where you are — it opens the guide, or reveals candidates lower down the
+ * same panel. The new button leaves for another screen, so it says something else, and
+ * says the same thing in both places because it does the same thing.
+ */
+describe("a way into the proposal screen", () => {
+  const ROUTE = "この要件で提案を開く";
+
+  const subject = () => (screen.getByLabelText("提案先を選ぶ") as HTMLSelectElement);
+  const activeNav = () => document.querySelector(".nav-item.active")?.getAttribute("aria-label");
+
+  const openGuide = async (user: ReturnType<typeof userEvent.setup>) => {
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^アサインボード( |$)/u }));
+    const card = [...document.querySelectorAll("button.alert-card")].find((element) => element.textContent?.includes("未充足"));
+    expect(card, "the demo data should carry an unfilled role").toBeDefined();
+    await user.click(card as HTMLElement);
+    await waitFor(() => expect(document.querySelector(".drawer-kicker")?.textContent).toBe("RESOLUTION GUIDE"));
+  };
+
+  const openPreAwardPlan = async (user: ReturnType<typeof userEvent.setup>) => {
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^受注前( |$)/u }));
+    await user.click(document.querySelector(".pipeline-card, .project-name-cell") as HTMLElement);
+    await waitFor(() => expect(document.querySelector(".drawer .detail-need-list button")).not.toBeNull());
+    await user.click(document.querySelector(".drawer .detail-need-list button") as HTMLElement);
+    await waitFor(() => expect(document.querySelector(".drawer .candidate-label")).not.toBeNull());
+  };
+
+  it("carries an unfilled role from the guide to the proposal screen", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await openGuide(user);
+    await user.click(screen.getByRole("button", { name: ROUTE }));
+
+    expect(activeNav()).toBe("提案");
+    expect(document.querySelector(".drawer"), "the panel should close behind you").toBeNull();
+    expect(subject().value).toMatch(/^need:/u);
+    // The subject is the requirement the guide was about, not merely the first option.
+    const need = initialWorkspace.needs.find((item) => item.status !== "filled")!;
+    expect([...subject().options].find((option) => option.selected)!.textContent)
+      .toContain(initialWorkspace.projects.find((project) => project.id === need.projectId)!.name);
+  });
+
+  it("carries a pre-award requirement across, under its own namespace", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await openPreAwardPlan(user);
+    await user.click(screen.getByRole("button", { name: ROUTE }));
+
+    expect(activeNav()).toBe("提案");
+    expect(document.querySelector(".drawer")).toBeNull();
+    // `plan:`, not `need:` — #140 split the namespaces because the two tables can hand
+    // out the same raw id, and this route has to pick the right one.
+    expect(subject().value).toMatch(/^plan:/u);
+  });
+
+  it("says the same thing in both places, and something else than 「候補を見る」", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    await openGuide(user);
+    expect(screen.getAllByRole("button", { name: ROUTE })).toHaveLength(1);
+    await user.click(document.querySelector(".drawer .close-button") as HTMLElement);
+
+    await openPreAwardPlan(user);
+    expect(screen.getAllByRole("button", { name: ROUTE })).toHaveLength(1);
+    // 「候補を見る」 is still on the requirement rows, where it still means 「stay here」.
+    expect(document.querySelector(".drawer .detail-need-list button em")!.textContent).toBe("候補を見る");
+  });
+
+  /**
+   * Changing the subject is not starting over. The screen labels a card that does not
+   * match the new requirement, and that label is worth reading — it says this person is
+   * not a fit for *this* one.
+   */
+  it("keeps the candidates already picked when the subject changes", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^提案( |$)/u }));
+    await user.selectOptions(subject(), [...subject().options].find((option) => option.value)!.value);
+    await user.click(document.querySelector(".proposal-picker-item") as HTMLElement);
+    const before = [...document.querySelectorAll(".proposal-card")].length;
+    expect(before).toBeGreaterThan(0);
+
+    await openPreAwardPlan(user);
+    await user.click(screen.getByRole("button", { name: ROUTE }));
+    expect(document.querySelectorAll(".proposal-card")).toHaveLength(before);
+  });
+
+  /**
+   * Not behind `canEdit`. The proposal screen lines candidates up and copies a link;
+   * neither changes the workspace. 「仮置き」 and 「要員要件を編集」 in the same panel are
+   * behind it, and stay behind it.
+   */
+  it("is offered to a viewer, unlike the actions that change something", async () => {
+    const user = userEvent.setup();
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "閲覧 太郎", email: "viewer@example.com", role: "viewer" }} shared={sharedAdapter()} />);
+    await openGuide(user);
+    expect(screen.getByRole("button", { name: ROUTE })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "要員要件を編集" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "仮置き" })).not.toBeInTheDocument();
+  });
+});
