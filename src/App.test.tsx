@@ -373,7 +373,7 @@ describe("role-aware workspace", () => {
     adapter.save = save;
     render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
 
-    const overloadButton = screen.getByText("OVER CAPACITY").closest("button");
+    const overloadButton = screen.getByText("上限超過").closest("button");
     expect(overloadButton).not.toBeNull();
     await user.click(overloadButton!);
     await user.click(screen.getByRole("button", { name: "推奨配分へ調整" }));
@@ -523,7 +523,7 @@ describe("role-aware workspace", () => {
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
     render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
 
-    const openRole = screen.getByText("OPEN ROLE").closest("button");
+    const openRole = screen.getByText("未充足ロール").closest("button");
     expect(openRole).not.toBeNull();
     await user.click(openRole!);
     await user.click(screen.getByRole("button", { name: "要員要件を編集" }));
@@ -539,9 +539,9 @@ describe("role-aware workspace", () => {
 
     expect(confirm).toHaveBeenCalledWith(expect.stringContaining("仮置きを削除"));
     expect(document.querySelectorAll(".assignment.provisional")).toHaveLength(0);
-    expect(screen.getByText("OPEN ROLE")).toBeInTheDocument();
-    await user.click(screen.getByText("OPEN ROLE").closest("button")!);
-    expect(screen.getByText("50%の空き")).toBeInTheDocument();
+    expect(screen.getByText("未充足ロール")).toBeInTheDocument();
+    await user.click(screen.getByText("未充足ロール").closest("button")!);
+    expect(screen.getByText("稼働配分 50%")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "チームへ保存" })).toBeInTheDocument();
   });
 
@@ -618,7 +618,7 @@ describe("role-aware workspace", () => {
     };
     render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
 
-    await user.click(screen.getByText("OPEN ROLE").closest("button")!);
+    await user.click(screen.getByText("未充足ロール").closest("button")!);
     const dialog = within(screen.getByRole("dialog", { name: "詳細パネル" }));
     expect(dialog.queryByText("全条件 一郎")).not.toBeInTheDocument();
     expect(dialog.queryByText("一部条件 二郎")).not.toBeInTheDocument();
@@ -841,7 +841,7 @@ describe("role-aware workspace", () => {
     adapter.save = save;
     render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
 
-    await user.click(screen.getByText("OVER CAPACITY").closest("button")!);
+    await user.click(screen.getByText("上限超過").closest("button")!);
     await user.click(screen.getByRole("button", { name: "推奨配分へ調整" }));
     await user.click(screen.getByRole("button", { name: "チームへ保存" }));
     await waitFor(() => expect(save).toHaveBeenCalledOnce());
@@ -1193,7 +1193,7 @@ describe("role-aware workspace", () => {
     await waitFor(() => expect(screen.queryByText("保存データを読み込み中")).not.toBeInTheDocument());
     expect(document.querySelectorAll(".assignment")).toHaveLength(0);
     expect(screen.queryByText("休暇")).not.toBeInTheDocument();
-    expect(screen.queryByText("OPEN ROLE")).not.toBeInTheDocument();
+    expect(screen.queryByText("未充足ロール")).not.toBeInTheDocument();
     window.localStorage.removeItem("mosaic-local-workspace-v3");
   });
 });
@@ -1524,7 +1524,7 @@ describe("the sidebar's utilisation card", () => {
     // screen for a date, which would match any other one.
     const heading = () => document.querySelector(".date-range")!.textContent ?? "";
     const mondayOf = (text: string) => {
-      const m = text.match(/^(\d+)\/(\d+)週のチーム稼働率$/u);
+      const m = text.match(/^(\d+)\/(\d+)週の平均稼働率$/u);
       expect(m, `label should name a Monday: ${text}`).not.toBeNull();
       return { month: Number(m![1]), date: Number(m![2]) };
     };
@@ -1534,9 +1534,11 @@ describe("the sidebar's utilisation card", () => {
       return { month: Number(m![1]), date: Number(m![2]) };
     };
 
-    // 稼働率 rather than 稼働: the value is a percentage.
-    expect(label()).toMatch(/^\d+\/\d+週のチーム稼働率$/u);
-    expect(label()).not.toMatch(/月のチーム稼働/u);
+    // 稼働率 rather than 稼働: the value is a percentage. 平均稼働率 rather than
+    // チーム稼働率: the board's pulse strip shows this same variable under that
+    // name, and #82 is about one value not carrying two names.
+    expect(label()).toMatch(/^\d+\/\d+週の平均稼働率$/u);
+    expect(label()).not.toMatch(/月のチーム稼働|チーム稼働率/u);
     expect(card!.querySelector("strong")!.textContent).toMatch(/^\d+%$/u);
     expect(mondayOf(label())).toEqual(headingStart(heading()));
 
@@ -1550,5 +1552,120 @@ describe("the sidebar's utilisation card", () => {
 
     const asDate = ({ month, date }: { month: number; date: number }) => new Date(2026, month - 1, date).getTime();
     expect((asDate(after) - asDate(before)) / 86400000).toBe(7);
+  });
+});
+
+/**
+ * #82: the member screen printed 稼働 (load) under wording that said 空き
+ * (稼働上限 − 稼働), and two of its labels named a condition the code does not
+ * apply. These fix the words to the code rather than the code to the words: the
+ * `.6` threshold is shared by the bar colours, the ribbon count and the "next"
+ * column, so moving it would change three meanings at once.
+ */
+describe("one word per quantity", () => {
+  const weekStart = getWeekStart(0);
+  const owner = { name: "管理 花子", email: "owner@example.com", role: "owner" as const };
+
+  /**
+   * 30 of a 50% ceiling: 稼働率 60%, so the member sits exactly on the band's
+   * edge and is counted — while their 空き is 20 points, not 40. The old label
+   * 「40%以上の空き」 was true only for a 100% ceiling.
+   */
+  function halfCeilingWorkspace(allocation: number, weeks = 1): WorkspaceState {
+    const project = { ...initialWorkspace.projects[0], id: "project" };
+    const member = { ...initialWorkspace.members[0], id: "half", name: "上限半分 一郎", capacity: 50 };
+    return {
+      members: [member],
+      projects: [project],
+      assignments: [{ id: "load", personId: member.id, projectId: project.id, startDate: weekStart, endDate: addDays(weekStart, weeks * 7 - 3), allocation, status: "confirmed" }],
+      needs: [],
+    } as unknown as WorkspaceState;
+  }
+
+  async function openMembers(state: WorkspaceState) {
+    const user = userEvent.setup();
+    const adapter = sharedAdapter();
+    adapter.initialState = state;
+    render(<App mode="shared" organizationName="Example Inc." identity={owner} shared={adapter} />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: "メンバー" }));
+    return user;
+  }
+
+  it("labels the ribbon count with the condition it actually applies", async () => {
+    await openMembers(halfCeilingWorkspace(30));
+    const ribbon = document.querySelector(".member-ribbon")!;
+
+    const band = [...ribbon.querySelectorAll(".ribbon-stat")].find((el) => el.querySelector("span")?.textContent === "稼働率60%以下");
+    expect(band, ribbon.textContent ?? "").toBeTruthy();
+    expect(band!.querySelector("strong")!.textContent).toBe("1");
+    // The old wording would be a claim about a quantity this member does not
+    // have: 稼働上限 50 − 稼働 30 = 20 points of 空き.
+    expect(ribbon.textContent).not.toContain("40%以上の空き");
+    expect(document.querySelector(".next-open")!.textContent).toContain("空き20%");
+
+    // The ordering is by 稼働率 too, so it gets the same word as the count.
+    expect(document.querySelector(".toolbar-result")!.textContent).toBe("稼働率の低い順");
+    expect(ribbon.textContent).toContain("稼働率の低い順にメンバーを表示");
+
+    // The colour key names the same metric and the same two thresholds, and the
+    // over-ceiling count is worded like the colour it keys.
+    const legend = [...document.querySelector(".capacity-legend")!.querySelectorAll("span")].map((el) => el.textContent);
+    expect(legend).toEqual(["稼働率", "60%以下", "適正", "上限超過"]);
+    expect([...ribbon.querySelectorAll(".ribbon-stat span")].map((el) => el.textContent)).toContain("上限超過");
+    expect(ribbon.textContent).not.toContain("稼働超過");
+  });
+
+  it("does not call a 稼働率 above the band 満員", async () => {
+    await openMembers(halfCeilingWorkspace(35, 4));
+    // 35 of 50 is 70%: above the 60% band for all four weeks, but nowhere near
+    // full. 「満員」 implied 100%.
+    const cell = document.querySelector(".next-open")!;
+    expect(cell.textContent).toContain("4週先までなし");
+    expect(document.body.textContent).not.toContain("満員");
+  });
+
+  it("names the metric in the header of every column that carries a number", async () => {
+    await openMembers(halfCeilingWorkspace(30));
+    const table = screen.getByRole("table");
+    const headers = [...table.querySelectorAll("thead th")].map((th) => th.textContent ?? "");
+
+    expect(headers).toContain("今週の稼働");
+    expect(headers).toContain("4週間の稼働");
+    expect(headers).not.toContain("今週");
+    expect(headers).not.toContain("4週間のキャパシティ");
+
+    // And the cell under that header really is the load, not the 空き.
+    const cell = table.querySelectorAll("tbody tr")[0].children[headers.indexOf("今週の稼働")];
+    expect(cell.querySelector(".load-ring strong")!.textContent).toBe("30%");
+    expect(cell.textContent).toContain("稼働上限 50%");
+  });
+
+  it("gives averageLoad one name in both places it is shown", () => {
+    render(<App />);
+    const sidebar = document.querySelector(".month-card-label")!;
+    const strip = [...document.querySelectorAll(".pulse-metric")].filter((el) => el.querySelector("span")?.textContent === "平均稼働率");
+
+    expect(strip).toHaveLength(1);
+    expect(sidebar.querySelector("span")!.textContent).toContain("平均稼働率");
+    // Same variable, so the two figures must agree — the point of one name.
+    expect(strip[0].querySelector("strong")!.textContent).toBe(sidebar.querySelector("strong")!.textContent);
+    expect(document.body.textContent).not.toContain("チーム稼働");
+  });
+
+  it("uses none of the retired words on the board or the member screen", async () => {
+    const retired = ["余白", "余力", "空き率", "満員", "キャパシティ", "チーム稼働"];
+    const user = userEvent.setup();
+    render(<App />);
+    const clean = (where: string) => {
+      for (const word of retired) expect(document.body.textContent, `${word} on ${where}`).not.toContain(word);
+    };
+
+    clean("the board");
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: "メンバー" }));
+    clean("the member list");
+    // The member drawer is the other place the four-week bars appear.
+    await user.click(screen.getByText("佐伯 優斗").closest("button")!);
+    expect(within(screen.getByRole("dialog", { name: "詳細パネル" })).getByText("4週間の稼働")).toBeInTheDocument();
+    clean("the member drawer");
   });
 });

@@ -566,13 +566,13 @@ export function MembersView({
     <section className="section-view members-view" aria-labelledby="members-heading">
       <h2 id="members-heading" className="sr-only">メンバー一覧</h2>
       <div className="member-ribbon">
-        <div className="ribbon-lead"><span className="ribbon-icon mint"><UsersRound size={18} /></span><div><small>TEAM AVAILABILITY</small><strong>{selectedScene ? "保存シーンのスコア順に候補を表示" : "空きが大きい順にメンバーを表示"}</strong></div></div>
+        <div className="ribbon-lead"><span className="ribbon-icon mint"><UsersRound size={18} /></span><div><small>TEAM AVAILABILITY</small><strong>{selectedScene ? "保存シーンのスコア順に候補を表示" : "稼働率の低い順にメンバーを表示"}</strong></div></div>
         <div className="ribbon-stat"><strong>{state.members.length}</strong><span>登録メンバー</span></div>
         <div className="ribbon-divider" />
-        <div className="ribbon-stat good"><strong>{available}</strong><span>40%以上の空き</span></div>
+        <div className="ribbon-stat good"><strong>{available}</strong><span>稼働率60%以下</span></div>
         <div className="ribbon-divider" />
-        <div className="ribbon-stat risk"><strong>{overloaded}</strong><span>稼働超過</span></div>
-        <div className="capacity-legend"><span><i className="open" />空き</span><span><i className="steady" />適正</span><span><i className="hot" />超過</span></div>
+        <div className="ribbon-stat risk"><strong>{overloaded}</strong><span>上限超過</span></div>
+        <div className="capacity-legend"><span>稼働率</span><span><i className="open" />60%以下</span><span><i className="steady" />適正</span><span><i className="hot" />上限超過</span></div>
       </div>
 
       <div className="view-toolbar">
@@ -590,7 +590,7 @@ export function MembersView({
         </select></label>
         {canManageScenes && selectedScene && <button className="view-add-button" type="button" onClick={() => { onDeleteScene(selectedScene.id); setSceneId(""); }}>このシーンを削除</button>}
         <label className="view-toggle"><input type="checkbox" checked={favoritesOnly} onChange={(event) => onFavoritesOnlyChange?.(event.target.checked)} disabled={!onFavoritesOnlyChange} />お気に入りのみ</label>
-        <span className="toolbar-result">{selectedScene ? "スコアの高い順" : "空き率の高い順"}</span>
+        <span className="toolbar-result">{selectedScene ? "スコアの高い順" : "稼働率の低い順"}</span>
         {onCopyQuery && searchValue.trim() && <button className="view-add-button ghost" type="button" onClick={onCopyQuery}>検索リンクをコピー</button>}
       </div>
 
@@ -614,7 +614,7 @@ export function MembersView({
           <label>歓迎スキル<input value={niceSkills} onChange={(event) => setNiceSkills(event.target.value)} placeholder="A11y:3" /></label>
           <label>開始日<input type="date" value={sceneStart} onChange={(event) => setSceneStart(event.target.value)} aria-label="検索シーンの開始日" /></label>
           <label>終了日<input type="date" value={sceneEnd} onChange={(event) => setSceneEnd(event.target.value)} aria-label="検索シーンの終了日" /></label>
-          <label>最小空き（%）<input type="number" min={0} max={100} value={sceneMinAvailable} onChange={(event) => setSceneMinAvailable(event.target.value)} placeholder="40" aria-label="最小空き配分" /></label>
+          <label>最小空き（%）<input type="number" min={0} max={100} value={sceneMinAvailable} onChange={(event) => setSceneMinAvailable(event.target.value)} placeholder="40" /></label>
           <button type="submit" className="view-add-button"><Plus size={15} />検索シーンを保存</button>
           {error && <p className="skill-catalog-error" role="alert">{error}</p>}
           </form>
@@ -623,7 +623,7 @@ export function MembersView({
 
       <div className="member-table-wrap">
         <table className="member-table">
-          <thead><tr><th className="col-favorite"><span className="sr-only">お気に入り</span></th><th className="col-name">メンバー</th><th className="col-skills">スキル</th>{selectedScene && <th className="col-score">スコア</th>}{listFields.map((field) => <th key={field.id} className="col-custom">{field.label}</th>)}<th className="col-week">今週</th><th className="col-rail">4週間のキャパシティ</th><th className="col-next">次の空き</th><th className="col-actions"><span className="sr-only">操作</span></th></tr></thead>
+          <thead><tr><th className="col-favorite"><span className="sr-only">お気に入り</span></th><th className="col-name">メンバー</th><th className="col-skills">スキル</th>{selectedScene && <th className="col-score">スコア</th>}{listFields.map((field) => <th key={field.id} className="col-custom">{field.label}</th>)}<th className="col-week">今週の稼働</th><th className="col-rail">4週間の稼働</th><th className="col-next">次に稼働率60%以下</th><th className="col-actions"><span className="sr-only">操作</span></th></tr></thead>
           <tbody>
             {filtered.map((member) => {
               const load = memberLoad(state, member.id, weekStart);
@@ -636,11 +636,11 @@ export function MembersView({
                   <td>{onToggleFavorite ? <FavoriteStar name={member.name} pressed={isFavorited(favorites, "member", member.id)} onToggle={() => onToggleFavorite(member.id)} /> : null}</td>
                   <td><button className="member-name-cell" onClick={() => onOpen(member.id)}><span className={"avatar " + member.avatarTone}>{member.initials}</span><span className="row-name-copy"><strong>{member.name}</strong><small>{member.role} · {member.department}{memberOrgMemberships(state, member.id).some((item) => !item.isPrimary) ? " · 兼務あり" : ""}</small></span></button></td>
                   <td><div className="member-skills">{memberSkillLevels(member).slice(0, 3).map((level) => <span key={level.name}>{level.name}<small>{level.proficiency}</small></span>)}</div></td>
-                  {selectedScene && <td><span className="match-score">{match?.score ?? 0}点<small>{match?.availablePercent ?? 0}%空き</small></span></td>}
+                  {selectedScene && <td><span className="match-score">{match?.score ?? 0}点<small>空き{match?.availablePercent ?? 0}%</small></span></td>}
                   {listFields.map((field) => <td key={field.id}><span className="custom-field-cell">{formatCustomValue(field, customValue(member.customValues, field.id))}</span></td>)}
-                  <td><span className={"load-ring " + (load > member.capacity ? "over" : member.capacity > 0 && load <= member.capacity * .6 ? "open" : "")} style={{ "--load": Math.min(100, loadRatio) } as React.CSSProperties}><strong>{load}%</strong></span><small className="capacity-limit">上限 {member.capacity}%</small></td>
+                  <td><span className={"load-ring " + (load > member.capacity ? "over" : member.capacity > 0 && load <= member.capacity * .6 ? "open" : "")} style={{ "--load": Math.min(100, loadRatio) } as React.CSSProperties}><strong>{load}%</strong></span><small className="capacity-limit">稼働上限 {member.capacity}%</small></td>
                   <td><div className="member-week-rail">{weeklyLoads.map((value, index) => { const ratio = member.capacity > 0 ? value / member.capacity * 100 : value > 0 ? 100 : 0; /* The label is a sibling of the bar, not a child: it belongs to its own grid track so it cannot overlap the next week's. */ return <Fragment key={index}><i className={value > member.capacity ? "over" : member.capacity > 0 && value <= member.capacity * .6 ? "open" : ""}><b style={{ height: Math.max(12, Math.min(100, ratio)) + "%" }} /></i><small>{value}%</small></Fragment>; })}</div></td>
-                  <td><span className="next-open">{member.capacity === 0 ? "稼働不可 · 上限0%" : nextOpen === -1 ? "4週先まで満員" : nextOpen === 0 ? "今週 " + Math.max(0, member.capacity - load) + "%空き" : (nextOpen + 1) + "週目から"}<small>{member.location}</small></span></td>
+                  <td><span className="next-open">{member.capacity === 0 ? "稼働不可 · 稼働上限0%" : nextOpen === -1 ? "4週先までなし" : nextOpen === 0 ? "今週 空き" + Math.max(0, member.capacity - load) + "%" : (nextOpen + 1) + "週目から"}<small>{member.location}</small></span></td>
                   <td className="member-row-actions">{onAddToProposal && <button className="quick-assign quiet" onClick={() => onAddToProposal(member.id)}><Sparkles size={14} />提案へ</button>}{canEdit ? <button className="quick-assign" onClick={() => onAssign(member.id)}><UserRoundPlus size={14} />アサイン</button> : <span className="read-only-label">閲覧のみ</span>}</td>
                 </tr>
               );

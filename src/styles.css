@@ -983,11 +983,18 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   margin-left: auto;
   display: flex;
   align-items: center;
-  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 4px 12px;
   color: #8d96a7;
   font-size: 7px;
 }
-.capacity-legend span { display: inline-flex; align-items: center; gap: 5px; }
+/* The ribbon is a nowrap flex row with overflow: hidden, so this legend gets
+   squeezed at the narrow end of the range where it is still shown (1121—1200px).
+   Without these two, 「空き」 rendered as 空／き — broken mid-word (measured:
+   span 23x30px at 1121px, 32px wide on one line at 1280px). Now the band names
+   stay whole and the legend takes another row instead. */
+.capacity-legend span { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
 .capacity-legend i { width: 7px; height: 7px; border-radius: 3px; }
 .capacity-legend i.open { background: #9ed9c6; }
 .capacity-legend i.steady { background: #8c99ed; }
@@ -1208,6 +1215,12 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .member-table .col-favorite { width: 44px; }
 .portfolio-table .col-status,
 .member-table .col-week { width: 96px; }
+/* 今週の稼働 and 次に稼働率60%以下 name the metric their cells carry (#82), and a
+   header that wraps mid-word stops doing that job: 「次に稼働率60%以下」 broke with
+   「下」 alone on a second line at 1440px, and 「今週の稼働」 wrapped once five
+   custom columns were in the list. The <th> only — the cells still wrap. */
+.member-table .col-week,
+.member-table .col-next { white-space: nowrap; }
 .portfolio-table .col-progress,
 .portfolio-table .col-milestone,
 .portfolio-table .col-headcount { width: 110px; }

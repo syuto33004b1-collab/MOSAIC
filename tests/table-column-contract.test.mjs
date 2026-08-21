@@ -98,7 +98,7 @@ test("a custom-field value clips rather than wrapping to two lines", async () =>
   // And a ceiling on the *cell*, not only the <th>. Under `auto` layout the
   // column takes the widest cell's intrinsic width, which a <th> max-width does
   // not bound: an 80-character unbreakable value took the column to 613px and
-  // left 4週間のキャパシティ at 39px.
+  // left 4週間の稼働 at 39px (the header read 4週間のキャパシティ then).
   assert.match(css, /\.custom-field-cell\s*\{[^}]*max-width:\s*\d/u);
 });
 
