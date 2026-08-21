@@ -1167,7 +1167,7 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .filter-label { font-size: var(--text-min); font-weight: 700; white-space: nowrap; }
 /* Two containers, not one: 「8件を表示」 answers what is in the list, 「並び順: …」
    answers how it is ordered. They were the same class. */
-.toolbar-result,
+.toolbar-result { margin-left: 4px; color: #929aaa; font-size: 8px; }
 /* Everything that *does* something, pushed to the far end. The row held filters,
    a status line and two buttons in one flow, so 「このシーンを削除」 sat between two
    selects and read like one of them (#138). Position is the whole distinction; no
