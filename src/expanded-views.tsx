@@ -9,7 +9,6 @@ import {
   ClipboardCheck,
   Download,
   EyeOff,
-  Filter,
   Gauge,
   Layers3,
   MailPlus,
@@ -327,7 +326,7 @@ export function ProjectsView({
 
       <div className="view-toolbar">
         <div className="inline-search"><Search size={15} /><input value={searchValue} onChange={(event) => setSearchValue(event.target.value)} placeholder="案件名・責任者を検索" aria-label="案件を検索" /></div>
-        <label className="view-filter"><Filter size={14} /><select value={status} onChange={(event) => setStatus(event.target.value)} aria-label="プロジェクト状態で絞り込み">
+        <label className="view-filter"><span className="filter-label">状態</span><select value={status} onChange={(event) => setStatus(event.target.value)} aria-label="状態で絞り込み">
           {["すべて", "進行中", "要注意", "準備中", "完了間近", "完了", "欠員あり"].map((option) => <option key={option}>{option}</option>)}
         </select></label>
         <label className="view-toggle"><input type="checkbox" checked={favoritesOnly} onChange={(event) => onFavoritesOnlyChange?.(event.target.checked)} disabled={!onFavoritesOnlyChange} />お気に入りのみ</label>
@@ -437,7 +436,7 @@ export function OpportunitiesView({ state, onOpen }: OpportunitiesViewProps) {
 
       <div className="view-toolbar">
         <div className="inline-search"><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="案件名・スキルを検索" aria-label="受注前案件を検索" /></div>
-        <label className="view-filter"><Filter size={14} /><select value={stage} onChange={(event) => setStage(event.target.value)} aria-label="案件段階で絞り込み">
+        <label className="view-filter"><span className="filter-label">段階</span><select value={stage} onChange={(event) => setStage(event.target.value)} aria-label="段階で絞り込み">
           {["進行中", "引き合い", "提案", "商談", "受注", "失注", "すべて"].map((option) => <option key={option}>{option}</option>)}
         </select></label>
         <span className="toolbar-result">{filtered.length}件を表示</span>
@@ -600,20 +599,20 @@ export function MembersView({
 
       <div className="view-toolbar">
         <div className="inline-search"><Search size={15} /><input value={searchValue} onChange={(event) => setSearchValue(event.target.value)} placeholder="名前・スキル・経歴を検索" aria-label="メンバーを検索" /></div>
-        <label className="view-filter"><Filter size={14} /><select value={role} onChange={(event) => setRole(event.target.value)} aria-label="職種で絞り込み">{roles.map((option) => <option key={option}>{option}</option>)}</select></label>
+        <label className="view-filter"><span className="filter-label">職種</span><select value={role} onChange={(event) => setRole(event.target.value)} aria-label="職種で絞り込み">{roles.map((option) => <option key={option}>{option}</option>)}</select></label>
         {orgUnits.length > 0 && (
-          <label className="view-filter"><Building2 size={14} /><select value={orgFilter} onChange={(event) => setOrgFilter(event.target.value)} aria-label="組織で絞り込み">
-            <option value="">すべての部門</option>
+          <label className="view-filter"><span className="filter-label">部門</span><select value={orgFilter} onChange={(event) => setOrgFilter(event.target.value)} aria-label="部門で絞り込み">
+            <option value="">すべて</option>
             {orgUnits.map((unit) => <option value={unit.id} key={unit.id}>{orgUnitPath(state.orgUnits, unit.id).join(" / ")}</option>)}
           </select></label>
         )}
-        <label className="view-filter"><Sparkles size={14} /><select value={sceneId} onChange={(event) => setSceneId(event.target.value)} aria-label="保存した検索シーン">
-          <option value="">シーンなし</option>
+        <label className="view-filter"><span className="filter-label">シーン</span><select value={sceneId} onChange={(event) => setSceneId(event.target.value)} aria-label="シーンを選ぶ">
+          <option value="">なし</option>
           {scenes.map((scene) => <option value={scene.id} key={scene.id}>{scene.name}</option>)}
         </select></label>
         {canManageScenes && selectedScene && <button className="view-add-button" type="button" onClick={() => { onDeleteScene(selectedScene.id); setSceneId(""); }}>このシーンを削除</button>}
         <label className="view-toggle"><input type="checkbox" checked={favoritesOnly} onChange={(event) => onFavoritesOnlyChange?.(event.target.checked)} disabled={!onFavoritesOnlyChange} />お気に入りのみ</label>
-        <span className="toolbar-result">{selectedScene ? "スコアの高い順" : "稼働率の低い順"}</span>
+        <span className="toolbar-status">並び順: {selectedScene ? "スコアの高い順" : "稼働率の低い順"}</span>
         {onCopyQuery && searchValue.trim() && <button className="view-add-button ghost" type="button" onClick={onCopyQuery}>検索リンクをコピー</button>}
       </div>
 
@@ -627,7 +626,7 @@ export function MembersView({
           voice. */}
       {canManageScenes && (
         <details className="search-scene-disclosure">
-          <summary>検索シーンの条件を入力</summary>
+          <summary>新しい検索シーンの条件を入力</summary>
           <form className="field-catalog-form search-scene-form" onSubmit={(event) => { event.preventDefault(); submitScene(); }}>
           <label>シーン名<input value={sceneName} onChange={(event) => setSceneName(event.target.value)} placeholder="フロントエンド候補" /></label>
           <label>職種<input value={sceneRole} onChange={(event) => setSceneRole(event.target.value)} placeholder="Frontend Engineer" /></label>
@@ -862,7 +861,7 @@ export function ReportsView({ state, onOpenWeek, onResolveNeed, onOpenOpportunit
       <section className="balance-card saved-report-card" aria-labelledby="saved-report-heading">
         <div className="card-heading"><div><small>SAVED REPORTS</small><h3 id="saved-report-heading">任意項目レポート</h3></div><Gauge size={18} /></div>
         <div className="view-toolbar">
-          <label className="view-filter"><Filter size={14} /><select value={selectedReport?.id ?? ""} onChange={(event) => setReportId(event.target.value)} aria-label="保存したレポート">
+          <label className="view-filter"><span className="filter-label">レポート</span><select value={selectedReport?.id ?? ""} onChange={(event) => setReportId(event.target.value)} aria-label="レポートを選ぶ">
             {reports.length === 0 && <option value="">レポートなし</option>}
             {reports.map((report) => <option value={report.id} key={report.id}>{report.name}</option>)}
           </select></label>
@@ -989,7 +988,7 @@ export function SkillsView({ state, onAddCatalogEntry, onOpenMember, onResolveNe
 
       <div className="view-toolbar">
         <div className="inline-search"><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="スキル・分類を検索" aria-label="スキルを検索" /></div>
-        <label className="view-filter"><Filter size={14} /><select value={focus} onChange={(event) => setFocus(event.target.value as typeof focus)} aria-label="スキルマップの表示">
+        <label className="view-filter"><span className="filter-label">表示</span><select value={focus} onChange={(event) => setFocus(event.target.value as typeof focus)} aria-label="表示を絞り込み">
           {(["すべて", "不足あり", "保有あり"] as const).map((option) => <option key={option}>{option}</option>)}
         </select></label>
         <span className="toolbar-result">{filtered.length}件を表示</span>
@@ -1513,7 +1512,7 @@ export function FieldsView({ state, onAddField, canManage = false, canManageRequ
 
       <div className="view-toolbar">
         <div className="inline-search"><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="項目名・キーを検索" aria-label="項目を検索" /></div>
-        <label className="view-filter"><Filter size={14} /><select value={entityType} onChange={(event) => setEntityType(event.target.value as typeof entityType)} aria-label="項目の対象">
+        <label className="view-filter"><span className="filter-label">対象</span><select value={entityType} onChange={(event) => setEntityType(event.target.value as typeof entityType)} aria-label="対象で絞り込み">
           {(["すべて", "member", "project"] as const).map((option) => <option value={option} key={option}>{option === "すべて" ? "すべて" : option === "member" ? "メンバー" : "プロジェクト"}</option>)}
         </select></label>
         <span className="toolbar-result">{fields.length}件を表示</span>
@@ -1885,8 +1884,11 @@ export function CsvTransferPanel({ state, organizationId, canImport = false, onI
       <h2 id="csv-heading">CSV入出力</h2>
       <p className="csv-lead">UTF-8（BOM付き）で出力します。メンバーCSVは氏名・職種・部署・勤務地があれば新規登録できます。IDがある行は更新です。</p>
       <div className="csv-toolbar">
-        <label className="view-filter">対象
-          <select aria-label="CSVの対象" value={source} onChange={(event) => changeSource(event.target.value as CsvSource)}>
+        {/* 「CSVの対象」 rather than 「対象」: the field list on this screen has a
+            filter of its own, and one screen must not show the same visible
+            label on two controls that do different things (#88). */}
+        <label className="view-filter"><span className="filter-label">CSVの対象</span>
+          <select aria-label="CSVの対象を選ぶ" value={source} onChange={(event) => changeSource(event.target.value as CsvSource)}>
             <option value="members">メンバー</option>
             <option value="projects">プロジェクト</option>
           </select>
