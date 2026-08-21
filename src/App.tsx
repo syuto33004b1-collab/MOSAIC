@@ -1011,6 +1011,25 @@ export default function Home({ mode = "demo", organizationId, organizationName =
     }
   };
 
+  /**
+   * Into the proposal screen with a requirement already set as its subject.
+   *
+   * #140 gave the screen a subject picker and left the entry points for later, so the
+   * only way to a subject was to walk into the screen and pick it there. `subjectId` is
+   * the namespaced form the picker uses — `need:` for a confirmed project's unfilled
+   * role, `plan:` for a pre-award requirement (#140 separated them because the two
+   * tables can hand out the same raw id).
+   *
+   * `proposalMemberIds` is deliberately left alone: changing the subject is not
+   * starting over, and the screen already labels a card that does not match the new
+   * requirement, which is worth reading.
+   */
+  const openProposalFor = (subjectId: string) => {
+    setProposalNeedId(subjectId);
+    setActiveNav("proposal");
+    closeDrawer();
+  };
+
   const addMemberToProposal = (memberId: string) => {
     setProposalMemberIds((current) => retainedMemberIds([...current, memberId], workspace.members.map((member) => member.id)));
     setActiveNav("proposal");
@@ -2575,6 +2594,10 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                   </>
                 )}
                 <p className="drawer-footnote">候補は対象週の稼働と登録スキルに基づく参考情報です。</p>
+                {/* Not behind `canEdit`: the proposal screen only lines candidates up and
+                    copies a link, which a viewer may do. 「仮置き」 and 「要員要件を編集」
+                    below stay behind it because they change the workspace (#149). */}
+                <button className="drawer-secondary" onClick={() => openProposalFor(`need:${selectedNeed.id}`)}>この要件で提案を開く</button>
                 {canEdit && <div className="entity-action-row"><button className="drawer-secondary" onClick={() => openNeedEditor(selectedNeed)}>要員要件を編集</button><button className="drawer-danger" onClick={cancelNeed}><Trash2 size={15} />要員要件を取消</button></div>}
               </div>
             )}
@@ -2723,6 +2746,10 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                         ))}
                       </div>
                     ) : <div className="candidate-empty"><UsersRound size={18} /><span><strong>条件を満たす候補がいません</strong><small>メンバーのスキルまたは想定期間の配分を見直してください。</small></span></div>}
+                    {/* Same words as the guide's, because it does the same thing. 「候補を見る」
+                        on the rows above stays inside this panel; this one leaves for the
+                        proposal screen with the selected plan as its subject (#149). */}
+                    <button className="drawer-secondary" onClick={() => openProposalFor(`plan:${selectedOpportunityNeed.id}`)}>この要件で提案を開く</button>
                   </>
                 )}
                 {canEdit && isActiveOpportunity(selectedOpportunity) && <button className="drawer-primary" onClick={() => openOpportunityNeedEditor()}><UserRoundPlus size={16} />要員計画を追加</button>}
