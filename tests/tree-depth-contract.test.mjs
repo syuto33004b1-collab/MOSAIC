@@ -48,9 +48,24 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
  *
  * One row taller than the 844px viewport. With `min-width: max-content` — the floor #132
  * gave the member list, for the same reason — the first column takes 625px, those rows
- * become 50.4 / 50.4 / 59px, and the page goes 3952 → 1500. Three tables share the
- * class: the skill map went 5713 → 2707 and the field catalog 3878 → 3412, and none of
- * them added page-level sideways scroll (each scrolls inside `.skill-map-wrap`).
+ * become 50.4 / 50.4 / 59px, and the page goes 3952 → 1500.
+ *
+ * Three tables share the class. On the seeded data at 390, floor off → on:
+ *
+ * | table         | first column   | tallest row     | page          | sideways  |
+ * | ------------- | -------------- | --------------- | ------------- | --------- |
+ * | org           | 56.2 → 141.3   | 212.3 → 50.4    | 2191 → 1220   | 159 → 333 |
+ * | skill map     | 120.3 → 256.1  | 295.7 → 50.4    | 5643 → 2637   |  98 → 415 |
+ * | field catalog | 125.8 → 125.8  | 166.2 → 50.4    | 3808 → 3342   |   0 → 449 |
+ *
+ * The cost is sideways scroll inside `.skill-map-wrap`, which two of the three were
+ * already doing; no page-level sideways scroll appears at either width, and at 1425 on
+ * the seeded data all three still fit their wrapper exactly.
+ *
+ * A long unbreakable value is not what makes the floor expensive: a 72-character one in
+ * an org unit's name put the first column at 569.6px with the floor and 569.6px without
+ * it, because the value cannot wrap and the column has to pay either way. The floor's own
+ * share there was 88px of scroll, against rows of 50.4px instead of 79.8px.
  *
  * So the property and the floor live or die together, and that is what these check.
  *

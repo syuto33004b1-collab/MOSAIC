@@ -4475,11 +4475,22 @@ h1 {
    auto` gave the org table's first column 88.2px of 551 at 390px — the 親部門 and 操作
    columns took theirs first — and a 5-level row became 859.8px tall, name over 10 lines
    and breadcrumb over 42, one row taller than the viewport. Content-derived rather than
-   a number: the depth and the column count both change at runtime. Measured at 390:
-   first column 88.2 → 625, page 3952 → 1500, and the deep rows 536/681.7/859.8 → 50.4/
-   50.4/59. Three tables share this class (skill map, field catalog, org) — the skill map
-   went 5713 → 2707 and the field catalog 3878 → 3412, neither adding page-level
-   sideways scroll. */
+   a number: the depth and the column count both change at runtime. Measured at 390 with
+   that hierarchy: first column 88.2 → 625, page 3952 → 1500, deep rows 536/681.7/859.8 →
+   50.4/50.4/59.
+
+   Three tables share this class. On the seeded data at 390 the tallest row goes 212.3 →
+   50.4 (org), 295.7 → 50.4 (skill map) and 166.2 → 50.4 (field catalog), and the pages
+   2191 → 1220, 5643 → 2637 and 3808 → 3342. What it costs is sideways scroll inside
+   `.skill-map-wrap` — 159 → 333, 98 → 415 and 0 → 449 — and two of the three were
+   already scrolling. No page-level sideways scroll appears at either width, and at 1425
+   on the seeded data all three tables still fit their wrapper exactly, so the floor asks
+   for nothing it does not need.
+
+   A long unbreakable value does not make it expensive: with a 72-character one in an org
+   unit's name the first column measured 569.6px with the floor and 569.6px without it —
+   the value cannot wrap, so the column has to pay for it either way. The floor's own
+   share was 88px of scroll, against rows of 50.4px instead of 79.8px. */
 .skill-map-table { min-width: max-content; }
 /* 7px は行高から逆算した値。名前セル（strong + small の2段）が行の高さを決めていて、
    12px 化で 58px → 60px になる。padding を 11 → 7 で 50px。th と td の両方に効く。

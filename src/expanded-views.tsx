@@ -1296,10 +1296,14 @@ export function SkillsView({ state, onAddCatalogEntry, onOpenMember, onResolveNe
                 <td>
                   <span className="skill-tree-name" style={{ "--depth": row.depth } as React.CSSProperties}>
                     <strong>{row.name}</strong>
-                    {/* Where it sits, not what it is: the row's own background already
-                        says 分類, and a nested category had no other cue — past three
-                        levels the indent stopped moving too (#114). */}
-                    <small>{row.path.slice(0, -1).join(" / ") || (row.kind === "category" ? "分類" : "未分類")}</small>
+                    {/* What it is and where it sits. A nested category used to say only
+                        「分類」, which left the indent as its one placing cue — and past
+                        three levels the indent stopped moving. Keeping the word matters
+                        too: dropping it would leave the kind to the row's background
+                        colour alone, which a screen reader does not read (#114). */}
+                    <small>{row.kind === "category"
+                      ? ["分類", row.path.slice(0, -1).join(" / ")].filter(Boolean).join(" · ")
+                      : row.path.slice(0, -1).join(" / ") || "未分類"}</small>
                   </span>
                 </td>
                 <td><strong>{row.memberCount}</strong><small>名</small></td>
