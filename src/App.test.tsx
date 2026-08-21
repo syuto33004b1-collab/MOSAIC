@@ -1761,14 +1761,36 @@ describe("one name per control on the board", () => {
   const owner = { name: "管理 花子", email: "owner@example.com", role: "owner" as const };
 
   /**
-   * Every button on this screen takes its accessible name from an `aria-label`
-   * or from its own text, so this is the name the role queries below match on.
-   * It is not a general accessible-name computation — jsdom has no layout, and
-   * nothing here uses `aria-labelledby` or a `title` as its only name.
+   * The accessible names Testing Library computes, not an approximation of them.
+   * `name` accepts a matcher function and is handed the *computed* name, so
+   * returning false collects every one without matching anything — no
+   * hand-rolled `aria-label ?? textContent`, which got 「3件 要調整」 wrong.
    */
-  const buttonNames = () => screen.getAllByRole("button").map((button) => button.getAttribute("aria-label") ?? (button.textContent ?? "").replace(/\s+/gu, " ").trim());
+  const controlNames = () => {
+    const names: string[] = [];
+    for (const role of ["button", "link"] as const) {
+      screen.queryAllByRole(role, { name: (accessibleName: string) => { names.push(accessibleName); return false; } });
+    }
+    return names;
+  };
 
-  const duplicates = (names: string[]) => [...new Set(names.filter((name, index) => name && names.indexOf(name) !== index))];
+  /**
+   * A drawer's backdrop and its ✕ both carry 「詳細パネルを閉じる」. They do the
+   * same thing, so it is redundancy rather than #88's one-label-two-meanings —
+   * and the backdrop being a focusable tab stop ahead of the dialog is its own
+   * defect with its own measurements (#122). Named here, and only here, so the
+   * scan stays strict about everything else.
+   */
+  const KNOWN_REPEATS = ["詳細パネルを閉じる"];
+
+  /** Returns the names it checked, so a caller can assert it looked at something. */
+  const expectDistinctNames = (where: string) => {
+    const names = controlNames();
+    const repeated = [...new Set(names.filter((name, index) => names.indexOf(name) !== index))];
+    expect(repeated.filter((name) => !KNOWN_REPEATS.includes(name)), `controls sharing a name in ${where}`).toEqual([]);
+    expect(names.filter((name) => name === ""), `unnamed controls in ${where}`).toEqual([]);
+    return names;
+  };
 
   it("gives the view-axis tabs a name the sidebar does not also use", async () => {
     const user = userEvent.setup();
@@ -1797,13 +1819,28 @@ describe("one name per control on the board", () => {
     expect(screen.getAllByRole("button", { name: "プロジェクト別" })).toHaveLength(1);
   });
 
-  it("leaves no two buttons on the board sharing a name, on either axis", async () => {
+  it("leaves no two controls on the board sharing a name, on either axis and with a panel open", async () => {
     const user = userEvent.setup();
     render(<App />);
-    expect(duplicates(buttonNames())).toEqual([]);
+    expect(expectDistinctNames("the members axis").length).toBeGreaterThan(20);
 
     await user.click(screen.getByRole("button", { name: "プロジェクト別" }));
-    expect(duplicates(buttonNames())).toEqual([]);
+    expectDistinctNames("the projects axis");
+
+    // The default view is not the only state on this screen. Each of these adds
+    // controls, and a name that is unique among the rows can still collide with
+    // one of them.
+    await user.click(screen.getByRole("button", { name: "通知" }));
+    expectDistinctNames("the notification popover");
+    await user.keyboard("{Escape}");
+
+    await user.click(screen.getAllByRole("button", { name: /のアサイン詳細（/u })[0]);
+    expectDistinctNames("the assignment drawer");
+    // Two carry this name (#122); the ✕ inside the dialog is the one to press.
+    await user.click(within(screen.getByRole("dialog", { name: "詳細パネル" })).getByRole("button", { name: "詳細パネルを閉じる" }));
+
+    await user.click(screen.getByRole("button", { name: "アサインを追加" }));
+    expectDistinctNames("the new-assignment drawer");
   });
 
   it("tells two rows apart when the project and the days are the same", async () => {
@@ -1829,7 +1866,7 @@ describe("one name per control on the board", () => {
     const range = `${days[0].month}/${days[0].date}〜${days[4].month}/${days[4].date}`;
     expect(screen.getByRole("button", { name: `Atlas リニューアルのアサイン詳細（同日 一郎・${range}）` })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: `Atlas リニューアルのアサイン詳細（同日 二郎・${range}）` })).toBeInTheDocument();
-    expect(duplicates(buttonNames())).toEqual([]);
+    expectDistinctNames("two rows on the same project and days");
   });
 
   it("names a single day without a range", async () => {
