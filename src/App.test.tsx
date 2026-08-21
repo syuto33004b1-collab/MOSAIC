@@ -3893,3 +3893,64 @@ describe("how deep a tree row says it is", () => {
     expect(skill.querySelector("small")?.textContent).toBe("エンジニアリング / フロントエンド");
   });
 });
+
+/**
+ * #164: the drawer form dresses its fields with child selectors — `.assignment-form >
+ * label` and `.assignment-form > label > input` — and `CustomFieldInputs` wrapped its
+ * labels in a div, which cut the chain. Measured at 1440px in the project edit form, the
+ * 顧客名 input was 177px on the same line as its label, against 683.8px on its own line
+ * for every other control. The selects looked right because `.assignment-form select` is
+ * written without the `>`, which is what hid it.
+ *
+ * jsdom has no layout, so this holds the structure the CSS depends on: a custom field's
+ * label is a direct child of the form, exactly like every built-in field. The widths are
+ * in the PR.
+ */
+describe("custom fields in a drawer form", () => {
+  /** Every custom field type the app has, on the entity that carries them. */
+  const withEveryFieldType = (): WorkspaceState => ({
+    ...initialWorkspace,
+    customFields: [...(initialWorkspace.customFields ?? []),
+      { id: "field-rate", entityType: "member", key: "rate", label: "想定単価", fieldType: "number", showInDetail: true },
+      { id: "field-note", entityType: "member", key: "note", label: "備考", fieldType: "text", showInDetail: true }],
+  });
+
+  const formLabels = () => {
+    const form = document.querySelector(".drawer form")!;
+    return [...form.querySelectorAll(":scope > label")].map((label) => label.textContent ?? "");
+  };
+
+  it("puts the member form's custom fields where the built-in ones are", async () => {
+    const user = userEvent.setup();
+    const adapter = sharedAdapter();
+    adapter.initialState = withEveryFieldType();
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^メンバー( |$)/u }));
+    await user.click(screen.getByRole("button", { name: /メンバーを追加/u }));
+
+    const labels = formLabels();
+    // A built-in field and every custom one, all direct children of the form.
+    for (const name of ["氏名", "雇用形態", "入社日", "英語", "想定単価", "備考"]) {
+      expect(labels.some((text) => text.startsWith(name)), `「${name}」 is not a direct child of the form`).toBe(true);
+    }
+    // And no element stands between the form and them.
+    expect(document.querySelector(".drawer form .custom-field-inputs"),
+      "the wrapper is back, and it takes the form's layout away from these fields").toBeNull();
+  });
+
+  it("does the same in the project form, where the text input was the visible one", async () => {
+    const user = userEvent.setup();
+    const adapter = sharedAdapter();
+    adapter.initialState = withEveryFieldType();
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^プロジェクト( |$)/u }));
+    await user.click(screen.getByText("Atlas リニューアル").closest("button")!);
+    await user.click(screen.getByRole("button", { name: "案件情報を編集" }));
+
+    const labels = formLabels();
+    for (const name of ["プロジェクト名", "顧客名", "契約形態"]) {
+      expect(labels.some((text) => text.startsWith(name)), `「${name}」 is not a direct child of the form`).toBe(true);
+    }
+    expect(document.querySelector(".drawer form .custom-field-inputs")).toBeNull();
+  });
+});

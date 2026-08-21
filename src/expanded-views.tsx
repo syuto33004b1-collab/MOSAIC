@@ -1376,8 +1376,13 @@ export function CustomFieldInputs({
   onChange: (values: Record<string, string>) => void;
 }) {
   if (fields.length === 0) return null;
+  // A Fragment, not a wrapper. The drawer form builds its fields with child selectors —
+  // `.assignment-form > label`, `.assignment-form > label > input` — so a wrapping div cut
+  // the chain and these labels inherited none of it: inline, no spacing, and an input at
+  // the browser's default size beside the label text. The selects looked right only
+  // because `.assignment-form select` is written without the `>` (#164).
   return (
-    <div className="custom-field-inputs">
+    <>
       {fields.map((field) => {
         const value = values[field.id] ?? "";
         const setValue = (next: string) => onChange({ ...values, [field.id]: next });
@@ -1404,7 +1409,7 @@ export function CustomFieldInputs({
           </label>
         );
       })}
-    </div>
+    </>
   );
 }
 
