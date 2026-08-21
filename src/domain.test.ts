@@ -274,6 +274,32 @@ describe("what the fit score is out of", () => {
   });
 
   /**
+   * The tie-break the guide's heading depends on. `matchScore` rounds, so 60% and 61%
+   * both give 24 — before availability became the second key, the name decided which
+   * came first and 「要件期間の最小空きが多い順」 was false for any pair inside the same
+   * 2.5-point band. The fixture is deliberately in the wrong order by name so the sort
+   * has to do the work.
+   */
+  it("breaks a score tie on availability, not on the name", () => {
+    const base = { role: "Engineer", department: "D", location: "東京", capacity: 100 as const, skills: [] as string[], initials: "XX", avatarTone: "" };
+    // 「あ」 before 「ん」 by name, and the lower availability, so a name tie-break puts
+    // it first and an availability tie-break puts it second.
+    const state = {
+      members: [
+        { ...base, id: "low", name: "あ低 空き", capacity: 60 },
+        { ...base, id: "high", name: "ん高 空き", capacity: 61 },
+      ],
+      projects: [], assignments: [], needs: [],
+    } as unknown as WorkspaceState;
+    const scene: SearchScene = { id: "s", name: "s", skills: [], startDate: "2026-09-01", endDate: "2026-09-30" };
+    const ranked = matchMembers(state, scene);
+    expect(ranked.map((match) => match.availablePercent)).toEqual([61, 60]);
+    // Both land on the same rounded score, which is the whole point.
+    expect(new Set(ranked.map((match) => match.score)).size).toBe(1);
+    expect(ranked.map((match) => match.member.id)).toEqual(["high", "low"]);
+  });
+
+  /**
    * Why the proposal screen and the resolution guide stopped printing a score.
    * `searchSceneFromNeed` forces every skill to 「必須」 — the requirement type has no
    * importance field to carry anything else — so for those screens the score reduced

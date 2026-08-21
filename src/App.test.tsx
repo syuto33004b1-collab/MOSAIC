@@ -3245,10 +3245,15 @@ describe("what the fit score is out of", () => {
       expect([40, 60, 80, 100]).toContain(Number(ceiling));
       expect(Number(score)).toBeLessThanOrEqual(Number(ceiling));
       // And the score's own arithmetic, so a cell cannot print a ceiling it is not on.
+      // A first version of this compared the value with itself — `ceiling >= 40` always
+      // holds, so the conditional collapsed to `x === x` and asserted nothing. The
+      // evaluator caught it. What matters is that the part not explained by the
+      // availability is a whole number of nice-to-haves, and fits under the ceiling.
       const fromAvailability = Math.min(40, Math.round(Number(available) * 0.4));
-      expect(Number(score) - fromAvailability, `${cell.textContent} should be availability plus whole nice-to-haves`)
-        .toBe(Number(ceiling) - 40 >= 0 ? Number(score) - fromAvailability : 0);
-      expect((Number(score) - fromAvailability) % 20).toBe(0);
+      const fromSkills = Number(score) - fromAvailability;
+      expect(fromSkills, `${cell.textContent}: score below its own availability half`).toBeGreaterThanOrEqual(0);
+      expect(fromSkills, `${cell.textContent}: more skill points than the ceiling allows`).toBeLessThanOrEqual(Number(ceiling) - 40);
+      expect(fromSkills % 20, `${cell.textContent}: skill points come 20 at a time`).toBe(0);
     }
     // One scene, one ceiling: it is a property of the scene, not of the candidate.
     expect(ceilings.size).toBe(1);

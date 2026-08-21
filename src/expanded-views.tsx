@@ -819,7 +819,7 @@ export function MembersView({
           skill rails: jumping straight to the table would otherwise miss it (#85). */}
       {selectedScene && (
         <p className="viz-caption" id="member-score-key">
-          スコアは、このシーンで満点となる {scoreCeiling} 点のうち何点かです。あると良いスキル1つで20点（最大60点）、要件期間の最小空きが100%以上で40点。必須スキルは満たしていることが前提なので、点数には入りません。
+          スコアは、このシーンで満点となる {scoreCeiling} 点のうち何点かです。あると良いスキル1つで20点（最大60点）、要件期間の最小空きを0.4倍して四捨五入した点（最大40点）。必須スキルは満たしていることが前提なので、点数には入りません。
         </p>
       )}
 
