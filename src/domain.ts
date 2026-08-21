@@ -821,8 +821,25 @@ export function getIsoWeekNumber(iso: string) {
  * A name shared by nobody comes back untouched, which is almost every row.
  */
 export function memberLabel(state: Pick<WorkspaceState, "members">, member: Pick<Member, "id" | "name" | "location">) {
-  return memberLabels(state.members).get(member.id) ?? member.name;
+  const { name, tag } = memberLabelParts(state, member);
+  return name + tag;
 }
+
+/**
+ * The same label in two pieces: the name, and the tag that tells it from a namesake's.
+ * The tag is empty when nobody shares the name.
+ *
+ * A screen that has room for only part of the label needs the pieces. The tag sits at
+ * the end, so an ellipsis eats exactly the part that does the distinguishing — measured
+ * at 375px, where the name cell is 122px and 「中村 美咲（#nakamura）」 wants 134.3px
+ * (#163).
+ */
+export function memberLabelParts(state: Pick<WorkspaceState, "members">, member: Pick<Member, "id" | "name" | "location">) {
+  return memberLabels(state.members).get(member.id) ?? { name: member.name, tag: "" };
+}
+
+/** A member's name, and the tag that distinguishes it. */
+export type MemberLabel = { name: string; tag: string };
 
 /**
  * Every member's label, in one pass, cached against the array itself.
@@ -832,9 +849,9 @@ export function memberLabel(state: Pick<WorkspaceState, "members">, member: Pick
  * React hands back the same `members` array until the workspace changes, so a WeakMap
  * keyed on it turns that into one pass, and the cache goes away with the array.
  */
-const labelCache = new WeakMap<readonly Pick<Member, "id" | "name" | "location">[], Map<string, string>>();
+const labelCache = new WeakMap<readonly Pick<Member, "id" | "name" | "location">[], Map<string, Readonly<MemberLabel>>>();
 
-export function memberLabels(members: readonly Pick<Member, "id" | "name" | "location">[]): ReadonlyMap<string, string> {
+export function memberLabels(members: readonly Pick<Member, "id" | "name" | "location">[]): ReadonlyMap<string, Readonly<MemberLabel>> {
   const cached = labelCache.get(members);
   if (cached) return cached;
   const byName = new Map<string, Pick<Member, "id" | "name" | "location">[]>();
@@ -844,29 +861,57 @@ export function memberLabels(members: readonly Pick<Member, "id" | "name" | "loc
     group.push(member);
     byName.set(key, group);
   }
-  const labels = new Map<string, string>();
+  const labels = new Map<string, Readonly<MemberLabel>>();
   for (const [name, group] of byName) {
     if (group.length < 2) {
-      labels.set(group[0].id, group[0].name);
+      labels.set(group[0].id, { name: group[0].name, tag: "" });
       continue;
     }
     // The whole group takes the same kind of suffix. Deciding per person let one
     // namesake read 「（大阪）」 while another read 「（#4f2a）」, and adding a third person
     // could change an existing label's kind — the evaluator on #123 asked for this.
     // A location only counts when it is written: 「林 葵（）」 tells nobody anything, and
-    // 「東京」 against 「 東京 」 is one place typed twice.
+    // 「東京」 against 「 東京 」 is one place typed twice. And it has to fit where it is
+    // shown, because a tag that is cut off is not a tag — see LOCATION_TAG_MAX.
     const locations = group.map((member) => member.location.trim());
-    const byLocation = locations.every(Boolean) && new Set(locations).size === group.length;
+    const byLocation = locations.every((place) => place && place.length <= LOCATION_TAG_MAX)
+      && new Set(locations).size === group.length;
     const ids = group.map((item) => item.id);
     for (const [index, member] of group.entries()) {
-      labels.set(member.id, byLocation
-        ? `${name}（${locations[index]}）`
-        : `${name}（#${idTail(member.id, ids)}）`);
+      labels.set(member.id, {
+        name,
+        tag: byLocation ? `（${locations[index]}）` : `（#${idTail(member.id, ids)}）`,
+      });
     }
   }
   labelCache.set(members, labels);
   return labels;
 }
+
+/**
+ * How long a location may be and still be a tag.
+ *
+ * The tag goes at the end of the label and the member list's name cell truncates from
+ * the end, so a tag too wide for the cell loses its tail — and if two people's locations
+ * share a long prefix, that is the whole of the difference. #163 gave the tag its own box
+ * so it is not the part that shrinks, but a box cannot be wider than the cell.
+ *
+ * Measured with canvas at the cell's own font (700 12px Zen Kaku Gothic New), against the
+ * 122px the cell has at 375px — the narrowest width this repo verifies:
+ *
+ * | tag                          | width   |
+ * | ---------------------------- | ------- |
+ * | 「（東京）」                    |  48.0px |
+ * | 「（リモート）」                 |  72.0px |
+ * | 「（東京都千代田区）」 (8)         | 108.0px |
+ * | 「（東京都千代田区丸の内A）」 (12) | 151.9px |
+ *
+ * Eight characters is the longest that still shows whole. Past that the group falls back
+ * to the id, which is four hex characters at 53.3px and distinguishes by construction.
+ * A readable place name loses to a hex tail, which is the trade: 「林 葵（#4f2a）」 says
+ * less than 「林 葵（東京）」 but more than two rows that read the same.
+ */
+const LOCATION_TAG_MAX = 8;
 
 /**
  * Enough of `id` to tell it from the others, and never a fragment of a word.

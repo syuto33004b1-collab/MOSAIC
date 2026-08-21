@@ -1614,8 +1614,17 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
    wrapper refused to shrink below its text and spilled over the next column —
    16 measured text-on-text overlaps on the project table. */
 .row-name-copy { min-width: 0; flex: 1; display: grid; }
-.project-name-cell strong,
-.member-name-cell strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.project-name-cell strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* #163: the member's name may carry a tag that tells it from a namesake's —
+   「（大阪）」 or 「（#4f2a）」 — and the tag is at the end, which is exactly what an
+   ellipsis eats. Measured at 375px, where this cell is 122px: 「佐伯 優斗（#4f2a）」 wants
+   104.7px and fits, but 「中村 美咲（#nakamura）」 wants 134.3px and lost its tail, so two
+   namesakes read alike again. Two boxes rather than one: the name shrinks and ellipsises,
+   the tag does not shrink at all. The name is the part a reader can still recover from
+   the row's subtitle and its detail panel; the tag is the part that is only in the tag. */
+.member-name-cell strong { display: flex; align-items: baseline; overflow: hidden; }
+.member-name-cell strong .row-name-main { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.member-name-cell strong .row-name-tag { flex: none; white-space: nowrap; }
 .status-pill {
   width: max-content;
   padding: 5px 7px;
