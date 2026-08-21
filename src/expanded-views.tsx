@@ -1313,7 +1313,7 @@ export function SkillsView({ state, onAddCatalogEntry, onOpenMember, onResolveNe
 
       <div className="report-insight">
         <span><Sparkles size={17} /></span>
-        <div><strong>スキルマップの見方</strong><p>「未充足」は、そのスキルを求めている要員要件の件数です。「不足」はそのうち、求められた習熟度に届く保有者が誰もいない件数です。どちらも件数なので、不足が未充足を超えることはありません。空いているかどうかは各要件の候補画面で確認してください。</p></div>
+        <div><strong>スキルマップの見方</strong><p>「未充足」は、そのスキルを求めている要員要件の件数です。「不足」はそのうち、求められた習熟度に届く保有者が誰もいない件数です。どちらも件数なので、不足が未充足を超えることはありません。実際に担当できるかどうかは、各要件の候補画面で確認してください。</p></div>
         {state.members[0] && <button onClick={() => onOpenMember(state.members[0].id)}>メンバーを確認 <ArrowRight size={13} /></button>}
       </div>
     </section>

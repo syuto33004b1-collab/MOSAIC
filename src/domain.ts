@@ -990,10 +990,12 @@ export function buildSkillMap(state: WorkspaceState): SkillMapRow[] {
      * at all. Measured, three requirements met by one qualified holder came out as 2,
      * and two requirements in periods that do not overlap came out as 1.
      *
-     * It counts requirements no holder qualifies for now — the dual of
-     * `qualifiedCount`, read from the requirement's side instead of the holder's. Same
-     * unit as `openNeedCount`, so `gap <= openNeedCount` always, and the assumption
-     * about one person per requirement is gone.
+     * It counts requirements no holder qualifies for now: the same pairing read from the
+     * requirement's side instead of the holder's. Not the complement of
+     * `qualifiedCount` — that counts holders who clear at least one requirement, and
+     * neither number determines the other. Same unit as `openNeedCount`, so
+     * `gap <= openNeedCount` always, and the assumption about one person per
+     * requirement is gone.
      *
      * Availability is deliberately not folded in. This map answers 「do we have anyone
      * with this skill」; whether they are free in a requirement's period is answered by

@@ -52,8 +52,10 @@ import {
   submitProfileRequest,
   visibleCustomFields,
   type WorkspaceState,
+  type Member,
   type SearchScene,
   type SkillProficiency,
+  type StaffingNeed,
   type SearchSkillFilter,
 } from "./domain";
 
@@ -402,19 +404,20 @@ describe("skill taxonomy and matching", () => {
  * 未充足 and needs no assumption about how many requirements one person can carry.
  */
 describe("what 「不足」 counts", () => {
-  const holder = (id: string, proficiency: SkillProficiency) => ({
+  // Typed rather than cast: a fixture that stops matching the model should fail here
+  // rather than be waved through by `as unknown as`.
+  const holder = (id: string, proficiency: SkillProficiency): Member => ({
     id, name: id, role: "Engineer", department: "D", location: "東京", capacity: 100,
-    skills: ["Go"], initials: "XX", avatarTone: "",
+    skills: ["Go"], initials: "XX", avatarTone: "mint",
     skillLevels: [{ name: "Go", proficiency }],
   });
-  const requirement = (id: string, minProficiency: SkillProficiency, startDate: string, endDate: string) => ({
+  const requirement = (id: string, minProficiency: SkillProficiency, startDate: string, endDate: string): StaffingNeed => ({
     id, projectId: "p", role: "Engineer", skills: ["Go"],
     skillRequirements: [{ name: "Go", minProficiency }],
-    startDate, endDate, allocation: 50, status: "open" as const,
+    startDate, endDate, allocation: 50, status: "open",
   });
-  const map = (members: unknown[], needs: unknown[]) =>
-    buildSkillMap({ members, projects: [], assignments: [], needs } as unknown as WorkspaceState)
-      .find((row) => row.name === "Go")!;
+  const map = (members: Member[], needs: StaffingNeed[]) =>
+    buildSkillMap({ members, projects: [], assignments: [], needs }).find((row) => row.name === "Go")!;
 
   it("is 0 when someone can meet every requirement, however many there are", () => {
     // The case that made the old arithmetic visible: 3 − 1 = 2, for a skill the team has.
@@ -472,14 +475,14 @@ describe("what 「不足」 counts", () => {
   it("adds up across a category", () => {
     const rows = buildSkillMap({
       members: [{ id: "m1", name: "m1", role: "Engineer", department: "D", location: "東京", capacity: 100,
-        skills: ["Go", "Rust"], initials: "XX", avatarTone: "",
+        skills: ["Go", "Rust"], initials: "XX", avatarTone: "mint",
         skillLevels: [{ name: "Go", proficiency: 5 }, { name: "Rust", proficiency: 1 }] }],
       projects: [], assignments: [],
       needs: [requirement("n1", 3, "2026-09-01", "2026-09-30"),
         { id: "n2", projectId: "p", role: "Engineer", skills: ["Rust"],
           skillRequirements: [{ name: "Rust", minProficiency: 4 }],
           startDate: "2026-09-01", endDate: "2026-09-30", allocation: 50, status: "open" }],
-    } as unknown as WorkspaceState);
+    });
     const skills = rows.filter((row) => row.kind === "skill");
     const categories = rows.filter((row) => row.kind === "category");
     const total = skills.reduce((sum, row) => sum + row.gap, 0);
