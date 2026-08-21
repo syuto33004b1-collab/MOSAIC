@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import { test } from "node:test";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -7,103 +7,71 @@ import { fileURLToPath } from "node:url";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 /**
- * #125: two places drew a bar chart out of numbers written into the source.
+ * #125: two bands drew a bar chart out of numbers written into the source.
  *
  * ```
  * .portfolio-weave   [64, 82, 71, 92, 76, 55, 88, 69]   8 bars, width from the value
  * .pulse-mini-bars   [72, 84, 91, 78, 64]               5 bars, height from the value
  * ```
  *
- * Both were `aria-hidden`, so assistive technology skipped them — but a sighted
- * reader had nothing to tell them from the real figures sitting in the same band
+ * Both were `aria-hidden`, so assistive technology skipped them — but a sighted reader
+ * had nothing to tell them from the real figures sitting in the same band
  * (登録案件・要注意・未充足ロール, 平均稼働率・n/n週の空き・要調整). They were removed
  * rather than filled with real data or restyled: the band already carries the three
  * numbers that matter, and the decoration it needs is already there in
  * `.pulse-strip::after` / `.portfolio-ribbon::after`, which draw an arc — a shape
  * nobody reads as a measurement.
  *
- * ## The rule this pins
+ * ## What this checks, and what it deliberately does not
  *
- * A numeric array literal in the render path has to be an **arithmetic sequence**.
- * That covers every one this codebase actually has a use for:
+ * Only that these two are gone and stay gone, from every source file and every layer
+ * of the stylesheet. Removing the markup and leaving a `display: none` behind is how a
+ * rule outlives the element it styled, and moving the component elsewhere is how a
+ * fix gets undone by a refactor rather than by a decision.
  *
- * - `[0, 1, 2, 3]` — the four-week rails, mapping an index to a real week
- * - `[1, 2, 3, 4, 5]` — proficiency levels, a real domain scale
- * - `[4, 8, 12]` — the reports range picker's options
+ * A first version also required every numeric array literal in these two files to be
+ * an arithmetic sequence, on the theory that a ruler looks like a ruler and an
+ * invented dataset does not. The evaluator on this change talked me out of it, and was
+ * right: it would fail on the next legitimate list of breakpoints, coordinates or
+ * column widths, while passing negatives, decimals, hex, digit separators, a `const`
+ * indirection or an array of objects. Whether a number is data is a judgement, and a
+ * heuristic that gets it wrong in both directions buys a repo-wide convention broader
+ * than the issue it came from.
  *
- * and excludes the shape that went wrong twice: an arbitrary series standing in for
- * measurements. A dataset invented on purpose is not arithmetic, because arithmetic
- * ones look like the ruler they are.
- *
- * ## What it cannot do
- *
- * It reads array literals. The same invented series assigned to a `const` first, or
- * pushed into a fixture, would pass — as would an arithmetic one used as if it were
- * data. This is the specific shape that appeared, not a proof that no screen invents
- * a number. The judgement about whether something is data belongs to review; this
- * stops the exact pattern from reappearing unnoticed.
+ * So the judgement stays with review. This stops the two specific shapes from coming
+ * back unnoticed, which is what the issue asked for.
  */
 
-const SOURCES = ["src/App.tsx", "src/expanded-views.tsx"];
+const GONE = ["portfolio-weave", "pulse-mini-bars"];
 const stripComments = (source) => source
   .replace(/\/\*[\s\S]*?\*\//gu, "")
   .replace(/^[ \t]*\/\/.*$/gmu, "");
 
-const isArithmetic = (values) => {
-  if (values.length < 2) return true;
-  const step = values[1] - values[0];
-  return values.every((value, index) => index === 0 || value - values[index - 1] === step);
-};
-
-test("a numeric array in the render path is a ruler, not a dataset", async () => {
-  for (const file of SOURCES) {
-    const source = stripComments(await readFile(path.join(root, file), "utf8"));
-    const invented = [...source.matchAll(/\[\s*\d+(?:\s*,\s*\d+){2,}\s*\]/gu)]
-      .map(([literal]) => ({ literal, values: literal.slice(1, -1).split(",").map((part) => Number(part.trim())) }))
-      .filter(({ values }) => !isArithmetic(values))
-      .map(({ literal }) => literal);
-    assert.deepEqual(invented, [],
-      `${file} holds a numeric array that is not an arithmetic sequence: ${invented.join(" ")}. `
-      + "If those are dimensions for bars, they are invented data drawn as a measurement (#125). "
-      + "If they are something else, this heuristic needs the exception written down.");
+/** Every file under src/, whatever the extension, so a move cannot hide one. */
+async function sourceFiles(dir = path.join(root, "src")) {
+  const entries = await readdir(dir, { withFileTypes: true });
+  const files = [];
+  for (const entry of entries) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) files.push(...await sourceFiles(full));
+    else files.push(full);
   }
-});
+  return files;
+}
 
-/**
- * The classes themselves, in the markup and in every layer of the stylesheet. Removing
- * one and leaving the other is how a `display: none` for a class nobody renders ends
- * up outliving everyone who knew why.
- */
-test("nothing is left of the two invented charts", async () => {
-  const gone = ["portfolio-weave", "pulse-mini-bars"];
-  for (const file of [...SOURCES, "src/styles.css"]) {
-    const source = await readFile(path.join(root, file), "utf8");
-    for (const name of gone) {
-      // Comments are stripped first, so a class that survives only in prose does not
-      // count. In the sources what matters is that nothing renders it, so the check is
-      // on `className`; in the stylesheet, that no layer still declares it.
-      const text = stripComments(source);
-      const rendered = [...text.matchAll(new RegExp(`className="[^"]*\\b${name}\\b`, "gu"))].length;
-      const styled = file.endsWith(".css") ? text.split(name).length - 1 : 0;
-      assert.equal(rendered, 0,
-        `${file} still renders 「${name}」 — the invented chart is back (#125)`);
-      assert.equal(styled, 0,
-        `${file} still declares 「${name}」 ${styled} time(s) — the markup and every layer of `
-        + "the stylesheet go together, or a rule outlives the element it styled (#125)");
+test("neither invented chart is anywhere under src/", async () => {
+  const files = await sourceFiles();
+  assert.ok(files.length > 10, `expected to walk the source tree, found ${files.length} files`);
+  const offenders = [];
+  for (const file of files) {
+    // Comments are stripped, so a class that survives only in prose — including this
+    // repo's habit of explaining a past defect in a comment — does not count.
+    const text = stripComments(await readFile(file, "utf8"));
+    for (const name of GONE) {
+      const count = text.split(name).length - 1;
+      if (count > 0) offenders.push(`${path.relative(root, file)}: ${name} ×${count}`);
     }
   }
-});
-
-/**
- * And what replaces them: nothing, because the arc was always the decoration. Asserted
- * so that "we removed the bars" cannot quietly become "we removed the bars and the
- * band's own decoration with them".
- */
-test("the bands keep the decoration they already had", async () => {
-  const css = stripComments(await readFile(path.join(root, "src", "styles.css"), "utf8"));
-  for (const selector of [".pulse-strip::after", ".portfolio-ribbon::after", ".member-ribbon::after"]) {
-    assert.ok(css.includes(selector),
-      `${selector} is gone. That arc is the band's decoration, and removing the invented bars (#125) `
-      + "relies on it being what occupies the space they used to.");
-  }
+  assert.deepEqual(offenders, [],
+    "these draw invented data as a measurement, or style something that does (#125):\n  " + offenders.join("\n  "));
 });
