@@ -594,8 +594,18 @@ export function MembersView({
         {onCopyQuery && searchValue.trim() && <button className="view-add-button ghost" type="button" onClick={onCopyQuery}>検索リンクをコピー</button>}
       </div>
 
+      {/* Folded by default: this screen exists to show candidates, and the nine
+          fields for saving a search scene were the tallest thing standing
+          between the top of the page and the first one (#81 has the numbers).
+          `<details>` rather than state and a button, for the native semantics
+          and the expanded-state mapping. The summary names what is inside
+          rather than repeating the action — 「検索シーンを保存」 is the button
+          within, and two similarly named controls are hard to tell apart by
+          voice. */}
       {canManageScenes && (
-        <form className="field-catalog-form search-scene-form" onSubmit={(event) => { event.preventDefault(); submitScene(); }}>
+        <details className="search-scene-disclosure">
+          <summary>検索シーンの条件を入力</summary>
+          <form className="field-catalog-form search-scene-form" onSubmit={(event) => { event.preventDefault(); submitScene(); }}>
           <label>シーン名<input value={sceneName} onChange={(event) => setSceneName(event.target.value)} placeholder="フロントエンド候補" /></label>
           <label>職種<input value={sceneRole} onChange={(event) => setSceneRole(event.target.value)} placeholder="Frontend Engineer" /></label>
           <label>勤務地<input value={sceneLocation} onChange={(event) => setSceneLocation(event.target.value)} placeholder="東京" /></label>
@@ -607,7 +617,8 @@ export function MembersView({
           <label>最小空き（%）<input type="number" min={0} max={100} value={sceneMinAvailable} onChange={(event) => setSceneMinAvailable(event.target.value)} placeholder="40" aria-label="最小空き配分" /></label>
           <button type="submit" className="view-add-button"><Plus size={15} />検索シーンを保存</button>
           {error && <p className="skill-catalog-error" role="alert">{error}</p>}
-        </form>
+          </form>
+        </details>
       )}
 
       <div className="member-table-wrap">
