@@ -3034,3 +3034,73 @@ describe("a week-scoped figure names the week it measures", () => {
     expect(cells).toEqual(["8/24週", "2週後", "3週後", "4週後"]);
   });
 });
+
+/**
+ * #142 sticks the member table's name and actions columns, and the CSS reaches the
+ * name cell by `td:nth-child(2)` — the `<th>` carries a class but the `<td>` does not.
+ * `tests/sticky-columns-contract.test.mjs` can check the rules; only the render can
+ * check the column.
+ *
+ * The evaluator on that change asked what happens if a leading column is ever dropped
+ * conditionally: the name would become the first column and a different cell would
+ * stick. Today it cannot — the favourite `<td>` is unconditional and only its contents
+ * are guarded by `onToggleFavorite` — and the table gains columns from the third
+ * onwards. Both modes are checked because "the CSS has no mode branch" says nothing
+ * about the markup: shared mode passes different props and could well render a
+ * different first column.
+ */
+describe("the sticky columns' position in the row", () => {
+  const columnsOf = () => {
+    const table = document.querySelector(".member-table") as HTMLTableElement;
+    const headers = [...table.querySelectorAll("thead tr:last-child th")];
+    const cells = [...table.querySelectorAll("tbody tr:first-child td")];
+    return { headers, cells };
+  };
+
+  const openMemberList = async (extra: Partial<Parameters<typeof App>[0]> = {}) => {
+    const user = userEvent.setup();
+    render(<App {...extra} />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^メンバー( |$)/u }));
+    return user;
+  };
+
+  const expectNameIsSecond = () => {
+    const { headers, cells } = columnsOf();
+    expect(headers[0].className).toContain("col-favorite");
+    expect(headers[1].className).toContain("col-name");
+    expect(headers.at(-1)!.className).toContain("col-actions");
+    // And the cells the CSS actually reaches: second from the left, last on the right.
+    expect(cells[1].querySelector(".member-name-cell")).not.toBeNull();
+    expect(cells.at(-1)!.className).toContain("member-row-actions");
+  };
+
+  it("puts the name second and the actions last in demo mode", async () => {
+    await openMemberList();
+    expectNameIsSecond();
+  });
+
+  it("puts them in the same places in shared mode", async () => {
+    await openMemberList({ mode: "shared", organizationName: "Example Inc.",
+      identity: { name: "編集 花子", email: "editor@example.com", role: "admin" }, shared: sharedAdapter() });
+    expect(screen.getByText("SHARED")).toBeInTheDocument();
+    expectNameIsSecond();
+  });
+
+  /**
+   * The columns that appear at runtime have to keep appearing after the second one.
+   * A search scene adds a score column and each custom field in the list view adds
+   * one; if either landed earlier, `td:nth-child(2)` would stick the wrong cell.
+   */
+  it("keeps the name second when a search scene adds its score column", async () => {
+    const user = await openMemberList();
+    const picker = screen.getByLabelText("シーンを選ぶ") as HTMLSelectElement;
+    const scene = [...picker.options].find((option) => option.value);
+    expect(scene, "the demo data should carry a saved search scene").toBeDefined();
+    await user.selectOptions(picker, scene!.value);
+
+    const { headers } = columnsOf();
+    expect(headers.some((th) => th.className.includes("col-score")), "the score column should appear").toBe(true);
+    expect(headers.findIndex((th) => th.className.includes("col-score"))).toBeGreaterThan(1);
+    expectNameIsSecond();
+  });
+});
