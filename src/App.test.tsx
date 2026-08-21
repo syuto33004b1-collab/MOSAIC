@@ -1604,9 +1604,11 @@ describe("one word per quantity", () => {
     expect(ribbon.textContent).not.toContain("40%以上の空き");
     expect(document.querySelector(".next-open")!.textContent).toContain("空き20%");
 
-    // The ordering is by 稼働率 too, so it gets the same word as the count. It
-    // has its own container now, apart from the result count (#84).
-    expect(document.querySelector(".toolbar-status")!.textContent).toBe("並び順: 稼働率の低い順");
+    // The ordering is by 稼働率 too, so it gets the same word as the count. It is
+    // a control since #138, so the word is read off the chosen option rather than
+    // a status line — the point #121 was making is about the word, not the widget.
+    const order = screen.getByLabelText("並び順を選ぶ") as HTMLSelectElement;
+    expect(order.options[order.selectedIndex].textContent).toBe("稼働率の低い順");
     expect(ribbon.textContent).toContain("稼働率の低い順にメンバーを表示");
 
     // The colour key names the same metric and the same two thresholds, and the
@@ -2166,5 +2168,206 @@ describe("no value is reachable by hover alone", () => {
     const dialog = within(screen.getByRole("dialog", { name: "詳細パネル" }));
     // Exact: the bar's label is a whole project name, not a fragment of one.
     expect(dialog.getAllByText(label).length, `${label} in the panel`).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * #138. The member toolbar had eight controls in one row, and one of them was not
+ * a control at all: 「並び順: 稼働率の低い順」 was text. The order was decided in
+ * code — score descending with a search scene picked, utilisation ascending
+ * otherwise — and the reader could see which was in force but not change it.
+ *
+ * The project list had no ordering at all, and no way to tell whether a list was
+ * filtered: its three controls read 「すべて」 when idle, so the only way to know
+ * was to open each one.
+ */
+describe("the list says how it is ordered and what is filtering it", () => {
+  const navigate = async (user: ReturnType<typeof userEvent.setup>, nav: RegExp) => {
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: nav }));
+  };
+  const namesInOrder = (cellClass: string) => [...document.querySelectorAll(cellClass)]
+    .map((cell) => cell.querySelector("strong")?.textContent ?? "");
+
+  it("reorders the member list by the chosen order", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await navigate(user, /^メンバー/u);
+
+    const order = screen.getByLabelText("並び順を選ぶ") as HTMLSelectElement;
+    // The shipped default, now visible rather than implied.
+    expect(order.options[order.selectedIndex].textContent).toBe("稼働率の低い順");
+    const byUtilisation = namesInOrder(".member-name-cell");
+    expect(byUtilisation.length).toBeGreaterThan(2);
+
+    await user.selectOptions(order, "name");
+    const byName = namesInOrder(".member-name-cell");
+    expect(byName).toEqual([...byName].sort((a, b) => a.localeCompare(b, "ja")));
+    // Same members, different sequence — a filter would have changed the set.
+    expect([...byName].sort()).toEqual([...byUtilisation].sort());
+    expect(byName).not.toEqual(byUtilisation);
+
+    // Not `byUtilisation.reverse()`: ties break by name in both directions, so
+    // reversing the ascending list flips the tied pair too. The property is
+    // monotonicity of the ratio the order is named after.
+    //
+    // Members with no ceiling are dropped rather than sorted as Infinity. They are
+    // pinned last in *both* directions on purpose, so a plain `b - a` expectation
+    // would put them first and fail — see the capacity-0 test below, which is
+    // where that rule belongs. The demo data has none today; this is so it can.
+    const ratios = () => [...document.querySelectorAll(".member-table tbody tr")].map((row) => {
+      const load = Number((row.querySelector(".load-ring strong")?.textContent ?? "").replace(/\D/gu, ""));
+      const ceiling = Number((row.querySelector(".capacity-limit")?.textContent ?? "").replace(/\D/gu, ""));
+      return ceiling > 0 ? load / ceiling : null;
+    }).filter((ratio): ratio is number => ratio !== null);
+    await user.selectOptions(order, "utilization");
+    const ascending = ratios();
+    expect(ascending.length).toBeGreaterThan(2);
+    expect(ascending).toEqual([...ascending].sort((a, b) => a - b));
+
+    await user.selectOptions(order, "utilizationDesc");
+    const descending = ratios();
+    expect(descending).toEqual([...descending].sort((a, b) => b - a));
+    expect(descending[0]).toBeGreaterThanOrEqual(ascending.at(-1)!);
+  });
+
+  it("reorders the project list, and keeps 登録順 as the order it shipped with", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await navigate(user, /^プロジェクト/u);
+
+    const order = screen.getByLabelText("並び順を選ぶ") as HTMLSelectElement;
+    expect(order.options[order.selectedIndex].textContent).toBe("登録順");
+    const registered = namesInOrder(".project-name-cell");
+
+    await user.selectOptions(order, "name");
+    const byName = namesInOrder(".project-name-cell");
+    expect(byName).toEqual([...registered].sort((a, b) => a.localeCompare(b, "ja")));
+
+    // And back: 登録順 is the workspace's own order, so returning to it has to
+    // give the original sequence rather than whatever the last sort left behind.
+    await user.selectOptions(order, "registered");
+    expect(namesInOrder(".project-name-cell")).toEqual(registered);
+  });
+
+  it("names each filter that is narrowing the list, and lets it go", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await navigate(user, /^プロジェクト/u);
+
+    // Nothing applied: no chips at all, so the toolbar stays one row.
+    expect(document.querySelector(".toolbar-chips")).toBeNull();
+    const all = document.querySelectorAll(".portfolio-table tbody tr").length;
+
+    await user.selectOptions(screen.getByLabelText("状態で絞り込み"), "進行中");
+    const chip = screen.getByRole("button", { name: "状態の絞り込み「進行中」を外す" });
+    expect(chip.textContent).toContain("状態: 進行中");
+    const narrowed = document.querySelectorAll(".portfolio-table tbody tr").length;
+    expect(narrowed).toBeLessThan(all);
+
+    await user.click(chip);
+    expect(document.querySelectorAll(".portfolio-table tbody tr").length).toBe(all);
+    expect(document.querySelector(".toolbar-chips")).toBeNull();
+  });
+
+  it("clears every filter at once, and only offers that when there are two", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await navigate(user, /^プロジェクト/u);
+    const all = document.querySelectorAll(".portfolio-table tbody tr").length;
+
+    await user.selectOptions(screen.getByLabelText("状態で絞り込み"), "進行中");
+    // One filter needs no bulk escape — the chip beside it is the escape.
+    expect(screen.queryByRole("button", { name: "条件をクリア" })).toBeNull();
+
+    await user.type(screen.getByLabelText("案件を検索"), "a");
+    await user.click(screen.getByRole("button", { name: "条件をクリア" }));
+    expect(document.querySelectorAll(".portfolio-table tbody tr").length).toBe(all);
+    expect(document.querySelector(".toolbar-chips")).toBeNull();
+  });
+
+  /**
+   * A member with no capacity has no utilisation. Subtracting to compare put them
+   * in name order against everyone, because `0.5 - Infinity` is non-finite just
+   * like `Infinity - Infinity` — so a real 50% sorted against an unknown by name.
+   * They belong last, and in both directions: heading 稼働率の高い順 with a number
+   * nobody set would be worse than the bug.
+   */
+  it("puts a member with no capacity last, whichever way the order runs", async () => {
+    const user = userEvent.setup();
+    const adapter = sharedAdapter();
+    const project = { ...initialWorkspace.projects[0], id: "project" };
+    // The names fight the intended order on purpose. A first attempt called them
+    // あ/い/う in utilisation order, and the buggy comparator's name fallback
+    // happened to produce the right sequence — the test passed against the bug.
+    // Here the member with no capacity sorts first by name and last by utilisation.
+    const busy = { ...initialWorkspace.members[0], id: "busy", name: "い 忙しい", capacity: 100 };
+    const idle = { ...initialWorkspace.members[1], id: "idle", name: "う 空き", capacity: 100 };
+    const unset = { ...initialWorkspace.members[2], id: "unset", name: "あ 上限未設定", capacity: 0 };
+    adapter.initialState = {
+      members: [busy, idle, unset],
+      projects: [project],
+      assignments: [{ id: "load", personId: busy.id, projectId: project.id, startDate: getWeekStart(0), endDate: addDays(getWeekStart(0), 4), allocation: 80, status: "confirmed" }],
+      needs: [],
+    } as unknown as WorkspaceState;
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: "メンバー" }));
+
+    const names = () => [...document.querySelectorAll(".member-name-cell strong")].map((el) => el.textContent);
+    expect(names()).toEqual(["う 空き", "い 忙しい", "あ 上限未設定"]);
+
+    await user.selectOptions(screen.getByLabelText("並び順を選ぶ"), "utilizationDesc");
+    expect(names()).toEqual(["い 忙しい", "う 空き", "あ 上限未設定"]);
+  });
+
+  /**
+   * The chip says the list is filtered and the filter decides whether it is. A box
+   * holding only spaces had them disagreeing: the search matched literal
+   * whitespace and emptied the list, with no chip to say why.
+   */
+  it("treats a search of only spaces as no search at all", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await navigate(user, /^プロジェクト/u);
+    const all = document.querySelectorAll(".portfolio-table tbody tr").length;
+
+    await user.type(screen.getByLabelText("案件を検索"), "   ");
+    expect(document.querySelectorAll(".portfolio-table tbody tr").length).toBe(all);
+    expect(document.querySelector(".toolbar-chips")).toBeNull();
+  });
+
+  /**
+   * The member toolbar gave up its result count to stay one row (#136 wanted that
+   * space). It comes back on the chips row, which only exists while filtering —
+   * which is exactly when a count that is not the total is worth having, 0
+   * included.
+   */
+  it("says what the filters left, where the filters are named", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await navigate(user, /^メンバー/u);
+    expect(document.querySelector(".toolbar-chips")).toBeNull();
+
+    await user.type(screen.getByLabelText("メンバーを検索"), "該当しない文字列");
+    expect(document.querySelectorAll(".member-table tbody tr").length).toBe(0);
+    expect(document.querySelector(".toolbar-chips-lead")!.textContent).toBe("絞り込み中 · 0名");
+  });
+
+  /**
+   * Filters narrow, buttons act, and the row used to hold both in one flow —
+   * 「このシーンを削除」 sat between two selects. Position is the distinction, so
+   * this asserts the grouping rather than any pixel.
+   */
+  it("keeps the acting controls out of the filter flow", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await navigate(user, /^プロジェクト/u);
+    await user.type(screen.getByLabelText("案件を検索"), "a");
+
+    const group = document.querySelector(".view-toolbar .toolbar-actions-group");
+    expect(group).toBeTruthy();
+    const copy = screen.getByRole("button", { name: "検索リンクをコピー" });
+    expect(group!.contains(copy)).toBe(true);
+    // And no filter wandered in with it.
+    expect(group!.querySelector(".view-filter, .inline-search")).toBeNull();
   });
 });
