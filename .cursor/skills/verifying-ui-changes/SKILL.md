@@ -86,13 +86,94 @@ getComputedStyle(document.querySelector('.role-permission-form')).gridTemplateCo
 - `horizontalOverflow` が `true` → **ページ全体が横スクロールしている。不具合**
 - `horizontalOverflow` が `false` で `outOfBounds` に要素がある → **自前スクロールのコンテナかもしれない。** 親が `overflow-x: auto` かを確認してから判断する
 
+### 「見えている」を矩形だけで判定しない
+
+**矩形が非ゼロであることは、見えていることの証明にならない。** #81 で `<details>` に入れた検索シーンフォームを、閉じた状態で実測（Chrome 148）:
+
+| | 実測 |
+| --- | --- |
+| `details.open` | `false` |
+| `details` 自身の高さ | **32px**（正しく折りたたまれている） |
+| 中のフォームの矩形 | **1531x268** |
+| `getClientRects().length` | **1** |
+| `display` / `visibility` / `contentVisibility` / `opacity` | `grid` / `visible` / `visible` / `1` |
+| `offsetParent` / `offsetHeight` | 非 null / **268** |
+
+折りたたみを担う `content-visibility: hidden` は**内部 slot（`::details-content`）に設定される**ので、子要素自身の computed style には折りたたみ状態が現れない。上のどれを見ても判定できなかった。
+
+**`el.checkVisibility()` に判定させる。**
+
+```javascript
+const VIS = { contentVisibilityAuto: true, opacityProperty: true, visibilityProperty: true };
+const vis = el => {
+  const r = el.getBoundingClientRect();
+  return el.checkVisibility(VIS) && r.width >= 1 && r.height >= 1;   // 幅と高さは別条件（下記）
+};
+```
+
+**オプションは3つ全部渡す。** 引数なしでは `visibility: hidden` と `opacity: 0` を通してしまう（実測）。
+
+**矩形の条件は残す。** `checkVisibility()` は「関連する box があるか」を見るだけで、正の幅・高さを保証しない。実測で幅50px・高さ0の要素が `true` を返した。これは可視性判定ではなく、交差計算から退化した矩形を除くための幾何条件。
+
+#### 何を落として何を通すか（実測。推測しない）
+
+| 状態 | `checkVisibility(VIS)` |
+| --- | --- |
+| 閉じた `<details>` の中 | **落とす** |
+| 閉じた `popover`（自身も中身も） | **落とす**（UA style の `display: none`） |
+| `hidden="until-found"` の**中** | **落とす** |
+| `content-visibility: auto` でスキップされた中身 | **落とす** |
+| 祖先の `opacity: 0` | **落とす** |
+| `visibility: hidden` / `opacity: 0` / `display: none` | **落とす** |
+| `hidden="until-found"` の**要素自身** | 通す（矩形が 0x0 なので上の幾何条件で落ちる） |
+| 自身に `content-visibility: hidden` | 通す（自分の box は残り、中身だけスキップされる） |
+| `filter: opacity(0)` の中 | **通す** |
+| `display: contents` の中 | 通す（子が自分の box を持つ） |
+| 祖先の `overflow: hidden` でクリップされている | **通す** |
+| `transform` で画面外へ飛ばされている | **通す** |
+| `inert` の中 | 通す（`inert` は操作可否であって可視性ではない） |
+
+**落ちないものは別に見る。** 祖先の `overflow` / `clip-path` / mask によるクリップ、他要素による遮蔽と `z-index`、`transform` や通常配置による画面外、`filter` による透明化、走査対象外のもの（shadow root、iframe、疑似要素）。**候補を分類するときに何を根拠にしたかを報告に書く。**
+
+#### 従来のフィルタとの比較
+
+上で列挙した実測ケースについて、従来の「矩形 + computed style」フィルタと突き合わせた結果:
+
+| ケース | 従来のフィルタ | `checkVisibility(VIS)` + 幾何条件 |
+| --- | --- | --- |
+| 通常の可視要素 | 通す | 通す |
+| 実際のページの文字（メンバー名） | 通す | 通す |
+| `visibility: hidden` / `opacity: 0` / `display: none` | 落とす | 落とす |
+| 自身に `content-visibility: hidden` | 通す | 通す |
+| **閉じた `<details>` の中** | **通す（誤り）** | **落とす** |
+
+**列挙したケースでは一致し、閉じた disclosure だけを追加で落とした。** 全状態で同値だと主張できるものではない。
+
+これが何を防ぐか。メンバー画面 1440px で両方のフィルタを走らせた実測:
+
+| フィルタ | 走査ノード数 | 重なり候補 |
+| --- | --- | --- |
+| 矩形 + computed style | 223 | **42** |
+| `checkVisibility(VIS)` + 幾何条件 | 213 | **0** |
+
+**42件すべてに、除外された10ノードのいずれかが含まれていた**（ペアごとに祖先を遡って確認。閉じた `<details>` を含まないペアは 0 件）。閉じた disclosure が無い項目定義画面では両者が一致した（108ノード / 0候補）。
+
+なお**「0件」は画面に不具合が無いことを意味しない。** 走査した213ノードの間に矩形の交差候補が無かった、という意味だけ。
+
+#### 対応ブラウザ
+
+**このオプション名は Chrome 121+ / Firefox 122+ / Safari 17.4+。** メソッド自体は Chrome 105+ / Firefox 106+ だが、それより古い実装は `checkOpacity` / `checkVisibilityCSS` という旧名を持ち、**知らないオプションを黙って無視する。** つまり Chrome 105〜120 では `visibility: hidden` と `opacity: 0` を通してしまい、従来のフィルタより弱くなる。
+
+古いブラウザで測る必要が出たら、その場で挙動を測ってから決める。「祖先を遡って閉じた `<details>` を探す」というフォールバックは、**表示されている `<summary>` まで除外してしまう**ので、そのままでは使えない。
+
 ### テキスト同士の矩形の交差を洗い出す
 
 これで #75 と #96 が見つかった。ただし**これは不具合の検出ではなく、目視すべき候補の抽出**である。
 
 ```javascript
-const vis = el => { const r = el.getBoundingClientRect(); const cs = getComputedStyle(el);
-  return r.width >= 1 && r.height >= 1 && cs.visibility !== 'hidden' && cs.display !== 'none' && +cs.opacity > 0; };
+const VIS = { contentVisibilityAuto: true, opacityProperty: true, visibilityProperty: true };
+const vis = el => { const r = el.getBoundingClientRect();                  // 上記「見えているを矩形だけで判定しない」
+  return el.checkVisibility(VIS) && r.width >= 1 && r.height >= 1; };
 const own = el => [...el.childNodes].filter(n => n.nodeType === 3).map(n => n.textContent.trim()).join(' ').trim();
 const where = el => { const b = []; for (let n = el; n && b.length < 3; n = n.parentElement)
   b.unshift(n.tagName.toLowerCase() + (typeof n.className === 'string' && n.className ? '.' + n.className.trim().split(/\s+/)[0] : '')); return b.join('>'); };
