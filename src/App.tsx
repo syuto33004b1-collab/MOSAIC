@@ -432,7 +432,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
    * The board's span. Only the board's — everything else on the page stays
    * week-scoped, because the sidebar's utilisation card and the attention panel
    * carry the word 「週」 in their labels (#119) and a month behind a week's label
-   * is the defect #115 was about. `currentWeekStart` below is the week containing
+   * is the defect #115 was about. `weekStart` below is the week containing
    * this range's start, which in week mode is the range itself.
    */
   const [boardUnit, setBoardUnit] = useState<BoardUnit>("week");
@@ -751,33 +751,37 @@ export default function Home({ mode = "demo", organizationId, organizationName =
   const range = useMemo(() => boardRange(boardUnit, weekOffset), [boardUnit, weekOffset]);
   const days = range.days;
   /**
-   * The week everything week-scoped works from — the drawers' 「この週」, the
-   * attention panel, and the week offset the other screens receive.
+   * The one week everything week-scoped works from: the attention panel, the
+   * drawers, the labels that name it, and the offset the other screens receive.
    *
    * Derived from the range, not from `weekOffset` directly. The offset counts
    * whatever unit the board is showing, so `getWeekStart(weekOffset)` read a month
    * of paging as that many *weeks*: one page into September put these figures on
-   * the week after next. In week mode this is the same value it always was.
+   * the week after next. In week mode this is the same value it always was; in
+   * month mode it is the week the month opens in.
+   *
+   * One binding, not two. There used to be a `weekStart` alias beside it,
+   * and an evaluator reading #146 took the pair for two different weeks and read
+   * a label/value mismatch into the assignment form. There was none — they were
+   * the same value — but a name that invites that reading is worth deleting: with
+   * one binding, "the label names the week the value measures" is syntax rather
+   * than a claim.
    */
   const weekStart = getWeekStartForDate(range.start);
   const visibleProposalIds = retainedMemberIds(proposalMemberIds, workspace.members.map((member) => member.id));
-  // The week the range opens in. Identical to `range.start` in week mode; in month
-  // mode it is the month's first week, so everything keyed off it stays a week and
-  // keeps saying so.
-  const currentWeekStart = weekStart;
   /** The same week, as a count of weeks from this one, for the screens that take one. */
   const viewWeekOffset = Math.round((Date.parse(weekStart + "T00:00:00Z") - Date.parse(getWeekStart(0) + "T00:00:00Z")) / 604_800_000);
-  const currentDailyLoads = workspace.members.flatMap((member) => memberDailyLoads(workspace, member.id, currentWeekStart, weekEnd(currentWeekStart)).map((day) => ({ ...day, capacity: member.capacity })));
+  const currentDailyLoads = workspace.members.flatMap((member) => memberDailyLoads(workspace, member.id, weekStart, weekEnd(weekStart)).map((day) => ({ ...day, capacity: member.capacity })));
   const totalCapacity = workspace.members.reduce((sum, member) => sum + member.capacity, 0) * 5;
   const averageLoad = totalCapacity > 0 ? Math.round(currentDailyLoads.reduce((sum, day) => sum + day.load, 0) / totalCapacity * 100) : 0;
   const freeDays = (currentDailyLoads.reduce((sum, day) => sum + Math.max(0, day.capacity - day.load), 0) / 100).toFixed(1);
-  const currentOverloads = workspace.members.filter((member) => memberLoad(workspace, member.id, currentWeekStart) > member.capacity);
-  const committedOverloads = committedWorkspace.members.filter((member) => memberLoad(committedWorkspace, member.id, currentWeekStart) > member.capacity);
-  const overloadMember = currentOverloads[0] ?? committedOverloads.find((member) => memberLoad(workspace, member.id, currentWeekStart) <= member.capacity);
-  const overloadPlanned = Boolean(overloadMember && committedOverloads.some((member) => member.id === overloadMember.id) && memberLoad(workspace, overloadMember.id, currentWeekStart) <= overloadMember.capacity);
+  const currentOverloads = workspace.members.filter((member) => memberLoad(workspace, member.id, weekStart) > member.capacity);
+  const committedOverloads = committedWorkspace.members.filter((member) => memberLoad(committedWorkspace, member.id, weekStart) > member.capacity);
+  const overloadMember = currentOverloads[0] ?? committedOverloads.find((member) => memberLoad(workspace, member.id, weekStart) <= member.capacity);
+  const overloadPlanned = Boolean(overloadMember && committedOverloads.some((member) => member.id === overloadMember.id) && memberLoad(workspace, overloadMember.id, weekStart) <= overloadMember.capacity);
   const overloadDates = overloadMember ? (() => {
-    const current = memberDailyLoads(workspace, overloadMember.id, currentWeekStart, weekEnd(currentWeekStart)).filter((day) => day.load > overloadMember.capacity).map((day) => day.date);
-    return current.length > 0 ? current : memberDailyLoads(committedWorkspace, overloadMember.id, currentWeekStart, weekEnd(currentWeekStart)).filter((day) => day.load > overloadMember.capacity).map((day) => day.date);
+    const current = memberDailyLoads(workspace, overloadMember.id, weekStart, weekEnd(weekStart)).filter((day) => day.load > overloadMember.capacity).map((day) => day.date);
+    return current.length > 0 ? current : memberDailyLoads(committedWorkspace, overloadMember.id, weekStart, weekEnd(weekStart)).filter((day) => day.load > overloadMember.capacity).map((day) => day.date);
   })() : [];
   const overloadAssignments = overloadMember ? workspace.assignments
     .filter((assignment) => assignment.personId === overloadMember.id && overloadDates.some((date) => assignment.startDate <= date && assignment.endDate >= date))
@@ -899,7 +903,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
    */
   const unitWord = range.unit === "week" ? "週" : "月";
   /** The week the week-scoped figures cover, for the labels that name it. */
-  const measuredWeekLabel = weekLabel(currentWeekStart);
+  const measuredWeekLabel = weekLabel(weekStart);
   const rangeEndDay = days[days.length - 1];
   // The end's year only when it differs: a week can straddle New Year, and
   // 「2026年 12月28日 — 1月1日」 leaves the reader to guess which January.
@@ -1276,7 +1280,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
     if (!canEdit || !overloadMember || overloadAssignments.length === 0) return;
     const allocations = new Map(workspace.assignments.filter((assignment) => assignment.personId === overloadMember.id).map((assignment) => [assignment.id, assignment.allocation]));
     const reductions = new Map<string, number>();
-    for (const day of memberDailyLoads(workspace, overloadMember.id, currentWeekStart, weekEnd(currentWeekStart))) {
+    for (const day of memberDailyLoads(workspace, overloadMember.id, weekStart, weekEnd(weekStart))) {
       const activeAssignments = workspace.assignments
         .filter((assignment) => assignment.personId === overloadMember.id && assignment.startDate <= day.date && assignment.endDate >= day.date)
         .sort((a, b) => (allocations.get(a.id) ?? 0) - (allocations.get(b.id) ?? 0));
@@ -2298,7 +2302,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
               「平均稼働率」 rather than 「チーム稼働率」: the board's pulse strip
               shows this same variable under that name, and one value with two
               names is what #82 is about.
-              Named from `currentWeekStart`, the week the figure is actually
+              Named from `weekStart`, the week the figure is actually
               measured over, and not from the board's first column. Those are the
               same thing while the board shows a week; once it can show a month,
               the first column is the 1st and the week began in the month before —
@@ -2446,7 +2450,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                 <div className="attention-title"><div><small>NEEDS ATTENTION</small><h2>要調整</h2></div><span>{adjustmentCount}</span></div>
                 {(currentOverloads.length > 0 || overloadPlanned) && overloadMember && (
                   <button className={"alert-card urgent " + (overloadPlanned ? "planned" : "")} onClick={() => setDrawer("overload")}>
-                    <div className="alert-top"><span>{overloadPlanned ? <CheckCircle2 size={11} /> : <AlertTriangle size={11} />} {overloadPlanned ? "解消予定" : "上限超過"}</span><small>{memberLoad(workspace, overloadMember.id, currentWeekStart)}%</small></div>
+                    <div className="alert-top"><span>{overloadPlanned ? <CheckCircle2 size={11} /> : <AlertTriangle size={11} />} {overloadPlanned ? "解消予定" : "上限超過"}</span><small>{memberLoad(workspace, overloadMember.id, weekStart)}%</small></div>
                     <h3>{overloadMember.name}さんの超過は{overloadPlanned ? "解消予定" : "要調整"}</h3><p>{overloadPlanned ? "変更を保存すると警告が解消されます。" : `${measuredWeekLabel}の稼働配分が稼働上限を超えています。`}</p>
                     <div className="alert-people"><span className={"avatar " + overloadMember.avatarTone}>{overloadMember.initials}</span><span>{overloadPlanned || !canEdit ? "内容を確認" : "調整する"} <ArrowRight size={13} /></span></div>
                   </button>
@@ -2531,8 +2535,8 @@ export default function Home({ mode = "demo", organizationId, organizationName =
             {drawer === "overload" && overloadMember && (
               <div className="drawer-content">
                 <div className="drawer-heading"><span className={"drawer-icon " + (overloadPlanned ? "mint" : "coral")}>{overloadPlanned ? <CheckCircle2 size={19} /> : <AlertTriangle size={19} />}</span><div><h2>{overloadPlanned ? "解消予定を確認" : "上限超過を調整"}</h2><p>{overloadMember.name}さん · {overloadMember.role}</p></div></div>
-                <div className={"capacity-card " + (overloadPlanned ? "resolved" : "")}><div><span>{measuredWeekLabel}の稼働</span><strong>{memberLoad(workspace, overloadMember.id, currentWeekStart)}% / 稼働上限{overloadMember.capacity}%</strong></div><div className="capacity-meter"><span style={{ width: Math.min(100, memberLoad(workspace, overloadMember.id, currentWeekStart) / overloadMember.capacity * 100) + "%" }} /><i>{overloadMember.capacity}%</i></div><p>{overloadPlanned ? "保存すると超過警告が解消されます。" : `稼働上限を${Math.max(0, memberLoad(workspace, overloadMember.id, currentWeekStart) - overloadMember.capacity)}%超えています。`}</p></div>
-                <div className="drawer-section-title"><span>現在の配分</span><small>合計 {memberLoad(workspace, overloadMember.id, currentWeekStart)}%</small></div>
+                <div className={"capacity-card " + (overloadPlanned ? "resolved" : "")}><div><span>{measuredWeekLabel}の稼働</span><strong>{memberLoad(workspace, overloadMember.id, weekStart)}% / 稼働上限{overloadMember.capacity}%</strong></div><div className="capacity-meter"><span style={{ width: Math.min(100, memberLoad(workspace, overloadMember.id, weekStart) / overloadMember.capacity * 100) + "%" }} /><i>{overloadMember.capacity}%</i></div><p>{overloadPlanned ? "保存すると超過警告が解消されます。" : `稼働上限を${Math.max(0, memberLoad(workspace, overloadMember.id, weekStart) - overloadMember.capacity)}%超えています。`}</p></div>
+                <div className="drawer-section-title"><span>現在の配分</span><small>合計 {memberLoad(workspace, overloadMember.id, weekStart)}%</small></div>
                 <div className="allocation-list">{overloadAssignments.map((assignment) => <div key={assignment.id}><span className={"project-dot " + (projectById(workspace, assignment.projectId)?.tone || "blue")} /><span><strong>{projectById(workspace, assignment.projectId)?.name}</strong><small>{formatDate(assignment.startDate)} — {formatDate(assignment.endDate)}</small></span><b>{assignment.allocation}%</b></div>)}</div>
                 {!overloadPlanned && canEdit && overloadAssignments.length > 0 ? <><div className="suggestion-card"><span><Sparkles size={15} /></span><div><strong>おすすめの調整</strong><p>超過している各営業日の案件配分を順に減らし、すべての日を稼働上限内へ収めます。</p></div></div><button className="drawer-primary" onClick={resolveOverload}><CheckCircle2 size={16} />推奨配分へ調整</button></> : <button className="drawer-primary" onClick={closeDrawer}><Check size={16} />閉じる</button>}
               </div>
@@ -2564,7 +2568,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                   <button className="drawer-secondary" onClick={() => openOpportunity((workspace.opportunities ?? []).find((opportunity) => opportunity.convertedProjectId === selectedProject.id)!.id)}>元の受注前案件を開く</button>
                 )}
                 <div className="drawer-section-title"><span>4週間の充足</span><small>{selectedProject.demand === 0 ? "必要人数 未設定" : `必要 ${selectedProject.demand}名`}</small></div>
-                <div className="detail-capacity-rail">{[0, 1, 2, 3].map((offset) => { const count = projectMembers(workspace, selectedProject.id, addDays(currentWeekStart, offset * 7)); return <div key={offset}><i><b className={selectedProject.demand > 0 && count < selectedProject.demand ? "short" : ""} style={{ width: (selectedProject.demand === 0 ? 100 : Math.min(100, count / selectedProject.demand * 100)) + "%" }} /></i><span>{offset === 0 ? measuredWeekLabel : offset + 1 + "週後"}</span><strong>{selectedProject.demand === 0 ? "未設定" : `${count}/${selectedProject.demand}`}</strong></div>; })}</div>
+                <div className="detail-capacity-rail">{[0, 1, 2, 3].map((offset) => { const count = projectMembers(workspace, selectedProject.id, addDays(weekStart, offset * 7)); return <div key={offset}><i><b className={selectedProject.demand > 0 && count < selectedProject.demand ? "short" : ""} style={{ width: (selectedProject.demand === 0 ? 100 : Math.min(100, count / selectedProject.demand * 100)) + "%" }} /></i><span>{offset === 0 ? measuredWeekLabel : offset + 1 + "週後"}</span><strong>{selectedProject.demand === 0 ? "未設定" : `${count}/${selectedProject.demand}`}</strong></div>; })}</div>
                 <div className="drawer-section-title"><span>担当メンバー</span><small>{projectMembers(workspace, selectedProject.id, weekStart)}名</small></div>
                 <div className="detail-member-list">{workspace.assignments.filter((assignment) => assignment.projectId === selectedProject.id && overlaps(assignment.startDate, assignment.endDate, weekStart, weekEnd(weekStart))).map((assignment) => { const member = memberById(workspace, assignment.personId); return <button onClick={() => member && openMember(member.id)} key={assignment.id}><span className={"avatar " + member?.avatarTone}>{member?.initials}</span><span><strong>{member?.name}</strong><small>{member?.role}</small></span><b>{assignment.allocation}%</b></button>; })}</div>
                 <div className="drawer-section-title"><span>要員要件</span><small>{selectedProjectNeeds.length}件</small></div>

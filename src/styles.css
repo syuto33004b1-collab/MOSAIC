@@ -1435,13 +1435,7 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .portfolio-table,
 .member-table {
   width: 100%;
-  /* 968, not 960. `.col-week` is `nowrap` and its header names the week now
-     (#146), so its min-content went 88px → 95.9px — up to its own declared 96px.
-     At the old floor those 8px came out of the columns that can be squeezed, and
-     the name column lost 3.4px of the width #75 gave it, leaving a three-character
-     name 0.3px of headroom at 605px. The wrapper already scrolls 385px there; 8px
-     more of that is the cheaper side of the trade. */
-  min-width: 968px;
+  min-width: 960px;
   border-collapse: collapse;
   /* Not `fixed`. The header row is built from a variable number of <th>:
      `{listFields.map(...)}` adds one per custom field the user puts in the list
@@ -1451,6 +1445,19 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
      Content-driven widths cannot starve a column; the wrapper scrolls instead. */
   table-layout: auto;
 }
+/* 968, not the 960px the two tables share, and declared here rather than further
+   down: the `@media (min-width: 1360px)` block below raises this same property to
+   1120px, and both selectors weigh the same, so a copy placed after that block
+   would win at every width and undo #136's floor. Measured — it did, and the table
+   came back 1064px at 1440px.
+
+   Why 968 at all: `.col-week` is `nowrap` and its header names the week now (#146),
+   so its min-content went 88px → 95.9px, up to its own declared 96px. At the shared
+   floor those 8px came out of the columns that can be squeezed — the name column
+   lost 3.4px of the width #75 gave it, leaving a three-character name 0.3px of
+   headroom at 605px. Only this table has a week column, so only this table pays;
+   the project table keeps 960. This wrapper already scrolls 385px there. */
+.member-table { min-width: 968px; }
 /* The member table asks for more than the wrapper gives it: nine columns, and a
    1440px viewport leaves 1066px. Left to squeeze, the auto layout takes the
    width out of whichever cell can wrap — the two row-action buttons onto a
