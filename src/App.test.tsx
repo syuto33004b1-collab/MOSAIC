@@ -3104,3 +3104,94 @@ describe("the sticky columns' position in the row", () => {
     expectNameIsSecond();
   });
 });
+
+/**
+ * #122: the panel's backdrop was a `<button>` carrying the same accessible name as
+ * the ✕ inside the panel, so a screen reader listing buttons saw 「詳細パネルを閉じる」
+ * twice — and that one sat outside the focus cycle the trap maintains. Measured with
+ * real key presses at 1440x900: 72 focusable elements, two with that name, the
+ * backdrop at document position 63 with `tabIndex: 0`, and Shift+Tab from the ✕
+ * landing on `.drawer-danger` rather than on it.
+ *
+ * That is one route, not a proof of unreachability — a screen reader's button list
+ * and the pointer could both still get there. The defect is the duplicate name for an
+ * operation that already had one, on an element advertised as focusable while the
+ * panel's own focus order excluded it.
+ *
+ * It is a div now. The keyboard keeps Escape and the ✕; the pointer keeps the
+ * backdrop.
+ */
+describe("one way to name closing the panel", () => {
+  const FOCUSABLE = 'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])';
+
+  const openPanel = async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^メンバー( |$)/u }));
+    await user.click(document.querySelector(".member-table tbody tr .member-name-cell") as HTMLElement);
+    await waitFor(() => expect(document.querySelector(".drawer")).not.toBeNull());
+    return user;
+  };
+
+  it("names the close control once, and the backdrop is not one of them", async () => {
+    await openPanel();
+    // getByRole, not getAllByRole: two matches is the defect, and this is the call
+    // that failed with 「Found multiple elements」 while #146 was being written.
+    const close = screen.getByRole("button", { name: "詳細パネルを閉じる" });
+    expect(document.querySelector(".drawer")!.contains(close)).toBe(true);
+
+    const backdrop = document.querySelector(".overlay-backdrop")!;
+    expect(backdrop.tagName).toBe("DIV");
+    expect(backdrop.getAttribute("aria-hidden")).toBe("true");
+    // Focusability has to go before `aria-hidden` can be correct: aria-hidden on a
+    // focusable element is a violation in its own right.
+    expect([...document.querySelectorAll(FOCUSABLE)]).not.toContain(backdrop);
+    expect(backdrop.hasAttribute("tabindex")).toBe(false);
+  });
+
+  it("still closes from the pointer, from Escape, and from the ✕", async () => {
+    const user = await openPanel();
+    const opener = () => document.querySelector(".member-table tbody tr .member-name-cell") as HTMLElement;
+
+    // The pointer route the div still has to serve.
+    await user.click(document.querySelector(".overlay-backdrop") as HTMLElement);
+    await waitFor(() => expect(document.querySelector(".drawer")).toBeNull());
+
+    // Escape, which is what makes dropping the backdrop from the keyboard path safe.
+    await user.click(opener());
+    await waitFor(() => expect(document.querySelector(".drawer")).not.toBeNull());
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(document.querySelector(".drawer")).toBeNull());
+
+    await user.click(opener());
+    await waitFor(() => expect(document.querySelector(".drawer")).not.toBeNull());
+    await user.click(screen.getByRole("button", { name: "詳細パネルを閉じる" }));
+    await waitFor(() => expect(document.querySelector(".drawer")).toBeNull());
+    // And the scroll lock comes off however it was closed, not only by one route.
+    expect(document.body.style.overflow).toBe("");
+  });
+
+  /**
+   * The panel's own tab order is what the trap works on, so it has to be untouched.
+   * The backdrop sat immediately before it in document order, which is why removing
+   * it shifts the panel's first focusable by exactly one and nothing else.
+   */
+  it("leaves the panel's own tab order alone", async () => {
+    await openPanel();
+    const drawer = document.querySelector(".drawer")!;
+    const all = [...document.querySelectorAll(FOCUSABLE)];
+    const inside = all.filter((element) => drawer.contains(element));
+    expect(inside.length).toBeGreaterThan(1);
+    // Contiguous: the panel's focusables are a single run, so nothing outside it
+    // sits between them for Tab to visit.
+    const positions = inside.map((element) => all.indexOf(element));
+    expect(positions).toEqual(Array.from({ length: positions.length }, (_, index) => positions[0] + index));
+    expect(inside[0]).toBe(screen.getByRole("button", { name: "詳細パネルを閉じる" }));
+  });
+
+  it("adds no serious accessibility violation with the panel open", async () => {
+    await openPanel();
+    const results = await axe.run(document.body, { rules: { "color-contrast": { enabled: false } } });
+    expect(results.violations.filter((violation) => violation.impact === "serious" || violation.impact === "critical")).toEqual([]);
+  });
+});

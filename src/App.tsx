@@ -2493,7 +2493,28 @@ export default function Home({ mode = "demo", organizationId, organizationName =
 
       {drawer && (
         <div className="overlay">
-          <button className="overlay-backdrop" aria-label="詳細パネルを閉じる" onClick={closeDrawer} />
+          {/* A div, not a button. As a `<button>` it carried the same accessible name
+              as the ✕ inside the panel, so a screen reader listing buttons saw
+              「詳細パネルを閉じる」 twice, and the second one was outside the focus cycle
+              the trap above maintains. Measured: 72 focusable elements, two with that
+              name, this one at document position 63 with `tabIndex: 0`, and Shift+Tab
+              from the ✕ landing on `.drawer-danger` rather than here (#122).
+
+              That measurement covers one route, not every route — a screen reader's
+              button list and the pointer could both still reach it. What it shows is
+              that it was advertised as a focusable control while being excluded from
+              the panel's own focus order: a duplicate name for an operation that
+              already had one.
+
+              The keyboard already has two ways out — Escape, measured, and the ✕ — so
+              dropping this from the accessible tree removes a phantom rather than a
+              route. `aria-hidden` needs the focusability gone first: on a focusable
+              element it is a violation in its own right.
+
+              No eslint-disable needed: `click-events-have-key-events` and
+              `no-static-element-interactions` both skip an `aria-hidden` element, and
+              a directive here reports as unused. */}
+          <div className="overlay-backdrop" aria-hidden="true" onClick={closeDrawer} />
           <section className="drawer" ref={drawerRef} role="dialog" aria-modal="true" aria-label="詳細パネル" tabIndex={-1}>
             <div className="drawer-handle" />
             <div className="drawer-top"><span className="drawer-kicker">{drawer === "add" ? "NEW ASSIGNMENT" : drawer === "assignment" ? "ASSIGNMENT DETAIL" : drawer === "newProject" ? "NEW PROJECT" : drawer === "newMember" ? "NEW MEMBER" : drawer === "editProject" ? "EDIT PROJECT" : drawer === "editMember" ? "EDIT MEMBER" : drawer === "needForm" ? (editingNeedId ? "EDIT STAFFING NEED" : "NEW STAFFING NEED") : drawer === "opportunity" ? "OPPORTUNITY DETAIL" : drawer === "newOpportunity" ? "NEW OPPORTUNITY" : drawer === "editOpportunity" ? "EDIT OPPORTUNITY" : drawer === "opportunityNeedForm" ? (editingOpportunityNeedId ? "EDIT STAFFING PLAN" : "NEW STAFFING PLAN") : drawer === "project" ? "PROJECT DETAIL" : drawer === "member" ? "MEMBER PROFILE" : "RESOLUTION GUIDE"}</span><button className="close-button" aria-label="詳細パネルを閉じる" onClick={closeDrawer}><X size={18} /></button></div>
