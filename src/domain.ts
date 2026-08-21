@@ -983,6 +983,25 @@ export function buildSkillMap(state: WorkspaceState): SkillMapRow[] {
       ? holders.filter(({ proficiency }) => requirements.length === 0 || requirements.some((requirement) => proficiency >= requirement.minProficiency)).length
       : 0;
     const openNeedCount = requirements.length;
+    /**
+     * #126: this was `max(0, openNeedCount - qualifiedCount)` — a count of
+     * requirements minus a count of people. The result was in neither unit, and #85
+     * had to add 「1人が1件を担う想定で数えています」 to the screen to make it readable
+     * at all. Measured, three requirements met by one qualified holder came out as 2,
+     * and two requirements in periods that do not overlap came out as 1.
+     *
+     * It counts requirements no holder qualifies for now — the dual of
+     * `qualifiedCount`, read from the requirement's side instead of the holder's. Same
+     * unit as `openNeedCount`, so `gap <= openNeedCount` always, and the assumption
+     * about one person per requirement is gone.
+     *
+     * Availability is deliberately not folded in. This map answers 「do we have anyone
+     * with this skill」; whether they are free in a requirement's period is answered by
+     * that requirement's resolution guide, which prints 要件期間の最小空き. Two answers
+     * to one question is what #124 is about.
+     */
+    const gap = requirements.filter((requirement) =>
+      !holders.some(({ proficiency }) => proficiency >= requirement.minProficiency)).length;
     rows.set(item.id, {
       id: item.id,
       name: item.name,
@@ -995,7 +1014,7 @@ export function buildSkillMap(state: WorkspaceState): SkillMapRow[] {
       departments: [...departmentCounts.entries()].map(([department, count]) => ({ department, count })).sort((left, right) => right.count - left.count || left.department.localeCompare(right.department, "ja")),
       openNeedCount,
       qualifiedCount,
-      gap: Math.max(0, openNeedCount - qualifiedCount),
+      gap,
     });
   });
 

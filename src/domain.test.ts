@@ -53,6 +53,7 @@ import {
   visibleCustomFields,
   type WorkspaceState,
   type SearchScene,
+  type SkillProficiency,
   type SearchSkillFilter,
 } from "./domain";
 
@@ -379,6 +380,114 @@ describe("skill taxonomy and matching", () => {
     expect(() => addSkillCatalogEntry(initialWorkspace.skillCatalog ?? [], { name: "React", kind: "skill" })).toThrow("同じ名前");
     expect(() => addSkillCatalogEntry(initialWorkspace.skillCatalog ?? [], { name: "GraphQL", kind: "skill", parentId: "skill-react" })).toThrow("親には分類");
     expect(addSkillCatalogEntry(initialWorkspace.skillCatalog ?? [], { name: "GraphQL", kind: "skill", parentId: "cat-backend", id: "skill-graphql" }).some((item) => item.id === "skill-graphql")).toBe(true);
+  });
+});
+
+/**
+ * #126: 「不足」 was `max(0, requirementCount - qualifiedHolderCount)` — a count of
+ * requirements minus a count of people, so the result was in neither unit. #85 had to
+ * put 「1人が1件を担う想定で数えています」 on the screen to make it readable.
+ *
+ * Measured before the change, and these are the cases the issue named:
+ *
+ * | case                                             | 未充足 | 保有 | 不足 was |
+ * | ------------------------------------------------ | ----- | --- | -------- |
+ * | 3 requirements, 1 holder who meets all three      | 3     | 1   | **2**    |
+ * | 1 requirement, 3 holders                          | 1     | 3   | 0        |
+ * | 2 requirements in periods that do not overlap     | 2     | 1   | **1**    |
+ * | 2 requirements, holder too junior for either      | 2     | 1   | 2        |
+ * | 2 requirements, holder meets one of them          | 2     | 1   | 1        |
+ *
+ * It counts requirements no holder qualifies for now, which is the same unit as
+ * 未充足 and needs no assumption about how many requirements one person can carry.
+ */
+describe("what 「不足」 counts", () => {
+  const holder = (id: string, proficiency: SkillProficiency) => ({
+    id, name: id, role: "Engineer", department: "D", location: "東京", capacity: 100,
+    skills: ["Go"], initials: "XX", avatarTone: "",
+    skillLevels: [{ name: "Go", proficiency }],
+  });
+  const requirement = (id: string, minProficiency: SkillProficiency, startDate: string, endDate: string) => ({
+    id, projectId: "p", role: "Engineer", skills: ["Go"],
+    skillRequirements: [{ name: "Go", minProficiency }],
+    startDate, endDate, allocation: 50, status: "open" as const,
+  });
+  const map = (members: unknown[], needs: unknown[]) =>
+    buildSkillMap({ members, projects: [], assignments: [], needs } as unknown as WorkspaceState)
+      .find((row) => row.name === "Go")!;
+
+  it("is 0 when someone can meet every requirement, however many there are", () => {
+    // The case that made the old arithmetic visible: 3 − 1 = 2, for a skill the team has.
+    const row = map([holder("m1", 5)], [requirement("n1", 3, "2026-09-01", "2026-09-30"),
+      requirement("n2", 3, "2026-09-01", "2026-09-30"), requirement("n3", 3, "2026-09-01", "2026-09-30")]);
+    expect({ openNeedCount: row.openNeedCount, memberCount: row.memberCount, gap: row.gap })
+      .toEqual({ openNeedCount: 3, memberCount: 1, gap: 0 });
+  });
+
+  it("is 0 for several holders and one requirement", () => {
+    const row = map([holder("m1", 5), holder("m2", 4), holder("m3", 3)], [requirement("n1", 3, "2026-09-01", "2026-09-30")]);
+    expect(row.gap).toBe(0);
+  });
+
+  /**
+   * Availability is not part of this number, in either direction. Two requirements in
+   * periods that cannot overlap used to read 1; they read 0 now, for the same reason
+   * three overlapping ones do — the team has the skill. Whether the one holder is free
+   * is what the requirement's own candidate list answers.
+   */
+  it("ignores whether the periods overlap, because that is another screen's question", () => {
+    const apart = map([holder("m1", 5)], [requirement("n1", 3, "2026-09-01", "2026-09-30"),
+      requirement("n2", 3, "2026-11-01", "2026-11-30")]);
+    const together = map([holder("m1", 5)], [requirement("n1", 3, "2026-09-01", "2026-09-30"),
+      requirement("n2", 3, "2026-09-01", "2026-09-30")]);
+    expect(apart.gap).toBe(0);
+    expect(together.gap).toBe(0);
+  });
+
+  it("counts a requirement nobody is senior enough for", () => {
+    const both = map([holder("m1", 2)], [requirement("n1", 4, "2026-09-01", "2026-09-30"),
+      requirement("n2", 4, "2026-09-01", "2026-09-30")]);
+    expect(both.gap).toBe(2);
+    // And only the ones that are actually out of reach: the holder covers the 3, not the 5.
+    const one = map([holder("m1", 3)], [requirement("n1", 3, "2026-09-01", "2026-09-30"),
+      requirement("n2", 5, "2026-09-01", "2026-09-30")]);
+    expect(one.gap).toBe(1);
+  });
+
+  it("never exceeds the number of requirements, whatever the holders look like", () => {
+    for (const proficiency of [1, 2, 3, 4, 5] as SkillProficiency[]) {
+      for (const holders of [[], [holder("m1", proficiency)], [holder("m1", proficiency), holder("m2", 1)]]) {
+        for (const minimum of [1, 3, 5] as SkillProficiency[]) {
+          const row = map(holders, [requirement("n1", minimum, "2026-09-01", "2026-09-30"),
+            requirement("n2", minimum, "2026-09-01", "2026-09-30")]);
+          expect(row.gap, `${holders.length} holder(s) at ${proficiency} against a minimum of ${minimum}`)
+            .toBeLessThanOrEqual(row.openNeedCount);
+          expect(row.gap).toBeGreaterThanOrEqual(0);
+        }
+      }
+    }
+  });
+
+  /** A category's number is the sum of its skills', which only holds while it is a count. */
+  it("adds up across a category", () => {
+    const rows = buildSkillMap({
+      members: [{ id: "m1", name: "m1", role: "Engineer", department: "D", location: "東京", capacity: 100,
+        skills: ["Go", "Rust"], initials: "XX", avatarTone: "",
+        skillLevels: [{ name: "Go", proficiency: 5 }, { name: "Rust", proficiency: 1 }] }],
+      projects: [], assignments: [],
+      needs: [requirement("n1", 3, "2026-09-01", "2026-09-30"),
+        { id: "n2", projectId: "p", role: "Engineer", skills: ["Rust"],
+          skillRequirements: [{ name: "Rust", minProficiency: 4 }],
+          startDate: "2026-09-01", endDate: "2026-09-30", allocation: 50, status: "open" }],
+    } as unknown as WorkspaceState);
+    const skills = rows.filter((row) => row.kind === "skill");
+    const categories = rows.filter((row) => row.kind === "category");
+    const total = skills.reduce((sum, row) => sum + row.gap, 0);
+    expect(total).toBe(1);
+    for (const category of categories) {
+      const own = rows.filter((row) => row.kind === "skill" && row.path.includes(category.name));
+      expect(category.gap).toBe(own.reduce((sum, row) => sum + row.gap, 0));
+    }
   });
 });
 
