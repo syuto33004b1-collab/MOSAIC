@@ -746,6 +746,74 @@ export function getIsoWeekNumber(iso: string) {
   return Math.ceil((((date.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
 }
 
+/**
+ * A member's name, with just enough beside it to tell them from a namesake.
+ *
+ * #123: nothing stops two members having the same name — `handleCreateMember` rejects
+ * only an empty one — and two of them are indistinguishable on the screens that pick
+ * people. Measured, with a second 「林 葵」 given the same role, the same primary org unit
+ * and the same location as the first:
+ *
+ * | place                          | showed                              | told apart |
+ * | ------------------------------ | ----------------------------------- | ---------- |
+ * | member row                     | 林 葵 / Project Manager · 事業推進  | no         |
+ * | detail panel heading           | 林 葵                               | no         |
+ * | assignment form's options      | 林 葵 · 8/17週 60% / … 0%           | no         |
+ * | assignment bar's aria-label    | 採用サイトのアサイン詳細（林 葵・…） | no         |
+ * | board row, proposal picker     | AH 林 葵 / 林葵 林 葵               | by accident |
+ *
+ * The accident is that seeded members carry romanised `initials` while a new one gets
+ * `makeInitials`, so the avatars differed. Not a designed distinction.
+ *
+ * What the same measurement showed is that **no member attribute is guaranteed unique**.
+ * Those two shared their org unit, their location, and every custom field (all unset).
+ * So this tries the one attribute every member has, then falls back to the id:
+ *
+ * 1. `location`, when it is unique among the namesakes — 「林 葵（大阪）」
+ * 2. otherwise the tail of the id — 「林 葵（#4f2a）」
+ *
+ * `department` is deliberately not in that list: it is already printed beside the name in
+ * the member list and on the board, and the measurement above is a case where it
+ * collides. Something already on screen cannot do the distinguishing. Custom fields are
+ * out too — they can be unset, and both of those were.
+ *
+ * A name shared by nobody comes back untouched, which is almost every row.
+ */
+export function memberLabel(state: Pick<WorkspaceState, "members">, member: Pick<Member, "id" | "name" | "location">) {
+  const namesakes = state.members.filter((item) => item.name.trim() === member.name.trim());
+  if (namesakes.length < 2) return member.name;
+  const sameLocation = namesakes.filter((item) => item.location === member.location);
+  if (sameLocation.length === 1) return `${member.name}（${member.location}）`;
+  return `${member.name}（#${idTail(member.id, namesakes.map((item) => item.id))}）`;
+}
+
+/**
+ * Enough of `id` to tell it from the others, and never a fragment of a word.
+ *
+ * New ids are `crypto.randomUUID()`, where any tail is meaningless hex and four
+ * characters read as what they are. But the seeded members carry readable slugs —
+ * `hayashi`, `saeki` — and the tail of one of those is a word fragment: 「#ashi」 looked
+ * like it meant something. Measured on the DEMO data, which is what a reader sees.
+ *
+ * So a short id is printed whole, and only a long one is trimmed. Twelve is above every
+ * slug in the seed data and far below a UUID's 36.
+ *
+ * The loop is there because a fixture or a migration can produce ids that share a tail;
+ * printing the same token for two different people would be the defect wearing a
+ * different hat.
+ */
+const SHORT_ID = 12;
+
+function idTail(id: string, among: string[]) {
+  if (id.length <= SHORT_ID) return id;
+  const others = among.filter((other) => other !== id);
+  for (let length = 4; length < id.length; length += 1) {
+    const tail = id.slice(-length);
+    if (!others.some((other) => other.endsWith(tail))) return tail;
+  }
+  return id;
+}
+
 export function makeInitials(name: string) {
   const compact = name.replace(/\s/g, "");
   return (compact[0] || "N") + (compact[compact.length - 1] || "M");

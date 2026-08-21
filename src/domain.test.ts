@@ -23,6 +23,7 @@ import {
   getWeekStartForDate,
   matchScore,
   matchScoreMax,
+  memberLabel,
   weekLabel,
   hydrateWorkspaceSkills,
   inferSkillCatalog,
@@ -491,6 +492,96 @@ describe("what 「不足」 counts", () => {
       const own = rows.filter((row) => row.kind === "skill" && row.path.includes(category.name));
       expect(category.gap).toBe(own.reduce((sum, row) => sum + row.gap, 0));
     }
+  });
+});
+
+/**
+ * #123: nothing stops two members having the same name, and two of them were
+ * indistinguishable on the screens that pick people — measured with a second 「林 葵」
+ * given the same role, the same primary org unit, the same location and the same
+ * (unset) custom fields as the first. No member attribute is guaranteed unique, so the
+ * label tries the one every member has and then falls back to the id.
+ */
+describe("telling two people with one name apart", () => {
+  const person = (id: string, name: string, location: string): Member => ({
+    id, name, role: "Engineer", department: "D", location, capacity: 100,
+    skills: [], initials: "XX", avatarTone: "mint",
+  });
+  const label = (members: Member[], id: string) =>
+    memberLabel({ members }, members.find((item) => item.id === id)!);
+
+  it("leaves a name nobody shares alone", () => {
+    const members = [person("a", "林 葵", "東京"), person("b", "佐伯 優斗", "大阪")];
+    expect(label(members, "a")).toBe("林 葵");
+    expect(label(members, "b")).toBe("佐伯 優斗");
+  });
+
+  it("uses the location when that is what differs", () => {
+    const members = [person("a", "林 葵", "東京"), person("b", "林 葵", "大阪")];
+    expect(label(members, "a")).toBe("林 葵（東京）");
+    expect(label(members, "b")).toBe("林 葵（大阪）");
+    // And a third person elsewhere does not disturb them.
+    const withThird = [...members, person("c", "佐伯 優斗", "東京")];
+    expect(label(withThird, "c")).toBe("佐伯 優斗");
+  });
+
+  /**
+   * The measured case: same name, same location. There is nothing left to say except
+   * which record this is. A short id is printed whole — the seeded ids are readable
+   * slugs and the tail of one is a word fragment, 「#ashi」 out of `hayashi`, which looked
+   * like it meant something.
+   */
+  it("falls back to the id when the location matches too", () => {
+    const members = [person("hayashi", "林 葵", "東京"), person("hayashi-2", "林 葵", "東京")];
+    expect(label(members, "hayashi")).toBe("林 葵（#hayashi）");
+    expect(label(members, "hayashi-2")).toBe("林 葵（#hayashi-2）");
+  });
+
+  /** A UUID is too long to print, and any tail of one reads as what it is. */
+  it("trims a long id to a tail", () => {
+    const members = [
+      person("0f7c8a12-4b2e-4a55-9d31-aa0000004f2a", "林 葵", "東京"),
+      person("0f7c8a12-4b2e-4a55-9d31-aa0000009c81", "林 葵", "東京"),
+    ];
+    expect(label(members, "0f7c8a12-4b2e-4a55-9d31-aa0000004f2a")).toBe("林 葵（#4f2a）");
+    expect(label(members, "0f7c8a12-4b2e-4a55-9d31-aa0000009c81")).toBe("林 葵（#9c81）");
+  });
+
+  it("uses the location for whoever it distinguishes, and the id for the rest", () => {
+    const members = [
+      person("aaaa1111", "林 葵", "東京"),
+      person("bbbb2222", "林 葵", "東京"),
+      person("cccc3333", "林 葵", "大阪"),
+    ];
+    // Osaka is one person's alone, so it is enough for them.
+    expect(label(members, "cccc3333")).toBe("林 葵（大阪）");
+    // The two in Tokyo need the id, and these are short enough to print whole.
+    expect(label(members, "aaaa1111")).toBe("林 葵（#aaaa1111）");
+    expect(label(members, "bbbb2222")).toBe("林 葵（#bbbb2222）");
+  });
+
+  /**
+   * Four characters is the starting length, not a fixed one. Ids that share a tail —
+   * a fixture, a migration that appends a suffix — would otherwise print the same
+   * token for two different people, which is the defect wearing a different hat.
+   */
+  it("lengthens the tail rather than printing the same token twice", () => {
+    // Long enough to be trimmed, and sharing their last four characters.
+    const members = [
+      person("alpha-branch-record-0001", "林 葵", "東京"),
+      person("beta-branch-record-0001", "林 葵", "東京"),
+    ];
+    const first = label(members, "alpha-branch-record-0001");
+    const second = label(members, "beta-branch-record-0001");
+    expect(first).not.toBe(second);
+    expect(first.startsWith("林 葵（#")).toBe(true);
+    // Long enough to clear the shared 「0001」.
+    expect(first.length).toBeGreaterThan("林 葵（#0001）".length);
+  });
+
+  it("ignores surrounding whitespace when deciding whether a name is shared", () => {
+    const members = [person("a", "林 葵", "東京"), person("b", " 林 葵 ", "大阪")];
+    expect(label(members, "a")).toBe("林 葵（東京）");
   });
 });
 

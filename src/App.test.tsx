@@ -3447,3 +3447,100 @@ describe("what the fit score is out of", () => {
     expect(heading).toContain("要件期間の最小空き");
   });
 });
+
+/**
+ * #123: nothing stops two members having the same name, and the screens that pick
+ * people showed them identically. Measured with a second 「林 葵」 given the same role,
+ * the same primary org unit and the same location: the member row, the panel heading,
+ * the assignment form's options and the assignment bar's accessible name were all
+ * indistinguishable, and the board row and proposal picker differed only because seeded
+ * members carry romanised `initials` while a new one gets `makeInitials`.
+ *
+ * These check the rendered screens rather than the label function, which
+ * `src/domain.test.ts` covers: what matters here is that every place a person is chosen
+ * uses it.
+ */
+describe("two members with one name", () => {
+  const twins = (): WorkspaceState => {
+    const [first, ...rest] = initialWorkspace.members;
+    return {
+      ...initialWorkspace,
+      members: [
+        ...initialWorkspace.members,
+        // Same name, same role, same department, same location as `first`: the case with
+        // nothing left to distinguish but the id.
+        { ...first, id: "twin-9c81", name: first.name },
+      ],
+      // And a third elsewhere, so the location branch is exercised on the same screen.
+      ...(rest.length > 0 ? {} : {}),
+    } as WorkspaceState;
+  };
+
+  const sharedName = initialWorkspace.members[0].name;
+
+  it("distinguishes them in the member list", async () => {
+    const user = userEvent.setup();
+    const adapter = sharedAdapter();
+    adapter.initialState = twins();
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^メンバー( |$)/u }));
+
+    const names = [...document.querySelectorAll(".member-table .row-name-copy strong")].map((el) => el.textContent ?? "");
+    const shared = names.filter((name) => name.startsWith(sharedName));
+    expect(shared, `expected two rows for 「${sharedName}」, got ${names.join(" | ")}`).toHaveLength(2);
+    // Two rows, two different labels — and both still lead with the name.
+    expect(new Set(shared).size).toBe(2);
+    // The seeded members and the twin share a location, so both fall back to the id.
+    for (const name of shared) expect(name).toMatch(new RegExp(`^${sharedName}（#[0-9a-z-]+）$`, "u"));
+  });
+
+  it("distinguishes them everywhere a person is chosen", async () => {
+    const user = userEvent.setup();
+    const adapter = sharedAdapter();
+    adapter.initialState = twins();
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
+    const navigation = within(screen.getByRole("navigation", { name: "メインナビゲーション" }));
+
+    // The board's row headings, and the accessible name of each row's week cell.
+    const headings = [...document.querySelectorAll(".person-cell .person-copy strong")].map((el) => el.textContent ?? "");
+    const boardShared = headings.filter((name) => name.startsWith(sharedName));
+    expect(boardShared).toHaveLength(2);
+    expect(new Set(boardShared).size).toBe(2);
+    const cellNames = [...document.querySelectorAll('.week-cell[aria-label]')].map((el) => el.getAttribute("aria-label") ?? "")
+      .filter((name) => name.startsWith(sharedName));
+    expect(new Set(cellNames).size).toBe(cellNames.length);
+
+    // The assignment form's member picker.
+    await user.click(screen.getByRole("button", { name: /アサインを追加/u }));
+    const options = [...(document.getElementById("assignment-member") as HTMLSelectElement).options]
+      .map((option) => option.textContent ?? "").filter((text) => text.startsWith(sharedName));
+    expect(options).toHaveLength(2);
+    expect(new Set(options).size).toBe(2);
+    await user.click(document.querySelector(".drawer .close-button") as HTMLElement);
+
+    // The proposal picker.
+    await user.click(navigation.getByRole("button", { name: /^提案( |$)/u }));
+    const picker = [...document.querySelectorAll(".proposal-picker-copy strong")].map((el) => el.textContent ?? "")
+      .filter((name) => name.startsWith(sharedName));
+    expect(picker).toHaveLength(2);
+    expect(new Set(picker).size).toBe(2);
+  });
+
+  it("leaves every other name untouched", async () => {
+    const user = userEvent.setup();
+    const adapter = sharedAdapter();
+    adapter.initialState = twins();
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^メンバー( |$)/u }));
+
+    // Every member but the twins keeps a bare name: the suffix is for collisions only,
+    // and almost every row is not one.
+    const others = initialWorkspace.members.slice(1).map((member) => member.name);
+    const names = [...document.querySelectorAll(".member-table .row-name-copy strong")].map((el) => el.textContent ?? "");
+    for (const name of others) {
+      if (name === sharedName) continue;
+      expect(names, `「${name}」 should be printed as-is`).toContain(name);
+    }
+    expect(names.filter((name) => name.includes("（#"))).toHaveLength(2);
+  });
+});

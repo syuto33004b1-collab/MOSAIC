@@ -53,6 +53,7 @@ import {
   formatSkillInput,
   getIsoWeekNumber,
   getWeekStartForDate,
+  memberLabel,
   weekLabel,
   currentLocalDate,
   getWeekStart,
@@ -842,7 +843,10 @@ export default function Home({ mode = "demo", organizationId, organizationName =
     return {
       id: member.id,
       initials: member.initials,
-      name: member.name,
+      // Labelled, not raw: this name reaches the row heading, the week cell's
+      // accessible name and every bar's, and two namesakes made all three identical
+      // (#123).
+      name: memberLabel(workspace, member),
       role: member.role + " · " + member.department,
       avatarTone: member.avatarTone,
       tagLabel: load + "%",
@@ -2540,7 +2544,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
             {drawer === "add" && (
               <form className="assignment-form" onChange={markFormDraftDirty} onSubmit={handleAddAssignment}>
                 <div className="drawer-heading"><span className="drawer-icon cobalt"><Plus size={19} /></span><div><h2>アサインを追加</h2><p>日付と稼働配分を仮置きします。</p></div></div>
-                <label htmlFor="assignment-member">メンバー<select id="assignment-member" aria-label="メンバー" value={form.personId} onChange={(event) => setForm({ ...form, personId: event.target.value })}>{workspace.members.map((member) => <option value={member.id} key={member.id}>{member.name} · {measuredWeekLabel} {memberLoad(workspace, member.id, weekStart)}%</option>)}</select></label>
+                <label htmlFor="assignment-member">メンバー<select id="assignment-member" aria-label="メンバー" value={form.personId} onChange={(event) => setForm({ ...form, personId: event.target.value })}>{workspace.members.map((member) => <option value={member.id} key={member.id}>{memberLabel(workspace, member)} · {measuredWeekLabel} {memberLoad(workspace, member.id, weekStart)}%</option>)}</select></label>
                 <label htmlFor="assignment-project">プロジェクト<select id="assignment-project" aria-label="プロジェクト" value={form.projectId} onChange={(event) => selectAssignmentProject(event.target.value)}>{workspace.projects.map((project) => <option value={project.id} key={project.id}>{project.name}</option>)}</select></label>
                 <div className="form-grid">
                   <label>開始日<input required type="date" value={form.startDate} onChange={(event) => setForm({ ...form, startDate: event.target.value })} /></label>
@@ -2554,7 +2558,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
             {drawer === "assignment" && selectedAssignment && (
               <form className="assignment-form assignment-edit-form" onChange={markFormDraftDirty} onSubmit={handleEditAssignment}>
                 <div className="drawer-heading"><span className="drawer-icon cobalt"><CalendarDays size={19} /></span><div><h2>アサインの詳細</h2><p>{projectById(workspace, selectedAssignment.projectId)?.name ?? "プロジェクト"} · {memberById(workspace, selectedAssignment.personId)?.name ?? "担当者"}</p></div></div>
-                <label htmlFor="assignment-edit-member">メンバー<select id="assignment-edit-member" aria-label="メンバー" disabled={!canEdit} value={assignmentEditForm.personId} onChange={(event) => setAssignmentEditForm({ ...assignmentEditForm, personId: event.target.value })}>{workspace.members.map((member) => <option value={member.id} key={member.id}>{member.name}</option>)}</select></label>
+                <label htmlFor="assignment-edit-member">メンバー<select id="assignment-edit-member" aria-label="メンバー" disabled={!canEdit} value={assignmentEditForm.personId} onChange={(event) => setAssignmentEditForm({ ...assignmentEditForm, personId: event.target.value })}>{workspace.members.map((member) => <option value={member.id} key={member.id}>{memberLabel(workspace, member)}</option>)}</select></label>
                 <label htmlFor="assignment-edit-project">プロジェクト<select id="assignment-edit-project" aria-label="プロジェクト" disabled={!canEdit} value={assignmentEditForm.projectId} onChange={(event) => setAssignmentEditForm({ ...assignmentEditForm, projectId: event.target.value })}>{workspace.projects.map((project) => <option value={project.id} key={project.id}>{project.name}</option>)}</select></label>
                 <div className="form-grid">
                   <label>開始日<input required disabled={!canEdit} type="date" min={projectById(workspace, assignmentEditForm.projectId)?.startDate} max={projectById(workspace, assignmentEditForm.projectId)?.endDate} value={assignmentEditForm.startDate} onChange={(event) => setAssignmentEditForm({ ...assignmentEditForm, startDate: event.target.value })} /></label>
@@ -2590,7 +2594,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                 ) : (
                   <>
                     <div className="candidate-label"><span>条件に合うメンバー</span><small>必須条件を満たす候補を、要件期間の最小空きが多い順に最大5名</small></div>
-                    {candidateMatches.length > 0 ? <div className="candidate-list">{candidateMatches.map((match) => <article key={match.member.id}><span className={"avatar " + match.member.avatarTone}>{match.member.initials}</span><span><strong>{match.member.name}</strong><small>{match.member.role} · 要件期間の最小空き {match.availablePercent}%</small><em><Check size={10} />{match.matchedMust.length > 0 ? `${match.matchedMust.join("・")}に適合` : `${selectedNeed.role}に適合`}</em></span>{canEdit ? <button onClick={() => placeCandidate(match.member.id, selectedNeed)}>仮置き</button> : <span className="read-only-label">閲覧のみ</span>}</article>)}</div> : <div className="candidate-empty"><UsersRound size={18} /><span><strong>条件を満たす候補がいません</strong><small>メンバーのスキルまたは要件期間の配分を見直してください。</small></span></div>}
+                    {candidateMatches.length > 0 ? <div className="candidate-list">{candidateMatches.map((match) => <article key={match.member.id}><span className={"avatar " + match.member.avatarTone}>{match.member.initials}</span><span><strong>{memberLabel(workspace, match.member)}</strong><small>{match.member.role} · 要件期間の最小空き {match.availablePercent}%</small><em><Check size={10} />{match.matchedMust.length > 0 ? `${match.matchedMust.join("・")}に適合` : `${selectedNeed.role}に適合`}</em></span>{canEdit ? <button onClick={() => placeCandidate(match.member.id, selectedNeed)}>仮置き</button> : <span className="read-only-label">閲覧のみ</span>}</article>)}</div> : <div className="candidate-empty"><UsersRound size={18} /><span><strong>条件を満たす候補がいません</strong><small>メンバーのスキルまたは要件期間の配分を見直してください。</small></span></div>}
                   </>
                 )}
                 <p className="drawer-footnote">候補は対象週の稼働と登録スキルに基づく参考情報です。</p>
@@ -2630,7 +2634,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
               <div className="drawer-content">
                 <div className="profile-hero">
                   <span className={"avatar profile-avatar " + selectedMember.avatarTone}>{selectedMember.initials}</span>
-                  <div><h2>{selectedMember.name}</h2><p>{selectedMember.role} · {selectedMember.department}</p><small>{selectedMember.location}</small></div>
+                  <div><h2>{memberLabel(workspace, selectedMember)}</h2><p>{selectedMember.role} · {selectedMember.department}</p><small>{selectedMember.location}</small></div>
                   <FavoriteStar name={selectedMember.name} pressed={isFavorited(favorites, "member", selectedMember.id)} onToggle={() => void toggleFavoriteTarget("member", selectedMember.id)} />
                   <strong>{memberLoad(workspace, selectedMember.id, weekStart)}%</strong>
                 </div>
@@ -2681,7 +2685,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                 <div className="drawer-heading"><span className="drawer-icon cobalt"><BriefcaseBusiness size={19} /></span><div><h2>プロジェクトを編集</h2><p>{selectedProject.code} · 期間変更時は範囲外の配員も整合します。</p></div></div>
                 <label>プロジェクト名<input required value={projectEditForm.name} onChange={(event) => setProjectEditForm({ ...projectEditForm, name: event.target.value })} /></label>
                 <label>概要<textarea value={projectEditForm.summary} onChange={(event) => setProjectEditForm({ ...projectEditForm, summary: event.target.value })} rows={3} /></label>
-                <div className="form-grid"><label htmlFor="project-edit-status">状態<select id="project-edit-status" aria-label="状態" value={projectEditForm.status} onChange={(event) => setProjectEditForm({ ...projectEditForm, status: event.target.value as ProjectStatus })}>{["準備中", "進行中", "要注意", "完了間近", "完了"].map((status) => <option key={status}>{status}</option>)}</select></label><label htmlFor="project-edit-owner">責任者<select id="project-edit-owner" aria-label="責任者" required value={projectEditForm.ownerId} onChange={(event) => setProjectEditForm({ ...projectEditForm, ownerId: event.target.value })}>{workspace.members.map((member) => <option value={member.id} key={member.id}>{member.name}</option>)}</select></label></div>
+                <div className="form-grid"><label htmlFor="project-edit-status">状態<select id="project-edit-status" aria-label="状態" value={projectEditForm.status} onChange={(event) => setProjectEditForm({ ...projectEditForm, status: event.target.value as ProjectStatus })}>{["準備中", "進行中", "要注意", "完了間近", "完了"].map((status) => <option key={status}>{status}</option>)}</select></label><label htmlFor="project-edit-owner">責任者<select id="project-edit-owner" aria-label="責任者" required value={projectEditForm.ownerId} onChange={(event) => setProjectEditForm({ ...projectEditForm, ownerId: event.target.value })}>{workspace.members.map((member) => <option value={member.id} key={member.id}>{memberLabel(workspace, member)}</option>)}</select></label></div>
                 <div className="form-grid"><label>開始日<input required type="date" value={projectEditForm.startDate} onChange={(event) => setProjectEditForm({ ...projectEditForm, startDate: event.target.value })} /></label><label>終了日<input required type="date" min={projectEditForm.startDate} value={projectEditForm.endDate} onChange={(event) => setProjectEditForm({ ...projectEditForm, endDate: event.target.value })} /></label></div>
                 <label>次のマイルストーン<input value={projectEditForm.nextMilestone} onChange={(event) => setProjectEditForm({ ...projectEditForm, nextMilestone: event.target.value })} /></label>
                 <label>マイルストーン日<input type="date" min={projectEditForm.startDate} max={projectEditForm.endDate} value={projectEditForm.nextMilestoneDate} onChange={(event) => setProjectEditForm({ ...projectEditForm, nextMilestoneDate: event.target.value })} /></label>
@@ -2737,7 +2741,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                           <article key={member.id}>
                             <span className={"avatar " + member.avatarTone}>{member.initials}</span>
                             <span>
-                              <strong>{member.name}</strong>
+                              <strong>{memberLabel(workspace, member)}</strong>
                               <small>{member.role} · 要件期間の最小空き {member.capacity - memberPeakLoad(workspace, member.id, selectedOpportunityNeed.startDate, selectedOpportunityNeed.endDate)}%</small>
                               <em><Check size={10} />{selectedOpportunityNeed.skills.length > 0 ? `${member.skills.filter((skill) => selectedOpportunityNeed.skills.some((neededSkill) => neededSkill.toLocaleLowerCase() === skill.toLocaleLowerCase())).join("・")}に適合` : `${selectedOpportunityNeed.role}に適合`}</em>
                             </span>
@@ -2773,7 +2777,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                 <label>概要<textarea value={opportunityForm.summary} onChange={(event) => setOpportunityForm({ ...opportunityForm, summary: event.target.value })} rows={3} /></label>
                 <div className="form-grid">
                   <label htmlFor="opportunity-new-stage">段階<select id="opportunity-new-stage" aria-label="段階" value={opportunityForm.stage} onChange={(event) => setOpportunityForm({ ...opportunityForm, stage: event.target.value as OpportunityStage })}>{(["inquiry", "proposal", "negotiation"] as const).map((stage) => <option value={stage} key={stage}>{OPPORTUNITY_STAGE_LABELS[stage]}</option>)}</select></label>
-                  <label htmlFor="opportunity-new-owner">責任者<select id="opportunity-new-owner" aria-label="責任者" required value={opportunityForm.ownerId} onChange={(event) => setOpportunityForm({ ...opportunityForm, ownerId: event.target.value })}>{workspace.members.map((member) => <option value={member.id} key={member.id}>{member.name}</option>)}</select></label>
+                  <label htmlFor="opportunity-new-owner">責任者<select id="opportunity-new-owner" aria-label="責任者" required value={opportunityForm.ownerId} onChange={(event) => setOpportunityForm({ ...opportunityForm, ownerId: event.target.value })}>{workspace.members.map((member) => <option value={member.id} key={member.id}>{memberLabel(workspace, member)}</option>)}</select></label>
                 </div>
                 <div className="form-grid"><label>開始日<input required type="date" value={opportunityForm.startDate} onChange={(event) => setOpportunityForm({ ...opportunityForm, startDate: event.target.value })} /></label><label>終了日<input required type="date" min={opportunityForm.startDate} value={opportunityForm.endDate} onChange={(event) => setOpportunityForm({ ...opportunityForm, endDate: event.target.value })} /></label></div>
                 <label>必要人数<input required type="number" min="0" max="10000" value={opportunityForm.demand} onChange={(event) => setOpportunityForm({ ...opportunityForm, demand: event.target.value })} /></label>
@@ -2788,7 +2792,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                 <label>概要<textarea value={opportunityEditForm.summary} onChange={(event) => setOpportunityEditForm({ ...opportunityEditForm, summary: event.target.value })} rows={3} /></label>
                 <div className="form-grid">
                   <label htmlFor="opportunity-edit-stage">段階<select id="opportunity-edit-stage" aria-label="段階" value={opportunityEditForm.stage} onChange={(event) => setOpportunityEditForm({ ...opportunityEditForm, stage: event.target.value as OpportunityStage })}>{(["inquiry", "proposal", "negotiation"] as const).map((stage) => <option value={stage} key={stage}>{OPPORTUNITY_STAGE_LABELS[stage]}</option>)}</select></label>
-                  <label htmlFor="opportunity-edit-owner">責任者<select id="opportunity-edit-owner" aria-label="責任者" required value={opportunityEditForm.ownerId} onChange={(event) => setOpportunityEditForm({ ...opportunityEditForm, ownerId: event.target.value })}>{workspace.members.map((member) => <option value={member.id} key={member.id}>{member.name}</option>)}</select></label>
+                  <label htmlFor="opportunity-edit-owner">責任者<select id="opportunity-edit-owner" aria-label="責任者" required value={opportunityEditForm.ownerId} onChange={(event) => setOpportunityEditForm({ ...opportunityEditForm, ownerId: event.target.value })}>{workspace.members.map((member) => <option value={member.id} key={member.id}>{memberLabel(workspace, member)}</option>)}</select></label>
                 </div>
                 <div className="form-grid"><label>開始日<input required type="date" value={opportunityEditForm.startDate} onChange={(event) => setOpportunityEditForm({ ...opportunityEditForm, startDate: event.target.value })} /></label><label>終了日<input required type="date" min={opportunityEditForm.startDate} value={opportunityEditForm.endDate} onChange={(event) => setOpportunityEditForm({ ...opportunityEditForm, endDate: event.target.value })} /></label></div>
                 <label>必要人数<input required type="number" min="0" max="10000" value={opportunityEditForm.demand} onChange={(event) => setOpportunityEditForm({ ...opportunityEditForm, demand: event.target.value })} /></label>
@@ -2813,7 +2817,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                 <div className="drawer-heading"><span className="drawer-icon cobalt"><BriefcaseBusiness size={19} /></span><div><h2>プロジェクトを追加</h2><p>一覧へ追加し、後から配員を設定します。</p></div></div>
                 <label>プロジェクト名<input required value={projectForm.name} onChange={(event) => setProjectForm({ ...projectForm, name: event.target.value })} placeholder="例：顧客ポータル刷新" /></label>
                 <label htmlFor="project-new-status">状態<select id="project-new-status" aria-label="状態" value={projectForm.status} onChange={(event) => setProjectForm({ ...projectForm, status: event.target.value as ProjectStatus })}>{["準備中", "進行中", "要注意", "完了間近"].map((status) => <option key={status}>{status}</option>)}</select></label>
-                <label htmlFor="project-new-owner">責任者<select id="project-new-owner" aria-label="責任者" value={projectForm.ownerId} onChange={(event) => setProjectForm({ ...projectForm, ownerId: event.target.value })}>{workspace.members.map((member) => <option value={member.id} key={member.id}>{member.name}</option>)}</select></label>
+                <label htmlFor="project-new-owner">責任者<select id="project-new-owner" aria-label="責任者" value={projectForm.ownerId} onChange={(event) => setProjectForm({ ...projectForm, ownerId: event.target.value })}>{workspace.members.map((member) => <option value={member.id} key={member.id}>{memberLabel(workspace, member)}</option>)}</select></label>
                 <label>完了予定<input required type="date" min={days[0].iso} value={projectForm.endDate} onChange={(event) => setProjectForm({ ...projectForm, endDate: event.target.value })} /></label>
                 <button className="drawer-primary" type="submit" disabled={!canEdit}><Check size={16} />プロジェクトを追加</button>
               </form>

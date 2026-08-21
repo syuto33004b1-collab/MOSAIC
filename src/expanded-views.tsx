@@ -79,6 +79,7 @@ import {
   formatDate,
   matchMembers,
   matchScoreMax,
+  memberLabel,
   memberById,
   projectById,
   searchSceneFromNeed,
@@ -836,7 +837,7 @@ export function MembersView({
               return (
                 <tr key={member.id}>
                   <td>{onToggleFavorite ? <FavoriteStar name={member.name} pressed={isFavorited(favorites, "member", member.id)} onToggle={() => onToggleFavorite(member.id)} /> : null}</td>
-                  <td><button className="member-name-cell" onClick={() => onOpen(member.id)}><span className={"avatar " + member.avatarTone}>{member.initials}</span><span className="row-name-copy"><strong>{member.name}</strong><small>{member.role} · {member.department}{memberOrgMemberships(state, member.id).some((item) => !item.isPrimary) ? " · 兼務あり" : ""}</small></span></button></td>
+                  <td><button className="member-name-cell" onClick={() => onOpen(member.id)}><span className={"avatar " + member.avatarTone}>{member.initials}</span><span className="row-name-copy"><strong>{memberLabel(state, member)}</strong><small>{member.role} · {member.department}{memberOrgMemberships(state, member.id).some((item) => !item.isPrimary) ? " · 兼務あり" : ""}</small></span></button></td>
                   <td><div className="member-skills">{memberSkillLevels(member).slice(0, 3).map((level) => <span key={level.name}>{level.name}<small>{level.proficiency}</small></span>)}</div></td>
                   {selectedScene && <td><span className="match-score">{match?.score ?? 0}/{scoreCeiling}点<small>空き{match?.availablePercent ?? 0}%</small></span></td>}
                   {listFields.map((field) => <td key={field.id}><span className="custom-field-cell">{formatCustomValue(field, customValue(member.customValues, field.id))}</span></td>)}
@@ -984,7 +985,7 @@ export function ProposalView({
               {favoriteMembers.slice(0, 8).map((member) => (
                 <button type="button" key={member.id} className="proposal-picker-item" onClick={() => addMember(member.id)} disabled={selectedIds.length >= MAX_PROPOSAL_MEMBERS}>
                   <span className={"avatar " + member.avatarTone}>{member.initials}</span>
-                  <span className="proposal-picker-copy"><strong>{member.name}</strong><small>{member.role}</small></span>
+                  <span className="proposal-picker-copy"><strong>{memberLabel(state, member)}</strong><small>{member.role}</small></span>
                   <Plus size={14} />
                 </button>
               ))}
@@ -995,7 +996,7 @@ export function ProposalView({
             {pickerMembers.slice(0, 12).map((member) => (
               <button type="button" key={member.id} className="proposal-picker-item" onClick={() => addMember(member.id)} disabled={selectedIds.length >= MAX_PROPOSAL_MEMBERS}>
                 <span className={"avatar " + member.avatarTone}>{member.initials}</span>
-                <span className="proposal-picker-copy"><strong>{member.name}</strong><small>{member.role}</small></span>
+                <span className="proposal-picker-copy"><strong>{memberLabel(state, member)}</strong><small>{member.role}</small></span>
                 <Plus size={14} />
               </button>
             ))}
@@ -1012,7 +1013,8 @@ export function ProposalView({
             </div>
           )}
           {selected.map((member, index) => {
-            const label = anonymous ? anonymousCandidateLabel(index) : member.name;
+            // Anonymous mode numbers the candidates, so it needs no disambiguation (#123).
+            const label = anonymous ? anonymousCandidateLabel(index) : memberLabel(state, member);
             const weeklyLoads = proposalWeeklyLoads(state, member, weekStart);
             return (
               <article className={"proposal-card" + (anonymous ? " is-anonymous" : "")} key={member.id}>
@@ -1190,7 +1192,7 @@ export function ReportsView({ state, onOpenWeek, onResolveNeed, onOpenOpportunit
         <section className="exceptions-card">
           <div className="card-heading"><div><small>EXCEPTIONS</small><h3>判断が必要な項目</h3></div><span>{currentOverloads.length + activeNeeds.length + pipelineNeeds.length}</span></div>
           <div className="exception-list">
-            {currentOverloads.map((member) => <button onClick={() => onOpenWeek(0)} key={member.id}><span className="exception-icon risk"><CircleAlert size={14} /></span><span><strong>{member.name}さんが{memberLoad(state, member.id, getWeekStart(0))}%</strong><small>今週の稼働を調整してください</small></span><ChevronRight size={15} /></button>)}
+            {currentOverloads.map((member) => <button onClick={() => onOpenWeek(0)} key={member.id}><span className="exception-icon risk"><CircleAlert size={14} /></span><span><strong>{memberLabel(state, member)}さんが{memberLoad(state, member.id, getWeekStart(0))}%</strong><small>今週の稼働を調整してください</small></span><ChevronRight size={15} /></button>)}
             {activeNeeds.map((need) => <button onClick={() => onResolveNeed(need.id)} key={need.id}><span className={"exception-icon " + (need.status === "planned" ? "planned" : "open")}><CalendarClock size={14} /></span><span><strong>{state.projects.find((project) => project.id === need.projectId)?.name}</strong><small>{need.role} {need.allocation}% · {need.status === "planned" ? "解消予定" : "担当未定"}</small></span><ChevronRight size={15} /></button>)}
             {pipelineNeeds.map((need) => {
               const opportunity = activeOpportunities.find((item) => item.id === need.opportunityId);
@@ -1654,7 +1656,7 @@ export function ProfileRequestsPanel({
             {state.members.map((member) => (
               <label key={member.id}>
                 <input type="checkbox" checked={selectedIds.includes(member.id)} onChange={() => toggleMember(member.id)} />
-                {member.name}
+                {memberLabel(state, member)}
               </label>
             ))}
           </fieldset>
