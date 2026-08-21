@@ -130,20 +130,21 @@ test("no rule after the floor declares a size below it", async () => {
  * wins. #100 found 46 that were not covered: `.person-copy strong` at 10px,
  * `.profile-actions button` at 8px, every `.production-*` list, and two of them
  * hidden inside a `font:` shorthand rather than a `font-size:`. Six were visible
- * in DEMO and rendered at 10–11px against a 12px token; the rest live in
- * drawers, popovers and shared-mode screens the browser sweep never reaches,
- * which is exactly why a static check is worth having here.
+ * in DEMO and rendered at 10–11px against a 12px token. Most of the rest are the
+ * shared-mode `.production-*` screens, which need a login, so no DEMO sweep can
+ * reach them — which is exactly why a static check is worth having here.
  *
  * ## What this cannot do
  *
  * It is a repository convention, not proof of a rendered size. Selector *text*
- * is compared, so a rule the floor covers by a different but equivalent
- * selector reads as a hole, and a broader selector reads as covered. Beyond
- * that, source order is only one thing the cascade weighs: `!important`, cascade
- * layers, `@scope`, nesting, inline styles and CSS-in-JS all outrank it. Nor
- * does it see every way to express a size — `em`, `%`, `calc()`, a size carried
- * through another custom property, or a `transform` that scales the text. The
- * browser sweep recorded in the PR is what actually establishes the floor.
+ * is compared with an exact match, so any rule the floor covers by a different
+ * selector — broader, narrower or merely written differently — reads as a hole.
+ * Beyond that, source order is only one thing the cascade weighs: `!important`,
+ * cascade layers, `@scope`, nesting, inline styles and CSS-in-JS all outrank it.
+ * Nor does it see every way to express a size — `em`, `%`, `calc()`, a size
+ * carried through another custom property, or a `transform` that scales the
+ * text. The browser sweep recorded in the PR establishes the floor for the
+ * twelve states it visits, and no others.
  */
 test("every small literal before the floor is one the floor covers", async () => {
   const css = (await read()).replaceAll("\r\n", "\n");
@@ -171,9 +172,13 @@ test("every small literal before the floor is one the floor covers", async () =>
 });
 
 /**
- * #100 also asked for the type scale to be tokens rather than raw values. At a
- * 12px floor the rendered scale is three steps: the floor (1050 elements across
- * nine screens), 13px (87) and 16px (133) — the 11px values all moved to 12px.
+ * #100 also asked for the type scale to be tokens rather than raw values. Below
+ * 17px the rendered sizes are three steps: the floor (1050 elements across nine
+ * screens), 13px (87) and 16px (133) — the 11px values all moved to 12px. Those
+ * three are what this pins. Above them the page also renders 13.33px, 17, 22,
+ * 23, 28 and a `clamp()`ed heading, each in one or two places, and none of them
+ * a step anything else reuses.
+ *
  * The names are deliberately neutral steps rather than roles: 13px is both the
  * nav label and a `select`'s control text, 16px is both a card `h3` and the `+`
  * glyph in a button, so `--text-body` / `--text-lead` would name a meaning that

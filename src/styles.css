@@ -1535,15 +1535,18 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   padding: 0 8px 25px;
   display: grid;
   grid-template-columns: repeat(12, minmax(42px, 1fr));
-  /* バー / 稼働率 / 受注前 / 週 */
-  grid-template-rows: minmax(0, 1fr) auto auto auto;
+  grid-template-rows: [bar] minmax(0, 1fr) [rate] auto [pipeline] auto [week] auto;
   align-items: end;
   /* 列だけ。行に 8px を入れると3本の隙間で 24px をラベル側に取られ、
      バーの軌道がそのぶん短くなる。行間はラベル自身の margin-top が持つ */
   column-gap: 8px;
   overflow-x: auto;
 }
-.horizon-guide { position: absolute; left: 0; right: 0; height: 1px; background: #edf0f4; }
+/* 17% と 50% は (120-100)/120 と (120-60)/120 で、バーの軌道に対する割合。
+   グリッドの行を指定しないと 188px の枠に対する割合になり、線がバーの目盛りを
+   表さなくなる（100% の線が 32px、バーの 100% は 17px という状態だった）。
+   `.horizon-grid` は position: relative なので、行を指定すればその行が包含ブロック */
+.horizon-guide { position: absolute; grid-row: bar; grid-column: 1 / -1; left: 0; right: 0; height: 1px; background: #edf0f4; }
 .horizon-guide.g120 { top: 0; }.horizon-guide.g100 { top: 17%; border-top: 1px dashed #d9dee8; background: transparent; }.horizon-guide.g60 { top: 50%; }
 /* バーに固定の高さを持たせると、文字を上げるたびに枠から溢れる。12px 化で
    必要な高さが 168 → 170px になり、`.horizon-grid` は 188px 固定で
@@ -1562,9 +1565,9 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   justify-items: center;
   align-items: end;
 }
-/* 受注前の数値が無い週でも週ラベルは最後の行。auto 配置に任せると3行目に
+/* 受注前の数値が無い週でも週ラベルは week 行。auto 配置に任せると pipeline 行に
    上がってしまい、週ごとにラベルの高さが揃わない */
-.horizon-week > small { grid-row: 4; }
+.horizon-week > small { grid-row: week; }
 .horizon-bar { position: relative; width: 21px; height: 100%; border-radius: 6px 6px 3px 3px; background: #f0f2f6; overflow: visible; }
 .horizon-bar i { position: absolute; left: 0; right: 0; bottom: 0; border-radius: inherit; background: #8391e6; transition: height .25s ease; }
 .horizon-bar i.over { background: #e8786f; }
@@ -1931,7 +1934,7 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .production-scope-list input { margin-top: 2px; }
 .production-secret-banner { align-items: flex-start; }
 .production-secret-banner span { display: grid; gap: 6px; min-width: 0; }
-.production-secret-banner code { display: block; padding: 8px; overflow: auto; border-radius: 8px; background: #f4f6fa; font: 600 var(--text-min)/var(--leading) var(--font-data); word-break: break-all; }
+.production-secret-banner code { display: block; padding: 8px; overflow: auto; border-radius: 8px; background: #f4f6fa; font: 600 var(--text-min)/1.5 var(--font-data); word-break: break-all; }
 .production-organization-switcher { margin-bottom: 20px; }
 .production-runtime-info { margin: 24px 0 0; color: #99a2b2; font: 700 9px/1.5 var(--font-data); letter-spacing: .04em; text-align: center; }
 
@@ -4071,10 +4074,10 @@ h1 {
   box-shadow: 0 6px 22px rgba(36,48,78,.04);
 }
 .skill-map-table { width: 100%; border-collapse: collapse; }
-.skill-map-table th,
 /* 7px は行高から逆算した値。名前セル（strong + small の2段）が行の高さを決めていて、
-   12px 化で 58px → 60px になる。padding を 11 → 7 で 50px。スキルマップは32行あるので
-   ここが一番効く（実測 −269px） */
+   12px 化で 58px → 60px になる。padding を 11 → 7 で 50px。th と td の両方に効く。
+   スキルマップは32行あるのでここが一番効く（実測 −295px） */
+.skill-map-table th,
 .skill-map-table td { padding: 7px 14px; border-bottom: 1px solid #eef1f6; text-align: left; vertical-align: middle; }
 .skill-map-table th { color: var(--muted-readable); font-size: var(--text-min); font-weight: 800; letter-spacing: .08em; }
 .skill-map-table .category-row { background: #f7f9fc; }
@@ -4224,7 +4227,6 @@ h1 {
 }
 .match-score small { color: #8c95a6; font-size: var(--text-min); font-weight: 700; }
 .saved-report-card { margin: 0 0 18px; }
-.field-surfaces { color: #6d7689; font-size: var(--text-min); font-weight: 700; }
 
 .pipeline-board {
   margin-bottom: 18px;
