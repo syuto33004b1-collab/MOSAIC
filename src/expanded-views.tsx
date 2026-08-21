@@ -1294,9 +1294,12 @@ export function SkillsView({ state, onAddCatalogEntry, onOpenMember, onResolveNe
             {filtered.map((row) => (
               <tr key={row.id} className={row.kind === "category" ? "category-row" : row.gap > 0 ? "gap-row" : ""}>
                 <td>
-                  <span className={"skill-tree-name depth-" + row.depth}>
+                  <span className="skill-tree-name" style={{ "--depth": row.depth } as React.CSSProperties}>
                     <strong>{row.name}</strong>
-                    <small>{row.kind === "category" ? "分類" : row.path.slice(0, -1).join(" / ") || "未分類"}</small>
+                    {/* Where it sits, not what it is: the row's own background already
+                        says 分類, and a nested category had no other cue — past three
+                        levels the indent stopped moving too (#114). */}
+                    <small>{row.path.slice(0, -1).join(" / ") || (row.kind === "category" ? "分類" : "未分類")}</small>
                   </span>
                 </td>
                 <td><strong>{row.memberCount}</strong><small>名</small></td>
@@ -1985,7 +1988,7 @@ export function OrgView({ state, onAddUnit, onMoveUnit, onArchiveUnit, canManage
               return (
                 <tr key={unit.id} className={depth === 0 ? "category-row" : ""}>
                   <td>
-                    <span className={"skill-tree-name depth-" + Math.min(3, depth)}>
+                    <span className="skill-tree-name" style={{ "--depth": depth } as React.CSSProperties}>
                       <strong>{unit.name}</strong>
                       <small>{orgUnitPath(state.orgUnits, unit.id).slice(0, -1).join(" / ") || "最上位"}</small>
                     </span>
