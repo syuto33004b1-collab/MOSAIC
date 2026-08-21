@@ -1185,9 +1185,9 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   .proposal-layout { grid-template-columns: 1fr; }
 }
 /* The key for a visualisation whose encoding is position or length, stated once
-   above the table rather than repeated per row (#85). It sits outside the table
-   on purpose: a caption inside <caption> would be read before every cell. The
-   per-row values live in each rail's accessible name instead. */
+   above the table rather than repeated per row (#85). It stays outside the table
+   so it is not also the table's name, and the table points at it with
+   `aria-describedby`. The per-row values live in each rail's accessible name. */
 .viz-caption {
   margin: 0 0 8px;
   padding-inline: 2px;
