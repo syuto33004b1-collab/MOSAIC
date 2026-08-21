@@ -3743,3 +3743,104 @@ describe("renaming one of two people with one name", () => {
     expect(mobile.ownerPersonId).toBe("takahashi");
   });
 });
+
+/**
+ * #114: the trees drew depth with one CSS rule per level, so the depth had to be a class
+ * naming one of them. The org table clamped with `Math.min(3, depth)` and put levels 3,
+ * 4 and 5 at one indent (measured: text at 371.4px for all three); the skill tree did not
+ * clamp, and level 4 matched no rule at all and drew flush left, 323.4px — the root's own
+ * position. The row carries its depth now, and the CSS multiplies it.
+ *
+ * The pixels are in the PR; what this holds is that the number reaching the style is the
+ * real depth, at every level.
+ */
+describe("how deep a tree row says it is", () => {
+  /** 開発本部 / プロダクト開発 / … five levels down, under the seeded units. */
+  const deepOrg = (): WorkspaceState => {
+    const chain = [
+      { id: "deep-2", name: "フロントエンド基盤部", parentId: "org-product", sortOrder: 40 },
+      { id: "deep-3", name: "デザインシステム課", parentId: "deep-2", sortOrder: 10 },
+      { id: "deep-4", name: "コンポーネント班", parentId: "deep-3", sortOrder: 10 },
+      { id: "deep-5", name: "アクセシビリティ担当", parentId: "deep-4", sortOrder: 10 },
+    ];
+    return { ...initialWorkspace, orgUnits: [...(initialWorkspace.orgUnits ?? []), ...chain] };
+  };
+
+  const depthOf = (name: string) => {
+    const heading = [...document.querySelectorAll(".skill-tree-name")]
+      .find((span) => span.querySelector("strong")?.textContent === name);
+    expect(heading, `no tree row for 「${name}」`).toBeDefined();
+    return (heading as HTMLElement).style.getPropertyValue("--depth");
+  };
+
+  it("counts past three in the org table", async () => {
+    const user = userEvent.setup();
+    const adapter = sharedAdapter();
+    adapter.initialState = deepOrg();
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: "組織" }));
+
+    expect(depthOf("開発本部")).toBe("0");
+    expect(depthOf("プロダクト開発")).toBe("1");
+    expect(depthOf("フロントエンド基盤部")).toBe("2");
+    expect(depthOf("デザインシステム課")).toBe("3");
+    // The three the clamp used to flatten onto one indent.
+    expect(depthOf("コンポーネント班")).toBe("4");
+    expect(depthOf("アクセシビリティ担当")).toBe("5");
+    // And no row builds a class for its depth any more.
+    expect([...document.querySelectorAll(".skill-tree-name")].filter((span) => /depth-\d/u.test(span.className))).toHaveLength(0);
+  });
+
+  /** Three more levels under フロントエンド, ending in a skill at depth 4. */
+  const deepSkills = (): WorkspaceState => ({
+    ...initialWorkspace,
+    skillCatalog: [...(initialWorkspace.skillCatalog ?? []),
+      { id: "cat-render", name: "描画基盤", kind: "category", parentId: "cat-frontend", sortOrder: 90 },
+      { id: "cat-raster", name: "レンダリング", kind: "category", parentId: "cat-render", sortOrder: 10 },
+      { id: "skill-canvas", name: "Canvas 最適化", kind: "skill", parentId: "cat-raster", sortOrder: 10 }],
+  });
+
+  /**
+   * The level that actually broke. The skill tree never clamped, so `depth-4` matched no
+   * rule and the row drew at 323.4px — where a root row draws.
+   */
+  it("counts past three in the skill tree, where the rule used to run out", async () => {
+    const user = userEvent.setup();
+    const adapter = sharedAdapter();
+    adapter.initialState = deepSkills();
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: "スキルマップ" }));
+
+    expect(depthOf("エンジニアリング")).toBe("0");
+    expect(depthOf("フロントエンド")).toBe("1");
+    expect(depthOf("描画基盤")).toBe("2");
+    expect(depthOf("レンダリング")).toBe("3");
+    expect(depthOf("Canvas 最適化")).toBe("4");
+  });
+
+  it("names the parent of a nested skill category", async () => {
+    const user = userEvent.setup();
+    const adapter = sharedAdapter();
+    adapter.initialState = deepSkills();
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: "スキルマップ" }));
+
+    const row = [...document.querySelectorAll(".skill-tree-name")]
+      .find((span) => span.querySelector("strong")?.textContent === "描画基盤") as HTMLElement;
+    expect(row).toBeDefined();
+    expect(row.style.getPropertyValue("--depth")).toBe("2");
+    // It used to read 「分類」 and nothing else, which left the indent as the only cue to
+    // where a nested category sits — and past three levels the indent stopped moving.
+    // The word stays: without it, the kind would live in the row's background colour,
+    // which a screen reader does not read.
+    expect(row.querySelector("small")?.textContent).toBe("分類 · エンジニアリング / フロントエンド");
+    // A root category has no path to print, so it reads as it always did.
+    const root = [...document.querySelectorAll(".skill-tree-name")]
+      .find((span) => span.querySelector("strong")?.textContent === "エンジニアリング") as HTMLElement;
+    expect(root.querySelector("small")?.textContent).toBe("分類");
+    // A skill still names its category chain, with no kind word — 「React」 is not a 分類.
+    const skill = [...document.querySelectorAll(".skill-tree-name")]
+      .find((span) => span.querySelector("strong")?.textContent === "React") as HTMLElement;
+    expect(skill.querySelector("small")?.textContent).toBe("エンジニアリング / フロントエンド");
+  });
+});
