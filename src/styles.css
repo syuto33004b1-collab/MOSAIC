@@ -3294,7 +3294,9 @@ h1 {
   /* The theme sets `align-items: center` on `.topbar`, which is vertical while
      the bar is a row and horizontal once it stacks below 620px. That centred the
      title block at 72px while every other block sat at 14px (#83). */
-  .topbar { align-items: stretch; margin-bottom: 24px; padding-bottom: 22px; }
+  /* 狭い幅ではデスクトップ（22/18）より緩い 24/22 になっていた。
+     縦に積むので区切りは要るが、デスクトップより広く取る理由はない */
+  .topbar { align-items: stretch; margin-bottom: 18px; padding-bottom: 14px; }
   h1 { font-size: clamp(31px, 10vw, 40px); }
   .pulse-strip { padding: 20px; }
   .portfolio-ribbon,
