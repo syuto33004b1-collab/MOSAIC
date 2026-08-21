@@ -191,9 +191,10 @@ describe("role-aware workspace", () => {
     render(<App />);
     const navigation = within(screen.getByRole("navigation", { name: "メインナビゲーション" }));
     const cases = [
-      // `nav` is anchored at both ends because these labels carry a count badge.
-      { nav: /^プロジェクト\d*$/u, action: /^プロジェクトを追加$/u },
-      { nav: /^受注前\d*$/u, action: /^受注前案件を追加$/u },
+      // Anchored at both ends: these two carry a parenthesised count (#85), and
+      // a loose match on 「プロジェクト」 would also hit the board's 「プロジェクト別」.
+      { nav: /^プロジェクト 登録 \d+件$/u, action: /^プロジェクトを追加$/u },
+      { nav: /^受注前 進行中 \d+件$/u, action: /^受注前案件を追加$/u },
       { nav: /^メンバー$/u, action: /^メンバーを追加$/u },
       { nav: /^提案$/u, action: /リンクをコピー$/u },
     ];
@@ -229,7 +230,7 @@ describe("role-aware workspace", () => {
     await user.type(dialog.getByLabelText("氏名"), "新規 太郎");
     await user.click(dialog.getByRole("button", { name: "メンバーを追加" }));
 
-    await user.click(navigation.getByRole("button", { name: "プロジェクト" }));
+    await user.click(navigation.getByRole("button", { name: /^プロジェクト 登録 \d+件$/u }));
     const addProject = screen.getAllByRole("button", { name: "プロジェクトを追加" }).find((button) => !button.hasAttribute("disabled"));
     expect(addProject).toBeDefined();
     await user.click(addProject!);
@@ -574,7 +575,7 @@ describe("role-aware workspace", () => {
     expect(screen.getByRole("heading", { name: "Backend Engineerの候補" })).toBeInTheDocument();
     await user.click(within(screen.getByRole("dialog", { name: "詳細パネル" })).getByRole("button", { name: "詳細パネルを閉じる" }));
 
-    await user.click(navigation.getByRole("button", { name: "プロジェクト" }));
+    await user.click(navigation.getByRole("button", { name: /^プロジェクト 登録 \d+件$/u }));
     await user.click(screen.getByText("Second Project").closest("button")!);
     const projectDialog = within(screen.getByRole("dialog", { name: "詳細パネル" }));
     await user.click(projectDialog.getByRole("button", { name: /Backend Engineer/ }));
@@ -698,7 +699,7 @@ describe("role-aware workspace", () => {
     const { unmount } = render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
     let navigation = within(screen.getByRole("navigation", { name: "メインナビゲーション" }));
 
-    await user.click(navigation.getByRole("button", { name: "プロジェクト" }));
+    await user.click(navigation.getByRole("button", { name: /^プロジェクト 登録 \d+件$/u }));
     await user.click(screen.getByText("Atlas リニューアル").closest("button")!);
     await user.click(screen.getByRole("button", { name: "案件情報を編集" }));
     const dialog = within(screen.getByRole("dialog", { name: "詳細パネル" }));
@@ -717,7 +718,7 @@ describe("role-aware workspace", () => {
     archiveAdapter.save = archiveSave;
     render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={archiveAdapter} />);
     navigation = within(screen.getByRole("navigation", { name: "メインナビゲーション" }));
-    await user.click(navigation.getByRole("button", { name: "プロジェクト" }));
+    await user.click(navigation.getByRole("button", { name: /^プロジェクト 登録 \d+件$/u }));
     await user.click(screen.getByText("Atlas リニューアル").closest("button")!);
     await user.click(screen.getByRole("button", { name: "案件をアーカイブ" }));
     await user.click(screen.getByRole("button", { name: "チームへ保存" }));
@@ -735,7 +736,7 @@ describe("role-aware workspace", () => {
     render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
     const navigation = within(screen.getByRole("navigation", { name: "メインナビゲーション" }));
 
-    await user.click(navigation.getByRole("button", { name: "プロジェクト" }));
+    await user.click(navigation.getByRole("button", { name: /^プロジェクト 登録 \d+件$/u }));
     await user.click(screen.getByText("Atlas リニューアル").closest("button")!);
     await user.click(within(screen.getByRole("dialog", { name: "詳細パネル" })).getByText("充足済み").closest("button")!);
     await user.click(screen.getByRole("button", { name: "要員要件を編集" }));
@@ -759,7 +760,7 @@ describe("role-aware workspace", () => {
     const { unmount } = render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={createAdapter} />);
     let navigation = within(screen.getByRole("navigation", { name: "メインナビゲーション" }));
 
-    await user.click(navigation.getByRole("button", { name: "プロジェクト" }));
+    await user.click(navigation.getByRole("button", { name: /^プロジェクト 登録 \d+件$/u }));
     await user.click(screen.getByText(project.name).closest("button")!);
     await user.click(screen.getByRole("button", { name: "要員要件を追加" }));
     let dialog = within(screen.getByRole("dialog", { name: "詳細パネル" }));
@@ -779,7 +780,7 @@ describe("role-aware workspace", () => {
     vi.spyOn(window, "confirm").mockReturnValue(true);
     render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={cancelAdapter} />);
     navigation = within(screen.getByRole("navigation", { name: "メインナビゲーション" }));
-    await user.click(navigation.getByRole("button", { name: "プロジェクト" }));
+    await user.click(navigation.getByRole("button", { name: /^プロジェクト 登録 \d+件$/u }));
     await user.click(screen.getByText("Atlas リニューアル").closest("button")!);
     dialog = within(screen.getByRole("dialog", { name: "詳細パネル" }));
     await user.click(dialog.getByText("充足済み").closest("button")!);
@@ -801,7 +802,7 @@ describe("role-aware workspace", () => {
     expect(screen.queryByRole("button", { name: "メンバー情報を編集" })).not.toBeInTheDocument();
     await user.click(within(screen.getByRole("dialog", { name: "詳細パネル" })).getByRole("button", { name: "詳細パネルを閉じる" }));
 
-    await user.click(navigation.getByRole("button", { name: "プロジェクト" }));
+    await user.click(navigation.getByRole("button", { name: /^プロジェクト 登録 \d+件$/u }));
     await user.click(screen.getByText("Atlas リニューアル").closest("button")!);
     expect(screen.getByRole("button", { name: "案件情報を編集" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "要員要件を追加" })).toBeInTheDocument();
@@ -892,7 +893,7 @@ describe("role-aware workspace", () => {
     render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
     const navigation = within(screen.getByRole("navigation", { name: "メインナビゲーション" }));
 
-    await user.click(navigation.getByRole("button", { name: "プロジェクト" }));
+    await user.click(navigation.getByRole("button", { name: /^プロジェクト 登録 \d+件$/u }));
     await user.click(screen.getByText("Atlas リニューアル").closest("button")!);
     await user.click(screen.getByRole("button", { name: "案件情報を編集" }));
     const dialog = within(screen.getByRole("dialog", { name: "詳細パネル" }));
@@ -997,7 +998,7 @@ describe("role-aware workspace", () => {
     expect(screen.getAllByText("ビジネス").length).toBeGreaterThan(0);
     await user.click(document.querySelector(".close-button") as HTMLButtonElement);
 
-    await user.click(navigation.getByRole("button", { name: "プロジェクト" }));
+    await user.click(navigation.getByRole("button", { name: /^プロジェクト 登録 \d+件$/u }));
     expect(screen.getByText("Atlas株式会社")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "チームへ保存" }));
     await waitFor(() => expect(save).toHaveBeenCalledOnce());
@@ -1037,7 +1038,7 @@ describe("role-aware workspace", () => {
     render(<App mode="shared" organizationName="Example Inc." identity={{ name: "計画 花子", email: "planner@example.com", role: "planner" }} shared={adapter} />);
     const navigation = within(screen.getByRole("navigation", { name: "メインナビゲーション" }));
 
-    await user.click(navigation.getByRole("button", { name: "受注前" }));
+    await user.click(navigation.getByRole("button", { name: /^受注前 進行中 \d+件$/u }));
     expect(screen.getByRole("heading", { level: 1, name: "受注前案件" })).toBeInTheDocument();
     await user.type(screen.getByLabelText("受注前案件を検索"), "React");
     expect(screen.getByText("北風商事 販売基盤")).toBeInTheDocument();
@@ -1249,7 +1250,7 @@ describe("favorites, share links, and anonymous proposals", () => {
     adapter.setFavorite = vi.fn().mockResolvedValue([]);
     render(<App mode="shared" organizationName="Example Inc." identity={{ name: "閲覧 太郎", email: "viewer@example.com", role: "viewer" }} shared={adapter} />);
     await waitFor(() => expect(adapter.listFavorites).toHaveBeenCalled());
-    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: "プロジェクト" }));
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^プロジェクト 登録 \d+件$/u }));
     expect(screen.getByRole("button", { name: "Atlas リニューアルのお気に入りを解除" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Atlas リニューアルのお気に入りを解除" }));
     await waitFor(() => expect(adapter.setFavorite).toHaveBeenCalledWith("project", "atlas", false));
@@ -1345,8 +1346,8 @@ describe("the header's primary slot", () => {
     const header = screen.getByRole("banner");
 
     for (const [nav, label] of Object.entries(expectedLabels)) {
-      // The nav labels for projects and opportunities carry a count badge.
-      await user.click(navigation.getByRole("button", { name: new RegExp(`^${nav}\\d*$`, "u") }));
+      // The projects and 受注前 labels carry a parenthesised count (#85).
+      await user.click(navigation.getByRole("button", { name: new RegExp(`^${nav}( .*)?$`, "u") }));
       // The slot itself, rather than "header buttons whose label is not 検索 or
       // 通知": that filter would excuse an unlabelled button and would swallow a
       // primary action that happened to read 検索.
@@ -1368,7 +1369,7 @@ describe("the header's primary slot", () => {
     const navigation = within(screen.getByRole("navigation", { name: "メインナビゲーション" }));
 
     for (const [nav, label] of [["アサインボード", "アサインを追加"], ["プロジェクト", "プロジェクトを追加"], ["メンバー", "メンバーを追加"]] as const) {
-      await user.click(navigation.getByRole("button", { name: new RegExp(`^${nav}\\d*$`, "u") }));
+      await user.click(navigation.getByRole("button", { name: new RegExp(`^${nav}( .*)?$`, "u") }));
       // Present but disabled: a viewer should see what the screen is for.
       expect(screen.getByRole("button", { name: label })).toBeDisabled();
     }
@@ -1811,7 +1812,7 @@ describe("one name per control on the board", () => {
     expect(navigation.getByRole("button", { name: "メンバー" })).not.toBe(within(axis).getByRole("button", { name: "メンバー別" }));
     expect(within(axis).queryByRole("button", { name: "メンバー" })).not.toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: "プロジェクト別" })).toHaveLength(1);
-    expect(screen.getAllByRole("button", { name: "プロジェクト" })).toHaveLength(1);
+    expect(screen.getAllByRole("button", { name: /^プロジェクト 登録 \d+件$/u })).toHaveLength(1);
 
     // Switching the axis relabels the grid and the row header, not the tabs.
     await user.click(within(axis).getByRole("button", { name: "プロジェクト別" }));
@@ -1883,5 +1884,145 @@ describe("one name per control on the board", () => {
 
     const days = getWeekDays(0);
     expect(screen.getByRole("button", { name: `単日 案件のアサイン詳細（単日 三郎・${days[2].month}/${days[2].date}）` })).toBeInTheDocument();
+  });
+});
+
+/**
+ * #85: three visualisations encoded information in position, length or colour
+ * with no key on the screen, and the counts they carried reached a pointer only.
+ * Measured before: the four-week rail's accessible name was
+ * 「Atlas リニューアルの4週間の充足人数」 with no values, the 習熟度 rail's was
+ * 「{skill}の習熟度分布」 with none either, the 未充足 column printed 「3」 for one
+ * row and 「1件」 for another, and the sidebar's count badges reached no screen
+ * reader at all because `aria-label` on the button overrode them.
+ */
+describe("a key for what colour and position encode", () => {
+  const goTo = async (user: ReturnType<typeof userEvent.setup>, nav: RegExp) => {
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: nav }));
+  };
+
+  it("puts every week of the staffing rail into its accessible name", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await goTo(user, /^プロジェクト 登録 \d+件$/u);
+
+    // Found by role and name, not by reading the attribute: a name on a bare
+    // div is a name on a generic node, which need not be exposed at all.
+    const rail = screen.getAllByRole("img", { name: /の4週間の充足人数：/u })[0];
+    const label = rail.getAttribute("aria-label") ?? "";
+    // Four bars, so four weeks named with their counts — a screen reader used to
+    // get the heading and nothing else.
+    for (const week of [1, 2, 3, 4]) {
+      expect(label, `week ${week} in ${label}`).toContain(`${week}週目: `);
+      expect(label, `week ${week} count in ${label}`).toMatch(new RegExp(`${week}週目: ([0-9]+/[0-9]+名|必要人数未設定)`, "u"));
+    }
+    expect(rail.querySelectorAll("i")).toHaveLength(4);
+
+    // And the one number under the rail says which week it is.
+    expect(document.querySelector(".staffed-label")!.textContent).toMatch(/^(今週 \d+\/\d+名|必要人数未設定)$/u);
+  });
+
+  it("puts every proficiency level into the rail's accessible name", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await goTo(user, /^スキルマップ$/u);
+
+    const rail = screen.getAllByRole("img", { name: /の習熟度分布：/u })[0];
+    const label = rail.getAttribute("aria-label") ?? "";
+    for (const level of ["初級", "基礎", "実務", "応用", "指導"]) {
+      expect(label, `${level} in ${label}`).toMatch(new RegExp(`${level} [0-9]+名`, "u"));
+    }
+    expect(rail.querySelectorAll("i")).toHaveLength(5);
+  });
+
+  it("gives each visualisation a key immediately above its table", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await goTo(user, /^プロジェクト 登録 \d+件$/u);
+
+    const projectCaption = document.querySelector(".viz-caption")!;
+    expect(projectCaption.textContent).toContain("今週から4週間の充足率");
+    // Adjacency is for the eye; the table points at it for everyone else.
+    expect(document.querySelector(".portfolio-table")).toHaveAttribute("aria-describedby", projectCaption.id);
+    expect(projectCaption.id).not.toBe("");
+
+    await goTo(user, /^スキルマップ$/u);
+    const skillCaption = document.querySelector(".viz-caption")!;
+    // The five cells are levels 1 to 5, so the caption is the key for the
+    // positions — naming all five in order, not just the ends.
+    for (const level of ["初級", "基礎", "実務", "応用", "指導"]) {
+      expect(skillCaption.textContent, `${level} in the caption`).toContain(level);
+    }
+    expect(skillCaption.textContent).toContain("保有者数");
+    expect(document.querySelector(".skill-map-table")).toHaveAttribute("aria-describedby", skillCaption.id);
+    expect(skillCaption.id).not.toBe("");
+  });
+
+  it("empties the bar for a week with no required headcount, the way the key says", async () => {
+    const project = { ...initialWorkspace.projects[0], id: "unset", name: "人数未定 案件", demand: 0 };
+    const adapter = sharedAdapter();
+    adapter.initialState = { members: [], projects: [project], assignments: [], needs: [] } as unknown as WorkspaceState;
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
+    const user = userEvent.setup();
+    await goTo(user, /^プロジェクト 登録 \d+件$/u);
+
+    // A full bar would read as 100% staffed under 「バーの長さが充足率」, which is
+    // not something the app knows here.
+    const rail = screen.getByRole("img", { name: /人数未定 案件の4週間の充足人数：/u });
+    expect(rail.getAttribute("aria-label")).toContain("1週目: 必要人数未設定");
+    for (const fill of rail.querySelectorAll("b")) expect((fill as HTMLElement).style.width).toBe("0%");
+    expect(document.querySelector(".staffed-label")!.textContent).toBe("必要人数未設定");
+  });
+
+  it("uses one unit down the 未充足 and 不足 columns", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await goTo(user, /^スキルマップ$/u);
+
+    const rows = [...document.querySelectorAll(".skill-map-table tbody tr")];
+    expect(rows.length).toBeGreaterThan(10);
+    const linked = rows.filter((row) => row.children[4].querySelector("button"));
+    const plain = rows.filter((row) => !row.children[4].querySelector("button"));
+    // Both forms exist in this data, and 件 used to appear only on the linked one.
+    expect(linked.length).toBeGreaterThan(0);
+    expect(plain.length).toBeGreaterThan(0);
+
+    for (const row of rows) {
+      expect(row.children[4].textContent, "未充足").toMatch(/^\d+件$/u);
+      expect(row.children[5].textContent, "不足").toMatch(/^\d+件$/u);
+    }
+    expect(document.querySelector(".skill-map-table")!.textContent).not.toContain("充足</");
+    expect([...document.querySelectorAll(".skill-ok")].map((el) => el.textContent)).not.toContain("充足");
+  });
+
+  it("tells the 未充足 links apart, and the count badges apart", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await goTo(user, /^スキルマップ$/u);
+
+    const names = () => {
+      const collected: string[] = [];
+      screen.queryAllByRole("button", { name: (accessibleName: string) => { collected.push(accessibleName); return false; } });
+      return collected;
+    };
+    const skillNames = names();
+    expect([...new Set(skillNames.filter((name, index) => skillNames.indexOf(name) !== index))]).toEqual([]);
+    // Four of these buttons were all called 「1件」.
+    const links = [...document.querySelectorAll(".skill-need-link")];
+    expect(links.length).toBeGreaterThan(1);
+    for (const link of links) expect(link.getAttribute("aria-label")).toMatch(/^.+の未充足 \d+件を開く$/u);
+
+    // The two sidebar badges count different things, so they say which — on the
+    // badge itself, not only in a title a pointer has to find.
+    const navigation = within(screen.getByRole("navigation", { name: "メインナビゲーション" }));
+    const projects = navigation.getByRole("button", { name: /^プロジェクト 登録 \d+件$/u });
+    const opportunities = navigation.getByRole("button", { name: /^受注前 進行中 \d+件$/u });
+    expect(projects.querySelector(".nav-count")!.textContent).toMatch(/^登録 [0-9]+$/u);
+    expect(opportunities.querySelector(".nav-count")!.textContent).toMatch(/^進行中 [0-9]+$/u);
+    // The visible text appears in the name, rather than being paraphrased there.
+    for (const item of [projects, opportunities]) {
+      const visible = `${item.querySelector(".nav-label")!.textContent} ${item.querySelector(".nav-count")!.textContent}`;
+      expect(item.getAttribute("aria-label")).toContain(visible);
+    }
   });
 });

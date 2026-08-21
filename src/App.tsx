@@ -2169,11 +2169,20 @@ export default function Home({ mode = "demo", organizationId, organizationName =
           {visibleNavItems.map((item) => {
             const Icon = item.icon;
             const active = activeNav === item.id;
+            /* Two badges, two meanings: every registered project, but only the
+               opportunities still in play. A bare number said neither, and
+               `aria-label` on the button was overriding the badge's text, so the
+               figure reached no screen reader at all. The word is on the badge
+               itself now, so it is there for a pointer-less reader too, and the
+               name repeats the visible text rather than paraphrasing it (#85).
+               The badge is hidden below 820px, where the nav is icons only. */
+            const badge = item.id === "projects" ? { count: workspace.projects.length, meaning: "登録" }
+              : item.id === "opportunities" ? { count: (workspace.opportunities ?? []).filter(isActiveOpportunity).length, meaning: "進行中" }
+                : null;
             return (
-              <button className={"nav-item " + (active ? "active" : "")} aria-label={item.label} aria-current={active ? "page" : undefined} onClick={() => setActiveNav(item.id as keyof typeof pageMeta)} key={item.id}>
+              <button className={"nav-item " + (active ? "active" : "")} aria-label={badge ? `${item.label} ${badge.meaning} ${badge.count}件` : item.label} aria-current={active ? "page" : undefined} onClick={() => setActiveNav(item.id as keyof typeof pageMeta)} key={item.id}>
                 <span className="nav-icon"><Icon size={18} strokeWidth={1.8} /></span><span className="nav-label">{item.label}</span>
-                {item.id === "projects" && <span className="nav-count">{workspace.projects.length}</span>}
-                {item.id === "opportunities" && <span className="nav-count">{(workspace.opportunities ?? []).filter(isActiveOpportunity).length}</span>}
+                {badge && <span className="nav-count">{badge.meaning} {badge.count}</span>}
               </button>
             );
           })}

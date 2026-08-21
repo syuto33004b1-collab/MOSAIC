@@ -59,7 +59,9 @@ test("every header cell carries an identity class the CSS can key off", async ()
   const tsx = await read("src/expanded-views.tsx");
   // Only the tables whose column count varies at runtime. Other screens have
   // fixed headers and are out of scope for this contract.
-  const blocks = [...tsx.matchAll(/<table className="(?:portfolio|member)-table">([\s\S]*?)<tbody>/gu)];
+  // `[^>]*` so an added attribute (aria-describedby, #85) does not silently
+  // drop a table out of this contract — it dropped one and the count caught it.
+  const blocks = [...tsx.matchAll(/<table className="(?:portfolio|member)-table"[^>]*>([\s\S]*?)<tbody>/gu)];
   assert.equal(blocks.length, 3, `expected three variable-column tables, found ${blocks.length}`);
   for (const [, row] of blocks) {
     const cells = [...row.matchAll(/<th(\s[^>]*)?>/gu)];

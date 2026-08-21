@@ -250,6 +250,15 @@ function formatMonthDay(iso?: string | null) {
 }
 
 
+/**
+ * One week of a project's staffing, for both the bar's `title` and the rail's
+ * accessible name. The rail carried neither the week numbers nor the counts in
+ * its name, so a screen reader got 「4週間の充足人数」 and nothing else (#85).
+ */
+function weekStaffingLabel(index: number, count: number, demand: number) {
+  return demand === 0 ? `${index + 1}週目: 必要人数未設定` : `${index + 1}週目: ${count}/${demand}名`;
+}
+
 export function FavoriteStar({ name, pressed, onToggle }: { name: string; pressed: boolean; onToggle: () => void }) {
   return (
     <button
@@ -326,8 +335,15 @@ export function ProjectsView({
         {onCopyQuery && searchValue.trim() && <button className="view-add-button ghost" type="button" onClick={onCopyQuery}>検索リンクをコピー</button>}
       </div>
 
+      {/* The rail is four bars with no week labels and no key. `title` puts the
+          numbers within reach of a mouse only, so the values go in each rail's
+          accessible name and the reading of the bars goes here, once, rather
+          than per row. `aria-describedby` rather than adjacency alone: jumping
+          straight to the table would otherwise miss this (#85). */}
+      <p className="viz-caption" id="portfolio-rail-key">「4週間の充足」は、今週から4週間の充足率を示します。バーの長さが充足率で、必要人数に届かない週は橙色、必要人数が未設定の週は空になります。</p>
+
       <div className="portfolio-table-wrap">
-        <table className="portfolio-table">
+        <table className="portfolio-table" aria-describedby="portfolio-rail-key">
           <thead>
             <tr><th className="col-favorite"><span className="sr-only">お気に入り</span></th><th className="col-name">プロジェクト</th><th className="col-status">状態</th>{listFields.map((field) => <th key={field.id} className="col-custom">{field.label}</th>)}<th className="col-rail">4週間の充足</th><th className="col-progress">進捗</th><th className="col-milestone">次の節目</th><th className="col-owner">責任者</th><th className="col-open"><span className="sr-only">詳細</span></th></tr>
           </thead>
@@ -348,10 +364,17 @@ export function ProjectsView({
                   <td><span className={"status-pill " + statusClass[project.status]}><i />{project.status}</span>{need && <small className={"need-note " + (need.status === "planned" ? "planned" : "")}>{need.status === "planned" ? "解消予定" : need.role + " 不足"}</small>}</td>
                   {listFields.map((field) => <td key={field.id}><span className="custom-field-cell">{formatCustomValue(field, customValue(project.customValues, field.id))}</span></td>)}
                   <td>
-                    <div className="four-week-rail" aria-label={project.name + "の4週間の充足人数"}>
-                      {weeks.map((count, index) => <i key={index} title={project.demand === 0 ? (index + 1) + "週目: 必要人数未設定" : (index + 1) + "週目: " + count + "/" + project.demand + "名"}><b className={project.demand > 0 && count < project.demand ? "short" : ""} style={{ width: (project.demand === 0 ? 100 : Math.min(100, count / project.demand * 100)) + "%" }} /></i>)}
+                    {/* role="img": ARIA forbids an author name on the generic
+                        role, so a name on a bare div rests on undefined
+                        behaviour — Chrome's tree showed it as
+                        `generic "…の4週間の充足人数：…"`, and with the role it is
+                        `img "…"`. The parts are decorative here: every value is
+                        in the name, and each bar's `title` reached a pointer
+                        only. */}
+                    <div className="four-week-rail" role="img" aria-label={project.name + "の4週間の充足人数：" + weeks.map((count, index) => weekStaffingLabel(index, count, project.demand)).join("、")}>
+                      {weeks.map((count, index) => <i key={index} title={weekStaffingLabel(index, count, project.demand)}><b className={project.demand > 0 && count < project.demand ? "short" : ""} style={{ width: (project.demand === 0 ? 0 : Math.min(100, count / project.demand * 100)) + "%" }} /></i>)}
                     </div>
-                    <span className="staffed-label">{project.demand === 0 ? "必要人数未設定" : `${currentMembers}/${project.demand}名`}</span>
+                    <span className="staffed-label">{project.demand === 0 ? "必要人数未設定" : `今週 ${currentMembers}/${project.demand}名`}</span>
                   </td>
                   <td><div className="progress-cell"><span><b style={{ width: project.progress + "%" }} /></span><strong>{project.progress}%</strong></div></td>
                   <td><span className="milestone-cell"><strong>{project.nextMilestone}</strong><small>{formatMonthDay(project.nextMilestoneDate)}</small></span></td>
@@ -985,8 +1008,14 @@ export function SkillsView({ state, onAddCatalogEntry, onOpenMember, onResolveNe
         </form>
       )}
 
+      {/* Position is the encoding in the 習熟度 rail — the five cells are levels
+          1 to 5 — and nothing on the screen said so. This is the key for the
+          positions, not for the colours, and it also names what the number in a
+          cell counts (#85). */}
+      <p className="viz-caption" id="skill-rail-key">習熟度は、左から <b>初級</b>・<b>基礎</b>・<b>実務</b>・<b>応用</b>・<b>指導</b> の5段階です。マスの数字は、その習熟度の保有者数です。</p>
+
       <div className="skill-map-wrap">
-        <table className="skill-map-table">
+        <table className="skill-map-table" aria-describedby="skill-rail-key">
           <thead>
             <tr>
               <th>スキル分類</th>
@@ -1008,7 +1037,7 @@ export function SkillsView({ state, onAddCatalogEntry, onOpenMember, onResolveNe
                 </td>
                 <td><strong>{row.memberCount}</strong><small>名</small></td>
                 <td>
-                  <div className="proficiency-rail" aria-label={`${row.name}の習熟度分布`}>
+                  <div className="proficiency-rail" role="img" aria-label={`${row.name}の習熟度分布：${([1, 2, 3, 4, 5] as const).map((level) => `${PROFICIENCY_LABELS[level]} ${row.byProficiency[level]}名`).join("、")}`}>
                     {([1, 2, 3, 4, 5] as const).map((level) => (
                       <i key={level} title={`${PROFICIENCY_LABELS[level]} ${row.byProficiency[level]}名`} className={row.byProficiency[level] > 0 ? "filled level-" + level : "level-" + level}>
                         <b>{row.byProficiency[level] || ""}</b>
@@ -1017,8 +1046,8 @@ export function SkillsView({ state, onAddCatalogEntry, onOpenMember, onResolveNe
                   </div>
                 </td>
                 <td><span className="skill-departments">{row.departments.slice(0, 2).map((item) => item.department).join(" / ") || "—"}</span></td>
-                <td>{row.openNeedCount > 0 && needForSkill(row.name) ? <button className="skill-need-link" onClick={() => onResolveNeed(needForSkill(row.name)!.id)}>{row.openNeedCount}件</button> : row.openNeedCount}</td>
-                <td>{row.gap > 0 ? <strong className="skill-gap">{row.gap}</strong> : <span className="skill-ok">充足</span>}</td>
+                <td>{row.openNeedCount > 0 && needForSkill(row.name) ? <button className="skill-need-link" aria-label={`${row.name}の未充足 ${row.openNeedCount}件を開く`} onClick={() => onResolveNeed(needForSkill(row.name)!.id)}>{row.openNeedCount}件</button> : `${row.openNeedCount}件`}</td>
+                <td>{row.gap > 0 ? <strong className="skill-gap">{row.gap}件</strong> : <span className="skill-ok">0件</span>}</td>
               </tr>
             ))}
           </tbody>
@@ -1028,7 +1057,7 @@ export function SkillsView({ state, onAddCatalogEntry, onOpenMember, onResolveNe
 
       <div className="report-insight">
         <span><Sparkles size={17} /></span>
-        <div><strong>スキルマップの見方</strong><p>習熟度は初級から指導までの5段階です。未充足の要員要件より保有者が少ないスキルを不足として表示します。</p></div>
+        <div><strong>スキルマップの見方</strong><p>「未充足」は、そのスキルを求めている要員要件の件数です。「不足」はそこから要件を満たす保有者の人数を引いた残りで、1人が1件を担う想定で数えています。</p></div>
         {state.members[0] && <button onClick={() => onOpenMember(state.members[0].id)}>メンバーを確認 <ArrowRight size={13} /></button>}
       </div>
     </section>
