@@ -4065,6 +4065,25 @@ h1 {
 .field-catalog-form .field-flag input { width: 16px; height: 16px; }
 .field-catalog-form .view-add-button { grid-column: 1 / -1; justify-self: start; }
 .search-scene-form { margin: 0 0 16px; }
+/* The disclosure carries the margin the form used to, so the gap below the
+   toolbar is the same whether it is open or shut. `summary` is already in the
+   single :focus-visible rule, so the ring comes for free. */
+.search-scene-disclosure { margin: 0 0 16px; }
+/* 32px rather than the 24px floor: this is a control people tap, and 24px is
+   the minimum rather than a comfortable size. The default marker is left in
+   place — it is what says "this opens". */
+.search-scene-disclosure > summary {
+  width: fit-content;
+  min-height: 32px;
+  padding: 7px 2px;
+  cursor: pointer;
+  color: var(--muted-readable);
+  font-size: 12px;
+  font-weight: 700;
+}
+.search-scene-disclosure > summary:hover { color: var(--ink); }
+.search-scene-disclosure[open] > summary { margin-bottom: 10px; }
+.search-scene-disclosure > .search-scene-form { margin-bottom: 0; }
 .match-score {
   display: inline-flex;
   flex-direction: column;

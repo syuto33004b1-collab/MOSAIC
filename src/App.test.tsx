@@ -1455,3 +1455,50 @@ describe("the organization table's delete column", () => {
     expect(concurrent).toContain("0名");
   });
 });
+
+describe("the member screen's scene form", () => {
+  /**
+   * Nine fields for saving a search scene sat permanently open above the results,
+   * 268px of the 740px that stood between the top of the page and the first
+   * candidate on a 900px viewport — two of nine rows visible on a screen whose
+   * job is to show candidates (#81). It is a `<details>` now, shut on arrival.
+   */
+  it("starts folded and stays reachable", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: "メンバー" }));
+
+    const disclosure = document.querySelector("details.search-scene-disclosure");
+    expect(disclosure).not.toBeNull();
+    expect(disclosure).not.toHaveAttribute("open");
+    expect(screen.getByText("検索シーンの条件を入力")).toBeInTheDocument();
+
+    // jsdom does not hide a closed details' contents, so this asserts the state
+    // and the toggle, not visibility. What the folding actually buys is measured
+    // in a real browser and recorded in the PR.
+    await user.click(screen.getByText("検索シーンの条件を入力"));
+    expect(disclosure).toHaveAttribute("open");
+    expect(screen.getByRole("button", { name: "検索シーンを保存" })).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("フロントエンド候補")).toBeInTheDocument();
+
+    // And it shuts again, so the summary is a toggle rather than a one-way door.
+    await user.click(screen.getByText("検索シーンの条件を入力"));
+    expect(disclosure).not.toHaveAttribute("open");
+  });
+
+  it("still saves a scene once opened", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: "メンバー" }));
+    await user.click(screen.getByText("検索シーンの条件を入力"));
+
+    // Absent first: without this the assertion below would pass on a scene that
+    // was already there.
+    expect(screen.queryByRole("option", { name: "バックエンド候補" })).not.toBeInTheDocument();
+    await user.type(screen.getByPlaceholderText("フロントエンド候補"), "バックエンド候補");
+    await user.click(screen.getByRole("button", { name: "検索シーンを保存" }));
+
+    // The saved scene turns up in the toolbar's picker.
+    expect(await screen.findByRole("option", { name: "バックエンド候補" })).toBeInTheDocument();
+  });
+});
