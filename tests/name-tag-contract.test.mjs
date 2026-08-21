@@ -102,7 +102,7 @@ test("the name shrinks and the tag does not", async () => {
 
 test("the member row renders the name and the tag as separate boxes", async () => {
   const tsx = await readTsx();
-  const cell = /<span className="row-name-copy"><strong>\{\(\(\) => \{ const \{ name, tag \} = memberLabelParts\(state, member\); return <><span className="row-name-main">\{name\}<\/span>\{tag && <span className="row-name-tag">\{tag\}<\/span>\}<\/><?;? \}\)\(\)\}<\/strong>/u;
+  const cell = /<strong><span className="row-name-main">\{label\.name\}<\/span>\{label\.tag && <span className="row-name-tag">\{label\.tag\}<\/span>\}<\/strong>/u;
   assert.match(tsx, cell,
     "the member row has to render the two parts as two elements, or the CSS above has nothing to "
     + "size separately (#163)");

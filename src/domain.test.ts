@@ -559,6 +559,32 @@ describe("telling two people with one name apart", () => {
   });
 
   /**
+   * A tag that is cut off is not a tag. The name cell truncates from the end, and #163
+   * gave the tag its own box so it is not the part that shrinks — but a box cannot be
+   * wider than the cell, which is 122px at 375px. Measured at the cell's font,
+   * 「（東京都千代田区）」 is 108px and 「（東京都千代田区丸の内A）」 is 151.9px, and two places
+   * sharing a long prefix would differ only in the part that gets cut.
+   */
+  it("falls back to the id when a location is too long to show whole", () => {
+    const long = [
+      person("a", "林 葵", "東京都千代田区丸の内A"),
+      person("b", "林 葵", "東京都千代田区丸の内B"),
+    ];
+    expect(label(long, "a")).toBe("林 葵（#a）");
+    expect(label(long, "b")).toBe("林 葵（#b）");
+
+    // Eight characters still shows whole, so it is still a tag.
+    const eight = [person("a", "林 葵", "東京都千代田区"), person("b", "林 葵", "大阪市北区中之島")];
+    expect(label(eight, "a")).toBe("林 葵（東京都千代田区）");
+    expect(label(eight, "b")).toBe("林 葵（大阪市北区中之島）");
+
+    // All of a group or none of it, here too: one long location sends everyone to the id.
+    const mixed = [person("a", "林 葵", "東京"), person("b", "林 葵", "東京都千代田区丸の内B")];
+    expect(label(mixed, "a")).toBe("林 葵（#a）");
+    expect(label(mixed, "b")).toBe("林 葵（#b）");
+  });
+
+  /**
    * A UUID's tail is meaningless hex either way, so it is the one shape that gets
    * trimmed. Recognised by pattern rather than by length: a first version cut anything
    * over twelve characters, a number taken from the seed slugs, which would have turned
