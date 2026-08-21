@@ -414,7 +414,6 @@ export function ProjectsView({
         <div className="ribbon-stat risk"><strong>{portfolioRisks}</strong><span>要注意</span></div>
         <div className="ribbon-divider" />
         <div className="ribbon-stat warning"><strong>{openNeeds}</strong><span>未充足ロール</span></div>
-        <div className="portfolio-weave" aria-hidden="true">{[64, 82, 71, 92, 76, 55, 88, 69].map((value, index) => <i key={index}><b style={{ width: value + "%" }} /></i>)}</div>
       </div>
 
       {/* Two jobs, told apart by position: everything that narrows the list on the

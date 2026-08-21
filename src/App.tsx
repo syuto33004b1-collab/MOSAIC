@@ -2370,7 +2370,6 @@ export default function Home({ mode = "demo", organizationId, organizationName =
               <div className="pulse-metric"><strong>{freeDays}<small>人日</small></strong><span>{measuredWeekLabel}の空き</span></div>
               <div className="pulse-rule" />
               <button className="pulse-metric warning" onClick={() => { if (currentOverloads.length > 0 || overloadPlanned) setDrawer("overload"); else if (displayNeed) openStaffingNeed(displayNeed.id); }}><strong>{adjustmentCount}<small>件</small></strong><span>要調整</span><ArrowRight size={14} /></button>
-              <div className="pulse-mini-bars" aria-hidden="true">{[72, 84, 91, 78, 64].map((height, index) => <i key={index} style={{ height: height + "%" }} />)}</div>
             </section>
 
             <div className="board-layout">
