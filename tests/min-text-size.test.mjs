@@ -120,6 +120,47 @@ test("no rule after the floor declares a size below it", async () => {
   );
 });
 
+/**
+ * The mirror of the test above, for the other side of the floor rule.
+ *
+ * A literal *before* the floor is harmless only while the floor's selector list
+ * covers it — same selector text, so identical specificity, and the later rule
+ * wins. #100 found 44 that were not covered: `.person-copy strong` at 10px,
+ * `.profile-actions button` at 8px, every `.production-*` list. Six of them were
+ * visible in DEMO and rendered at 10–11px with a 12px token; the rest live in
+ * drawers, popovers and shared-mode screens the browser sweep never reaches,
+ * which is exactly why a static check is worth having here.
+ *
+ * ## What this cannot do
+ *
+ * It compares selector *text*. A rule the floor covers by a different but
+ * equivalent selector reads as a hole, and a rule that loses to `!important` or
+ * an inline style reads as covered. Both would be a change to how this file is
+ * layered, and would want a look rather than a quiet pass.
+ */
+test("every small literal before the floor is one the floor covers", async () => {
+  const css = (await read()).replaceAll("\r\n", "\n");
+  const token = Number(css.match(/--text-min:\s*(\d+)px/u)[1]);
+  const anchor = css.indexOf(FLOOR);
+  // The bulk rule's own selector list, read from the file rather than restated.
+  const listStart = css.lastIndexOf("}", anchor) + 1;
+  const bulk = new Set(css.slice(listStart, anchor + ".production-runtime-info".length)
+    .split(",").map((part) => part.trim()));
+  assert.ok(bulk.size > 100, `expected the bulk floor's selector list, got ${bulk.size} entries`);
+
+  const holes = [];
+  for (const [, selector, body] of css.slice(0, anchor).matchAll(/([^{}]+)\{([^{}]*)\}/gu)) {
+    const clean = selector.replace(/\/\*[\s\S]*?\*\//gu, "").trim().replace(/\s+/gu, " ");
+    const parts = clean.split(",").map((part) => part.trim()).filter(Boolean);
+    if (parts.length === 0 || parts.every((part) => bulk.has(part))) continue;
+    for (const [raw, size] of body.matchAll(/font-size:\s*([\d.]+)px/gu)) {
+      if (Number(size) < token) holes.push(`${clean.slice(0, 58)} => ${raw}`);
+    }
+  }
+  assert.deepEqual(holes, [], `the floor's selector list does not reach these, so they render below ${token}px:\n  `
+    + holes.join("\n  "));
+});
+
 test("the allowlist stays honest about what it excuses", async () => {
   const css = (await read()).replaceAll("\r\n", "\n");
   const token = Number(css.match(/--text-min:\s*(\d+)px/u)[1]);
