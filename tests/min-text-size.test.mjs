@@ -61,9 +61,11 @@ function* sizes(css) {
 
 /**
  * "One edit moves the floor" is true only for the rules that read the token.
- * #100 raised the token from 10px to 12px and converted the 20 literals that
- * were left behind — measured, that took the elements rendering below 12px from
- * 150 to 0 across nine screens.
+ * #100 raised the token from 10px to 12px and converted the 66 literals that
+ * were left behind — 20 written after the floor rule and 46 the floor's selector
+ * list did not reach. Measured across twelve states (nine screens, two drawers
+ * and the notification popover), the elements rendering below 12px went from
+ * 13–43 per state to 0.
  */
 test("the floor is a token, and the bulk rule reads it", async () => {
   const css = (await read()).replaceAll("\r\n", "\n");
@@ -125,18 +127,23 @@ test("no rule after the floor declares a size below it", async () => {
  *
  * A literal *before* the floor is harmless only while the floor's selector list
  * covers it — same selector text, so identical specificity, and the later rule
- * wins. #100 found 44 that were not covered: `.person-copy strong` at 10px,
- * `.profile-actions button` at 8px, every `.production-*` list. Six of them were
- * visible in DEMO and rendered at 10–11px with a 12px token; the rest live in
+ * wins. #100 found 46 that were not covered: `.person-copy strong` at 10px,
+ * `.profile-actions button` at 8px, every `.production-*` list, and two of them
+ * hidden inside a `font:` shorthand rather than a `font-size:`. Six were visible
+ * in DEMO and rendered at 10–11px against a 12px token; the rest live in
  * drawers, popovers and shared-mode screens the browser sweep never reaches,
  * which is exactly why a static check is worth having here.
  *
  * ## What this cannot do
  *
- * It compares selector *text*. A rule the floor covers by a different but
- * equivalent selector reads as a hole, and a rule that loses to `!important` or
- * an inline style reads as covered. Both would be a change to how this file is
- * layered, and would want a look rather than a quiet pass.
+ * It is a repository convention, not proof of a rendered size. Selector *text*
+ * is compared, so a rule the floor covers by a different but equivalent
+ * selector reads as a hole, and a broader selector reads as covered. Beyond
+ * that, source order is only one thing the cascade weighs: `!important`, cascade
+ * layers, `@scope`, nesting, inline styles and CSS-in-JS all outrank it. Nor
+ * does it see every way to express a size — `em`, `%`, `calc()`, a size carried
+ * through another custom property, or a `transform` that scales the text. The
+ * browser sweep recorded in the PR is what actually establishes the floor.
  */
 test("every small literal before the floor is one the floor covers", async () => {
   const css = (await read()).replaceAll("\r\n", "\n");
@@ -153,12 +160,42 @@ test("every small literal before the floor is one the floor covers", async () =>
     const clean = selector.replace(/\/\*[\s\S]*?\*\//gu, "").trim().replace(/\s+/gu, " ");
     const parts = clean.split(",").map((part) => part.trim()).filter(Boolean);
     if (parts.length === 0 || parts.every((part) => bulk.has(part))) continue;
-    for (const [raw, size] of body.matchAll(/font-size:\s*([\d.]+)px/gu)) {
-      if (Number(size) < token) holes.push(`${clean.slice(0, 58)} => ${raw}`);
+    // `sizes()`, so the `font:` shorthand counts too: `.member-access-controls
+    // select` carried `font: 700 10px` and a `font-size`-only scan walked past it.
+    for (const found of sizes(`${clean} {${body}}`)) {
+      if (found.px < token) holes.push(`${clean.slice(0, 58)} => ${found.raw}`);
     }
   }
   assert.deepEqual(holes, [], `the floor's selector list does not reach these, so they render below ${token}px:\n  `
     + holes.join("\n  "));
+});
+
+/**
+ * #100 also asked for the type scale to be tokens rather than raw values. At a
+ * 12px floor the rendered scale is three steps: the floor (1050 elements across
+ * nine screens), 13px (87) and 16px (133) — the 11px values all moved to 12px.
+ * The names are deliberately neutral steps rather than roles: 13px is both the
+ * nav label and a `select`'s control text, 16px is both a card `h3` and the `+`
+ * glyph in a button, so `--text-body` / `--text-lead` would name a meaning that
+ * is not there.
+ *
+ * ## What this cannot do
+ *
+ * It reads `font-size` declarations. Sizes reaching the page another way — a
+ * `font:` shorthand, `em`, `calc()` — are not the scale this pins.
+ */
+test("the scale above the floor is tokens, not literals", async () => {
+  const css = (await read()).replaceAll("\r\n", "\n");
+  for (const [name, value] of [["--text-sm", "13px"], ["--text-lg", "16px"]]) {
+    assert.match(css, new RegExp(`${name}:\\s*${value}`, "u"), `${name} is not defined as ${value}`);
+    // The AI chat panel is shared-mode only (#101) and keeps its own literals,
+    // so this looks at the rest of the file.
+    const bare = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/gu)]
+      .filter(([, , body]) => new RegExp(`font-size:\\s*${value}`, "u").test(body))
+      .map(([, selector]) => selector.replace(/\/\*[\s\S]*?\*\//gu, "").trim().replace(/\s+/gu, " "))
+      .filter((selector) => !selector.includes(".ai-chat-"));
+    assert.deepEqual(bare, [], `${value} written as a literal instead of var(${name}): ${bare.join(", ")}`);
+  }
 });
 
 test("the allowlist stays honest about what it excuses", async () => {
