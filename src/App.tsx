@@ -264,10 +264,10 @@ const navItems = [
 ];
 
 const pageMeta = {
-  board: { eyebrow: "RESOURCE PLANNING", title: "今週のチーム編成", description: "日ごとの重なりと、週全体の余白を確認します。" },
+  board: { eyebrow: "RESOURCE PLANNING", title: "今週のチーム編成", description: "日ごとの重なりと、週全体の稼働を確認します。" },
   projects: { eyebrow: "PORTFOLIO CONTROL", title: "プロジェクト・ポートフォリオ", description: "案件ごとの充足と次の節目を横断して管理します。" },
   opportunities: { eyebrow: "PRE-AWARD PIPELINE", title: "受注前案件", description: "引き合いから商談までの要員計画を、確定プロジェクトと分けて検討します。" },
-  members: { eyebrow: "TEAM AVAILABILITY", title: "メンバーと空き状況", description: "スキルと4週間の余白から、次の担当者を探します。" },
+  members: { eyebrow: "TEAM AVAILABILITY", title: "メンバーと空き状況", description: "スキルと4週間の稼働から、次の担当者を探します。" },
   proposal: { eyebrow: "CANDIDATE PROPOSAL", title: "候補者提案", description: "氏名を隠して、スキルと空き状況だけを比較します。" },
   org: { eyebrow: "ORGANIZATION TREE", title: "組織階層", description: "部門の階層、責任者、兼務を管理し、検索とレポートへ使います。" },
   skills: { eyebrow: "SKILL TAXONOMY", title: "スキルマップ", description: "分類、習熟度、不足領域を組織全体で確認します。" },
@@ -2167,10 +2167,13 @@ export default function Home({ mode = "demo", organizationId, organizationName =
               capacity x 5 weekdays. This label said 「{month}月のチーム稼働」,
               presenting a week's figure as a month's — and paging the board moved
               the month in the label while the metric stayed week-scoped (#115).
-              It names the Monday now, the way the board's own header does. */}
-          <div className="month-card-label"><span>{days[0].month}/{days[0].date}週のチーム稼働率</span><strong>{averageLoad}%</strong></div>
+              It names the Monday now, the way the board's own header does.
+              「平均稼働率」 rather than 「チーム稼働率」: the board's pulse strip
+              shows this same variable under that name, and one value with two
+              names is what #82 is about. */}
+          <div className="month-card-label"><span>{days[0].month}/{days[0].date}週の平均稼働率</span><strong>{averageLoad}%</strong></div>
           <div className="month-track"><span style={{ width: Math.min(100, averageLoad) + "%" }} /></div>
-          <p>{totalCapacity > 0 ? `余力はあと ${Math.max(0, 100 - averageLoad)}%。` : "稼働上限が未設定です。"}{mode === "shared" ? "変更は組織内で共有されます。" : "サンプルデータはこの端末だけに保存されます。"}</p>
+          <p>{totalCapacity === 0 ? "稼働上限が未設定です。" : averageLoad > 100 ? `稼働上限を ${averageLoad - 100}% 超えています。` : `稼働上限まであと ${100 - averageLoad}%。`}{mode === "shared" ? "変更は組織内で共有されます。" : "サンプルデータはこの端末だけに保存されます。"}</p>
         </div>
         <div className="profile-row">
           <span className="avatar avatar-dark">{makeInitials(displayName)}</span><span><strong>{displayName}</strong><small>{roleLabel[role]}</small></span>
@@ -2194,7 +2197,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
               {notificationsOpen && (
                 <div className="notification-popover">
                   <div className="popover-head"><strong>通知</strong><button aria-label="通知を閉じる" onClick={() => setNotificationsOpen(false)}><X size={15} /></button></div>
-                  {(currentOverloads.length > 0 || overloadPlanned) && overloadMember && <button onClick={() => { setDrawer("overload"); setNotificationsOpen(false); }}><span className={"notice-icon " + (overloadPlanned ? "planned" : "danger")}><AlertTriangle size={14} /></span><span><strong>{overloadPlanned ? "稼働超過は解消予定" : "稼働超過を検知"}</strong><small>{overloadMember.name}さん · 今週</small></span></button>}
+                  {(currentOverloads.length > 0 || overloadPlanned) && overloadMember && <button onClick={() => { setDrawer("overload"); setNotificationsOpen(false); }}><span className={"notice-icon " + (overloadPlanned ? "planned" : "danger")}><AlertTriangle size={14} /></span><span><strong>{overloadPlanned ? "上限超過は解消予定" : "上限超過を検知"}</strong><small>{overloadMember.name}さん · 今週</small></span></button>}
                   {activeNeeds.map((need) => <button onClick={() => openStaffingNeed(need.id)} key={need.id}><span className={"notice-icon " + (need.status === "planned" ? "planned" : "info")}><UserRoundPlus size={14} /></span><span><strong>{need.status === "planned" ? `${need.role}は解消予定` : `${need.role}担当が未定`}</strong><small>{projectById(workspace, need.projectId)?.name} · {formatDate(need.startDate)}</small></span></button>)}
                 </div>
               )}
@@ -2225,7 +2228,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
         {activeNav === "board" && (
           <>
             <section className="pulse-strip" aria-label="チームの稼働サマリー">
-              <div className="pulse-heading"><span className="live-dot" /><div><small>TEAM PULSE</small><strong>チームの余白</strong></div></div>
+              <div className="pulse-heading"><span className="live-dot" /><div><small>TEAM PULSE</small><strong>チームの稼働サマリー</strong></div></div>
               <div className="pulse-metric"><strong>{averageLoad}<small>%</small></strong><span>平均稼働率</span></div>
               <div className="pulse-rule" />
               <div className="pulse-metric"><strong>{freeDays}<small>人日</small></strong><span>今週の空き</span></div>
@@ -2283,15 +2286,15 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                 <div className="attention-title"><div><small>NEEDS ATTENTION</small><h2>要調整</h2></div><span>{adjustmentCount}</span></div>
                 {(currentOverloads.length > 0 || overloadPlanned) && overloadMember && (
                   <button className={"alert-card urgent " + (overloadPlanned ? "planned" : "")} onClick={() => setDrawer("overload")}>
-                    <div className="alert-top"><span>{overloadPlanned ? <CheckCircle2 size={11} /> : <AlertTriangle size={11} />} {overloadPlanned ? "RESOLUTION PLANNED" : "OVER CAPACITY"}</span><small>{memberLoad(workspace, overloadMember.id, currentWeekStart)}%</small></div>
-                    <h3>{overloadMember.name}さんの超過は{overloadPlanned ? "解消予定" : "要調整"}</h3><p>{overloadPlanned ? "変更を保存すると警告が解消されます。" : "今週の稼働配分が登録上限を超えています。"}</p>
+                    <div className="alert-top"><span>{overloadPlanned ? <CheckCircle2 size={11} /> : <AlertTriangle size={11} />} {overloadPlanned ? "解消予定" : "上限超過"}</span><small>{memberLoad(workspace, overloadMember.id, currentWeekStart)}%</small></div>
+                    <h3>{overloadMember.name}さんの超過は{overloadPlanned ? "解消予定" : "要調整"}</h3><p>{overloadPlanned ? "変更を保存すると警告が解消されます。" : "今週の稼働配分が稼働上限を超えています。"}</p>
                     <div className="alert-people"><span className={"avatar " + overloadMember.avatarTone}>{overloadMember.initials}</span><span>{overloadPlanned || !canEdit ? "内容を確認" : "調整する"} <ArrowRight size={13} /></span></div>
                   </button>
                 )}
                 {activeNeeds.map((need) => (
                   <button className={"alert-card " + (need.status === "planned" ? "planned" : "")} onClick={() => openStaffingNeed(need.id)} key={need.id}>
-                    <div className="alert-top"><span>{need.status === "planned" ? <CheckCircle2 size={11} /> : <Clock3 size={11} />} {need.status === "planned" ? "RESOLUTION PLANNED" : "OPEN ROLE"}</span><small>{formatDate(need.startDate).replace(/^\d{4}年/, "")}</small></div>
-                    <h3>{projectById(workspace, need.projectId)?.name}の{need.role}が{need.status === "planned" ? "解消予定" : "未定"}</h3><p>{need.status === "planned" ? "候補者を仮置きしました。保存後に充足へ変わります。" : need.allocation + "%の担当者を開始日までに決めてください。"}</p>
+                    <div className="alert-top"><span>{need.status === "planned" ? <CheckCircle2 size={11} /> : <Clock3 size={11} />} {need.status === "planned" ? "解消予定" : "未充足ロール"}</span><small>{formatDate(need.startDate).replace(/^\d{4}年/, "")}</small></div>
+                    <h3>{projectById(workspace, need.projectId)?.name}の{need.role}が{need.status === "planned" ? "解消予定" : "未定"}</h3><p>{need.status === "planned" ? "候補者を仮置きしました。保存後に充足へ変わります。" : "稼働配分" + need.allocation + "%の担当者を開始日までに決めてください。"}</p>
                     <div className="skill-chips">{need.skills.map((skill) => <span key={skill}>{skill}</span>)}<ArrowRight size={13} /></div>
                   </button>
                 ))}
@@ -2367,20 +2370,20 @@ export default function Home({ mode = "demo", organizationId, organizationName =
 
             {drawer === "overload" && overloadMember && (
               <div className="drawer-content">
-                <div className="drawer-heading"><span className={"drawer-icon " + (overloadPlanned ? "mint" : "coral")}>{overloadPlanned ? <CheckCircle2 size={19} /> : <AlertTriangle size={19} />}</span><div><h2>{overloadPlanned ? "解消予定を確認" : "稼働超過を調整"}</h2><p>{overloadMember.name}さん · {overloadMember.role}</p></div></div>
-                <div className={"capacity-card " + (overloadPlanned ? "resolved" : "")}><div><span>今週の稼働</span><strong>{memberLoad(workspace, overloadMember.id, currentWeekStart)}% / 上限{overloadMember.capacity}%</strong></div><div className="capacity-meter"><span style={{ width: Math.min(100, memberLoad(workspace, overloadMember.id, currentWeekStart) / overloadMember.capacity * 100) + "%" }} /><i>{overloadMember.capacity}%</i></div><p>{overloadPlanned ? "保存すると超過警告が解消されます。" : `登録上限を${Math.max(0, memberLoad(workspace, overloadMember.id, currentWeekStart) - overloadMember.capacity)}%超えています。`}</p></div>
+                <div className="drawer-heading"><span className={"drawer-icon " + (overloadPlanned ? "mint" : "coral")}>{overloadPlanned ? <CheckCircle2 size={19} /> : <AlertTriangle size={19} />}</span><div><h2>{overloadPlanned ? "解消予定を確認" : "上限超過を調整"}</h2><p>{overloadMember.name}さん · {overloadMember.role}</p></div></div>
+                <div className={"capacity-card " + (overloadPlanned ? "resolved" : "")}><div><span>今週の稼働</span><strong>{memberLoad(workspace, overloadMember.id, currentWeekStart)}% / 稼働上限{overloadMember.capacity}%</strong></div><div className="capacity-meter"><span style={{ width: Math.min(100, memberLoad(workspace, overloadMember.id, currentWeekStart) / overloadMember.capacity * 100) + "%" }} /><i>{overloadMember.capacity}%</i></div><p>{overloadPlanned ? "保存すると超過警告が解消されます。" : `稼働上限を${Math.max(0, memberLoad(workspace, overloadMember.id, currentWeekStart) - overloadMember.capacity)}%超えています。`}</p></div>
                 <div className="drawer-section-title"><span>現在の配分</span><small>合計 {memberLoad(workspace, overloadMember.id, currentWeekStart)}%</small></div>
                 <div className="allocation-list">{overloadAssignments.map((assignment) => <div key={assignment.id}><span className={"project-dot " + (projectById(workspace, assignment.projectId)?.tone || "blue")} /><span><strong>{projectById(workspace, assignment.projectId)?.name}</strong><small>{formatDate(assignment.startDate)} — {formatDate(assignment.endDate)}</small></span><b>{assignment.allocation}%</b></div>)}</div>
-                {!overloadPlanned && canEdit && overloadAssignments.length > 0 ? <><div className="suggestion-card"><span><Sparkles size={15} /></span><div><strong>おすすめの調整</strong><p>超過している各営業日の案件配分を順に減らし、すべての日を登録上限内へ収めます。</p></div></div><button className="drawer-primary" onClick={resolveOverload}><CheckCircle2 size={16} />推奨配分へ調整</button></> : <button className="drawer-primary" onClick={closeDrawer}><Check size={16} />閉じる</button>}
+                {!overloadPlanned && canEdit && overloadAssignments.length > 0 ? <><div className="suggestion-card"><span><Sparkles size={15} /></span><div><strong>おすすめの調整</strong><p>超過している各営業日の案件配分を順に減らし、すべての日を稼働上限内へ収めます。</p></div></div><button className="drawer-primary" onClick={resolveOverload}><CheckCircle2 size={16} />推奨配分へ調整</button></> : <button className="drawer-primary" onClick={closeDrawer}><Check size={16} />閉じる</button>}
               </div>
             )}
 
             {drawer === "openRole" && selectedNeed && (
               <div className="drawer-content">
                 <div className="drawer-heading"><span className={"drawer-icon " + (selectedNeed.status === "open" ? "mint" : "cobalt")}><UserRoundPlus size={19} /></span><div><h2>{selectedNeed.status === "open" ? `${selectedNeed.role}の候補` : selectedNeed.status === "planned" ? "解消予定の担当者" : "充足済みの担当者"}</h2><p>{projectById(workspace, selectedNeed.projectId)?.name} · {formatDate(selectedNeed.startDate)}開始</p></div></div>
-                <div className="role-brief"><span>必要な条件</span><div>{selectedNeed.skills.map((skill) => <b key={skill}>{skill}</b>)}<b>{selectedNeed.role}</b><b>{selectedNeed.allocation}%の空き</b></div></div>
+                <div className="role-brief"><span>必要な条件</span><div>{selectedNeed.skills.map((skill) => <b key={skill}>{skill}</b>)}<b>{selectedNeed.role}</b><b>稼働配分 {selectedNeed.allocation}%</b></div></div>
                 {selectedNeed.status !== "open" ? (
-                  <div className="planned-candidate"><CheckCircle2 size={20} /><span><strong>{memberById(workspace, selectedNeed.draftPersonId || "")?.name ?? "担当者"}{selectedNeed.status === "planned" ? "さんを仮置き済み" : "さんで充足済み"}</strong><small>{selectedNeed.allocation}% · {formatDate(selectedNeed.startDate)} — {formatDate(selectedNeed.endDate)}</small></span></div>
+                  <div className="planned-candidate"><CheckCircle2 size={20} /><span><strong>{memberById(workspace, selectedNeed.draftPersonId || "")?.name ?? "担当者"}{selectedNeed.status === "planned" ? "さんを仮置き済み" : "さんで充足済み"}</strong><small>稼働配分 {selectedNeed.allocation}% · {formatDate(selectedNeed.startDate)} — {formatDate(selectedNeed.endDate)}</small></span></div>
                 ) : (
                   <>
                     <div className="candidate-label"><span>条件に合うメンバー</span><small>必須条件を満たす候補をスコア順に最大5名</small></div>
@@ -2429,7 +2432,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                 <CustomFieldFacts fields={visibleCustomFields(workspace.customFields, "member", "detail")} values={selectedMember.customValues} />
                 <div className="drawer-section-title"><span>業務経歴</span><small>{(selectedMember.workHistory ?? []).length}件</small></div>
                 <WorkHistoryList entries={selectedMember.workHistory} />
-                <div className="drawer-section-title"><span>4週間のキャパシティ</span><small>上限 {selectedMember.capacity}%</small></div>
+                <div className="drawer-section-title"><span>4週間の稼働</span><small>稼働上限 {selectedMember.capacity}%</small></div>
                 <div className="profile-capacity">{[0, 1, 2, 3].map((offset) => { const load = memberLoad(workspace, selectedMember.id, addDays(weekStart, offset * 7)); const ratio = selectedMember.capacity > 0 ? load / selectedMember.capacity * 100 : load > 0 ? 100 : 0; return <div key={offset}><span>{offset === 0 ? "今週" : offset + 1 + "週後"}</span><i><b className={load > selectedMember.capacity ? "over" : ""} style={{ width: Math.min(100, ratio) + "%" }} /></i><strong>{load}% / {selectedMember.capacity}%</strong></div>; })}</div>
                 <div className="drawer-section-title"><span>現在のアサイン</span><small>{workspace.assignments.filter((assignment) => assignment.personId === selectedMember.id && overlaps(assignment.startDate, assignment.endDate, weekStart, weekEnd(weekStart))).length}件</small></div>
                 <div className="allocation-list">{workspace.assignments.filter((assignment) => assignment.personId === selectedMember.id && overlaps(assignment.startDate, assignment.endDate, weekStart, weekEnd(weekStart))).map((assignment) => <div key={assignment.id}><span className={"project-dot " + (projectById(workspace, assignment.projectId)?.tone || "plum")} /><span><strong>{assignment.label || projectById(workspace, assignment.projectId)?.name || "プロジェクト未登録"}</strong><small>{formatDate(assignment.startDate)} — {formatDate(assignment.endDate)}</small></span><b>{assignment.allocation}%</b></div>)}</div>
