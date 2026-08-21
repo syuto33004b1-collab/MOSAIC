@@ -779,9 +779,42 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .toast svg { color: #a9e1d0; }
 .toast.show { opacity: 1; transform: translate(-50%, 0); }
 
-.topbar { animation: rise-in .45s ease-out both; }
-.pulse-strip { animation: rise-in .45s .07s ease-out both; }
-.board-layout { animation: rise-in .48s .14s ease-out both; }
+/* `backwards`, never `both` or `forwards`. An animation of `opacity` or
+   `transform` that is still filling makes its element a stacking context, and
+   `.topbar` being one is what buried the notification popover: `z-index: 30`
+   could then only order it against its siblings inside the topbar, and
+   `.section-view` painted over the lot (#135).
+   Measured by rebuilding `rise-in` three ways, each loaded as static CSS with
+   `.topbar` back on `both`:
+
+     opacity + transform  -> buried
+     opacity only         -> buried, with computed transform `none`
+     transform only       -> buried
+
+   Either property alone is enough, and the middle row is why overriding the
+   residual `transform` to `none` did not help — the value is not what creates
+   the context, the animation still being in effect is. Raising the popover to
+   `z-index: 999` did not help either, for the same reason.
+   `backwards` still hides each element through its delay, and the resting
+   position and opacity are unchanged: `rise-in` ends at
+   `opacity: 1; transform: translateY(0)`, which draws where the `none` these
+   elements compute to without a fill draws — none of them declares a transform
+   of its own. What does change, on purpose, is the stacking order.
+   For the 0.45s an animation is actually running its element is a stacking
+   context whatever the fill mode says, so `.topbar` carries a z-index of its own
+   as well; see the rule below.
+   Before adding a fill mode here, measure what it does to stacking. */
+/* `position: relative; z-index: 2` is the belt to the fill mode's braces. The
+   fill mode keeps `.topbar` from being a stacking context once the animation has
+   finished; for the 0.45s it is running it is one regardless, and a click on the
+   bell inside that window put the popover back under `.pulse-strip` — measured,
+   not assumed. With a stack position of its own the whole topbar sits above the
+   content, so the popover is readable whether or not it is trapped. 2 clears the
+   ribbons' children at 1 and stays under the change bar (40), the chat (50), the
+   drawer overlay (60) and the toast (90). */
+.topbar { position: relative; z-index: 2; animation: rise-in .45s ease-out backwards; }
+.pulse-strip { animation: rise-in .45s .07s ease-out backwards; }
+.board-layout { animation: rise-in .48s .14s ease-out backwards; }
 @keyframes rise-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes popover-in { from { opacity: 0; transform: translateY(-5px) scale(.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
 @keyframes change-in { from { opacity: 0; transform: translate(-50%, 12px); } to { opacity: 1; transform: translate(-50%, 0); } }
@@ -921,7 +954,7 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .assignment-form > label > input:focus,
 .assignment-form .form-grid input:focus { border-color: #91a0ff; box-shadow: 0 0 0 3px rgba(86,104,232,.1); }
 
-.section-view { width: 100%; max-width: 100%; min-width: 0; overflow-x: hidden; animation: rise-in .46s .04s ease-out both; }
+.section-view { width: 100%; max-width: 100%; min-width: 0; overflow-x: hidden; animation: rise-in .46s .04s ease-out backwards; /* `backwards` on purpose (#135) */ }
 .portfolio-ribbon,
 .member-ribbon {
   min-height: 92px;
@@ -3445,7 +3478,14 @@ h1 {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
   pointer-events: auto;
-  animation: ai-chat-panel-in .24s var(--ease-human) both;
+  /* `backwards`, not `both`, for the reason spelled out at `.topbar` (#135): an
+     `opacity` or `transform` animation left filling makes its element a stacking
+     context. Nothing inside this panel needs to escape today, so this one is
+     preventive — and unverified on screen, because the panel does not render in
+     DEMO mode (#101). Dropping the fill is safe either way: the keyframe ends at
+     `translateY(0) scale(1)`, no rule gives `.ai-chat-panel` a transform of its
+     own, and `translateY(0)` draws where `none` draws. */
+  animation: ai-chat-panel-in .24s var(--ease-human) backwards;
 }
 
 .ai-chat-root.is-elevated .ai-chat-panel,
