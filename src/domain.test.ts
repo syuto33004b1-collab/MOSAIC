@@ -537,27 +537,44 @@ describe("telling two people with one name apart", () => {
     expect(label(members, "hayashi-2")).toBe("林 葵（#hayashi-2）");
   });
 
-  /** A UUID is too long to print, and any tail of one reads as what it is. */
-  it("trims a long id to a tail", () => {
+  /**
+   * A UUID's tail is meaningless hex either way, so it is the one shape that gets
+   * trimmed. Recognised by pattern rather than by length: a first version cut anything
+   * over twelve characters, a number taken from the seed slugs, which would have turned
+   * a thirteen-character slug into a fragment.
+   */
+  it("trims a UUID to a tail and prints anything else whole", () => {
     const members = [
       person("0f7c8a12-4b2e-4a55-9d31-aa0000004f2a", "林 葵", "東京"),
       person("0f7c8a12-4b2e-4a55-9d31-aa0000009c81", "林 葵", "東京"),
     ];
     expect(label(members, "0f7c8a12-4b2e-4a55-9d31-aa0000004f2a")).toBe("林 葵（#4f2a）");
     expect(label(members, "0f7c8a12-4b2e-4a55-9d31-aa0000009c81")).toBe("林 葵（#9c81）");
+    // Thirteen characters, not a UUID: printed whole rather than cut mid-word.
+    const slugs = [person("kawasaki-aoi", "林 葵", "東京"), person("kawasaki-aoi2", "林 葵", "東京")];
+    expect(label(slugs, "kawasaki-aoi2")).toBe("林 葵（#kawasaki-aoi2）");
   });
 
-  it("uses the location for whoever it distinguishes, and the id for the rest", () => {
+  /**
+   * All of a group or none of it. Choosing per person let one namesake read 「（大阪）」
+   * while another read 「（#4f2a）」, and adding a third person could change an existing
+   * label's kind — which the evaluator on #123 pointed out is unstable.
+   */
+  it("gives a whole group the same kind of suffix", () => {
     const members = [
       person("aaaa1111", "林 葵", "東京"),
       person("bbbb2222", "林 葵", "東京"),
       person("cccc3333", "林 葵", "大阪"),
     ];
-    // Osaka is one person's alone, so it is enough for them.
-    expect(label(members, "cccc3333")).toBe("林 葵（大阪）");
-    // The two in Tokyo need the id, and these are short enough to print whole.
+    // Two of the three share 東京, so nobody in the group gets a location.
+    expect(label(members, "cccc3333")).toBe("林 葵（#cccc3333）");
     expect(label(members, "aaaa1111")).toBe("林 葵（#aaaa1111）");
     expect(label(members, "bbbb2222")).toBe("林 葵（#bbbb2222）");
+
+    // Make the locations distinct and the whole group switches together.
+    const distinct = [person("a", "林 葵", "東京"), person("b", "林 葵", "大阪"), person("c", "林 葵", "福岡")];
+    expect(distinct.map((item) => label(distinct, item.id)))
+      .toEqual(["林 葵（東京）", "林 葵（大阪）", "林 葵（福岡）"]);
   });
 
   /**
@@ -566,17 +583,17 @@ describe("telling two people with one name apart", () => {
    * token for two different people, which is the defect wearing a different hat.
    */
   it("lengthens the tail rather than printing the same token twice", () => {
-    // Long enough to be trimmed, and sharing their last four characters.
+    // Two UUIDs sharing their last five characters, which a fixture or a migration can
+    // produce. Four would print the same token for both.
     const members = [
-      person("alpha-branch-record-0001", "林 葵", "東京"),
-      person("beta-branch-record-0001", "林 葵", "東京"),
+      person("0f7c8a12-4b2e-4a55-9d31-aaaaaa14f2a1", "林 葵", "東京"),
+      person("0f7c8a12-4b2e-4a55-9d31-bbbbbb24f2a1", "林 葵", "東京"),
     ];
-    const first = label(members, "alpha-branch-record-0001");
-    const second = label(members, "beta-branch-record-0001");
+    const first = label(members, "0f7c8a12-4b2e-4a55-9d31-aaaaaa14f2a1");
+    const second = label(members, "0f7c8a12-4b2e-4a55-9d31-bbbbbb24f2a1");
     expect(first).not.toBe(second);
     expect(first.startsWith("林 葵（#")).toBe(true);
-    // Long enough to clear the shared 「0001」.
-    expect(first.length).toBeGreaterThan("林 葵（#0001）".length);
+    expect(first.length).toBeGreaterThan("林 葵（#f2a1）".length);
   });
 
   it("ignores surrounding whitespace when deciding whether a name is shared", () => {

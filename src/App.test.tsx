@@ -3462,21 +3462,25 @@ describe("what the fit score is out of", () => {
  */
 describe("two members with one name", () => {
   const twins = (): WorkspaceState => {
-    const [first, ...rest] = initialWorkspace.members;
+    const [first, second] = initialWorkspace.members;
     return {
       ...initialWorkspace,
       members: [
         ...initialWorkspace.members,
         // Same name, same role, same department, same location as `first`: the case with
         // nothing left to distinguish but the id.
-        { ...first, id: "twin-9c81", name: first.name },
+        { ...first, id: "twin-9c81" },
+        // A second pair, in two different places, so both branches of the label are on
+        // the one screen. `second` is in 東京 in the seed.
+        { ...second, id: "twin-osaka", location: "大阪" },
       ],
-      // And a third elsewhere, so the location branch is exercised on the same screen.
-      ...(rest.length > 0 ? {} : {}),
-    } as WorkspaceState;
+    };
   };
 
+  /** Two people, one location: nothing left but the id. */
   const sharedName = initialWorkspace.members[0].name;
+  /** Two people, two locations: the location tells them apart. */
+  const placedName = initialWorkspace.members[1].name;
 
   it("distinguishes them in the member list", async () => {
     const user = userEvent.setup();
@@ -3492,6 +3496,11 @@ describe("two members with one name", () => {
     expect(new Set(shared).size).toBe(2);
     // The seeded members and the twin share a location, so both fall back to the id.
     for (const name of shared) expect(name).toMatch(new RegExp(`^${sharedName}（#[0-9a-z-]+）$`, "u"));
+
+    // The other pair is in two places, so the location is enough and no id is printed.
+    const placed = names.filter((name) => name.startsWith(placedName));
+    expect(placed, `expected two rows for 「${placedName}」, got ${names.join(" | ")}`).toHaveLength(2);
+    expect(new Set(placed)).toEqual(new Set([`${placedName}（東京）`, `${placedName}（大阪）`]));
   });
 
   it("distinguishes them everywhere a person is chosen", async () => {
@@ -3520,10 +3529,31 @@ describe("two members with one name", () => {
 
     // The proposal picker.
     await user.click(navigation.getByRole("button", { name: /^提案( |$)/u }));
-    const picker = [...document.querySelectorAll(".proposal-picker-copy strong")].map((el) => el.textContent ?? "")
-      .filter((name) => name.startsWith(sharedName));
-    expect(picker).toHaveLength(2);
-    expect(new Set(picker).size).toBe(2);
+    for (const name of [sharedName, placedName]) {
+      const picker = [...document.querySelectorAll(".proposal-picker-copy strong")].map((el) => el.textContent ?? "")
+        .filter((text) => text.startsWith(name));
+      expect(picker, `the proposal picker should list both 「${name}」`).toHaveLength(2);
+      expect(new Set(picker).size).toBe(2);
+    }
+  });
+
+  /**
+   * The favourite buttons are the one control whose only text is the name — the star
+   * itself carries no words — so two namesakes gave the screen two buttons with the
+   * same accessible name. Found by the evaluation on this issue, not by the tests above.
+   */
+  it("distinguishes them in the favourite buttons' accessible names", async () => {
+    const user = userEvent.setup();
+    const adapter = sharedAdapter();
+    adapter.initialState = twins();
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^メンバー( |$)/u }));
+
+    const stars = [...document.querySelectorAll(".member-table button[aria-label]")]
+      .map((el) => el.getAttribute("aria-label") ?? "")
+      .filter((label) => label.includes(sharedName) || label.includes(placedName));
+    expect(stars.length, "expected a favourite button per row for each pair").toBe(4);
+    expect(new Set(stars).size, `two buttons share a name: ${stars.join(" | ")}`).toBe(4);
   });
 
   it("leaves every other name untouched", async () => {
@@ -3535,12 +3565,14 @@ describe("two members with one name", () => {
 
     // Every member but the twins keeps a bare name: the suffix is for collisions only,
     // and almost every row is not one.
-    const others = initialWorkspace.members.slice(1).map((member) => member.name);
+    const others = initialWorkspace.members.map((member) => member.name);
     const names = [...document.querySelectorAll(".member-table .row-name-copy strong")].map((el) => el.textContent ?? "");
     for (const name of others) {
-      if (name === sharedName) continue;
+      if (name === sharedName || name === placedName) continue;
       expect(names, `「${name}」 should be printed as-is`).toContain(name);
     }
+    // Only the pair with nothing else to go on pays the id, and only that pair.
     expect(names.filter((name) => name.includes("（#"))).toHaveLength(2);
+    expect(names.filter((name) => name.includes("（")).length).toBe(4);
   });
 });

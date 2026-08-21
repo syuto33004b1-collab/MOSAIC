@@ -780,32 +780,71 @@ export function getIsoWeekNumber(iso: string) {
  * A name shared by nobody comes back untouched, which is almost every row.
  */
 export function memberLabel(state: Pick<WorkspaceState, "members">, member: Pick<Member, "id" | "name" | "location">) {
-  const namesakes = state.members.filter((item) => item.name.trim() === member.name.trim());
-  if (namesakes.length < 2) return member.name;
-  const sameLocation = namesakes.filter((item) => item.location === member.location);
-  if (sameLocation.length === 1) return `${member.name}（${member.location}）`;
-  return `${member.name}（#${idTail(member.id, namesakes.map((item) => item.id))}）`;
+  return memberLabels(state.members).get(member.id) ?? member.name;
+}
+
+/**
+ * Every member's label, in one pass, cached against the array itself.
+ *
+ * `memberLabel` is called once per row, and a filter over all members inside it made
+ * the member list O(n²) — a thousand people is a million name comparisons per render.
+ * React hands back the same `members` array until the workspace changes, so a WeakMap
+ * keyed on it turns that into one pass, and the cache goes away with the array.
+ */
+const labelCache = new WeakMap<readonly Pick<Member, "id" | "name" | "location">[], Map<string, string>>();
+
+export function memberLabels(members: readonly Pick<Member, "id" | "name" | "location">[]) {
+  const cached = labelCache.get(members);
+  if (cached) return cached;
+  const byName = new Map<string, Pick<Member, "id" | "name" | "location">[]>();
+  for (const member of members) {
+    const key = member.name.trim();
+    const group = byName.get(key) ?? [];
+    group.push(member);
+    byName.set(key, group);
+  }
+  const labels = new Map<string, string>();
+  for (const [name, group] of byName) {
+    if (group.length < 2) {
+      labels.set(group[0].id, group[0].name);
+      continue;
+    }
+    // The whole group takes the same kind of suffix. Deciding per person let one
+    // namesake read 「（大阪）」 while another read 「（#4f2a）」, and adding a third person
+    // could change an existing label's kind — the evaluator on #123 asked for this.
+    const locations = new Set(group.map((member) => member.location));
+    const byLocation = locations.size === group.length;
+    for (const member of group) {
+      labels.set(member.id, byLocation
+        ? `${name}（${member.location}）`
+        : `${name}（#${idTail(member.id, group.map((item) => item.id))}）`);
+    }
+  }
+  labelCache.set(members, labels);
+  return labels;
 }
 
 /**
  * Enough of `id` to tell it from the others, and never a fragment of a word.
  *
  * New ids are `crypto.randomUUID()`, where any tail is meaningless hex and four
- * characters read as what they are. But the seeded members carry readable slugs —
- * `hayashi`, `saeki` — and the tail of one of those is a word fragment: 「#ashi」 looked
- * like it meant something. Measured on the DEMO data, which is what a reader sees.
+ * characters read as what they are. Anything else is printed whole: the seeded members
+ * carry readable slugs — `hayashi`, `saeki` — and the tail of one of those is a word
+ * fragment. 「#ashi」 out of `hayashi` looked like it meant something, measured on the
+ * DEMO data, which is what a reader sees.
  *
- * So a short id is printed whole, and only a long one is trimmed. Twelve is above every
- * slug in the seed data and far below a UUID's 36.
+ * A UUID is recognised rather than guessed at by length. A first version trimmed
+ * anything over twelve characters, which is a number taken from the seed slugs and
+ * would have cut a thirteen-character one into a fragment.
  *
  * The loop is there because a fixture or a migration can produce ids that share a tail;
  * printing the same token for two different people would be the defect wearing a
  * different hat.
  */
-const SHORT_ID = 12;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
 
 function idTail(id: string, among: string[]) {
-  if (id.length <= SHORT_ID) return id;
+  if (!UUID.test(id)) return id;
   const others = among.filter((other) => other !== id);
   for (let length = 4; length < id.length; length += 1) {
     const tail = id.slice(-length);

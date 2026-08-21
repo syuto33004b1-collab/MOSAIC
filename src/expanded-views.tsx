@@ -836,7 +836,7 @@ export function MembersView({
               const match = scoreById.get(member.id);
               return (
                 <tr key={member.id}>
-                  <td>{onToggleFavorite ? <FavoriteStar name={member.name} pressed={isFavorited(favorites, "member", member.id)} onToggle={() => onToggleFavorite(member.id)} /> : null}</td>
+                  <td>{onToggleFavorite ? <FavoriteStar name={memberLabel(state, member)} pressed={isFavorited(favorites, "member", member.id)} onToggle={() => onToggleFavorite(member.id)} /> : null}</td>
                   <td><button className="member-name-cell" onClick={() => onOpen(member.id)}><span className={"avatar " + member.avatarTone}>{member.initials}</span><span className="row-name-copy"><strong>{memberLabel(state, member)}</strong><small>{member.role} · {member.department}{memberOrgMemberships(state, member.id).some((item) => !item.isPrimary) ? " · 兼務あり" : ""}</small></span></button></td>
                   <td><div className="member-skills">{memberSkillLevels(member).slice(0, 3).map((level) => <span key={level.name}>{level.name}<small>{level.proficiency}</small></span>)}</div></td>
                   {selectedScene && <td><span className="match-score">{match?.score ?? 0}/{scoreCeiling}点<small>空き{match?.availablePercent ?? 0}%</small></span></td>}
@@ -1025,7 +1025,7 @@ export function ProposalView({
                     <p>{member.role}{anonymous ? "" : ` · ${member.department}`}</p>
                     {!anonymous && <small>{member.location}</small>}
                   </div>
-                  {onToggleFavorite && !anonymous && <FavoriteStar name={member.name} pressed={isFavorited(favorites, "member", member.id)} onToggle={() => onToggleFavorite(member.id)} />}
+                  {onToggleFavorite && !anonymous && <FavoriteStar name={memberLabel(state, member)} pressed={isFavorited(favorites, "member", member.id)} onToggle={() => onToggleFavorite(member.id)} />}
                   <button type="button" className="proposal-remove" onClick={() => onSelectedIdsChange(selectedIds.filter((id) => id !== member.id))}>外す</button>
                 </header>
                 <div className="member-skills">{memberSkillLevels(member).slice(0, 4).map((level) => <span key={level.name}>{level.name}<small>{level.proficiency}</small></span>)}</div>
@@ -1979,7 +1979,7 @@ export function OrgView({ state, onAddUnit, onMoveUnit, onArchiveUnit, canManage
               const depth = Math.max(0, orgUnitPath(state.orgUnits, unit.id).length - 1);
               const primaryCount = membersInOrgSubtree(state, unit.id, "primary").length;
               const concurrentCount = membersInOrgSubtree(state, unit.id, "any").length - primaryCount;
-              const managerNames = orgManagers(state, unit.id).map((member) => member.name);
+              const managerNames = orgManagers(state, unit.id).map((member) => memberLabel(state, member));
               const blocker = canManage ? orgUnitArchiveBlocker(state, unit.id) : null;
               return (
                 <tr key={unit.id} className={depth === 0 ? "category-row" : ""}>
