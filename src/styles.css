@@ -4557,7 +4557,11 @@ h1 {
    キャパシティ down to 39px. */
 .custom-field-cell { display: block; max-width: 150px; overflow: hidden; color: #5d6678; font-size: var(--text-min); text-overflow: ellipsis; white-space: nowrap; }
 .custom-field-facts { margin-top: 12px; }
-.custom-field-inputs,
+/* The custom-field inputs used to share this grid, from inside a wrapper div that broke
+   the drawer form's `.assignment-form > label` chain — so their labels were inline and
+   their inputs stayed at the browser's default 177px against every other control's
+   683.8px, measured at 1440px. They are Fragments now and take the form's own spacing
+   (#164). */
 .work-history-editor { display: grid; gap: 10px; }
 .work-history-list { display: grid; gap: 10px; }
 .work-history-list article {
