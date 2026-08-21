@@ -22,6 +22,18 @@ afterEach(() => {
   window.localStorage.removeItem(DEMO_FAVORITES_KEY);
 });
 
+/**
+ * The member row whose name reads exactly `label`. #163 split the name cell into the name
+ * and the tag that distinguishes it, so a namesake's label spans two elements and
+ * `getByText` cannot match the whole of it; `textContent` still joins them.
+ */
+function memberRowButton(label: string) {
+  const heading = [...document.querySelectorAll(".member-table .row-name-copy strong")]
+    .find((element) => element.textContent === label);
+  expect(heading, `no member row reads 「${label}」`).toBeDefined();
+  return heading!.closest("button")!;
+}
+
 function linkedStaffingWorkspace(): WorkspaceState {
   const member = initialWorkspace.members[0];
   const project = initialWorkspace.projects[0];
@@ -3546,6 +3558,43 @@ describe("two members with one name", () => {
    * itself carries no words — so two namesakes gave the screen two buttons with the
    * same accessible name. Found by the evaluation on this issue, not by the tests above.
    */
+  /**
+   * #163: the tag sits at the end of the label and the name cell ellipsises, so the one
+   * part that distinguishes was the first part cut. Measured at 375px, cell 122px:
+   * 「中村 美咲（#nakamura）」 wanted 134.3px. The name and the tag are separate boxes now —
+   * the name shrinks, the tag does not — and this holds the markup that lets the CSS do
+   * that. The widths are in the PR; jsdom has no layout.
+   */
+  it("keeps the tag in its own box so the name is what gets cut", async () => {
+    const user = userEvent.setup();
+    const adapter = sharedAdapter();
+    adapter.initialState = twins();
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^メンバー( |$)/u }));
+
+    const cells = [...document.querySelectorAll(".member-table .row-name-copy strong")];
+    const tagged = cells.filter((cell) => cell.querySelector(".row-name-tag"));
+    // The two pairs, and nobody else.
+    expect(tagged).toHaveLength(4);
+    for (const cell of tagged) {
+      const main = cell.querySelector(".row-name-main")!;
+      const tag = cell.querySelector(".row-name-tag")!;
+      // The name in one box, the tag in the other, and nothing lost between them.
+      expect(main.textContent).not.toContain("（");
+      expect(tag.textContent).toMatch(/^（.+）$/u);
+      expect(cell.textContent).toBe(main.textContent! + tag.textContent!);
+    }
+
+    // A member nobody shares a name with gets the name box and no tag box, so the
+    // ellipsis still has something to apply to.
+    const plain = cells.filter((cell) => !cell.querySelector(".row-name-tag"));
+    expect(plain.length).toBeGreaterThan(0);
+    for (const cell of plain) {
+      expect(cell.querySelector(".row-name-main")).not.toBeNull();
+      expect(cell.querySelector(".row-name-main")!.textContent).toBe(cell.textContent);
+    }
+  });
+
   it("distinguishes them in the favourite buttons' accessible names", async () => {
     const user = userEvent.setup();
     const adapter = sharedAdapter();
@@ -3606,7 +3655,7 @@ describe("renaming one of two people with one name", () => {
 
   const rename = async (user: ReturnType<typeof userEvent.setup>, rowLabel: string, to: string) => {
     await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^メンバー( |$)/u }));
-    await user.click(screen.getByText(rowLabel).closest("button")!);
+    await user.click(memberRowButton(rowLabel));
     await user.click(screen.getByRole("button", { name: "メンバー情報を編集" }));
     const dialog = within(screen.getByRole("dialog", { name: "詳細パネル" }));
     await user.clear(dialog.getByLabelText("氏名"));
@@ -3716,7 +3765,7 @@ describe("renaming one of two people with one name", () => {
 
     await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^メンバー( |$)/u }));
     // The twin owns nothing by id. 「林 葵」 on two projects could be either of them.
-    await user.click(screen.getByText("林 葵（#t-hayashi）").closest("button")!);
+    await user.click(memberRowButton("林 葵（#t-hayashi）"));
     await user.click(screen.getByRole("button", { name: "メンバーをアーカイブ" }));
 
     expect(confirm).not.toHaveBeenCalled();

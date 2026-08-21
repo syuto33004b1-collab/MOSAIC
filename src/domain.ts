@@ -821,8 +821,25 @@ export function getIsoWeekNumber(iso: string) {
  * A name shared by nobody comes back untouched, which is almost every row.
  */
 export function memberLabel(state: Pick<WorkspaceState, "members">, member: Pick<Member, "id" | "name" | "location">) {
-  return memberLabels(state.members).get(member.id) ?? member.name;
+  const { name, tag } = memberLabelParts(state, member);
+  return name + tag;
 }
+
+/**
+ * The same label in two pieces: the name, and the tag that tells it from a namesake's.
+ * The tag is empty when nobody shares the name.
+ *
+ * A screen that has room for only part of the label needs the pieces. The tag sits at
+ * the end, so an ellipsis eats exactly the part that does the distinguishing — measured
+ * at 375px, where the name cell is 122px and 「中村 美咲（#nakamura）」 wants 134.3px
+ * (#163).
+ */
+export function memberLabelParts(state: Pick<WorkspaceState, "members">, member: Pick<Member, "id" | "name" | "location">) {
+  return memberLabels(state.members).get(member.id) ?? { name: member.name, tag: "" };
+}
+
+/** A member's name, and the tag that distinguishes it. */
+export type MemberLabel = { name: string; tag: string };
 
 /**
  * Every member's label, in one pass, cached against the array itself.
@@ -832,9 +849,9 @@ export function memberLabel(state: Pick<WorkspaceState, "members">, member: Pick
  * React hands back the same `members` array until the workspace changes, so a WeakMap
  * keyed on it turns that into one pass, and the cache goes away with the array.
  */
-const labelCache = new WeakMap<readonly Pick<Member, "id" | "name" | "location">[], Map<string, string>>();
+const labelCache = new WeakMap<readonly Pick<Member, "id" | "name" | "location">[], Map<string, MemberLabel>>();
 
-export function memberLabels(members: readonly Pick<Member, "id" | "name" | "location">[]): ReadonlyMap<string, string> {
+export function memberLabels(members: readonly Pick<Member, "id" | "name" | "location">[]): ReadonlyMap<string, MemberLabel> {
   const cached = labelCache.get(members);
   if (cached) return cached;
   const byName = new Map<string, Pick<Member, "id" | "name" | "location">[]>();
@@ -844,10 +861,10 @@ export function memberLabels(members: readonly Pick<Member, "id" | "name" | "loc
     group.push(member);
     byName.set(key, group);
   }
-  const labels = new Map<string, string>();
+  const labels = new Map<string, MemberLabel>();
   for (const [name, group] of byName) {
     if (group.length < 2) {
-      labels.set(group[0].id, group[0].name);
+      labels.set(group[0].id, { name: group[0].name, tag: "" });
       continue;
     }
     // The whole group takes the same kind of suffix. Deciding per person let one
@@ -859,9 +876,10 @@ export function memberLabels(members: readonly Pick<Member, "id" | "name" | "loc
     const byLocation = locations.every(Boolean) && new Set(locations).size === group.length;
     const ids = group.map((item) => item.id);
     for (const [index, member] of group.entries()) {
-      labels.set(member.id, byLocation
-        ? `${name}（${locations[index]}）`
-        : `${name}（#${idTail(member.id, ids)}）`);
+      labels.set(member.id, {
+        name,
+        tag: byLocation ? `（${locations[index]}）` : `（#${idTail(member.id, ids)}）`,
+      });
     }
   }
   labelCache.set(members, labels);

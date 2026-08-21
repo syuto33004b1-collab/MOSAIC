@@ -67,6 +67,7 @@ import {
   memberById,
   memberDailyLoads,
   memberLabel,
+  memberLabelParts,
   memberLoad,
   memberOrgMemberships,
   memberSearchText,
@@ -838,7 +839,7 @@ export function MembersView({
               return (
                 <tr key={member.id}>
                   <td>{onToggleFavorite ? <FavoriteStar name={memberLabel(state, member)} pressed={isFavorited(favorites, "member", member.id)} onToggle={() => onToggleFavorite(member.id)} /> : null}</td>
-                  <td><button className="member-name-cell" onClick={() => onOpen(member.id)}><span className={"avatar " + member.avatarTone}>{member.initials}</span><span className="row-name-copy"><strong>{memberLabel(state, member)}</strong><small>{member.role} · {member.department}{memberOrgMemberships(state, member.id).some((item) => !item.isPrimary) ? " · 兼務あり" : ""}</small></span></button></td>
+                  <td><button className="member-name-cell" onClick={() => onOpen(member.id)}><span className={"avatar " + member.avatarTone}>{member.initials}</span><span className="row-name-copy"><strong>{(() => { const { name, tag } = memberLabelParts(state, member); return <><span className="row-name-main">{name}</span>{tag && <span className="row-name-tag">{tag}</span>}</>; })()}</strong><small>{member.role} · {member.department}{memberOrgMemberships(state, member.id).some((item) => !item.isPrimary) ? " · 兼務あり" : ""}</small></span></button></td>
                   <td><div className="member-skills">{memberSkillLevels(member).slice(0, 3).map((level) => <span key={level.name}>{level.name}<small>{level.proficiency}</small></span>)}</div></td>
                   {selectedScene && <td><span className="match-score">{match?.score ?? 0}/{scoreCeiling}点<small>空き{match?.availablePercent ?? 0}%</small></span></td>}
                   {listFields.map((field) => <td key={field.id}><span className="custom-field-cell">{formatCustomValue(field, customValue(member.customValues, field.id))}</span></td>)}
