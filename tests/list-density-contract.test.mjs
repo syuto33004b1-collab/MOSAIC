@@ -44,24 +44,37 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
  * There the nine columns — 1086px of declared width plus cell padding — were all
  * starved, and the name cell became the tallest thing in the row at 84.9px.
  *
- * Sweeping the floor at 605px, nine columns, no nowrap:
+ * Sweeping the floor at 605px, nine columns, with both nowraps:
  *
- * | floor | page | rows    | visible | sideways |
- * | ----- | ---- | ------- | ------- | -------- |
- * | 968   | 1838 | 111-130 | 3/9     | 393px    |
- * | 1120  | 1738 | 106-107 | 3/9     | 545px    |
- * | 1180  | 1546 |  83- 94 | 4/9     | 605px    |
- * | 1400  | 1546 |  83- 94 | 4/9     | 825px    |
+ * | floor       | page | rows    | visible | sideways | name column |
+ * | ----------- | ---- | ------- | ------- | -------- | ----------- |
+ * | 968 (was)   | 1838 | 111-130 | 3/9     | 393px    | 111.8px     |
+ * | 1100        | 1462 |  67- 94 | 4/9     | 525px    | 159px       |
+ * | 1140        | 1433 |  67- 94 | 4/9     | 565px    | 181px       |
+ * | 1160        | 1433 |  67- 94 | 4/9     | 585px    | 190px       |
+ * | 1240        | 1433 |  67- 94 | 4/9     | 665px    | 190px       |
+ * | max-content | 1433 |  67- 94 | 4/9     | 581px    | 190px       |
  *
- * 1180 is where every column reaches its declared width and the rows reach their floor;
- * past it only the scroll grows. Add the two nowraps and 605px goes to page 1433, rows
- * 67 — the same row floor 1360px was getting. So the pair does scale down, given a
- * floor that fits the columns. And #142 removed the other half of #136's cost by
- * pinning the name column at every width, so the extra sideways scroll no longer costs
- * the row's identity.
+ * So the pair does scale down, given a floor the columns fit inside. And #142 removed
+ * the other half of #136's cost by pinning the name column at every width, so the extra
+ * sideways scroll no longer costs the row's identity.
  *
- * So: the `nowrap` declarations and the `min-width` floor still live or die together,
- * but at every width rather than behind a breakpoint. That is what these check.
+ * ## Why the floor is not a number
+ *
+ * 1160 was the knee — and only for nine columns. The column count changes at runtime: a
+ * user can put any number of custom fields in the list view. With five list fields
+ * instead of two, twelve columns at 1425px, a 1160px floor left the name column 80px and
+ * the rows 243-372px, for a page of 3291 — the same defect, and the same numbers the old
+ * 968 floor gave. `max-content` instead: page 1270, rows 67-94, 9 of 9 rows visible.
+ *
+ * It does not run away either. The text cells cap and ellipsis — `.col-custom` is
+ * `max-width: 150px` — so `max-content` is bounded by the declarations. With a 72-char
+ * unbreakable value in all 45 custom cells the columns grew 88px → 174px and the scroll
+ * 356px → 786px, while the page stayed 1270 and the rows stayed 67-94.
+ *
+ * So: the `nowrap` declarations and the floor still live or die together, at every width
+ * rather than behind a breakpoint, and the floor is `max-content` rather than a number
+ * that goes stale when a column is added. That is what these check.
  *
  * ## What they cannot do
  *
@@ -69,11 +82,12 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
  * scroll are browser measurements, recorded in the PR. jsdom has no layout and
  * this repo has no browser test harness.
  *
- * Nor do they say anything about data the demo does not contain. The floor is a
- * fixed budget: a row given a longer name and three extra skill chips measured
- * 150px, with the two cells this is about holding at 48px and 54px while the name
- * and the chips grew. Column counts vary at runtime too — a user can add list
- * fields — and no width here adapts to that.
+ * Nor do they say anything about data the demo does not contain, beyond what the
+ * measurements above cover. `max-content` follows the column count, which is what #132
+ * changed — twelve columns and a 72-char unbreakable value were both measured — but a
+ * row given a longer name and three extra skill chips still measured 150px, with the two
+ * cells this file is about holding at 48px and 54px while the name and the chips grew.
+ * That growth is #87's, on purpose, and nothing here bounds it.
  */
 
 const read = async () => (await readFile(path.join(root, "src", "styles.css"), "utf8")).replaceAll("\r\n", "\n");
@@ -103,26 +117,18 @@ const NOWRAPS = [
   [".capacity-limit", /\.capacity-limit[^{}]*\{[^}]*white-space:\s*nowrap/u],
 ];
 
-/**
- * The floor is a contract value at both ends. Below 1100 the cells wrap anyway and the
- * nowraps only move the squeeze onto the name and skills cells (measured: 1080 leaves
- * the rows at 94px, 1100 drops them to 67px; the whole sweep is in the docstring
- * above). Above 1200 only the sideways scroll grows — 1240 and 1400 both sit at page
- * 1546, the same as 1180, for 60px and 220px more scroll.
- */
-const FLOOR = { min: 1100, max: 1200 };
-
 test("the nowraps and the floor apply together, at every width", async () => {
   const css = withoutComments(await read());
   const blocks = minWidthBlocks(css);
 
-  const floor = css.match(/(?:^|\})\s*\.member-table\s*\{[^}]*min-width:\s*(\d+)px/u);
+  const floor = css.match(/(?:^|\})\s*\.member-table\s*\{[^}]*min-width:\s*([^;}]+)/u);
   assert.ok(floor, "expected an unconditional .member-table min-width floor (#132)");
-  const width = Number(floor[1]);
-  assert.ok(width >= FLOOR.min && width <= FLOOR.max,
-    `the floor is ${width}px, outside ${FLOOR.min}-${FLOOR.max}: below that every column is `
-    + "starved and the name cell becomes the tallest thing in the row, above it the sideways "
-    + "scroll grows for nothing (#132)");
+  // Content-derived, not a number. Any number is a guess about how many columns there
+  // are, and the count changes at runtime — 1160 was the knee for nine columns and left
+  // twelve at rows 243-372px, page 3291 (measured, and in the docstring above).
+  assert.equal(floor[1].trim(), "max-content",
+    `the floor is 「${floor[1].trim()}」. A fixed width starves the columns as soon as a list `
+    + "field is added, which is the defect #75 was about and #132 measured again (#132)");
 
   for (const [name, pattern] of NOWRAPS) {
     // Unconditional, now that the floor is. Behind a breakpoint they would leave the
@@ -141,9 +147,9 @@ test("the nowraps and the floor apply together, at every width", async () => {
 });
 
 /**
- * The 1360px block held the pair and nothing else. If a floor is put back into a
- * breakpoint it wins there over the unconditional one, and since the unconditional one
- * is already at the knee, a second can only lower it.
+ * The 1360px block held the pair and nothing else. A floor put back into a breakpoint
+ * wins there over the unconditional one, and since that one already asks for exactly
+ * what the columns need, a second can only ask for less.
  */
 test("no min-width block sets a second floor for this table", async () => {
   const css = withoutComments(await read());

@@ -1441,36 +1441,42 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
    floor those 8px came out of the columns that can be squeezed. Only this table has a
    week column, so only this table pays; the project table keeps 960.
 
-   1180, and the same at every width. The nine columns declare 1086px plus cell
-   padding, so any floor below that starves all of them — measured at 605px, the name
-   column got 111.8px of its declared 190 and 「QA Engineer · 品質保証」 wrapped to three
-   lines, making the name cell the tallest thing in the row at 84.9px. Sweeping the
-   floor there:
+   `max-content`, and the same at every width. The floor's job is to let the columns
+   have the widths they declare; a number cannot say that, because the column count
+   changes at runtime — a user can put any number of custom fields in the list view.
 
-     968 (was)   page 1838   rows 111-130   3/9 rows visible   393px sideways
-     1040        page 1738   rows 106-107   3/9               465px
-     1120        page 1738   rows 106-107   3/9               545px
-     1180        page 1546   rows  83- 94   4/9               605px
-     1400        page 1546   rows  83- 94   4/9               825px
+   Measured with the DEMO's two list fields at 605px, nine columns declaring 1086px plus
+   cell padding. Any numeric floor below that starves all of them: the name column got
+   111.8px of its declared 190 and 「QA Engineer · 品質保証」 wrapped to three lines,
+   making the name cell the tallest thing in the row at 84.9px.
 
-   1180 is the knee: every column reaches its declared width and the rows reach their
-   floor. Past it only the scroll grows.
+     968 (was)   page 1838   rows 111-130   3/9 visible   393px sideways
+     1120        page 1447   rows  67- 94   4/9           545px
+     1160        page 1433   rows  67- 94   4/9           585px
+     max-content page 1433   rows  67- 94   4/9           585px
+
+   1160 was the knee for nine columns — and only for nine. With five list fields instead
+   of two, twelve columns at 1425px, a 1160px floor left the name column 80px and the
+   rows 243-372px, for a page of 3291. That is the same defect, and it was there before
+   this floor moved: at the old 968 the same twelve columns measured identically. Asking
+   for `max-content` instead: page 1270, rows 67-94, 9 of 9 rows visible.
+
+   It does not run away. The text cells cap and ellipsis — `.col-custom` is
+   `max-width: 150px` — so `max-content` is bounded by the declarations. With a 72-char
+   unbreakable value in all 45 custom cells the columns grew 88px → 174px and the scroll
+   356px → 786px, while the page stayed 1270 and the rows stayed 67-94.
 
    #136 kept this trade above 1360px because 「the trade does not scale down」, and that
-   was measured — but measured with the floor left at 960 below the breakpoint. The
-   pairing is what pays off: floor 1180 with the two nowraps below takes 605px to
-   page 1433, rows 67. Without the floor the nowraps do make narrow rows taller, which
-   is what #136 saw.
+   was measured — but measured with the floor left at 960 below the breakpoint, where the
+   two nowraps below do make narrow rows taller. It is the pair that pays off. #142
+   removed the other half of #136's cost by pinning the name column at every width, so
+   the extra sideways scroll no longer costs the row's identity.
 
-   The other premise changed too. #136 counted 「the name and the actions scroll away
-   together」 as part of the cost; #142 pinned the name column at every width, so the
-   extra sideways scroll no longer costs you the row's identity.
-
-   The trade, measured: 1425px page 1215 → 1200 for 56 → 116px sideways, 605px
-   1838 → 1433 for 393 → 605px, 375px 2018 → 1613 for 623 → 835px. Vertical has to be
-   read to the end; sideways can be moved to the column you want, with the name
-   still there (#132). */
-.member-table { min-width: 1180px; }
+   The trade with the DEMO's two fields: 1425px page 1215 → 1200 for 56 → 116px sideways,
+   605px 1838 → 1433 for 393 → 585px, 375px 2018 → 1613 for 623 → 815px. Vertical has to
+   be read to the end; sideways can be moved to the column you want, with the name still
+   there (#132). */
+.member-table { min-width: max-content; }
 /* The member table asks for more than the wrapper gives it: nine columns, and a
    1440px viewport leaves 1066px. Left to squeeze, the auto layout takes the
    width out of whichever cell can wrap — the two row-action buttons onto a
