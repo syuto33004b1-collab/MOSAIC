@@ -501,6 +501,11 @@ function localIsoDate(date: Date) {
   return `${year}-${month}-${day}`;
 }
 
+/** Today, in the viewer's own timezone, as the board marks its column. */
+export function currentLocalDate(now = new Date()) {
+  return localIsoDate(now);
+}
+
 export function getCurrentWeekStart(now = new Date()) {
   const monday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const daysSinceMonday = (monday.getDay() + 6) % 7;
@@ -525,18 +530,84 @@ export function getWeekStart(offset: number, anchor = getCurrentWeekStart()) {
   return addDays(anchor, offset * 7);
 }
 
-export function getWeekDays(offset: number): WeekDay[] {
-  const start = getWeekStart(offset);
-  return Array.from({ length: 5 }, (_, index) => {
-    const date = new Date(addDays(start, index) + "T00:00:00Z");
-    return {
-      day: ["月", "火", "水", "木", "金"][index],
-      date: date.getUTCDate(),
-      month: date.getUTCMonth() + 1,
-      year: date.getUTCFullYear(),
-      iso: isoDate(date),
-    };
-  });
+export function getWeekDays(offset: number, anchor = getCurrentWeekStart()): WeekDay[] {
+  const start = getWeekStart(offset, anchor);
+  // Five days from a Monday are all weekdays, so nothing here is ever dropped.
+  return Array.from({ length: 5 }, (_, index) => weekDayFrom(addDays(start, index))!);
+}
+
+export type BoardUnit = "week" | "month";
+
+/**
+ * What the board is showing: the weekdays in view, and the dates they span.
+ *
+ * A week is the five weekdays from a Monday, as it always was. A month is every
+ * weekday of a calendar month — 20 to 23 of them — so the range's own ends are
+ * the first and last weekday, not the 1st and the 31st. Nothing in this app draws
+ * a Saturday, and a range that claimed to start on one would put the wrong date
+ * under the wrong column.
+ */
+export type BoardRange = { unit: BoardUnit; start: string; end: string; days: WeekDay[] };
+
+const WEEKDAY_LABELS = ["月", "火", "水", "木", "金"];
+
+function weekDayFrom(iso: string): WeekDay | null {
+  const date = new Date(iso + "T00:00:00Z");
+  const index = (date.getUTCDay() + 6) % 7;
+  if (index > 4) return null;
+  return {
+    day: WEEKDAY_LABELS[index],
+    date: date.getUTCDate(),
+    month: date.getUTCMonth() + 1,
+    year: date.getUTCFullYear(),
+    iso,
+  };
+}
+
+/**
+ * Anchored on today, not on this week's Monday. A first version took the Monday,
+ * which is the same month for 28 or 29 days out of 31 — and on the 1st or 2nd of a
+ * month that opens on a weekend, it is the month before. On Sunday 2026-08-02 the
+ * Monday is 2026-07-27, so `offset: 0` would have shown July.
+ */
+export function boardRange(unit: BoardUnit, offset: number, today = currentLocalDate()): BoardRange {
+  if (unit === "week") {
+    const days = getWeekDays(offset, getWeekStartForDate(today));
+    return { unit, start: days[0].iso, end: days[days.length - 1].iso, days };
+  }
+  const from = new Date(today + "T00:00:00Z");
+  const first = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth() + offset, 1));
+  const month = first.getUTCMonth();
+  const days: WeekDay[] = [];
+  for (const cursor = first; cursor.getUTCMonth() === month; cursor.setUTCDate(cursor.getUTCDate() + 1)) {
+    const day = weekDayFrom(isoDate(cursor));
+    if (day) days.push(day);
+  }
+  return { unit, start: days[0].iso, end: days[days.length - 1].iso, days };
+}
+
+/**
+ * Which columns an assignment occupies, 1-based, or null if it is not in view.
+ *
+ * The column is the assignment's position in `range.days`, looked up — not its
+ * distance in calendar days from the start. Those agree for one Monday-to-Friday
+ * week and nowhere else: the Monday after next is seven days out and six columns
+ * along. The previous version measured in days and was right only because a
+ * week's worth of columns hid the discrepancy.
+ */
+export function assignmentSpan(assignment: Assignment, range: BoardRange) {
+  if (!overlaps(assignment.startDate, assignment.endDate, range.start, range.end)) return null;
+  const first = range.days.findIndex((day) => day.iso >= assignment.startDate);
+  // `findLastIndex` over the same predicate rather than a second `findIndex`:
+  // an assignment can start before the range and end inside it.
+  let last = -1;
+  for (let index = range.days.length - 1; index >= 0; index -= 1) {
+    if (range.days[index].iso <= assignment.endDate) { last = index; break; }
+  }
+  // Both are -1 only for an assignment that overlaps the range's span but lands
+  // entirely on its weekends — a Saturday-to-Sunday assignment inside the month.
+  if (first < 0 || last < 0 || last < first) return null;
+  return { start: first + 1, span: last - first + 1 };
 }
 
 export function overlaps(startDate: string, endDate: string, rangeStart: string, rangeEnd: string) {
@@ -545,16 +616,6 @@ export function overlaps(startDate: string, endDate: string, rangeStart: string,
 
 export function weekEnd(weekStart: string) {
   return addDays(weekStart, 4);
-}
-
-export function assignmentGrid(assignment: Assignment, weekStart: string) {
-  const end = weekEnd(weekStart);
-  if (!overlaps(assignment.startDate, assignment.endDate, weekStart, end)) return null;
-  const visibleStart = assignment.startDate < weekStart ? weekStart : assignment.startDate;
-  const visibleEnd = assignment.endDate > end ? end : assignment.endDate;
-  const startIndex = Math.round((Date.parse(visibleStart + "T00:00:00Z") - Date.parse(weekStart + "T00:00:00Z")) / 86400000);
-  const endIndex = Math.round((Date.parse(visibleEnd + "T00:00:00Z") - Date.parse(weekStart + "T00:00:00Z")) / 86400000);
-  return { start: startIndex + 1, span: endIndex - startIndex + 1 };
 }
 
 export type DailyLoad = { date: string; load: number };
@@ -625,10 +686,25 @@ export function memberLoad(state: WorkspaceState, memberId: string, weekStart: s
   return memberPeakLoad(state, memberId, weekStart, weekEnd(weekStart));
 }
 
-export function projectMembers(state: WorkspaceState, projectId: string, weekStart: string) {
-  const end = weekEnd(weekStart);
+/**
+ * Distinct people assigned to a project on one of these days.
+ *
+ * Days, not a start and an end: a range from the 3rd to the 31st contains the 8th
+ * and 9th, and a Saturday-to-Sunday assignment there draws no bar, because the
+ * board has no weekend columns. Counting it would put a number on screen with
+ * nothing behind it.
+ */
+export function projectMembersOnDays(state: WorkspaceState, projectId: string, days: WeekDay[]) {
   return new Set(state.assignments
-    .filter((assignment) => assignment.projectId === projectId && overlaps(assignment.startDate, assignment.endDate, weekStart, end))
+    .filter((assignment) => assignment.projectId === projectId
+      && days.some((day) => assignment.startDate <= day.iso && assignment.endDate >= day.iso))
+    .map((assignment) => assignment.personId)).size;
+}
+
+export function projectMembers(state: WorkspaceState, projectId: string, weekStart: string) {
+  return new Set(state.assignments
+    .filter((assignment) => assignment.projectId === projectId
+      && overlaps(assignment.startDate, assignment.endDate, weekStart, weekEnd(weekStart)))
     .map((assignment) => assignment.personId)).size;
 }
 

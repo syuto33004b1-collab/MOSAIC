@@ -1,4 +1,4 @@
-import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type CSSProperties, type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   ArrowRight,
@@ -41,7 +41,9 @@ import {
   addSavedReport,
   addSkillCatalogEntry,
   archiveOrgUnit,
-  assignmentGrid,
+  assignmentSpan,
+  boardRange,
+  type BoardUnit,
   cancelProfileRequest,
   canConvertOpportunity,
   completeProfileRequest,
@@ -50,7 +52,8 @@ import {
   formatDate,
   formatSkillInput,
   getIsoWeekNumber,
-  getWeekDays,
+  getWeekStartForDate,
+  currentLocalDate,
   getWeekStart,
   hydrateWorkspaceSkills,
   initialWorkspace,
@@ -77,6 +80,7 @@ import {
   parseSkillInput,
   projectById,
   projectMembers,
+  projectMembersOnDays,
   projectSearchText,
   projectTone,
   setMemberOrgMemberships,
@@ -265,7 +269,10 @@ const navItems = [
 ];
 
 const pageMeta = {
-  board: { eyebrow: "RESOURCE PLANNING", title: "今週のチーム編成", description: "日ごとの重なりと、週全体の稼働を確認します。" },
+  /* 「今週」 came out of the title: the board can show a month now, and paging
+     already made the word wrong within a week. The exact range is on the line
+     below it, from the range itself (#139). */
+  board: { eyebrow: "RESOURCE PLANNING", title: "チーム編成", description: "日ごとの重なりと、期間全体の稼働を確認します。" },
   projects: { eyebrow: "PORTFOLIO CONTROL", title: "プロジェクト・ポートフォリオ", description: "案件ごとの充足と次の節目を横断して管理します。" },
   opportunities: { eyebrow: "PRE-AWARD PIPELINE", title: "受注前案件", description: "引き合いから商談までの要員計画を、確定プロジェクトと分けて検討します。" },
   members: { eyebrow: "TEAM AVAILABILITY", title: "メンバーと空き状況", description: "スキルと4週間の稼働から、次の担当者を探します。" },
@@ -420,6 +427,14 @@ export default function Home({ mode = "demo", organizationId, organizationName =
   const [activeNav, setActiveNav] = useState<keyof typeof pageMeta>(startingShare?.nav ?? "board");
   const [viewMode, setViewMode] = useState<"members" | "projects">("members");
   const [weekOffset, setWeekOffset] = useState(0);
+  /**
+   * The board's span. Only the board's — everything else on the page stays
+   * week-scoped, because the sidebar's utilisation card and the attention panel
+   * carry the word 「週」 in their labels (#119) and a month behind a week's label
+   * is the defect #115 was about. `currentWeekStart` below is the week containing
+   * this range's start, which in week mode is the range itself.
+   */
+  const [boardUnit, setBoardUnit] = useState<BoardUnit>("week");
   const [filter, setFilter] = useState("すべて");
   const [query, setQuery] = useState("");
   const [memberQuery, setMemberQuery] = useState(startingShare?.nav === "members" ? startingShare.q ?? "" : "");
@@ -730,10 +745,25 @@ export default function Home({ mode = "demo", organizationId, organizationName =
     return () => window.removeEventListener("resize", bringIntoView);
   }, [activeNav]);
 
-  const days = useMemo(() => getWeekDays(weekOffset), [weekOffset]);
-  const weekStart = getWeekStart(weekOffset);
+  const range = useMemo(() => boardRange(boardUnit, weekOffset), [boardUnit, weekOffset]);
+  const days = range.days;
+  /**
+   * The week everything week-scoped works from — the drawers' 「この週」, the
+   * attention panel, and the week offset the other screens receive.
+   *
+   * Derived from the range, not from `weekOffset` directly. The offset counts
+   * whatever unit the board is showing, so `getWeekStart(weekOffset)` read a month
+   * of paging as that many *weeks*: one page into September put these figures on
+   * the week after next. In week mode this is the same value it always was.
+   */
+  const weekStart = getWeekStartForDate(range.start);
   const visibleProposalIds = retainedMemberIds(proposalMemberIds, workspace.members.map((member) => member.id));
+  // The week the range opens in. Identical to `range.start` in week mode; in month
+  // mode it is the month's first week, so everything keyed off it stays a week and
+  // keeps saying so.
   const currentWeekStart = weekStart;
+  /** The same week, as a count of weeks from this one, for the screens that take one. */
+  const viewWeekOffset = Math.round((Date.parse(weekStart + "T00:00:00Z") - Date.parse(getWeekStart(0) + "T00:00:00Z")) / 604_800_000);
   const currentDailyLoads = workspace.members.flatMap((member) => memberDailyLoads(workspace, member.id, currentWeekStart, weekEnd(currentWeekStart)).map((day) => ({ ...day, capacity: member.capacity })));
   const totalCapacity = workspace.members.reduce((sum, member) => sum + member.capacity, 0) * 5;
   const averageLoad = totalCapacity > 0 ? Math.round(currentDailyLoads.reduce((sum, day) => sum + day.load, 0) / totalCapacity * 100) : 0;
@@ -781,10 +811,14 @@ export default function Home({ mode = "demo", organizationId, organizationName =
   const canAddAssignment = canEdit && workspace.members.length > 0 && workspace.projects.length > 0;
 
   const memberRows: ScheduleRow[] = workspace.members.map((member) => {
-    const load = memberLoad(workspace, member.id, weekStart);
+    // The peak over what is on screen, not over the first week of it. The chip
+    // carries no words, so following the range is all it takes to stay honest —
+    // and `alert` means "over capacity somewhere in view", which is what a board
+    // showing a month should say.
+    const load = memberPeakLoad(workspace, member.id, range.start, range.end);
     const assignments = workspace.assignments.flatMap((assignment) => {
       if (assignment.personId !== member.id) return [];
-      const grid = assignmentGrid(assignment, weekStart);
+      const grid = assignmentSpan(assignment, range);
       if (!grid) return [];
       const project = projectById(workspace, assignment.projectId);
       return [{
@@ -814,7 +848,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
   const projectRows: ScheduleRow[] = workspace.projects.map((project) => {
     const assignments = workspace.assignments.flatMap((assignment) => {
       if (assignment.projectId !== project.id) return [];
-      const grid = assignmentGrid(assignment, weekStart);
+      const grid = assignmentSpan(assignment, range);
       if (!grid) return [];
       const member = memberById(workspace, assignment.personId);
       return [{
@@ -828,7 +862,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
         projectId: project.id,
       }];
     });
-    const staffed = projectMembers(workspace, project.id, weekStart);
+    const staffed = projectMembersOnDays(workspace, project.id, range.days);
     return {
       id: project.id,
       initials: project.code.slice(0, 2),
@@ -854,7 +888,22 @@ export default function Home({ mode = "demo", organizationId, organizationName =
     return queryMatch && filterMatch;
   });
 
-  const weekLabel = days[0].month + "月" + days[0].date + "日 — " + days[4].month + "月" + days[4].date + "日";
+  /**
+   * One place for the words that describe the range, because #115 was a label and
+   * a number that had drifted apart. `unitWord` goes into the paging buttons and
+   * the grid's name; `rangeLabel` into the date line, from the range's real ends —
+   * a month starts on its first weekday, which in August 2026 is the 3rd.
+   */
+  const unitWord = range.unit === "week" ? "週" : "月";
+  /** The Monday the week-scoped figures cover, for the labels that name it. */
+  const measuredWeek = { month: Number(currentWeekStart.slice(5, 7)), date: Number(currentWeekStart.slice(8, 10)) };
+  const rangeEndDay = days[days.length - 1];
+  // The end's year only when it differs: a week can straddle New Year, and
+  // 「2026年 12月28日 — 1月1日」 leaves the reader to guess which January.
+  const rangeLabel = days[0].month + "月" + days[0].date + "日 — "
+    + (rangeEndDay.year === days[0].year ? "" : rangeEndDay.year + "年 ")
+    + rangeEndDay.month + "月" + rangeEndDay.date + "日";
+  const todayIso = currentLocalDate();
 
   const changeView = (mode: "members" | "projects") => {
     setViewMode(mode);
@@ -2221,8 +2270,13 @@ export default function Home({ mode = "demo", organizationId, organizationName =
               It names the Monday now, the way the board's own header does.
               「平均稼働率」 rather than 「チーム稼働率」: the board's pulse strip
               shows this same variable under that name, and one value with two
-              names is what #82 is about. */}
-          <div className="month-card-label"><span>{days[0].month}/{days[0].date}週の平均稼働率</span><strong>{averageLoad}%</strong></div>
+              names is what #82 is about.
+              Named from `currentWeekStart`, the week the figure is actually
+              measured over, and not from the board's first column. Those are the
+              same thing while the board shows a week; once it can show a month,
+              the first column is the 1st and the week began in the month before —
+              which is #115 again, from the other end (#139). */}
+          <div className="month-card-label"><span>{measuredWeek.month}/{measuredWeek.date}週の平均稼働率</span><strong>{averageLoad}%</strong></div>
           <div className="month-track"><span style={{ width: Math.min(100, averageLoad) + "%" }} /></div>
           <p>{totalCapacity === 0 ? "稼働上限が未設定です。" : averageLoad > 100 ? `稼働上限を ${averageLoad - 100}% 超えています。` : `稼働上限まであと ${100 - averageLoad}%。`}{mode === "shared" ? "変更は組織内で共有されます。" : "サンプルデータはこの端末だけに保存されます。"}</p>
         </div>
@@ -2235,9 +2289,9 @@ export default function Home({ mode = "demo", organizationId, organizationName =
       <section className="workspace" id="board" inert={drawer ? true : undefined}>
         <header className="topbar">
           <div>
-            <p className="eyebrow">{page.eyebrow} <span>/</span> {activeNav === "board" ? "WEEK " + getIsoWeekNumber(days[0].iso) : "MOSAIC"}</p>
+            <p className="eyebrow">{page.eyebrow} <span>/</span> {activeNav === "board" ? (range.unit === "week" ? "WEEK " + getIsoWeekNumber(days[0].iso) : "MONTH " + days[0].month) : "MOSAIC"}</p>
             <h1>{page.title}</h1>
-            <p className="date-range">{activeNav === "board" ? days[0].year + "年 " + weekLabel : page.description}</p>
+            <p className="date-range">{activeNav === "board" ? days[0].year + "年 " + rangeLabel : page.description}</p>
           </div>
           <div className="topbar-actions">
             {activeNav === "board" && (searchOpen ? (
@@ -2289,7 +2343,17 @@ export default function Home({ mode = "demo", organizationId, organizationName =
             </section>
 
             <div className="board-layout">
-              <section className="schedule-card" aria-label="週間アサイン表">
+              <section
+                className="schedule-card"
+                aria-label={unitWord + "間アサイン表"}
+                /* The header row and every row's cell must divide the same box
+                   into the same days (#106), so the track list is set once here,
+                   on their common ancestor, rather than by each of them. It is
+                   inline because the column count is data: five in week mode, 20
+                   to 23 in a month. 34px because 23 columns at the week's 72px
+                   would be 1656px of grid and 835px of sideways scroll (#139). */
+                style={{ "--schedule-day-tracks": `repeat(${days.length}, minmax(${range.unit === "week" ? 72 : 34}px, 1fr))` } as CSSProperties}
+              >
                 <div className="schedule-toolbar">
                   {/* 「メンバー別」 not 「メンバー」: the sidebar has a nav button
                       called 「メンバー」 that leaves this screen, and one label
@@ -2306,17 +2370,27 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                       <option value="すべて">{viewMode === "members" ? "すべての職種" : "すべての状態"}</option>
                       {(viewMode === "members" ? Array.from(new Set(workspace.members.map((member) => member.role))) : ["進行中", "要注意", "準備中", "完了間近", "完了"]).map((option) => <option key={option}>{option}</option>)}
                     </select></label>
+                    {/* The unit changes what the arrows step by, so it sits with
+                        them rather than in the axis group above. Offset resets on
+                        the way: 3 weeks out is not 3 months out. */}
+                    <div className="view-tabs" role="group" aria-label="表示する期間">
+                      <button className={range.unit === "week" ? "selected" : ""} aria-pressed={range.unit === "week"} onClick={() => { setBoardUnit("week"); setWeekOffset(0); }}>週</button>
+                      <button className={range.unit === "month" ? "selected" : ""} aria-pressed={range.unit === "month"} onClick={() => { setBoardUnit("month"); setWeekOffset(0); }}>月</button>
+                    </div>
                     <button onClick={() => setWeekOffset(0)}><CalendarDays size={13} />今日</button>
-                    <button className="arrow-button" aria-label="前の週" onClick={() => setWeekOffset((offset) => offset - 1)}><ChevronLeft size={16} /></button>
-                    <button className="arrow-button" aria-label="次の週" onClick={() => setWeekOffset((offset) => offset + 1)}><ChevronRight size={16} /></button>
+                    <button className="arrow-button" aria-label={"前の" + unitWord} onClick={() => setWeekOffset((offset) => offset - 1)}><ChevronLeft size={16} /></button>
+                    <button className="arrow-button" aria-label={"次の" + unitWord} onClick={() => setWeekOffset((offset) => offset + 1)}><ChevronRight size={16} /></button>
                   </div>
                 </div>
 
                 <div className="schedule-scroller">
-                  <div className="schedule-table" role="grid" aria-label={viewMode === "members" ? "メンバー別の週間アサイン" : "プロジェクト別の週間アサイン"}>
+                  <div className="schedule-table" role="grid" aria-label={(viewMode === "members" ? "メンバー別の" : "プロジェクト別の") + unitWord + "間アサイン"}>
                     <div className="schedule-head" role="row">
                       <div className="people-label" role="columnheader">{viewMode === "members" ? "メンバー" : "プロジェクト"} <span>{rows.length}</span></div>
-                      {days.map((day, index) => <div className={"day-label " + (index === 0 && weekOffset === 0 ? "today" : "")} role="columnheader" key={day.iso}><span>{day.day}</span><strong>{day.date}</strong></div>)}
+                      {/* Today by date, not by position: it is the first column
+                          only in the current week, and somewhere in the middle of
+                          the current month. */}
+                      {days.map((day) => <div className={"day-label " + (day.iso === todayIso ? "today" : "")} role="columnheader" key={day.iso}><span>{day.day}</span><strong>{day.date}</strong></div>)}
                     </div>
                     <div className="schedule-body">
                       {rows.length > 0 ? rows.map((row) => (
@@ -2325,7 +2399,9 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                             <span className={"avatar " + row.avatarTone}>{row.initials}</span><span className="person-copy"><strong>{row.name}</strong><small>{row.role}</small></span><span className={"load " + (row.alert ? "over" : "")}>{row.tagLabel}</span>
                           </div>
                           <div className="week-cell" role="gridcell" aria-label={row.name + "のアサイン"}>
-                            <div className="day-grid" aria-hidden="true">{[0, 1, 2, 3, 4].map((index) => <i key={index} />)}</div>
+                            {/* One line per column, from the range rather than a
+                                hard-coded five (#139). */}
+                            <div className="day-grid" aria-hidden="true">{days.map((day) => <i key={day.iso} />)}</div>
                             {row.assignments.map((assignment) => (
                               <button className={"assignment " + assignment.tone + (assignment.status === "draft" ? " provisional" : "")} style={{ gridColumn: assignment.start + " / span " + assignment.span }} onClick={() => openAssignment(assignment.id)} aria-label={assignment.name + "のアサイン詳細（" + row.name + "・" + assignmentDayRange(days, assignment.start, assignment.span) + "）"} title={assignment.name + " · " + assignment.allocation + "%"} key={assignment.id}>
                                 <span>{assignment.name}</span>{assignment.allocation > 0 && <small>{assignment.allocation}%</small>}
@@ -2362,10 +2438,10 @@ export default function Home({ mode = "demo", organizationId, organizationName =
           </>
         )}
 
-        {activeNav === "projects" && <ProjectsView state={workspace} weekOffset={weekOffset} onOpen={openProject} query={projectQuery} onQueryChange={setProjectQuery} favorites={favorites} favoritesOnly={favoritesOnly} onFavoritesOnlyChange={setFavoritesOnly} onToggleFavorite={(projectId) => void toggleFavoriteTarget("project", projectId)} onCopyQuery={() => void copyShareLink({ nav: "projects", q: projectQuery }, "検索リンクをコピーしました")} />}
+        {activeNav === "projects" && <ProjectsView state={workspace} weekOffset={viewWeekOffset} onOpen={openProject} query={projectQuery} onQueryChange={setProjectQuery} favorites={favorites} favoritesOnly={favoritesOnly} onFavoritesOnlyChange={setFavoritesOnly} onToggleFavorite={(projectId) => void toggleFavoriteTarget("project", projectId)} onCopyQuery={() => void copyShareLink({ nav: "projects", q: projectQuery }, "検索リンクをコピーしました")} />}
         {activeNav === "opportunities" && <OpportunitiesView state={workspace} onOpen={openOpportunity} />}
-        {activeNav === "members" && <MembersView state={workspace} weekOffset={weekOffset} onOpen={openMember} onAssign={openAssignmentFor} onAddScene={handleAddSearchScene} onDeleteScene={handleDeleteSearchScene} canEdit={canEdit} canManageScenes={canManageMembers && featureEnabled("searchScenes")} query={memberQuery} onQueryChange={setMemberQuery} favorites={favorites} favoritesOnly={favoritesOnly} onFavoritesOnlyChange={setFavoritesOnly} onToggleFavorite={(memberId) => void toggleFavoriteTarget("member", memberId)} onAddToProposal={addMemberToProposal} onCopyQuery={() => void copyShareLink({ nav: "members", q: memberQuery }, "検索リンクをコピーしました")} />}
-        {activeNav === "proposal" && <ProposalView state={workspace} weekOffset={weekOffset} selectedIds={visibleProposalIds} anonymous={proposalAnonymous} favorites={favorites} onSelectedIdsChange={setProposalMemberIds} onAnonymousChange={setProposalAnonymous} onOpenMember={openMember} onToggleFavorite={(memberId) => void toggleFavoriteTarget("member", memberId)} />}
+        {activeNav === "members" && <MembersView state={workspace} weekOffset={viewWeekOffset} onOpen={openMember} onAssign={openAssignmentFor} onAddScene={handleAddSearchScene} onDeleteScene={handleDeleteSearchScene} canEdit={canEdit} canManageScenes={canManageMembers && featureEnabled("searchScenes")} query={memberQuery} onQueryChange={setMemberQuery} favorites={favorites} favoritesOnly={favoritesOnly} onFavoritesOnlyChange={setFavoritesOnly} onToggleFavorite={(memberId) => void toggleFavoriteTarget("member", memberId)} onAddToProposal={addMemberToProposal} onCopyQuery={() => void copyShareLink({ nav: "members", q: memberQuery }, "検索リンクをコピーしました")} />}
+        {activeNav === "proposal" && <ProposalView state={workspace} weekOffset={viewWeekOffset} selectedIds={visibleProposalIds} anonymous={proposalAnonymous} favorites={favorites} onSelectedIdsChange={setProposalMemberIds} onAnonymousChange={setProposalAnonymous} onOpenMember={openMember} onToggleFavorite={(memberId) => void toggleFavoriteTarget("member", memberId)} />}
         {activeNav === "org" && <OrgView state={workspace} onAddUnit={handleAddOrgUnit} onMoveUnit={handleMoveOrgUnit} onArchiveUnit={handleArchiveOrgUnit} canManage={canManageMembers} />}
         {activeNav === "skills" && <SkillsView state={hydrateWorkspaceSkills(workspace)} onAddCatalogEntry={handleAddCatalogEntry} onOpenMember={openMember} onResolveNeed={openStaffingNeed} canEdit={canEdit} />}
         {activeNav === "fields" && (
