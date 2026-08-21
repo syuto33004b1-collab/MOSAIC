@@ -70,6 +70,7 @@ import {
   membersInOrgSubtree,
   moveOrgUnit,
   orgManagers,
+  orgUnitArchiveBlocker,
   orgUnitLoadRows,
   orgUnitPath,
   orgUnitTree,
@@ -1676,6 +1677,7 @@ export function OrgView({ state, onAddUnit, onMoveUnit, onArchiveUnit, canManage
               const primaryCount = membersInOrgSubtree(state, unit.id, "primary").length;
               const concurrentCount = membersInOrgSubtree(state, unit.id, "any").length - primaryCount;
               const managerNames = orgManagers(state, unit.id).map((member) => member.name);
+              const blocker = canManage ? orgUnitArchiveBlocker(state, unit.id) : null;
               return (
                 <tr key={unit.id} className={depth === 0 ? "category-row" : ""}>
                   <td>
@@ -1685,7 +1687,9 @@ export function OrgView({ state, onAddUnit, onMoveUnit, onArchiveUnit, canManage
                     </span>
                   </td>
                   <td><strong>{primaryCount}</strong><small>名</small></td>
-                  <td>{concurrentCount > 0 ? `${concurrentCount}名` : "—"}</td>
+                  {/* 0名 rather than an em dash: the column beside it writes 2名,
+                      and a dash reads as "not applicable" rather than "none". */}
+                  <td>{concurrentCount}名</td>
                   <td>{managerNames.join(" / ") || "未設定"}</td>
                   {canManage && (
                     <td>
@@ -1710,22 +1714,36 @@ export function OrgView({ state, onAddUnit, onMoveUnit, onArchiveUnit, canManage
                     </td>
                   )}
                   {canManage && (
+                    /* A unit with children or members cannot be removed, and the
+                       button used to say so in the form's shared error slot, far
+                       from the row it belonged to. Offering the control only
+                       when it works puts the reason in the row and leaves the
+                       destructive colour on the one row where it means
+                       something. The full sentence is screen-reader text rather
+                       than only a `title`, which keyboard and touch never see. */
                     <td>
-                      <button
-                        type="button"
-                        className="drawer-danger compact"
-                        onClick={() => {
-                          try {
-                            archiveOrgUnit(state, unit.id);
-                            onArchiveUnit(unit.id);
-                            setError("");
-                          } catch (caught) {
-                            setError(caught instanceof Error ? caught.message : "部門を削除できませんでした");
-                          }
-                        }}
-                      >
-                        <Trash2 size={13} />削除
-                      </button>
+                      {blocker ? (
+                        <span className="read-only-label" title={blocker.reason}>
+                          {blocker.short}
+                          <span className="sr-only">。削除できません。{blocker.reason}</span>
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          className="drawer-danger compact"
+                          onClick={() => {
+                            try {
+                              archiveOrgUnit(state, unit.id);
+                              onArchiveUnit(unit.id);
+                              setError("");
+                            } catch (caught) {
+                              setError(caught instanceof Error ? caught.message : "部門を削除できませんでした");
+                            }
+                          }}
+                        >
+                          <Trash2 size={13} />削除
+                        </button>
+                      )}
                     </td>
                   )}
                 </tr>

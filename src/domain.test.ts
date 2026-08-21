@@ -32,6 +32,7 @@ import {
   normalizeCustomValues,
   normalizeWorkHistory,
   orgManagers,
+  orgUnitArchiveBlocker,
   orgUnitLoadRows,
   orgUnitPath,
   parseSkillInput,
@@ -322,6 +323,42 @@ describe("organization units", () => {
       orgMemberships: (initialWorkspace.orgMemberships ?? []).filter((item) => item.orgUnitId !== "org-data"),
     };
     expect(archiveOrgUnit(emptied, "org-data").orgUnits?.some((unit) => unit.id === "org-data")).toBe(false);
+  });
+
+  /**
+   * The org table used to render a delete button on every row and let
+   * archiveOrgUnit reject it, in an error slot 618px above the button. Nine of
+   * nine rows were in that state. The view now asks this before offering the
+   * control, so the two have to agree — a blocker here and a throw there, or
+   * neither (#86).
+   */
+  it("gives the same verdict for offering an archive as for performing it", () => {
+    // Literal expectations, not `toThrow(blocker.reason)`: taking the expected
+    // string from the same helper under test would pass if both returned the
+    // same wrong reason.
+    const cases = [
+      { id: "org-engineering", short: "配下に部門あり", reason: "配下の部門を先に移すか削除してください" },
+      { id: "org-product", short: "所属メンバーあり", reason: "所属メンバーを先に別部門へ移してください" },
+      { id: "org-missing", short: "見つかりません", reason: "部門が見つかりません" },
+    ];
+    for (const { id, short, reason } of cases) {
+      expect(orgUnitArchiveBlocker(initialWorkspace, id)).toEqual({ short, reason });
+      expect(() => archiveOrgUnit(initialWorkspace, id)).toThrow(reason);
+    }
+
+    const emptied = {
+      ...initialWorkspace,
+      orgMemberships: (initialWorkspace.orgMemberships ?? []).filter((item) => item.orgUnitId !== "org-data"),
+    };
+    expect(orgUnitArchiveBlocker(emptied, "org-data")).toBeNull();
+    expect(() => archiveOrgUnit(emptied, "org-data")).not.toThrow();
+
+    // Every unit in the shipped data is blocked, which is the fact that made
+    // this a bug rather than a style preference. Not a domain invariant — a
+    // fixture contract. If a deliberately empty department is ever added to the
+    // demo data this fails, and the right response is to update it here.
+    const unblocked = (initialWorkspace.orgUnits ?? []).filter((unit) => orgUnitArchiveBlocker(initialWorkspace, unit.id) === null);
+    expect(unblocked).toEqual([]);
   });
 
   it("syncs department from the primary unit and reports subtree utilization", () => {

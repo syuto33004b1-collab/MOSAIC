@@ -1398,3 +1398,60 @@ describe("the header's primary slot", () => {
     }
   });
 });
+
+describe("the organization table's delete column", () => {
+  /**
+   * Every department in the shipped data has children or members, so
+   * archiveOrgUnit refused all nine delete buttons and said so in the add form's
+   * error slot 618px above the button (#86). The view now asks the same function
+   * archiveOrgUnit asks, and offers the control only where it works.
+   */
+  it("shows the reason instead of a button where the delete cannot work", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: "組織" }));
+
+    const rows = [...document.querySelectorAll(".org-view tbody tr")];
+    expect(rows.length).toBeGreaterThan(0);
+    for (const row of rows) {
+      const name = row.querySelector("strong")?.textContent ?? "";
+      const cell = row.children[row.children.length - 1];
+      expect(cell.querySelector("button"), `${name} should not offer a delete it cannot perform`).toBeNull();
+      // The reason, not an empty cell: an empty one would pass a button check
+      // while telling the reader nothing.
+      expect(cell.querySelector(".read-only-label")?.textContent).toMatch(/配下に部門あり|所属メンバーあり/u);
+    }
+  });
+
+  it("offers the delete on an empty department, and it removes the row", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: "組織" }));
+
+    const before = document.querySelectorAll(".org-view tbody tr").length;
+    await user.type(screen.getByLabelText("部門名"), "空のチーム");
+    await user.click(screen.getByRole("button", { name: "部門を追加" }));
+    expect(document.querySelectorAll(".org-view tbody tr")).toHaveLength(before + 1);
+
+    // The new department has no members and no children, so it is the only row
+    // with a live button.
+    const deletes = screen.getAllByRole("button", { name: "削除" });
+    expect(deletes).toHaveLength(1);
+    await user.click(deletes[0]);
+
+    expect(document.querySelectorAll(".org-view tbody tr")).toHaveLength(before);
+    expect(screen.queryByText("空のチーム")).not.toBeInTheDocument();
+  });
+
+  it("writes zero as a count, matching the column beside it", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: "組織" }));
+
+    const concurrent = [...document.querySelectorAll(".org-view tbody tr")].map((row) => row.children[2].textContent?.trim() ?? "");
+    expect(concurrent.length).toBeGreaterThan(0);
+    // An em dash reads as "not applicable"; 主所属 next to it writes 2名.
+    expect(concurrent.filter((text) => !/^\d+名$/u.test(text))).toEqual([]);
+    expect(concurrent).toContain("0名");
+  });
+});

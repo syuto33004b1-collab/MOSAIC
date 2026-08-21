@@ -1543,11 +1543,34 @@ export function moveOrgUnit(units: OrgUnit[], id: string, parentId: string | nul
   return next;
 }
 
+/**
+ * Why this unit cannot be removed, or null when it can be. `archiveOrgUnit` is
+ * the only caller that has to reject; everything else that wants to know —
+ * whether to offer the control at all, and what to say instead — asks here, so
+ * that the offer and the refusal come from one place rather than two that can
+ * drift. As of #86 every unit in the shipped data is blocked, which is how nine
+ * delete buttons came to exist that all failed.
+ *
+ * `short` is for a table cell; `reason` is the sentence the caller was already
+ * throwing.
+ */
+export function orgUnitArchiveBlocker(
+  state: Pick<WorkspaceState, "orgUnits" | "orgMemberships">,
+  id: string,
+): { reason: string; short: string } | null {
+  if (!orgUnitById(state.orgUnits, id)) return { reason: "部門が見つかりません", short: "見つかりません" };
+  if ((state.orgUnits ?? []).some((item) => item.parentId === id)) {
+    return { reason: "配下の部門を先に移すか削除してください", short: "配下に部門あり" };
+  }
+  if ((state.orgMemberships ?? []).some((item) => item.orgUnitId === id)) {
+    return { reason: "所属メンバーを先に別部門へ移してください", short: "所属メンバーあり" };
+  }
+  return null;
+}
+
 export function archiveOrgUnit(state: WorkspaceState, id: string): WorkspaceState {
-  const unit = orgUnitById(state.orgUnits, id);
-  if (!unit) throw new Error("部門が見つかりません");
-  if ((state.orgUnits ?? []).some((item) => item.parentId === id)) throw new Error("配下の部門を先に移すか削除してください");
-  if ((state.orgMemberships ?? []).some((item) => item.orgUnitId === id)) throw new Error("所属メンバーを先に別部門へ移してください");
+  const blocker = orgUnitArchiveBlocker(state, id);
+  if (blocker) throw new Error(blocker.reason);
   return {
     ...state,
     orgUnits: (state.orgUnits ?? []).filter((item) => item.id !== id),
