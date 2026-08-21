@@ -27,6 +27,7 @@ import {
   UserRoundPlus,
   UsersRound,
   X,
+  type LucideIcon,
 } from "lucide-react";
 import { CustomFieldFacts, CustomFieldInputs, CsvTransferPanel, FavoriteStar, FieldsView, MemberOrgFields, MembersView, OpportunitiesView, OrgFacts, OrgView, ProjectsView, ProposalView, ReportsView, SkillsView, WorkHistoryEditor, WorkHistoryList } from "./expanded-views";
 import { AiChat } from "./components/ai-chat/AiChat";
@@ -2093,24 +2094,48 @@ export default function Home({ mode = "demo", organizationId, organizationName =
     setToast(`CSVから${created}件追加、${updated}件更新を仮置きしました`);
   };
 
-  const primaryAction = () => {
-    if (activeNav === "board" && canAddAssignment) openNewAssignment();
-    if (activeNav === "projects" && canEdit) setDrawer("newProject");
-    if (activeNav === "opportunities" && canEdit) setDrawer("newOpportunity");
-    if (activeNav === "members" && canManageMembers) setDrawer("newMember");
-    if (activeNav === "proposal") void copyShareLink({ nav: "proposal", memberIds: visibleProposalIds, anonymous: proposalAnonymous }, "提案リンクをコピーしました");
-    if (activeNav === "skills") {
-      const openNeed = workspace.needs.find((need) => need.status !== "filled");
-      if (openNeed) openStaffingNeed(openNeed.id);
-    }
-    if (activeNav === "org") {
-      setActiveNav("members");
-    }
-    if (activeNav === "fields") {
-      setActiveNav("members");
-    }
-    if (activeNav === "reports") openWeekFromReport(0);
+  /**
+   * The header's primary slot means one thing: the main action that completes on
+   * this screen. Four screens add something, the proposal screen copies its
+   * share link and the skills screen opens an unfilled role — all of them finish
+   * where you are. Going to another screen does not qualify, because a slot that
+   * sometimes navigates cannot be predicted from its position (#104). Reports
+   * reaches the board from three other kinds of control inside its own view, so
+   * removing its entry costs nothing.
+   *
+   * Every screen is listed, `null` for the ones with no such action, so adding a
+   * screen to pageMeta is a compile error rather than a silently empty slot.
+   * Label, icon, handler and enabled state live together because they used to be
+   * four parallel nine-branch ternaries, which is why "no action" was not
+   * expressible: the label chain ended in a bare `: "ボードで調整"`.
+   */
+  const primaryActions: Record<keyof typeof pageMeta, { label: string; icon: LucideIcon; enabled: boolean; run: () => void } | null> = {
+    board: { label: "アサインを追加", icon: Plus, enabled: canAddAssignment, run: () => openNewAssignment() },
+    projects: { label: "プロジェクトを追加", icon: BriefcaseBusiness, enabled: canEdit, run: () => setDrawer("newProject") },
+    opportunities: { label: "受注前案件を追加", icon: Inbox, enabled: canEdit, run: () => setDrawer("newOpportunity") },
+    members: { label: "メンバーを追加", icon: UserRoundPlus, enabled: canManageMembers, run: () => setDrawer("newMember") },
+    proposal: {
+      label: "提案リンクをコピー",
+      icon: Sparkles,
+      enabled: visibleProposalIds.length > 0,
+      run: () => void copyShareLink({ nav: "proposal", memberIds: visibleProposalIds, anonymous: proposalAnonymous }, "提案リンクをコピーしました"),
+    },
+    skills: {
+      label: "不足ロールを確認",
+      icon: Layers3,
+      enabled: workspace.needs.some((need) => need.status !== "filled"),
+      run: () => {
+        const openNeed = workspace.needs.find((need) => need.status !== "filled");
+        if (openNeed) openStaffingNeed(openNeed.id);
+      },
+    },
+    // These three used to navigate. The org tree, the field definitions and the
+    // forecast each carry their own create action in the page.
+    org: null,
+    fields: null,
+    reports: null,
   };
+  const primary = primaryActions[activeNav];
 
   return (
     <main className="app-shell">
@@ -2168,10 +2193,16 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                 </div>
               )}
             </div>
-            <button className="primary-button" onClick={primaryAction} disabled={activeNav === "board" ? !canAddAssignment : activeNav === "projects" || activeNav === "opportunities" ? !canEdit : activeNav === "members" ? !canManageMembers : activeNav === "skills" ? workspace.needs.every((need) => need.status === "filled") : activeNav === "proposal" ? visibleProposalIds.length === 0 : false}>
-              {activeNav === "board" && <Plus size={16} />}{activeNav === "projects" && <BriefcaseBusiness size={16} />}{activeNav === "opportunities" && <Inbox size={16} />}{activeNav === "members" && <UserRoundPlus size={16} />}{activeNav === "proposal" && <Sparkles size={16} />}{activeNav === "skills" && <Layers3 size={16} />}{(activeNav === "fields" || activeNav === "org") && <UsersRound size={16} />}{activeNav === "reports" && <LayoutDashboard size={16} />}
-              {activeNav === "board" ? "アサインを追加" : activeNav === "projects" ? "プロジェクトを追加" : activeNav === "opportunities" ? "受注前案件を追加" : activeNav === "members" ? "メンバーを追加" : activeNav === "proposal" ? "提案リンクをコピー" : activeNav === "skills" ? "不足ロールを確認" : activeNav === "fields" || activeNav === "org" ? "メンバーを確認" : "ボードで調整"}
-            </button>
+            {/* `enabled` is checked in the handler as well as on the attribute:
+                the old code guarded each branch (`activeNav === "board" &&
+                canAddAssignment`), and that guard should not come to depend on
+                the disabled attribute being honoured. */}
+            {primary && (
+              <button className="primary-button" onClick={() => { if (primary.enabled) primary.run(); }} disabled={!primary.enabled}>
+                <primary.icon size={16} />
+                {primary.label}
+              </button>
+            )}
           </div>
         </header>
 
