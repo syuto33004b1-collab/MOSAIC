@@ -43,7 +43,7 @@ button { color: inherit; }
 .nav-item.active { background: #2b3855; color: #fff; box-shadow: inset 3px 0 #91a0ff; }
 .nav-icon { width: 19px; text-align: center; color: #8f9aba; font-family: var(--font-data); font-size: 17px; }
 .active .nav-icon { color: #b9c2ff; }
-.nav-count { margin-left: auto; min-width: 22px; padding: 2px 6px; border-radius: 7px; background: #3c4964; color: #d9def0; text-align: center; font-family: var(--font-data); font-size: 10px; }
+.nav-count { margin-left: auto; min-width: 22px; padding: 2px 6px; border-radius: 7px; background: #3c4964; color: #d9def0; text-align: center; font-family: var(--font-data); font-size: var(--text-min); }
 .sidebar-spacer { flex: 1; }
 .month-card { margin: 0 2px 18px; padding: 15px; border: 1px solid #34415b; border-radius: 14px; background: #202b42; }
 /* `.month-card` is a historical name: the figure inside is the displayed week's,
@@ -410,7 +410,7 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   align-items: center;
   gap: 4px;
 }
-.alert-card h3 { font-size: 11.5px; }
+.alert-card h3 { font-size: var(--text-min); }
 .alert-card p { font-size: 8.5px; }
 .alert-people > span:last-child {
   color: #d25d54;
@@ -1295,7 +1295,9 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .portfolio-table td,
 .member-table td {
   height: 68px;
-  padding: 9px 12px;
+  /* #87 で副題を折り返せるようにしてから、行は 96〜98px（指定の 68px は下限として
+     効いていない）。12px 化でさらに伸びる分を padding で戻す。実測 90〜94px */
+  padding: 6px 12px;
   border-bottom: 1px solid #edf0f4;
   vertical-align: middle;
 }
@@ -1412,7 +1414,7 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   background: #fff;
 }
 .csv-view h2 { margin: 0 0 6px; font-size: 16px; }
-.csv-lead { margin: 0 0 12px; color: var(--muted-readable); font-size: 11px; }
+.csv-lead { margin: 0 0 12px; color: var(--muted-readable); font-size: var(--text-min); }
 .csv-toolbar, .csv-presets, .csv-import { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
 .csv-columns { display: flex; flex-wrap: wrap; gap: 8px 12px; margin-bottom: 12px; }
 .csv-preset { display: inline-flex; align-items: center; border: 1px solid #dce2eb; border-radius: 999px; overflow: hidden; }
@@ -1548,7 +1550,12 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   align-items: center;
   justify-content: flex-end;
 }
-.horizon-bar { position: relative; width: 21px; height: 130px; border-radius: 6px 6px 3px 3px; background: #f0f2f6; overflow: visible; }
+/* 高さ 118px は週ラベルの実測から。`.horizon-grid` は 188px 固定で
+   `overflow-y: hidden`、その中にバー + 「120%」 + 「8/17週」が縦に積まれる。
+   12px にすると必要な高さが 168 → 170px になり、下のラベル9件が枠外に出た。
+   枠を 200px に広げる案はページ高が 12px 増え、%で置いているガイド線も動く。
+   軌道を縮める方はページ高 0px、ガイド線そのまま */
+.horizon-bar { position: relative; width: 21px; height: 118px; border-radius: 6px 6px 3px 3px; background: #f0f2f6; overflow: visible; }
 .horizon-bar i { position: absolute; left: 0; right: 0; bottom: 0; border-radius: inherit; background: #8391e6; transition: height .25s ease; }
 .horizon-bar i.over { background: #e8786f; }
 .horizon-bar b { position: absolute; left: -3px; right: -3px; height: 6px; border: 1px dashed #6070c9; border-radius: 3px; background: #dfe3ff; }
@@ -2209,7 +2216,7 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .capacity-limit,
 .production-runtime-info {
   font-size: var(--text-min);
-  line-height: 1.5;
+  line-height: var(--leading);
 }
 
 .alert-card p,
@@ -2312,7 +2319,7 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
     justify-content: center;
     gap: 2px;
     padding: 4px 2px;
-    font-size: 10px;
+    font-size: var(--text-min);
     text-align: center;
   }
   .app-shell:not(.production-shell) > .sidebar .nav-item.active { box-shadow: inset 0 -3px #91a0ff; }
@@ -2398,7 +2405,13 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
      moving or resizing the launcher moves the reserve with it. */
   /* 描画される最小の文字サイズ。これより小さい値を新しく書かない。
      一括ルールと個別ルールの下限がこれを参照する */
-  --text-min: 10px;
+  --text-min: 12px;
+  /* 行間。10px → 12px で文字を上げた分を、行高で取り戻すための1箇所。
+     一括ルール（135セレクタ、1.5 だった）と body（未指定 = normal で、
+     1画面あたり約200要素がそれを継承していた）の両方がここを読む。
+     日本語の本文としては詰まった値なので、これより下げるなら
+     ページ高だけでなく可読性の方も測ってから決める */
+  --leading: 1.35;
   /* The schedule header and each row's week cell must divide the same box into
      the same five days. Defining it twice is what made Thursday's bar sit under
      Wednesday's label: the header split (width - label), the cell split
@@ -2433,6 +2446,9 @@ body { background: var(--canvas); color: var(--text); }
 body {
   font-family: var(--font-body), "Yu Gothic UI", sans-serif;
   font-weight: 500;
+  /* 一括ルールに載っていない要素は行高を書いていない = normal を継承していた。
+     文字を上げてページが伸びる分は、ここで取り戻す */
+  line-height: var(--leading);
   letter-spacing: .01em;
 }
 
@@ -2523,7 +2539,7 @@ body {
 .workspace-mode small {
   overflow: hidden;
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--text-min);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -2585,7 +2601,7 @@ body {
   border-radius: 50%;
 }
 
-.month-card-label { position: relative; z-index: 1; color: #dfd1ca; font-size: 10px; }
+.month-card-label { position: relative; z-index: 1; color: #dfd1ca; font-size: var(--text-min); }
 .month-card-label strong { color: #fff8f4; font-size: 16px; }
 .month-track { position: relative; z-index: 1; background: rgba(255, 255, 255, .15); }
 .month-track span,
@@ -2607,7 +2623,7 @@ body {
 
 .workspace {
   position: relative;
-  padding: 42px clamp(28px, 3.5vw, 58px) 48px;
+  padding: 34px clamp(28px, 3.5vw, 58px) 40px;
   background: var(--paper);
 }
 
@@ -2637,17 +2653,19 @@ body {
   background: var(--coral);
 }
 
+/* 見出しから最初の結果までに 193px（900px ビューポートの21%）を使っていた。
+   padding + margin で 59px あった区切りを 40px に。全画面に効く */
 .topbar {
   align-items: center;
-  margin-bottom: 31px;
-  padding-bottom: 28px;
+  margin-bottom: 22px;
+  padding-bottom: 18px;
   border-bottom: 1px solid var(--line);
 }
 
 .eyebrow {
   margin-bottom: 10px;
   color: var(--coral-deep);
-  font-size: 10px;
+  font-size: var(--text-min);
   letter-spacing: .19em;
 }
 .eyebrow span { color: var(--muted); }
@@ -3015,8 +3033,9 @@ h1 {
 .horizon-caption i.pipeline { background: var(--coral-soft); }
 .pipeline-chip { color: var(--coral-deep); }
 .horizon-caption button { color: var(--coral-deep); }
+/* 項目定義は2枚のカードで 539 + 801px を使う。12px 化の分をここで戻す */
 .balance-card,
-.exceptions-card { padding: 20px; }
+.exceptions-card { padding: 14px; }
 /* A chip that hugs its content, not a fixed circle. This selector serves two
    kinds of caller — a count (`{n}`) and a status caption (「制限なし」,
    「N件未対応 · N件確認待ち」) — and the fixed 24x24 only ever fitted the first:
@@ -4008,8 +4027,8 @@ h1 {
 .org-flag-set { display: grid; gap: 8px; }
 .org-flag-set { border: 1px solid #e6eaf2; border-radius: 12px; padding: 10px 12px; }
 .org-flag-set legend { color: var(--muted-readable); font-size: var(--text-min); font-weight: 700; }
-.org-flag-set .field-flag { display: flex; align-items: center; gap: 8px; font-size: 11px; }
-.org-flag-empty { margin: 0; color: #939bb0; font-size: 10px; }
+.org-flag-set .field-flag { display: flex; align-items: center; gap: 8px; font-size: var(--text-min); }
+.org-flag-empty { margin: 0; color: #939bb0; font-size: var(--text-min); }
 .skill-catalog-form label { display: grid; gap: 5px; color: var(--muted-readable); font-size: var(--text-min); font-weight: 700; }
 .skill-catalog-form input,
 .skill-catalog-form select {
@@ -4025,7 +4044,7 @@ h1 {
    literal #c65b53 measured 4.18:1 on white and 3.85:1 on the page ground, under
    AA on a message that says why a save failed. The token gives 5.25 and 4.84
    (#84 found this while verifying the forms it restyles). */
-.skill-catalog-error { grid-column: 1 / -1; margin: 0; color: var(--coral-deep); font-size: 10px; }
+.skill-catalog-error { grid-column: 1 / -1; margin: 0; color: var(--coral-deep); font-size: var(--text-min); }
 .skill-map-wrap {
   overflow: auto;
   border: 1px solid #dfe4ed;
@@ -4035,7 +4054,10 @@ h1 {
 }
 .skill-map-table { width: 100%; border-collapse: collapse; }
 .skill-map-table th,
-.skill-map-table td { padding: 11px 14px; border-bottom: 1px solid #eef1f6; text-align: left; vertical-align: middle; }
+/* 7px は行高から逆算した値。名前セル（strong + small の2段）が行の高さを決めていて、
+   12px 化で 58px → 60px になる。padding を 11 → 7 で 50px。スキルマップは32行あるので
+   ここが一番効く（実測 −269px） */
+.skill-map-table td { padding: 7px 14px; border-bottom: 1px solid #eef1f6; text-align: left; vertical-align: middle; }
 .skill-map-table th { color: var(--muted-readable); font-size: var(--text-min); font-weight: 800; letter-spacing: .08em; }
 .skill-map-table .category-row { background: #f7f9fc; }
 .skill-map-table .gap-row td { background: #fff6f4; }
@@ -4080,7 +4102,7 @@ h1 {
    the widest cell's intrinsic width, and a <th> max-width does not bound that.
    A long unbreakable value pushed this column to 613px and squeezed 4週間の
    キャパシティ down to 39px. */
-.custom-field-cell { display: block; max-width: 150px; overflow: hidden; color: #5d6678; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.custom-field-cell { display: block; max-width: 150px; overflow: hidden; color: #5d6678; font-size: var(--text-min); text-overflow: ellipsis; white-space: nowrap; }
 .custom-field-facts { margin-top: 12px; }
 .custom-field-inputs,
 .work-history-editor { display: grid; gap: 10px; }
@@ -4095,8 +4117,8 @@ h1 {
 }
 .work-history-list strong { font-size: 12px; }
 .work-history-list small,
-.work-history-list em { color: #7b8496; font-size: 10px; font-style: normal; }
-.work-history-list p { margin: 0; color: #5d6678; font-size: 11px; }
+.work-history-list em { color: #7b8496; font-size: var(--text-min); font-style: normal; }
+.work-history-list p { margin: 0; color: #5d6678; font-size: var(--text-min); }
 .work-history-form {
   display: grid;
   gap: 8px;
@@ -4109,7 +4131,7 @@ h1 {
   justify-self: start;
   height: 34px;
   padding: 0 10px;
-  font-size: 11px;
+  font-size: var(--text-min);
 }
 .field-catalog-form {
   margin: 0 0 14px;
@@ -4150,7 +4172,7 @@ h1 {
   gap: 6px;
   height: 36px;
   color: #4f5a70;
-  font-size: 11px;
+  font-size: var(--text-min);
 }
 .field-catalog-form .field-flag input { width: 16px; height: 16px; }
 .field-catalog-form .view-add-button { grid-column: 1 / -1; justify-self: start; }
@@ -4184,7 +4206,7 @@ h1 {
 }
 .match-score small { color: #8c95a6; font-size: var(--text-min); font-weight: 700; }
 .saved-report-card { margin: 0 0 18px; }
-.field-surfaces { color: #6d7689; font-size: 10px; font-weight: 700; }
+.field-surfaces { color: #6d7689; font-size: var(--text-min); font-weight: 700; }
 
 .pipeline-board {
   margin-bottom: 18px;
@@ -4205,7 +4227,7 @@ h1 {
   justify-content: space-between;
   align-items: center;
   color: var(--muted-readable);
-  font-size: 10px;
+  font-size: var(--text-min);
   font-weight: 800;
   letter-spacing: .08em;
 }
@@ -4224,7 +4246,7 @@ h1 {
 .pipeline-card strong { font-size: 12px; }
 .pipeline-card small,
 .pipeline-card em { color: var(--muted-readable); font-size: var(--text-min); font-style: normal; }
-.pipeline-empty { margin: 18px 4px; color: #8b94a5; font-size: 11px; }
+.pipeline-empty { margin: 18px 4px; color: #8b94a5; font-size: var(--text-min); }
 .detail-need-list .selected-need { border-color: #b9472c; background: #f8e2da; }
 
 @media (max-width: 980px) {
@@ -4236,7 +4258,7 @@ h1 {
   .app-shell > .workspace::after { display: none; }
 }
 .role-permission-card { margin: 0 0 18px; }
-.role-permission-note { margin: 0 0 10px; color: var(--muted-readable); font-size: 11px; font-weight: 600; }
+.role-permission-note { margin: 0 0 10px; color: var(--muted-readable); font-size: var(--text-min); font-weight: 600; }
 /* minmax, not fixed: 180 + 200 + 10px gap came to 390px inside a ~330px
    container at a 390px viewport, and the full-width fieldsets inherited that
    380px span, so their checkboxes hung 56px outside the card. */
@@ -4293,7 +4315,7 @@ h1 {
 .profile-request-item header { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; }
 .profile-request-item header small, .profile-request-item p { color: var(--muted-readable); font-size: 12px; }
 .profile-request-submit { display: grid; gap: 10px; }
-.field-surfaces { color: #6d7689; font-size: 10px; font-weight: 700; }
+.field-surfaces { color: #6d7689; font-size: var(--text-min); font-weight: 700; }
 
 @media print {
   .ai-chat-root { display: none !important; }

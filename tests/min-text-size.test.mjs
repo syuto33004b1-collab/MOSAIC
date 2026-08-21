@@ -61,16 +61,45 @@ function* sizes(css) {
 
 /**
  * "One edit moves the floor" is true only for the rules that read the token.
- * 44 rules still carry a bare `10px`, so raising the token to 12px would leave
- * those behind — that is part of what #100 has to sort out. This checks the
- * token exists and that the bulk floor reads it, nothing wider.
+ * #100 raised the token from 10px to 12px and converted the 20 literals that
+ * were left behind — measured, that took the elements rendering below 12px from
+ * 150 to 0 across nine screens.
  */
 test("the floor is a token, and the bulk rule reads it", async () => {
   const css = (await read()).replaceAll("\r\n", "\n");
   const token = css.match(/--text-min:\s*(\d+)px/u);
   assert.ok(token, "--text-min is not defined");
-  assert.ok(Number(token[1]) >= 10, `--text-min is ${token[1]}px; 10px is the floor this repo settled on`);
+  assert.ok(Number(token[1]) >= 12, `--text-min is ${token[1]}px; #100 raised the floor to 12px`);
   assert.ok(css.includes(FLOOR), "the bulk floor rule no longer reads var(--text-min)");
+});
+
+/**
+ * Raising the floor costs vertical space, and #100's acceptance test is that the
+ * pages get *shorter*. Leading is where most of that came back, and it was
+ * declared in two places: the bulk rule said `1.5`, and `body` said nothing at
+ * all — so roughly 200 elements per screen inherited `normal`. Both read one
+ * token now, so the two cannot drift apart again.
+ *
+ * ## What this cannot do
+ *
+ * It reads two declarations. The page heights are browser measurements and are
+ * recorded in the PR.
+ */
+test("leading is one token, read by both the bulk rule and body", async () => {
+  const css = (await read()).replaceAll("\r\n", "\n");
+  const token = css.match(/--leading:\s*([\d.]+)/u);
+  assert.ok(token, "--leading is not defined");
+  // A unitless ratio: a px value would stop scaling with the font size, which
+  // is the whole point of pairing it with the floor.
+  assert.match(css.match(/--leading:\s*([^;]+)/u)[1].trim(), /^[\d.]+$/u,
+    "--leading has to be unitless so it scales with the size");
+
+  assert.ok(css.includes(`${FLOOR}\n  line-height: var(--leading);`),
+    "the bulk rule must take its leading from the token");
+
+  const body = [...css.matchAll(/(?:^|\n)body\s*\{([^}]*)\}/gu)].map(([, b]) => b);
+  assert.ok(body.some((b) => /line-height:\s*var\(--leading\)/u.test(b)),
+    "no body rule reads --leading; the elements outside the bulk rule fall back to `normal`");
 });
 
 test("no rule after the floor declares a size below it", async () => {
