@@ -25,27 +25,39 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
  *
  * ## What this cannot do
  *
- * It reads text, not meaning. It cannot tell whether a *new* word has been
- * introduced for a quantity that already has one — only that these eight are gone.
- * And it strips comments, so the prose above is exempt by construction.
- */
-
-/**
+ * It reads text, not syntax. `stripComments` is a regex, so two holes stay — both
+ * pinned by the last test in this file rather than assumed away:
+ *
+ * - a display string that itself opens a block comment is treated as a comment,
+ *   so a retired word inside such a string would slip through
+ * - a comment trailing code on the same line is not stripped, so a retired word
+ *   mentioned only there would fail this test
+ *
+ * Neither shape exists in the sources today, and removing them would take a
+ * TypeScript parse. The rendered tests in App.test.tsx are the primary guard;
+ * this is the backstop for the strings they cannot reach. It also says nothing
+ * about a *new* word being coined for a quantity that already has one — only
+ * that these eight are gone.
+ *
  * Screens only. The AI chat's impact preview is built in
  * supabase/functions/chat/workspace-tools.mjs and still says 「上限100%を超えます」;
  * it renders only for a signed-in shared-mode session, which this repo's UI
- * verification cannot reach, so it is a separate issue rather than an
- * unverifiable line in this diff.
+ * verification cannot reach, so it is #120 rather than an unverifiable line here.
  */
-const SOURCES = ["src/App.tsx", "src/expanded-views.tsx"];
 
 /**
- * The reports screen keeps 「キャパシティ予測」: it names the screen's subject, not
- * a figure, so it cannot make a number ambiguous. Every other occurrence was a
- * label sitting on a 稼働 value — the member table's 「4週間のキャパシティ」 column
- * and the drawer section of the same name both showed `memberLoad()`.
+ * Allowances are per file and exact. The reports screen keeps 「キャパシティ予測」:
+ * it names the screen's subject, not a figure, so it cannot make a number
+ * ambiguous. Every other occurrence was a label sitting on a 稼働 value — the
+ * member table's 「4週間のキャパシティ」 column and the drawer section of the same
+ * name both showed `memberLoad()`.
  */
-const ALLOWED = ['title: "キャパシティ予測"'];
+const ALLOWED = {
+  "src/App.tsx": ['title: "キャパシティ予測"'],
+  "src/expanded-views.tsx": [],
+};
+
+const SOURCES = Object.keys(ALLOWED);
 
 const RETIRED = [
   ["余白", "稼働 or 空き, depending on which one the figure is"],
@@ -62,11 +74,11 @@ const stripComments = (source) => source
   .replace(/\/\*[\s\S]*?\*\//gu, "")
   .replace(/^[ \t]*\/\/.*$/gmu, "");
 
-const allowedFree = (source) => ALLOWED.reduce((text, phrase) => text.split(phrase).join(""), source);
+const drop = (source, phrases) => phrases.reduce((text, phrase) => text.split(phrase).join(""), source);
 
 test("the retired words for 稼働 and 空き are gone from the screens", async () => {
   for (const file of SOURCES) {
-    const source = allowedFree(stripComments(await readFile(path.join(root, file), "utf8")));
+    const source = drop(stripComments(await readFile(path.join(root, file), "utf8")), ALLOWED[file]);
     for (const [word, replacement] of RETIRED) {
       assert.ok(
         !source.includes(word),
@@ -77,15 +89,41 @@ test("the retired words for 稼働 and 空き are gone from the screens", async 
 });
 
 /**
- * The allowance is spelled out as an exact phrase so that a second
- * 「キャパシティ」 cannot slip in under it, and so that removing the phrase from
- * the source makes this test say so rather than silently widening.
+ * Each allowance is an exact phrase, checked in the one file that may carry it,
+ * and counted: a second 「キャパシティ」 cannot hide behind the allowance, and a
+ * file with no allowance is held to the full list. Removing the phrase from the
+ * source makes this test say so rather than leaving a dead allowance behind.
  */
-test("the one allowed キャパシティ is the reports screen's own title", async () => {
-  const source = await readFile(path.join(root, "src", "App.tsx"), "utf8");
-  for (const phrase of ALLOWED) {
-    assert.ok(source.includes(phrase), `${phrase} is no longer in src/App.tsx — drop it from ALLOWED`);
+test("each allowance is present exactly once, in the file that declares it", async () => {
+  for (const file of SOURCES) {
+    const source = stripComments(await readFile(path.join(root, file), "utf8"));
+    for (const phrase of ALLOWED[file]) {
+      assert.equal(source.split(phrase).length - 1, 1, `${file} should carry ${phrase} exactly once — drop or update the allowance`);
+    }
+    const excused = new Set(ALLOWED[file].flatMap((phrase) => RETIRED.map(([word]) => word).filter((word) => phrase.includes(word))));
+    for (const [word] of RETIRED) {
+      if (excused.has(word)) continue;
+      assert.ok(!source.includes(word), `${file} declares no allowance for 「${word}」`);
+    }
   }
-  const occurrences = stripComments(source).split("キャパシティ").length - 1;
-  assert.equal(occurrences, 1, "src/App.tsx should carry キャパシティ exactly once, in the reports title");
+});
+
+/**
+ * The two holes named in the doc comment above, pinned so that "we know about
+ * this" cannot quietly become "we assumed it worked". The markers are assembled
+ * at runtime so this file does not contain the shapes it describes.
+ */
+test("stripComments trades two known holes for being a regex", () => {
+  const open = "/" + "*";
+  const close = "*" + "/";
+  const slashes = "/" + "/";
+
+  assert.equal(stripComments(`const label = "${open} 余白 ${close}";`).includes("余白"), false,
+    "a block-comment marker inside a display string hides the word — the false negative");
+
+  assert.equal(stripComments(`const label = "稼働"; ${slashes} 余白 was the old word`).includes("余白"), true,
+    "a comment trailing code on the same line is not stripped — the false positive");
+
+  assert.equal(stripComments(`  ${slashes} 余白 was the old word\nconst label = "稼働";`).includes("余白"), false,
+    "a comment on its own line is stripped, which is the shape the sources actually use");
 });

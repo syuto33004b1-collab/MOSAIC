@@ -2173,7 +2173,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
               names is what #82 is about. */}
           <div className="month-card-label"><span>{days[0].month}/{days[0].date}週の平均稼働率</span><strong>{averageLoad}%</strong></div>
           <div className="month-track"><span style={{ width: Math.min(100, averageLoad) + "%" }} /></div>
-          <p>{totalCapacity > 0 ? `稼働上限まであと ${Math.max(0, 100 - averageLoad)}%。` : "稼働上限が未設定です。"}{mode === "shared" ? "変更は組織内で共有されます。" : "サンプルデータはこの端末だけに保存されます。"}</p>
+          <p>{totalCapacity === 0 ? "稼働上限が未設定です。" : averageLoad > 100 ? `稼働上限を ${averageLoad - 100}% 超えています。` : `稼働上限まであと ${100 - averageLoad}%。`}{mode === "shared" ? "変更は組織内で共有されます。" : "サンプルデータはこの端末だけに保存されます。"}</p>
         </div>
         <div className="profile-row">
           <span className="avatar avatar-dark">{makeInitials(displayName)}</span><span><strong>{displayName}</strong><small>{roleLabel[role]}</small></span>
@@ -2383,7 +2383,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                 <div className="drawer-heading"><span className={"drawer-icon " + (selectedNeed.status === "open" ? "mint" : "cobalt")}><UserRoundPlus size={19} /></span><div><h2>{selectedNeed.status === "open" ? `${selectedNeed.role}の候補` : selectedNeed.status === "planned" ? "解消予定の担当者" : "充足済みの担当者"}</h2><p>{projectById(workspace, selectedNeed.projectId)?.name} · {formatDate(selectedNeed.startDate)}開始</p></div></div>
                 <div className="role-brief"><span>必要な条件</span><div>{selectedNeed.skills.map((skill) => <b key={skill}>{skill}</b>)}<b>{selectedNeed.role}</b><b>稼働配分 {selectedNeed.allocation}%</b></div></div>
                 {selectedNeed.status !== "open" ? (
-                  <div className="planned-candidate"><CheckCircle2 size={20} /><span><strong>{memberById(workspace, selectedNeed.draftPersonId || "")?.name ?? "担当者"}{selectedNeed.status === "planned" ? "さんを仮置き済み" : "さんで充足済み"}</strong><small>{selectedNeed.allocation}% · {formatDate(selectedNeed.startDate)} — {formatDate(selectedNeed.endDate)}</small></span></div>
+                  <div className="planned-candidate"><CheckCircle2 size={20} /><span><strong>{memberById(workspace, selectedNeed.draftPersonId || "")?.name ?? "担当者"}{selectedNeed.status === "planned" ? "さんを仮置き済み" : "さんで充足済み"}</strong><small>稼働配分 {selectedNeed.allocation}% · {formatDate(selectedNeed.startDate)} — {formatDate(selectedNeed.endDate)}</small></span></div>
                 ) : (
                   <>
                     <div className="candidate-label"><span>条件に合うメンバー</span><small>必須条件を満たす候補をスコア順に最大5名</small></div>

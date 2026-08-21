@@ -1618,9 +1618,11 @@ describe("one word per quantity", () => {
   it("does not call a 稼働率 above the band 満員", async () => {
     await openMembers(halfCeilingWorkspace(35, 4));
     // 35 of 50 is 70%: above the 60% band for all four weeks, but nowhere near
-    // full. 「満員」 implied 100%.
+    // full. 「満員」 implied 100%, and 「4週先まで」 implied a range one week wider
+    // than the four the code reads.
     const cell = document.querySelector(".next-open")!;
-    expect(cell.textContent).toContain("4週先までなし");
+    expect(cell.textContent).toContain("4週間で該当なし");
+    expect(cell.textContent).not.toContain("4週先");
     expect(document.body.textContent).not.toContain("満員");
   });
 
@@ -1650,6 +1652,82 @@ describe("one word per quantity", () => {
     // Same variable, so the two figures must agree — the point of one name.
     expect(strip[0].querySelector("strong")!.textContent).toBe(sidebar.querySelector("strong")!.textContent);
     expect(document.body.textContent).not.toContain("チーム稼働");
+  });
+
+  it("keeps 稼働上限 0% out of the 稼働率60%以下 band, where no 稼働率 exists", async () => {
+    const project = { ...initialWorkspace.projects[0], id: "project" };
+    const idle = { ...initialWorkspace.members[0], id: "idle", name: "稼働不可 一郎", capacity: 0 };
+    const inBand = { ...initialWorkspace.members[1], id: "in-band", name: "余裕 二郎", capacity: 50 };
+    await openMembers({
+      members: [idle, inBand],
+      projects: [project],
+      assignments: [{ id: "load", personId: inBand.id, projectId: project.id, startDate: weekStart, endDate: addDays(weekStart, 4), allocation: 20, status: "confirmed" }],
+      needs: [],
+    } as unknown as WorkspaceState);
+
+    // A 0% ceiling makes load / capacity undefined, so the member belongs in
+    // neither band. The count is the one member who has a 稼働率 under 60.
+    const band = [...document.querySelectorAll(".member-ribbon .ribbon-stat")].find((el) => el.querySelector("span")?.textContent === "稼働率60%以下");
+    expect(band!.querySelector("strong")!.textContent).toBe("1");
+    const cells = [...document.querySelectorAll(".next-open")].map((el) => el.textContent ?? "");
+    expect(cells.some((text) => text.startsWith("稼働不可 · 稼働上限0%"))).toBe(true);
+  });
+
+  it("names the week the same way the drawer does, and only the week it checked", async () => {
+    const project = { ...initialWorkspace.projects[0], id: "project" };
+    const member = { ...initialWorkspace.members[0], id: "bumpy", name: "凹凸 三郎", capacity: 100 };
+    // 70 / 50 / 90 / 90: only the second week is under the band, so 「2週目から」
+    // claimed a run that does not exist.
+    const week = (offset: number, allocation: number) => ({
+      id: `w${offset}`, personId: member.id, projectId: project.id,
+      startDate: addDays(weekStart, offset * 7), endDate: addDays(weekStart, offset * 7 + 4),
+      allocation, status: "confirmed" as const,
+    });
+    await openMembers({
+      members: [member], projects: [project],
+      assignments: [week(0, 70), week(1, 50), week(2, 90), week(3, 90)],
+      needs: [],
+    } as unknown as WorkspaceState);
+
+    const cell = document.querySelector(".next-open")!.textContent ?? "";
+    // 「2週後」 is what the member drawer and the proposal card call this week.
+    expect(cell).toContain("2週後");
+    expect(cell).not.toContain("週目から");
+  });
+
+  it("says which side of the 稼働上限 the team average is on", async () => {
+    const project = { ...initialWorkspace.projects[0], id: "project" };
+    const member = { ...initialWorkspace.members[0], id: "over", name: "超過 四郎", capacity: 50 };
+    const adapter = sharedAdapter();
+    adapter.initialState = {
+      members: [member], projects: [project],
+      assignments: [{ id: "load", personId: member.id, projectId: project.id, startDate: weekStart, endDate: addDays(weekStart, 4), allocation: 100, status: "confirmed" }],
+      needs: [],
+    } as unknown as WorkspaceState;
+    render(<App mode="shared" organizationName="Example Inc." identity={owner} shared={adapter} />);
+
+    // 100 of a 50% ceiling is a 200% average, so 「稼働上限まであと 0%。」 would
+    // read as "just at the limit" while the team is 100 points past it.
+    const card = document.querySelector(".month-card")!;
+    expect(card.querySelector("strong")!.textContent).toBe("200%");
+    expect(card.querySelector("p")!.textContent).toContain("稼働上限を 100% 超えています。");
+    expect(card.querySelector("p")!.textContent).not.toContain("まであと");
+  });
+
+  it("names the metric on a need's allocation in the planned branch too", async () => {
+    const user = userEvent.setup();
+    const project = { ...initialWorkspace.projects[0], id: "project" };
+    const member = { ...initialWorkspace.members[4], id: "picked", name: "仮置き 五郎", role: "QA Engineer", skills: ["QA"], capacity: 100 };
+    const adapter = sharedAdapter();
+    adapter.initialState = {
+      members: [member], projects: [project], assignments: [],
+      needs: [{ id: "need", projectId: project.id, role: "QA Engineer", skills: ["QA"], startDate: weekStart, endDate: addDays(weekStart, 4), allocation: 45, status: "planned", draftPersonId: member.id }],
+    } as unknown as WorkspaceState;
+    render(<App mode="shared" organizationName="Example Inc." identity={owner} shared={adapter} />);
+
+    await user.click(screen.getByText("解消予定").closest("button")!);
+    const dialog = within(screen.getByRole("dialog", { name: "詳細パネル" }));
+    expect(dialog.getByText(/^稼働配分 45% · /u)).toBeInTheDocument();
   });
 
   it("uses none of the retired words on the board or the member screen", async () => {
