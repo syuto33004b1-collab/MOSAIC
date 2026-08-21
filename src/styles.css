@@ -1705,6 +1705,13 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   position: relative;
   display: grid;
   place-items: center;
+  /* `strong` below is a grid item with `z-index: 1`, and z-index applies to grid
+     items even when they are `position: static`. Without a stacking context here it
+     climbs into the nearest one and paints at 1 there — which tied with the sticky
+     name column and won on tree order, drawing the percentage across the name
+     (#142, measured at 620px). The ring only ever needs its text above its own
+     `::before`, so containing it is the whole fix. */
+  isolation: isolate;
 }
 .load-ring::before { content: ""; position: absolute; inset: 4px; border-radius: 50%; background: #fff; }
 .load-ring strong { z-index: 1; color: #5f6980; font-family: var(--font-data); font-size: 7px; }
@@ -3275,6 +3282,57 @@ h1 {
 .member-table td { border-bottom-color: var(--line); }
 .portfolio-table tbody tr:hover,
 .member-table tbody tr:hover { background: #fcf6f3; }
+/* #142: the member table is wider than its wrapper at every width — 56px over at
+   1440, 130px at 1360, 393px at 620, 623px at 375 — and while it is scrolled the
+   name column and the actions column slide away together, so the buttons on screen
+   belong to a row you can no longer read. #136 made the gap worse at the wide end
+   by giving the table a 1120px floor to buy row height; the narrow end has been
+   like this all along.
+
+   Sticky works here with `border-collapse: collapse` — measured at 1360, where the
+   name column stayed at 362.6px across a 130px scroll instead of sliding to
+   232.6px. No need for `separate`, so #75's column widths are untouched.
+
+   The favourite column is deliberately NOT sticky. Sticking it would tie the name
+   column's `left` to the favourite column's rendered width (44px declared plus 12px
+   of cell padding), and a padding change would open a seam. With the name column at
+   `left: 0` the star simply scrolls under it, and the coupling does not exist. The
+   defect is not being able to tell whose row it is, which the name fixes.
+
+   Declared here rather than beside the column widths: `.member-table th` takes
+   `background: var(--canvas)` a few lines up, and a sticky cell needs an opaque
+   background or the scrolling content shows through. A copy placed earlier would
+   lose on source order — #146 hit exactly that with `min-width` and undid #136's
+   floor for a while. */
+.member-table th.col-name,
+.member-table th.col-actions { position: sticky; z-index: 2; background: var(--canvas); }
+.member-table tbody td:nth-child(2),
+.member-table td.member-row-actions { position: sticky; z-index: 1; background: var(--paper-pure); }
+/* `:nth-child(2)` rather than a class: only the actions cell carries one, and every
+   column that appears at runtime — the score column for a picked search scene, one
+   per custom field in the list view — is inserted from the third onwards. */
+.member-table th.col-name,
+.member-table tbody td:nth-child(2) { left: 0; box-shadow: 4px 0 8px -6px rgba(36, 24, 20, .32); }
+.member-table th.col-actions,
+.member-table td.member-row-actions { right: 0; box-shadow: -4px 0 8px -6px rgba(36, 24, 20, .32); }
+/* Always on, not toggled by scroll position: the table is wider than the wrapper at
+   every width above, so "there is more this way" is always true and the shadow needs
+   no JavaScript to know it. */
+
+/* The row's hover tint has to reach the sticky cells, or they stay pale while the
+   rest of the row lights up — the same thing `.schedule-row:hover .person-cell`
+   fixes on the board. */
+.member-table tbody tr:hover td:nth-child(2),
+.member-table tbody tr:hover td.member-row-actions { background: #fcf6f3; }
+
+/* Below this the sticky pair costs more than it buys. Measured windows between the
+   two sticky edges: 638px at 1360, 355px at 620, and 125px at 375 — at which point
+   the columns in between cannot be read at all. The name stays stuck at every width,
+   because "which row is this" is needed at every width; the actions let go. */
+@media (max-width: 620px) {
+  .member-table th.col-actions,
+  .member-table td.member-row-actions { position: static; box-shadow: none; }
+}
 .project-code {
   border-radius: 3px;
   background: var(--coral-soft);
