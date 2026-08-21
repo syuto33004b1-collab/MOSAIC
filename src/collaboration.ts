@@ -17,9 +17,15 @@ export type ShareLink = {
   q?: string;
   memberIds?: string[];
   anonymous?: boolean;
+  /**
+   * What the proposal is for: a project's staffing need or an opportunity's
+   * staffing plan (#140). Validated like `open`, and only ever used to look one up
+   * in the workspace already in memory.
+   */
+  needId?: string;
 };
 
-const SHARE_PARAM_KEYS = ["nav", "open", "q", "members", "anonymous"] as const;
+const SHARE_PARAM_KEYS = ["nav", "open", "q", "members", "anonymous", "need"] as const;
 const NAV_SET = new Set<string>(SHARE_NAV_IDS);
 const KIND_SET = new Set<FavoriteKind>(["member", "project"]);
 const TARGET_ID_PATTERN = /^[\w:-]{1,80}$/;
@@ -130,13 +136,15 @@ export function parseShareSearch(search: string): ShareLink | null {
   if (nav === "proposal") {
     if (memberIds.length) link.memberIds = memberIds;
     if (anonymous) link.anonymous = true;
+    const needId = parseOpenId(params.get("need"));
+    if (needId) link.needId = needId;
   }
   return link;
 }
 
 export function serializeShareSearch(link: ShareLink) {
   const params = new URLSearchParams();
-  const omitNav = link.nav === "board" && !link.open && !link.q && !link.memberIds?.length && !link.anonymous;
+  const omitNav = link.nav === "board" && !link.open && !link.q && !link.memberIds?.length && !link.anonymous && !link.needId;
   if (!omitNav) params.set("nav", link.nav);
   if (link.open && (link.nav === "members" || link.nav === "projects")) params.set("open", link.open);
   if (link.q && (link.nav === "members" || link.nav === "projects")) params.set("q", link.q);
@@ -144,6 +152,10 @@ export function serializeShareSearch(link: ShareLink) {
     const ids = parseMemberIds((link.memberIds ?? []).join(","));
     if (ids.length) params.set("members", ids.join(","));
     if (link.anonymous) params.set("anonymous", "1");
+    // Through the same validator on the way out as on the way in, so a value that
+    // could not have been parsed cannot be produced either.
+    const needId = link.needId && TARGET_ID_PATTERN.test(link.needId) ? link.needId : undefined;
+    if (needId) params.set("need", needId);
   }
   const query = params.toString();
   return query ? `?${query}` : "";

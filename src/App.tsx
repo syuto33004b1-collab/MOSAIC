@@ -442,6 +442,8 @@ export default function Home({ mode = "demo", organizationId, organizationName =
   const [favoritesOnly, setFavoritesOnly] = useState(false);
   const [favorites, setFavorites] = useState<Favorite[]>(() => mode === "demo" ? readDemoFavorites() : []);
   const [proposalMemberIds, setProposalMemberIds] = useState<string[]>(startingShare?.nav === "proposal" ? startingShare.memberIds ?? [] : []);
+  /** What the proposal answers, carried in the share link like the selection is. */
+  const [proposalNeedId, setProposalNeedId] = useState(startingShare?.nav === "proposal" ? startingShare.needId ?? "" : "");
   const [proposalAnonymous, setProposalAnonymous] = useState(startingShare?.nav === "proposal" ? Boolean(startingShare.anonymous) : false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
@@ -956,6 +958,30 @@ export default function Home({ mode = "demo", organizationId, organizationName =
       setToast("リンクをコピーできませんでした");
     }
   };
+
+  /**
+   * One place that builds the proposal's link, because the screen and the command
+   * palette both hand it over and a link that carried the selection but not what
+   * it was for would arrive without its question (#140).
+   */
+  /**
+   * Only a subject that still resolves goes into the link. An id whose need was
+   * filled or deleted shows as 「未選択」 on screen, and carrying it anyway would
+   * hand somebody a link that says it is about something it cannot show.
+   */
+  const proposalSubjectExists = proposalNeedId !== "" && [
+    ...workspace.needs.filter((need) => need.status !== "filled").map((need) => `need:${need.id}`),
+    ...(workspace.opportunityNeeds ?? []).map((need) => `plan:${need.id}`),
+  ].includes(proposalNeedId);
+  const copyProposalLink = () => copyShareLink(
+    {
+      nav: "proposal",
+      memberIds: visibleProposalIds,
+      anonymous: proposalAnonymous,
+      needId: proposalSubjectExists ? proposalNeedId : undefined,
+    },
+    "提案リンクをコピーしました",
+  );
 
   const toggleFavoriteTarget = async (kind: FavoriteKind, targetId: string) => {
     if ((permissions?.disabledFeatures ?? []).includes("favorites")) {
@@ -2209,7 +2235,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
       label: "提案リンクをコピー",
       icon: Sparkles,
       enabled: visibleProposalIds.length > 0,
-      run: () => void copyShareLink({ nav: "proposal", memberIds: visibleProposalIds, anonymous: proposalAnonymous }, "提案リンクをコピーしました"),
+      run: () => void copyProposalLink(),
     },
     skills: {
       label: "不足ロールを確認",
@@ -2441,7 +2467,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
         {activeNav === "projects" && <ProjectsView state={workspace} weekOffset={viewWeekOffset} onOpen={openProject} query={projectQuery} onQueryChange={setProjectQuery} favorites={favorites} favoritesOnly={favoritesOnly} onFavoritesOnlyChange={setFavoritesOnly} onToggleFavorite={(projectId) => void toggleFavoriteTarget("project", projectId)} onCopyQuery={() => void copyShareLink({ nav: "projects", q: projectQuery }, "検索リンクをコピーしました")} />}
         {activeNav === "opportunities" && <OpportunitiesView state={workspace} onOpen={openOpportunity} />}
         {activeNav === "members" && <MembersView state={workspace} weekOffset={viewWeekOffset} onOpen={openMember} onAssign={openAssignmentFor} onAddScene={handleAddSearchScene} onDeleteScene={handleDeleteSearchScene} canEdit={canEdit} canManageScenes={canManageMembers && featureEnabled("searchScenes")} query={memberQuery} onQueryChange={setMemberQuery} favorites={favorites} favoritesOnly={favoritesOnly} onFavoritesOnlyChange={setFavoritesOnly} onToggleFavorite={(memberId) => void toggleFavoriteTarget("member", memberId)} onAddToProposal={addMemberToProposal} onCopyQuery={() => void copyShareLink({ nav: "members", q: memberQuery }, "検索リンクをコピーしました")} />}
-        {activeNav === "proposal" && <ProposalView state={workspace} weekOffset={viewWeekOffset} selectedIds={visibleProposalIds} anonymous={proposalAnonymous} favorites={favorites} onSelectedIdsChange={setProposalMemberIds} onAnonymousChange={setProposalAnonymous} onOpenMember={openMember} onToggleFavorite={(memberId) => void toggleFavoriteTarget("member", memberId)} />}
+        {activeNav === "proposal" && <ProposalView state={workspace} weekOffset={viewWeekOffset} selectedIds={visibleProposalIds} anonymous={proposalAnonymous} favorites={favorites} needId={proposalNeedId || undefined} onNeedIdChange={setProposalNeedId} onSelectedIdsChange={setProposalMemberIds} onAnonymousChange={setProposalAnonymous} onOpenMember={openMember} onToggleFavorite={(memberId) => void toggleFavoriteTarget("member", memberId)} />}
         {activeNav === "org" && <OrgView state={workspace} onAddUnit={handleAddOrgUnit} onMoveUnit={handleMoveOrgUnit} onArchiveUnit={handleArchiveOrgUnit} canManage={canManageMembers} />}
         {activeNav === "skills" && <SkillsView state={hydrateWorkspaceSkills(workspace)} onAddCatalogEntry={handleAddCatalogEntry} onOpenMember={openMember} onResolveNeed={openStaffingNeed} canEdit={canEdit} />}
         {activeNav === "fields" && (

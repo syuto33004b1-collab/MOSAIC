@@ -1353,6 +1353,34 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .proposal-card h3 { margin: 0; font-size: var(--text-lg); }
 .proposal-card header p { margin: 2px 0 0; color: #687285; font-size: var(--text-min); }
 .proposal-card header small { color: #929aaa; font-size: var(--text-min); }
+/* The requirement the card answers, under the skills it answers it with. Sized
+   from the floor token, not a literal (#100), and `.is-unmatched` reads as a
+   statement rather than an alarm — a candidate added on purpose who does not meet
+   the requirement is information, not an error (#140). */
+.proposal-match {
+  margin: 8px 0 0;
+  color: var(--muted-readable);
+  font-size: var(--text-min);
+  line-height: 1.5;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+}
+.proposal-match em {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 7px;
+  border-radius: 3px;
+  background: var(--sage-soft);
+  color: var(--sage);
+  font-style: normal;
+  font-weight: 700;
+}
+.proposal-match.is-unmatched { color: var(--coral-deep); }
+.proposal-subject-terms { margin-top: 3px; opacity: .85; }
+
 .proposal-remove,
 .proposal-open {
   height: 32px;
