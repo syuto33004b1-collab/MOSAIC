@@ -1039,9 +1039,13 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   color: var(--ink);
   font-size: 9px;
 }
+/* No icon inside any more: the visible label says what the icon stood for, and
+   dropping it (with a 2px tighter box) keeps the toolbar the same height it was
+   before the labels went in — 162px at 390px on the member screen, against
+   241px with both (#84). */
 .view-filter {
   height: 34px;
-  padding: 0 9px;
+  padding: 0 7px;
   border: 1px solid var(--line);
   border-radius: 9px;
   color: var(--muted-readable);
@@ -1050,7 +1054,15 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   gap: 5px;
 }
 .view-filter select { border: 0; background: transparent; color: inherit; font-size: var(--text-min); }
-.toolbar-result { margin-left: 4px; color: #929aaa; font-size: 8px; }
+.view-filter { gap: 4px; }
+/* What the filter filters, said in the control rather than left to an icon
+   (#84). Its text is inside the select's accessible name too, so speaking the
+   visible word reaches the control. */
+.filter-label { font-size: var(--text-min); font-weight: 700; white-space: nowrap; }
+/* Two containers, not one: 「8件を表示」 answers what is in the list, 「並び順: …」
+   answers how it is ordered. They were the same class. */
+.toolbar-result,
+.toolbar-status { margin-left: 4px; color: #929aaa; font-size: 8px; }
 .view-add-button {
   height: 34px;
   margin-left: auto;
@@ -2118,6 +2130,7 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .inline-search input,
 .view-filter select,
 .toolbar-result,
+.toolbar-status,
 .view-add-button,
 .portfolio-table th,
 .member-table th,
@@ -2200,6 +2213,7 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .attention-clear p,
 .planned-candidate small,
 .toolbar-result,
+.toolbar-status,
 .project-name-cell small,
 .member-name-cell small,
 .milestone-cell small,
@@ -2915,7 +2929,8 @@ h1 {
   color: var(--ink);
 }
 .view-add-button.ghost:hover { border-color: var(--ink); background: var(--paper-deep); }
-.toolbar-result { color: var(--muted); }
+.toolbar-result,
+.toolbar-status { color: var(--muted); }
 
 .portfolio-table-wrap,
 .member-table-wrap { overflow: auto; }
@@ -4093,16 +4108,22 @@ h1 {
   align-items: end;
 }
 .field-catalog-form label { display: grid; gap: 5px; color: var(--muted-readable); font-size: var(--text-min); font-weight: 700; }
+/* The same treatment the theme gives `.assignment-form` inputs. This form had
+   `#f7f9fc` — a cool grey on a warm page, which reads as disabled, and which
+   put the placeholder at 4.37:1, under AA. On `--paper-pure` with a token
+   placeholder colour it measures 5.86:1 (#84). */
 .field-catalog-form input,
 .field-catalog-form select {
   height: 36px;
   padding: 0 10px;
-  border: 1px solid var(--line);
-  border-radius: 9px;
-  background: #f7f9fc;
+  border: 1px solid var(--line-strong);
+  border-radius: 3px;
+  background: var(--paper-pure);
   color: var(--ink);
   font: inherit;
 }
+.field-catalog-form input::placeholder,
+.inline-search input::placeholder { color: var(--muted-readable); }
 .field-catalog-form .field-options { grid-column: 1 / -1; }
 .field-catalog-form .field-flag {
   display: flex;

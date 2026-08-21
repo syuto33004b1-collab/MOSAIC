@@ -1108,7 +1108,7 @@ describe("role-aware workspace", () => {
     await user.type(screen.getByPlaceholderText("名前・スキル・経歴を検索"), "デザイン本部");
     expect(screen.getAllByRole("button", { name: /佐伯 優斗/ }).some((button) => button.classList.contains("member-name-cell"))).toBe(true);
     await user.clear(screen.getByPlaceholderText("名前・スキル・経歴を検索"));
-    await user.selectOptions(screen.getByLabelText("組織で絞り込み"), "org-engineering");
+    await user.selectOptions(screen.getByLabelText("部門で絞り込み"), "org-engineering");
     expect(screen.getAllByRole("button", { name: /佐伯 優斗/ }).some((button) => button.classList.contains("member-name-cell"))).toBe(true);
     expect(screen.getAllByRole("button", { name: /中村 美咲/ }).some((button) => button.classList.contains("member-name-cell"))).toBe(true);
 
@@ -1131,7 +1131,7 @@ describe("role-aware workspace", () => {
     const navigation = within(screen.getByRole("navigation", { name: "メインナビゲーション" }));
 
     await user.click(navigation.getByRole("button", { name: "メンバー" }));
-    const sceneSelect = screen.getByLabelText("保存した検索シーン");
+    const sceneSelect = screen.getByLabelText("シーンを選ぶ");
     await user.selectOptions(sceneSelect, within(sceneSelect).getByRole("option", { name: "フロントエンド候補" }));
     expect(screen.getAllByRole("button", { name: /中村 美咲/ }).some((button) => button.classList.contains("member-name-cell"))).toBe(true);
     expect(screen.getByText("60点")).toBeInTheDocument();
@@ -1152,7 +1152,7 @@ describe("role-aware workspace", () => {
     render(<App mode="shared" organizationName="Example Inc." identity={{ name: "計画 花子", email: "planner@example.com", role: "planner" }} shared={sharedAdapter()} />);
     const navigation = within(screen.getByRole("navigation", { name: "メインナビゲーション" }));
     await user.click(navigation.getByRole("button", { name: "メンバー" }));
-    expect(screen.getByLabelText("保存した検索シーン")).toBeInTheDocument();
+    expect(screen.getByLabelText("シーンを選ぶ")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "検索シーンを保存" })).not.toBeInTheDocument();
   });
 
@@ -1166,7 +1166,7 @@ describe("role-aware workspace", () => {
 
     await user.click(navigation.getByRole("button", { name: "レポート" }));
     expect(screen.getByRole("heading", { name: "任意項目レポート" })).toBeInTheDocument();
-    const reportSelect = screen.getByLabelText("保存したレポート");
+    const reportSelect = screen.getByLabelText("レポートを選ぶ");
     await user.selectOptions(reportSelect, within(reportSelect).getByRole("option", { name: "部署別人数" }));
     expect(screen.getAllByText("デザイン").length).toBeGreaterThan(0);
     await user.type(screen.getByPlaceholderText("部署別人数"), "勤務地別人数");
@@ -1472,18 +1472,18 @@ describe("the member screen's scene form", () => {
     const disclosure = document.querySelector("details.search-scene-disclosure");
     expect(disclosure).not.toBeNull();
     expect(disclosure).not.toHaveAttribute("open");
-    expect(screen.getByText("検索シーンの条件を入力")).toBeInTheDocument();
+    expect(screen.getByText("新しい検索シーンの条件を入力")).toBeInTheDocument();
 
     // jsdom does not hide a closed details' contents, so this asserts the state
     // and the toggle, not visibility. What the folding actually buys is measured
     // in a real browser and recorded in the PR.
-    await user.click(screen.getByText("検索シーンの条件を入力"));
+    await user.click(screen.getByText("新しい検索シーンの条件を入力"));
     expect(disclosure).toHaveAttribute("open");
     expect(screen.getByRole("button", { name: "検索シーンを保存" })).toBeInTheDocument();
     expect(screen.getByPlaceholderText("フロントエンド候補")).toBeInTheDocument();
 
     // And it shuts again, so the summary is a toggle rather than a one-way door.
-    await user.click(screen.getByText("検索シーンの条件を入力"));
+    await user.click(screen.getByText("新しい検索シーンの条件を入力"));
     expect(disclosure).not.toHaveAttribute("open");
   });
 
@@ -1491,7 +1491,7 @@ describe("the member screen's scene form", () => {
     const user = userEvent.setup();
     render(<App />);
     await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: "メンバー" }));
-    await user.click(screen.getByText("検索シーンの条件を入力"));
+    await user.click(screen.getByText("新しい検索シーンの条件を入力"));
 
     // Absent first: without this the assertion below would pass on a scene that
     // was already there.
@@ -1604,8 +1604,9 @@ describe("one word per quantity", () => {
     expect(ribbon.textContent).not.toContain("40%以上の空き");
     expect(document.querySelector(".next-open")!.textContent).toContain("空き20%");
 
-    // The ordering is by 稼働率 too, so it gets the same word as the count.
-    expect(document.querySelector(".toolbar-result")!.textContent).toBe("稼働率の低い順");
+    // The ordering is by 稼働率 too, so it gets the same word as the count. It
+    // has its own container now, apart from the result count (#84).
+    expect(document.querySelector(".toolbar-status")!.textContent).toBe("並び順: 稼働率の低い順");
     expect(ribbon.textContent).toContain("稼働率の低い順にメンバーを表示");
 
     // The colour key names the same metric and the same two thresholds, and the
