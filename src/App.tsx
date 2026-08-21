@@ -37,12 +37,14 @@ import {
   addDays,
   addOrgUnit,
   addProfileRequests,
-  addSearchScene,
   addSavedReport,
+  addSearchScene,
   addSkillCatalogEntry,
   archiveOrgUnit,
   assignmentSpan,
   boardRange,
+  ownerLabel,
+  ownerMember,
   type BoardUnit,
   cancelProfileRequest,
   canConvertOpportunity,
@@ -1078,7 +1080,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
       name: project.name,
       summary: project.summary,
       status: project.status,
-      ownerId: project.ownerPersonId ?? workspace.members.find((member) => member.name === project.ownerName)?.id ?? workspace.members[0]?.id ?? "",
+      ownerId: ownerMember(workspace, project)?.id ?? workspace.members[0]?.id ?? "",
       startDate: project.startDate,
       endDate: project.endDate,
       nextMilestone: project.nextMilestone,
@@ -1621,7 +1623,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
     });
     const nextWorkspace: WorkspaceState = {
       ...memberState,
-      projects: memberState.projects.map((project) => project.ownerPersonId === updatedMember.id || (!project.ownerPersonId && project.ownerName === selectedMember.name) ? {
+      projects: memberState.projects.map((project) => ownerMember(workspace, project)?.id === selectedMember.id ? {
         ...project,
         ownerPersonId: updatedMember.id,
         ownerName: updatedMember.name,
@@ -1645,7 +1647,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
 
   const archiveMember = () => {
     if (!canManageMembers || !selectedMember) return;
-    const ownedProjects = workspace.projects.filter((project) => project.ownerPersonId === selectedMember.id || (!project.ownerPersonId && project.ownerName === selectedMember.name));
+    const ownedProjects = workspace.projects.filter((project) => ownerMember(workspace, project)?.id === selectedMember.id);
     if (ownedProjects.length > 0) {
       setToast(`責任者になっている案件（${ownedProjects[0].name}）を別メンバーへ変更してからアーカイブしてください`);
       return;
@@ -2609,7 +2611,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
             {drawer === "project" && selectedProject && (
               <div className="drawer-content">
                 <div className="drawer-heading"><span className={"project-code drawer-code " + selectedProject.tone}>{selectedProject.code}</span><div><h2>{selectedProject.name}</h2><p>{selectedProject.summary}</p></div></div>
-                <div className="detail-facts"><div><span>状態</span><strong>{selectedProject.status}</strong></div><div><span>進捗</span><strong>{selectedProject.progress}%</strong></div><div><span>責任者</span><strong>{selectedProject.ownerName ?? "未設定"}</strong></div><div><span>完了予定</span><strong>{formatDate(selectedProject.endDate).replace(/^\d{4}年/, "")}</strong></div></div>
+                <div className="detail-facts"><div><span>状態</span><strong>{selectedProject.status}</strong></div><div><span>進捗</span><strong>{selectedProject.progress}%</strong></div><div><span>責任者</span><strong>{ownerLabel(workspace, selectedProject) ?? "未設定"}</strong></div><div><span>完了予定</span><strong>{formatDate(selectedProject.endDate).replace(/^\d{4}年/, "")}</strong></div></div>
                 <CustomFieldFacts fields={visibleCustomFields(workspace.customFields, "project", "detail")} values={selectedProject.customValues} />
                 {(workspace.opportunities ?? []).some((opportunity) => opportunity.convertedProjectId === selectedProject.id) && (
                   <button className="drawer-secondary" onClick={() => openOpportunity((workspace.opportunities ?? []).find((opportunity) => opportunity.convertedProjectId === selectedProject.id)!.id)}>元の受注前案件を開く</button>
@@ -2714,7 +2716,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                 <div className="detail-facts">
                   <div><span>段階</span><strong>{OPPORTUNITY_STAGE_LABELS[selectedOpportunity.stage]}</strong></div>
                   <div><span>想定人数</span><strong>{selectedOpportunity.demand}名</strong></div>
-                  <div><span>責任者</span><strong>{selectedOpportunity.ownerName ?? "未設定"}</strong></div>
+                  <div><span>責任者</span><strong>{ownerLabel(workspace, selectedOpportunity) ?? "未設定"}</strong></div>
                   <div><span>想定期間</span><strong>{formatDate(selectedOpportunity.startDate).replace(/^\d{4}年/, "")} — {formatDate(selectedOpportunity.endDate).replace(/^\d{4}年/, "")}</strong></div>
                 </div>
                 {selectedOpportunity.convertedProjectId && projectById(workspace, selectedOpportunity.convertedProjectId) && (

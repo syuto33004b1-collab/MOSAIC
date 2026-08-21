@@ -712,6 +712,34 @@ export function memberById(state: WorkspaceState, id: string) {
   return state.members.find((member) => member.id === id);
 }
 
+/**
+ * Whom an owner field names, when that can be known.
+ *
+ * Projects and opportunities carry both `ownerPersonId` and a denormalised `ownerName`,
+ * and the seeded projects carry only the name. Three places resolved the name with
+ * `members.find(member => member.name === ownerName)`, which returns whoever comes
+ * first: opening a project's edit form bound it to that person, renaming a member
+ * rewrote the owner of every project holding the old name — taking over a namesake's
+ * projects — and the archive guard counted somebody else's.
+ *
+ * A name that two people share does not name a person, so this returns nobody rather
+ * than the first of them. The callers then leave the record alone, which is the honest
+ * answer: what the row records is a name, and the name is not enough.
+ */
+export function ownerMember(state: WorkspaceState, owner: { ownerPersonId?: string; ownerName?: string | null }) {
+  if (owner.ownerPersonId) return memberById(state, owner.ownerPersonId);
+  const name = owner.ownerName?.trim();
+  if (!name) return undefined;
+  const named = state.members.filter((member) => member.name.trim() === name);
+  return named.length === 1 ? named[0] : undefined;
+}
+
+/** What to print for an owner: the member's label when it is theirs, else the stored name. */
+export function ownerLabel(state: WorkspaceState, owner: { ownerPersonId?: string; ownerName?: string | null }) {
+  const member = ownerMember(state, owner);
+  return member ? memberLabel(state, member) : owner.ownerName ?? null;
+}
+
 export function projectById(state: WorkspaceState, id: string) {
   return state.projects.find((project) => project.id === id);
 }
@@ -793,7 +821,7 @@ export function memberLabel(state: Pick<WorkspaceState, "members">, member: Pick
  */
 const labelCache = new WeakMap<readonly Pick<Member, "id" | "name" | "location">[], Map<string, string>>();
 
-export function memberLabels(members: readonly Pick<Member, "id" | "name" | "location">[]) {
+export function memberLabels(members: readonly Pick<Member, "id" | "name" | "location">[]): ReadonlyMap<string, string> {
   const cached = labelCache.get(members);
   if (cached) return cached;
   const byName = new Map<string, Pick<Member, "id" | "name" | "location">[]>();
@@ -812,12 +840,15 @@ export function memberLabels(members: readonly Pick<Member, "id" | "name" | "loc
     // The whole group takes the same kind of suffix. Deciding per person let one
     // namesake read 「（大阪）」 while another read 「（#4f2a）」, and adding a third person
     // could change an existing label's kind — the evaluator on #123 asked for this.
-    const locations = new Set(group.map((member) => member.location));
-    const byLocation = locations.size === group.length;
-    for (const member of group) {
+    // A location only counts when it is written: 「林 葵（）」 tells nobody anything, and
+    // 「東京」 against 「 東京 」 is one place typed twice.
+    const locations = group.map((member) => member.location.trim());
+    const byLocation = locations.every(Boolean) && new Set(locations).size === group.length;
+    const ids = group.map((item) => item.id);
+    for (const [index, member] of group.entries()) {
       labels.set(member.id, byLocation
-        ? `${name}（${member.location}）`
-        : `${name}（#${idTail(member.id, group.map((item) => item.id))}）`);
+        ? `${name}（${locations[index]}）`
+        : `${name}（#${idTail(member.id, ids)}）`);
     }
   }
   labelCache.set(members, labels);

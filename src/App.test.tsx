@@ -3503,7 +3503,7 @@ describe("two members with one name", () => {
     expect(new Set(placed)).toEqual(new Set([`${placedName}（東京）`, `${placedName}（大阪）`]));
   });
 
-  it("distinguishes them everywhere a person is chosen", async () => {
+  it("distinguishes them in the board, the assignment form and the proposal picker", async () => {
     const user = userEvent.setup();
     const adapter = sharedAdapter();
     adapter.initialState = twins();
@@ -3574,5 +3574,100 @@ describe("two members with one name", () => {
     // Only the pair with nothing else to go on pays the id, and only that pair.
     expect(names.filter((name) => name.includes("（#"))).toHaveLength(2);
     expect(names.filter((name) => name.includes("（")).length).toBe(4);
+  });
+});
+
+/**
+ * #123, second finding: a project records its owner as a name. The seeded projects have
+ * `ownerName` and no `ownerPersonId`, and three places turned that name into a person
+ * with `members.find(member => member.name === ownerName)` — which answers with whoever
+ * comes first. 「林 葵」 owns two of the seeded projects, so a second 林 葵 was enough to
+ * hand them to the wrong person.
+ *
+ * These go through the screen because the rename lives in `saveMember`, not in a
+ * function a unit test can reach.
+ */
+describe("renaming one of two people with one name", () => {
+  /** A second 林 葵 — the name the seed gives two projects, by name and with no id. */
+  const namesakeOwners = (): WorkspaceState => {
+    const hayashi = initialWorkspace.members.find((member) => member.name === "林 葵")!;
+    return { ...initialWorkspace, members: [...initialWorkspace.members, { ...hayashi, id: "t-hayashi" }] };
+  };
+
+  const rename = async (user: ReturnType<typeof userEvent.setup>, rowLabel: string, to: string) => {
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^メンバー( |$)/u }));
+    await user.click(screen.getByText(rowLabel).closest("button")!);
+    await user.click(screen.getByRole("button", { name: "メンバー情報を編集" }));
+    const dialog = within(screen.getByRole("dialog", { name: "詳細パネル" }));
+    await user.clear(dialog.getByLabelText("氏名"));
+    await user.type(dialog.getByLabelText("氏名"), to);
+    await user.click(dialog.getByRole("button", { name: "変更を仮置き" }));
+    await user.click(screen.getByRole("button", { name: "チームへ保存" }));
+  };
+
+  it("leaves the projects that only say the shared name alone", async () => {
+    const user = userEvent.setup();
+    const adapter = sharedAdapter();
+    const save = vi.fn().mockResolvedValue({ revision: 8, savedAt: "2026-08-17T10:00:00Z" });
+    adapter.initialState = namesakeOwners();
+    adapter.save = save;
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
+
+    // The seeded 林 葵 is the one the projects name. The twin is here only to make that
+    // name ambiguous, which is the whole condition under test.
+    await rename(user, "林 葵（#hayashi）", "林 葵子");
+    await waitFor(() => expect(save).toHaveBeenCalledOnce());
+    const saved = save.mock.calls[0][0] as WorkspaceState;
+
+    expect(saved.members.find((member) => member.id === "hayashi")?.name).toBe("林 葵子");
+    expect(saved.members.find((member) => member.id === "t-hayashi")?.name).toBe("林 葵");
+    // 「林 葵」 named two projects and neither said which one. Both keep the name they
+    // had: taking them over would have moved somebody else's projects.
+    const byName = saved.projects.filter((project) => !project.ownerPersonId);
+    expect(byName.filter((project) => project.ownerName === "林 葵").length).toBe(2);
+    expect(byName.some((project) => project.ownerName === "林 葵子")).toBe(false);
+  });
+
+  /**
+   * The edit form used the same name lookup for its initial 責任者, so opening an
+   * ambiguously-owned project pre-selected one of the two namesakes — a form that looks
+   * already-correct, and binds that person on save. It now offers no one in particular;
+   * the dropdown labels both 林 葵, so the person editing picks.
+   */
+  it("does not pre-select either namesake as the owner", async () => {
+    const user = userEvent.setup();
+    const adapter = sharedAdapter();
+    adapter.initialState = namesakeOwners();
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
+
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^プロジェクト( |$)/u }));
+    await user.click(screen.getByText("Atlas リニューアル").closest("button")!);
+    await user.click(screen.getByRole("button", { name: "案件情報を編集" }));
+
+    const select = screen.getByLabelText("責任者") as HTMLSelectElement;
+    expect(["hayashi", "t-hayashi"]).not.toContain(select.value);
+    // Both are on offer, told apart, so the choice can be made.
+    const named = [...select.options].map((option) => option.textContent ?? "").filter((text) => text.startsWith("林 葵"));
+    expect(named).toHaveLength(2);
+    expect(new Set(named).size).toBe(2);
+  });
+
+  it("still follows the name when it belongs to one person", async () => {
+    const user = userEvent.setup();
+    const adapter = sharedAdapter();
+    const save = vi.fn().mockResolvedValue({ revision: 8, savedAt: "2026-08-17T10:00:00Z" });
+    adapter.initialState = namesakeOwners();
+    adapter.save = save;
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
+
+    // 高橋 直樹 is nobody else's name, and owns モバイル会員証 by name. The denormalised
+    // string still has to follow the rename, or the project shows a name nobody has.
+    await rename(user, "高橋 直樹", "高橋 直");
+    await waitFor(() => expect(save).toHaveBeenCalledOnce());
+    const saved = save.mock.calls[0][0] as WorkspaceState;
+
+    const mobile = saved.projects.find((project) => project.id === "mobile")!;
+    expect(mobile.ownerName).toBe("高橋 直");
+    expect(mobile.ownerPersonId).toBe("takahashi");
   });
 });

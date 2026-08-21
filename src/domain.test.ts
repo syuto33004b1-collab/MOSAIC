@@ -58,6 +58,8 @@ import {
   type SkillProficiency,
   type StaffingNeed,
   type SearchSkillFilter,
+  ownerLabel,
+  ownerMember,
 } from "./domain";
 
 describe("calendar helpers", () => {
@@ -516,6 +518,25 @@ describe("telling two people with one name apart", () => {
     expect(label(members, "b")).toBe("佐伯 優斗");
   });
 
+  /**
+   * A location has to be written to count. 「林 葵（）」 names nobody, and 「東京」 against
+   * 「 東京 」 is one place typed twice — the evaluator on #123 found both reading as
+   * distinct places, because an unequal string was taken for an unequal location.
+   */
+  it("ignores a location that is blank or the same place typed twice", () => {
+    const blank = [person("a", "林 葵", ""), person("b", "林 葵", "東京")];
+    expect(label(blank, "a")).toBe("林 葵（#a）");
+    expect(label(blank, "b")).toBe("林 葵（#b）");
+
+    const spaced = [person("a", "林 葵", "東京"), person("b", "林 葵", " 東京 ")];
+    expect(label(spaced, "a")).toBe("林 葵（#a）");
+
+    // Written on both sides, and genuinely different: the padding is not printed.
+    const padded = [person("a", "林 葵", " 東京 "), person("b", "林 葵", "大阪")];
+    expect(label(padded, "a")).toBe("林 葵（東京）");
+    expect(label(padded, "b")).toBe("林 葵（大阪）");
+  });
+
   it("uses the location when that is what differs", () => {
     const members = [person("a", "林 葵", "東京"), person("b", "林 葵", "大阪")];
     expect(label(members, "a")).toBe("林 葵（東京）");
@@ -873,5 +894,60 @@ describe("role permissions", () => {
     const marked = customFields.map((field) => field.key === "english" ? { ...field, canEdit: false } : field);
     expect(visibleCustomFields(marked, "member", "detail").map((field) => field.key)).toContain("english");
     expect(editableCustomFields(marked, "member", "detail").map((field) => field.key)).not.toContain("english");
+  });
+});
+
+/**
+ * #123, second finding: projects and opportunities carry a denormalised `ownerName`
+ * beside `ownerPersonId`, and the seeded projects carry only the name. Three places
+ * resolved it with `members.find(member => member.name === ownerName)`, which answers
+ * with whoever comes first — so with two namesakes, opening a project's edit form bound
+ * it to one of them, renaming a member rewrote the other's projects too, and the archive
+ * guard counted projects that were not theirs.
+ */
+describe("whom an owner name names", () => {
+  const person = (id: string, name: string): Member => ({
+    id, name, role: "Engineer", department: "D", location: "東京", capacity: 100,
+    skills: [], initials: "XX", avatarTone: "mint",
+  });
+  const state = (...members: Member[]) => ({ ...initialWorkspace, members });
+
+  it("answers with the member the id names", () => {
+    const one = person("a", "林 葵");
+    expect(ownerMember(state(one, person("b", "佐伯 優斗")), { ownerPersonId: "a", ownerName: "佐伯 優斗" })?.id)
+      .toBe("a");
+    // The id wins over a stale name, which is the point of storing it.
+    expect(ownerLabel(state(one, person("b", "佐伯 優斗")), { ownerPersonId: "a", ownerName: "佐伯 優斗" }))
+      .toBe("林 葵");
+  });
+
+  it("answers with the one person a name fits", () => {
+    const members = state(person("a", "林 葵"), person("b", "佐伯 優斗"));
+    expect(ownerMember(members, { ownerName: "林 葵" })?.id).toBe("a");
+    // Padding in the stored string is not a different person.
+    expect(ownerMember(members, { ownerName: " 林 葵 " })?.id).toBe("a");
+  });
+
+  it("refuses to guess when two people share the name", () => {
+    const members = state(person("a", "林 葵"), person("b", "林 葵"));
+    expect(ownerMember(members, { ownerName: "林 葵" })).toBeUndefined();
+    // The record still says a name, so that is what the screen prints. It is not
+    // labelled, because a label would claim to know which of them it is.
+    expect(ownerLabel(members, { ownerName: "林 葵" })).toBe("林 葵");
+  });
+
+  it("has no answer for an owner nobody recorded", () => {
+    const members = state(person("a", "林 葵"));
+    expect(ownerMember(members, {})).toBeUndefined();
+    expect(ownerMember(members, { ownerName: "  " })).toBeUndefined();
+    expect(ownerMember(members, { ownerName: "退職 済み" })).toBeUndefined();
+    expect(ownerLabel(members, {})).toBeNull();
+    // A name that is nobody's now still gets printed: the row records what it records.
+    expect(ownerLabel(members, { ownerName: "退職 済み" })).toBe("退職 済み");
+  });
+
+  it("labels an owner whose name two people share, once the id says which", () => {
+    const members = state(person("a", "林 葵"), person("b", "林 葵"));
+    expect(ownerLabel(members, { ownerPersonId: "b", ownerName: "林 葵" })).toBe("林 葵（#b）");
   });
 });

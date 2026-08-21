@@ -49,53 +49,54 @@ import {
   addDays,
   addOrgUnit,
   addSkillCatalogEntry,
+  allowedReportGroupBy,
   archiveOrgUnit,
+  buildSavedReport,
   buildSkillMap,
+  canActAsProfileRequestSubject,
   customValue,
   formatCustomValue,
+  formatDate,
   formatSkillInput,
   formatWorkHistoryPeriod,
   getWeekStart,
-  weekLabel,
   isActiveOpportunity,
   isActiveProfileRequest,
-  canActAsProfileRequestSubject,
+  matchMembers,
+  matchScoreMax,
+  memberById,
   memberDailyLoads,
+  memberLabel,
   memberLoad,
   memberOrgMemberships,
   memberSearchText,
+  membersInOrgSubtree,
   memberSkillLevels,
+  moveOrgUnit,
   OPPORTUNITY_STAGE_LABELS,
   opportunityNeedsFor,
   opportunitySearchText,
-  pipelineDemandForWeek,
-  membersInOrgSubtree,
-  moveOrgUnit,
   orgManagers,
   orgUnitArchiveBlocker,
   orgUnitLoadRows,
   orgUnitPath,
   orgUnitTree,
-  formatDate,
-  matchMembers,
-  matchScoreMax,
-  memberLabel,
-  memberById,
-  projectById,
-  searchSceneFromNeed,
+  ownerLabel,
   parseSkillInput,
+  PERSON_SCOPES,
+  pipelineDemandForWeek,
   PROFICIENCY_LABELS,
   profileRequestScopeLabel,
   profileRequestStatusLabel,
+  projectById,
   projectMembers,
   projectSearchText,
-  sortedWorkHistory,
-  visibleCustomFields,
-  allowedReportGroupBy,
-  buildSavedReport,
-  PERSON_SCOPES,
   RESTRICTABLE_FEATURES,
   RESTRICTABLE_ROLES,
+  searchSceneFromNeed,
+  sortedWorkHistory,
+  visibleCustomFields,
+  weekLabel,
   type CustomFieldDefinition,
   type CustomFieldEntity,
   type CustomFieldType,
@@ -489,7 +490,7 @@ export function ProjectsView({
                   </td>
                   <td><div className="progress-cell"><span><b style={{ width: project.progress + "%" }} /></span><strong>{project.progress}%</strong></div></td>
                   <td><span className="milestone-cell"><strong>{project.nextMilestone}</strong><small>{formatMonthDay(project.nextMilestoneDate)}</small></span></td>
-                  <td><span className="owner-cell"><i>{project.ownerInitials}</i><span>{project.ownerName}</span></span></td>
+                  <td><span className="owner-cell"><i>{project.ownerInitials}</i><span>{ownerLabel(state, project)}</span></span></td>
                   <td><button className="row-open" aria-label={project.name + "の詳細を見る"} onClick={() => onOpen(project.id)}><ChevronRight size={16} /></button></td>
                 </tr>
               );
@@ -565,7 +566,7 @@ export function OpportunitiesView({ state, onOpen }: OpportunitiesViewProps) {
                   <span className={"project-code " + opportunity.tone}>{opportunity.code}</span>
                   <strong>{opportunity.name}</strong>
                   <small>{opportunity.summary}</small>
-                  <em>{opportunity.demand}名 · {opportunityNeedsFor(state, opportunity.id).length}ロール · {opportunity.ownerName ?? "責任者未設定"}</em>
+                  <em>{opportunity.demand}名 · {opportunityNeedsFor(state, opportunity.id).length}ロール · {ownerLabel(state, opportunity) ?? "責任者未設定"}</em>
                 </button>
               ))}
               {items.length === 0 && <p className="pipeline-empty">案件はありません</p>}
@@ -592,7 +593,7 @@ export function OpportunitiesView({ state, onOpen }: OpportunitiesViewProps) {
                   <td><span className={"status-pill " + opportunityStageClass[opportunity.stage]}><i />{OPPORTUNITY_STAGE_LABELS[opportunity.stage]}</span></td>
                   <td>{formatMonthDay(opportunity.startDate)} — {formatMonthDay(opportunity.endDate)}</td>
                   <td>{opportunity.demand}名</td>
-                  <td><span className="owner-cell"><i>{opportunity.ownerInitials}</i><span>{opportunity.ownerName}</span></span></td>
+                  <td><span className="owner-cell"><i>{opportunity.ownerInitials}</i><span>{ownerLabel(state, opportunity)}</span></span></td>
                   <td><button className="row-open" aria-label={opportunity.name + "の詳細を見る"} onClick={() => onOpen(opportunity.id)}><ChevronRight size={16} /></button></td>
                 </tr>
               ))}
