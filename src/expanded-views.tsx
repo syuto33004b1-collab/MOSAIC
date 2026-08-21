@@ -1161,17 +1161,22 @@ export function ReportsView({ state, onOpenWeek, onResolveNeed, onOpenOpportunit
       </section>
 
       <div className="horizon-card">
-        <div className="horizon-y-labels"><span>120%</span><span>100%</span><span>60%</span><span>0</span></div>
-        <div className="horizon-grid">
-          <div className="horizon-guide g120" /><div className="horizon-guide g100" /><div className="horizon-guide g60" />
-          {horizon.map((week) => (
+        {/* The ticks and the bars share one row now. They used to be siblings with
+            independently computed heights, so the label reading 100% sat 31px below the
+            line drawn at 100% and a reader pairing them read a different value (#133). */}
+        <div className="horizon-plot">
+          <div className="horizon-y-labels"><span className="t120">120%</span><span className="t100">100%</span><span className="t60">60%</span><span className="t0">0</span></div>
+          <div className="horizon-grid">
+            <div className="horizon-guide g120" /><div className="horizon-guide g100" /><div className="horizon-guide g60" />
+            {horizon.map((week) => (
             <button className="horizon-week" onClick={() => onOpenWeek(week.offset)} key={week.weekStart}>
               <span className="horizon-bar"><i className={week.average > 100 ? "over" : ""} style={{ height: Math.min(100, week.average / 120 * 100) + "%" }} />{week.draft > 0 && <b style={{ bottom: Math.min(100, week.average / 120 * 100) + "%" }} />}</span>
               <strong>{week.average}%</strong>
               {week.pipelineDemand > 0 && <span className="pipeline-chip">+{week.pipelineDemand}名</span>}
               <small>{formatMonthDay(week.weekStart)}週</small>
             </button>
-          ))}
+            ))}
+          </div>
         </div>
         <div className="horizon-caption"><span><i className="confirmed" />確定稼働</span><span><i className="draft" />仮置きあり</span><span><i className="pipeline" />受注前の想定人数</span><button onClick={() => onOpenWeek(0)}>ボードで確認 <ArrowRight size={13} /></button></div>
       </div>

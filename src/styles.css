@@ -1761,39 +1761,83 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   display: grid;
   grid-template-columns: 34px 1fr;
 }
-.horizon-y-labels {
+/* #133: the ticks and the bars used to be siblings that each computed their own
+   height — the labels a 188px flex column with `space-between` over 163px, the bars
+   the `bar` row of a 188px grid less three label rows, which came to 103.4px. So the
+   label reading 100% sat at 48.9px while the line for 100% was drawn at 17.6px, and a
+   reader pairing them read a different value. Measured before: labels at
+   0 / 48.9 / 97.9 / 146.8, lines at 0 / 17.6 / 51.7.
+
+   The rows live here now and both halves borrow them: the ticks take the `bar` row as
+   their box, the grid takes all four as a subgrid. The 188px and the 25px reserve moved
+   up from `.horizon-grid` unchanged — they are what makes `minmax(0, 1fr)` resolve, and
+   without a definite height here the bar row collapses to 0 (measured).
+
+   The sideways scroll lives here rather than on `.horizon-grid`, and that placement is
+   the whole reason this works. A scroll container establishes an independent formatting
+   context, which makes `grid-template-rows: subgrid` compute to `none` — so a scrolling
+   `.horizon-grid` could not borrow these rows in a conforming browser, and the ticks
+   would drift back to their own scale. Chrome 148 happens to honour it either way,
+   measured; the structure does not rely on that. */
+.horizon-plot {
+  grid-column: 1 / -1;
   height: 188px;
   padding-bottom: 25px;
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: 34px 1fr;
+  grid-template-rows: [bar] minmax(0, 1fr) [rate] auto [pipeline] auto [week] auto;
+  overflow-x: auto;
+}
+/* Sticky, because the scroll moved to the plot and the ticks have to stay where the
+   reader left them — the same job `.people-label` does on the board. Opaque, because
+   the bars pass underneath. */
+.horizon-y-labels {
+  grid-row: bar;
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  /* The token the card itself takes, so the two match in either layer. Nothing in the
+     theme layer gives this element a background, so declaring it here is enough. */
+  background: var(--paper-pure);
   color: #a1a8b6;
   font-family: var(--font-data);
   font-size: 6px;
 }
+/* Each tick at its own share of the bar's track, the same fraction the line for that
+   value uses: (120−v)/120. Named rather than positional, so reordering the labels
+   cannot move every tick.
+   The interior ticks are centred on their line, which is the pairing #133 was about.
+   The two at the ends turn inward instead: centred, half of 「120%」 sat above the plot
+   and `overflow-y: hidden` cut it — measured, 8.1px of a 16.2px line box. So the ceiling
+   label hangs from its line and the baseline label sits on it, which is what a chart's
+   end ticks normally do and is where they were before this change. */
+.horizon-y-labels span { position: absolute; right: 0; transform: translateY(-50%); }
+.horizon-y-labels .t120 { top: 0; transform: none; }
+.horizon-y-labels .t100 { top: calc(100% / 6); }
+.horizon-y-labels .t60 { top: 50%; }
+.horizon-y-labels .t0 { top: 100%; transform: translateY(-100%); }
 /* 行はここで定義して、各週は subgrid でそれを借りる。週ごとに行を持たせると、
    受注前の数値（.pipeline-chip）がある週だけ4行になり、バーの軌道が 123px と
    103px に分かれた。同じ 69% と 68% が 71px と 59px で描かれるので、
    バーの高さが値を表さなくなる。親の行なら 12週すべてで同じ高さになる */
 .horizon-grid {
   position: relative;
-  height: 188px;
-  padding: 0 8px 25px;
+  grid-row: 1 / -1;
+  padding: 0 8px;
   display: grid;
   grid-template-columns: repeat(12, minmax(42px, 1fr));
-  grid-template-rows: [bar] minmax(0, 1fr) [rate] auto [pipeline] auto [week] auto;
+  grid-template-rows: subgrid;
   align-items: end;
   /* 列だけ。行に 8px を入れると3本の隙間で 24px をラベル側に取られ、
      バーの軌道がそのぶん短くなる。行間はラベル自身の margin-top が持つ */
   column-gap: 8px;
-  overflow-x: auto;
 }
 /* 17% と 50% は (120-100)/120 と (120-60)/120 で、バーの軌道に対する割合。
    グリッドの行を指定しないと 188px の枠に対する割合になり、線がバーの目盛りを
    表さなくなる（100% の線が 32px、バーの 100% は 17px という状態だった）。
    `.horizon-grid` は position: relative なので、行を指定すればその行が包含ブロック */
 .horizon-guide { position: absolute; grid-row: bar; grid-column: 1 / -1; left: 0; right: 0; height: 1px; background: #edf0f4; }
-.horizon-guide.g120 { top: 0; }.horizon-guide.g100 { top: 17%; border-top: 1px dashed #d9dee8; background: transparent; }.horizon-guide.g60 { top: 50%; }
+.horizon-guide.g120 { top: 0; }.horizon-guide.g100 { top: calc(100% / 6); border-top: 1px dashed #d9dee8; background: transparent; }.horizon-guide.g60 { top: 50%; }
 /* バーに固定の高さを持たせると、文字を上げるたびに枠から溢れる。12px 化で
    必要な高さが 168 → 170px になり、`.horizon-grid` は 188px 固定で
    overflow-y: hidden なので週ラベル9件が枠外に出た。ラベル3行を先に取って
@@ -3355,7 +3399,12 @@ h1 {
 .range-tabs button { border-radius: 2px; color: var(--muted); }
 .range-tabs button.selected { background: var(--paper-pure); color: var(--ink); box-shadow: none; }
 .horizon-card { padding: 22px; }
-.horizon-grid { overflow-y: hidden; }
+/* On the plot, not on the grid. A single non-`visible` overflow value makes the other
+   compute to `auto`, so `overflow-y: hidden` here turned `.horizon-grid` into a scroll
+   container — and a scroll container cannot borrow rows, which is what #133's fix needs
+   it to do. Measured: with this on the grid, its computed `overflow-x` was `auto` and it
+   kept its own sideways scrollbar. The plot is the scroller, so clipping belongs there. */
+.horizon-plot { overflow-y: hidden; }
 .horizon-guide { background: var(--line); }
 .horizon-guide.g100 { border-top-color: var(--line-strong); }
 .horizon-bar { border-radius: 3px 3px 0 0; background: var(--paper-deep); }
