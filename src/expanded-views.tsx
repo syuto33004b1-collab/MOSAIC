@@ -250,6 +250,15 @@ function formatMonthDay(iso?: string | null) {
 }
 
 
+/**
+ * One week of a project's staffing, for both the bar's `title` and the rail's
+ * accessible name. The rail carried neither the week numbers nor the counts in
+ * its name, so a screen reader got 「4週間の充足人数」 and nothing else (#85).
+ */
+function weekStaffingLabel(index: number, count: number, demand: number) {
+  return demand === 0 ? `${index + 1}週目: 必要人数未設定` : `${index + 1}週目: ${count}/${demand}名`;
+}
+
 export function FavoriteStar({ name, pressed, onToggle }: { name: string; pressed: boolean; onToggle: () => void }) {
   return (
     <button
@@ -326,6 +335,12 @@ export function ProjectsView({
         {onCopyQuery && searchValue.trim() && <button className="view-add-button ghost" type="button" onClick={onCopyQuery}>検索リンクをコピー</button>}
       </div>
 
+      {/* The rail is four bars with no week labels and no key. `title` puts the
+          numbers within reach of a mouse only, so the values go in the rail's
+          accessible name and the reading of the bars goes here, once, rather
+          than per row (#85). */}
+      <p className="viz-caption">「4週間の充足」は今週から4週分。バーの長さが充足率で、必要人数に届かない週は橙色です。</p>
+
       <div className="portfolio-table-wrap">
         <table className="portfolio-table">
           <thead>
@@ -348,10 +363,10 @@ export function ProjectsView({
                   <td><span className={"status-pill " + statusClass[project.status]}><i />{project.status}</span>{need && <small className={"need-note " + (need.status === "planned" ? "planned" : "")}>{need.status === "planned" ? "解消予定" : need.role + " 不足"}</small>}</td>
                   {listFields.map((field) => <td key={field.id}><span className="custom-field-cell">{formatCustomValue(field, customValue(project.customValues, field.id))}</span></td>)}
                   <td>
-                    <div className="four-week-rail" aria-label={project.name + "の4週間の充足人数"}>
-                      {weeks.map((count, index) => <i key={index} title={project.demand === 0 ? (index + 1) + "週目: 必要人数未設定" : (index + 1) + "週目: " + count + "/" + project.demand + "名"}><b className={project.demand > 0 && count < project.demand ? "short" : ""} style={{ width: (project.demand === 0 ? 100 : Math.min(100, count / project.demand * 100)) + "%" }} /></i>)}
+                    <div className="four-week-rail" aria-label={project.name + "の4週間の充足人数：" + weeks.map((count, index) => weekStaffingLabel(index, count, project.demand)).join("、")}>
+                      {weeks.map((count, index) => <i key={index} title={weekStaffingLabel(index, count, project.demand)}><b className={project.demand > 0 && count < project.demand ? "short" : ""} style={{ width: (project.demand === 0 ? 100 : Math.min(100, count / project.demand * 100)) + "%" }} /></i>)}
                     </div>
-                    <span className="staffed-label">{project.demand === 0 ? "必要人数未設定" : `${currentMembers}/${project.demand}名`}</span>
+                    <span className="staffed-label">{project.demand === 0 ? "必要人数未設定" : `今週 ${currentMembers}/${project.demand}名`}</span>
                   </td>
                   <td><div className="progress-cell"><span><b style={{ width: project.progress + "%" }} /></span><strong>{project.progress}%</strong></div></td>
                   <td><span className="milestone-cell"><strong>{project.nextMilestone}</strong><small>{formatMonthDay(project.nextMilestoneDate)}</small></span></td>
@@ -985,6 +1000,12 @@ export function SkillsView({ state, onAddCatalogEntry, onOpenMember, onResolveNe
         </form>
       )}
 
+      {/* Position is the encoding in the 習熟度 rail — the five cells are levels
+          1 to 5 — and nothing on the screen said so. This is the key for the
+          positions, not for the colours, and it also names what the number in a
+          cell counts (#85). */}
+      <p className="viz-caption">習熟度は左から <b>初級</b>・<b>基礎</b>・<b>実務</b>・<b>応用</b>・<b>指導</b> の5段階。マスの数字は保有者数です。</p>
+
       <div className="skill-map-wrap">
         <table className="skill-map-table">
           <thead>
@@ -1008,7 +1029,7 @@ export function SkillsView({ state, onAddCatalogEntry, onOpenMember, onResolveNe
                 </td>
                 <td><strong>{row.memberCount}</strong><small>名</small></td>
                 <td>
-                  <div className="proficiency-rail" aria-label={`${row.name}の習熟度分布`}>
+                  <div className="proficiency-rail" aria-label={`${row.name}の習熟度分布：${([1, 2, 3, 4, 5] as const).map((level) => `${PROFICIENCY_LABELS[level]} ${row.byProficiency[level]}名`).join("、")}`}>
                     {([1, 2, 3, 4, 5] as const).map((level) => (
                       <i key={level} title={`${PROFICIENCY_LABELS[level]} ${row.byProficiency[level]}名`} className={row.byProficiency[level] > 0 ? "filled level-" + level : "level-" + level}>
                         <b>{row.byProficiency[level] || ""}</b>
@@ -1017,8 +1038,8 @@ export function SkillsView({ state, onAddCatalogEntry, onOpenMember, onResolveNe
                   </div>
                 </td>
                 <td><span className="skill-departments">{row.departments.slice(0, 2).map((item) => item.department).join(" / ") || "—"}</span></td>
-                <td>{row.openNeedCount > 0 && needForSkill(row.name) ? <button className="skill-need-link" onClick={() => onResolveNeed(needForSkill(row.name)!.id)}>{row.openNeedCount}件</button> : row.openNeedCount}</td>
-                <td>{row.gap > 0 ? <strong className="skill-gap">{row.gap}</strong> : <span className="skill-ok">充足</span>}</td>
+                <td>{row.openNeedCount > 0 && needForSkill(row.name) ? <button className="skill-need-link" aria-label={`${row.name}の未充足 ${row.openNeedCount}件を開く`} onClick={() => onResolveNeed(needForSkill(row.name)!.id)}>{row.openNeedCount}件</button> : `${row.openNeedCount}件`}</td>
+                <td>{row.gap > 0 ? <strong className="skill-gap">{row.gap}件</strong> : <span className="skill-ok">0件</span>}</td>
               </tr>
             ))}
           </tbody>
