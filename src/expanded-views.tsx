@@ -31,12 +31,15 @@ import {
   type Favorite,
 } from "./collaboration";
 import {
+  DEFAULT_PROPOSAL_CSV_COLUMNS,
   exportMembersCsv,
   exportProjectsCsv,
+  exportProposalCsv,
   memberCsvColumns,
   parseCsv,
   previewMemberImport,
   projectCsvColumns,
+  proposalCsvColumns,
   readCsvPresets,
   writeCsvPresets,
   type CsvExportPreset,
@@ -880,6 +883,8 @@ export function ProposalView({
   onNeedIdChange,
 }: ProposalViewProps) {
   const [pickerQuery, setPickerQuery] = useState("");
+  /** Which columns the file carries. Minimal until the sender adds to it (#148). */
+  const [exportColumns, setExportColumns] = useState<string[]>([...DEFAULT_PROPOSAL_CSV_COLUMNS]);
   const weekStart = getWeekStart(weekOffset);
   // Named, not 「今週」: these screens follow the board's paging (#146).
   const weekName = weekLabel(weekStart);
@@ -982,6 +987,43 @@ export function ProposalView({
           <EyeOff size={14} />氏名・勤務地を隠す
         </label>
         <span className="toolbar-result">最大{MAX_PROPOSAL_MEMBERS}名。社内リンクはログインが必要です。氏名・勤務地は共有リンクでも最初は隠れますが、開いた人が表示に戻せます。</span>
+        {/* The answer #148 settled on. A link cannot be sent outside — it carries real
+            member ids and the reader can put the names back — and a file can: no ids in it,
+            and nothing at the other end to untick. What a file cannot do is expire, so the
+            panel says that where the button is rather than leaving it implied. */}
+        <details className="proposal-export">
+          <summary><Download size={14} />CSVで書き出す</summary>
+          <fieldset className="proposal-export-columns">
+            <legend>書き出す項目</legend>
+            {proposalCsvColumns(anonymous).map((column) => (
+              <label key={column}>
+                <input
+                  type="checkbox"
+                  checked={exportColumns.includes(column)}
+                  onChange={(event) => setExportColumns(event.target.checked
+                    ? [...exportColumns, column]
+                    : exportColumns.filter((item) => item !== column))}
+                />
+                {column}
+              </label>
+            ))}
+          </fieldset>
+          <p className="proposal-export-note">書き出したファイルは取り消せません。共有リンクと違って氏名を戻す操作はありませんが、渡した後に消すこともできません。</p>
+          <button
+            type="button"
+            className="view-add-button"
+            disabled={selected.length === 0}
+            onClick={() => downloadCsv("mosaic-proposal.csv", exportProposalCsv(state, {
+              memberIds: selected.map((member) => member.id),
+              columns: exportColumns,
+              anonymous,
+              weekStart,
+              needId: subject?.need.id,
+            }))}
+          >
+            <Download size={15} />{selected.length > 0 ? `${selected.length}名を書き出す` : "候補を選ぶと書き出せます"}
+          </button>
+        </details>
       </div>
 
       <div className="proposal-layout">

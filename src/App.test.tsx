@@ -3994,6 +3994,80 @@ describe("custom fields in a drawer form", () => {
  * enforced. The toolbar says both halves now. An earlier version of this said 「リンクに
  * 残りません」, which was wrong in the other direction.
  */
+/**
+ * #148 asked whether a proposal should be shareable outside the organisation, and settled
+ * on a file rather than a link. A link cannot be: measured, the copied one is
+ * `?nav=proposal&members=saeki&anonymous=1` — real member ids, and whoever opens it can
+ * untick the hiding. A file carries no ids and has nothing to untick. What it cannot do is
+ * expire, which the panel says where the button is.
+ *
+ * The file's contents are `src/csv.test.ts`; this is the screen that asks for it.
+ */
+describe("writing the proposal out as a file", () => {
+  const openPanel = async (user: ReturnType<typeof userEvent.setup>) => {
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^提案( |$)/u }));
+    await user.click(screen.getByText("CSVで書き出す"));
+  };
+
+  it("offers the least that is still a proposal, and says the file cannot be recalled", async () => {
+    const user = userEvent.setup();
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={sharedAdapter()} />);
+    await openPanel(user);
+
+    const columns = document.querySelector(".proposal-export-columns")!;
+    const checked = [...columns.querySelectorAll("input")].filter((input) => (input as HTMLInputElement).checked)
+      .map((input) => input.closest("label")!.textContent!.trim());
+    expect(checked).toEqual(["候補", "職種"]);
+    // A file does not expire, so that is said rather than implied.
+    expect(document.querySelector(".proposal-export-note")!.textContent).toContain("取り消せません");
+    // Nothing to write yet.
+    expect(screen.getByRole("button", { name: /候補を選ぶと書き出せます/u })).toBeDisabled();
+  });
+
+  it("stops offering 勤務地 once the names are hidden", async () => {
+    const user = userEvent.setup();
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={sharedAdapter()} />);
+    await openPanel(user);
+    const offered = () => [...document.querySelectorAll(".proposal-export-columns label")].map((label) => label.textContent!.trim());
+    expect(offered()).toContain("勤務地");
+
+    await user.click(screen.getByLabelText("氏名・勤務地を隠す"));
+    // The other half of what the toggle hides cannot be written out around it.
+    expect(offered()).not.toContain("勤務地");
+  });
+
+  it("writes a file named without an id once somebody is picked", async () => {
+    const user = userEvent.setup();
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={sharedAdapter()} />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^提案( |$)/u }));
+    await user.click(document.querySelectorAll(".proposal-picker-item")[0]);
+    await user.click(screen.getByText("CSVで書き出す"));
+
+    const created: Blob[] = [];
+    const realCreate = URL.createObjectURL;
+    const realRevoke = URL.revokeObjectURL;
+    URL.createObjectURL = ((blob: Blob) => { created.push(blob); return "blob:proposal"; }) as typeof URL.createObjectURL;
+    URL.revokeObjectURL = (() => {}) as typeof URL.revokeObjectURL;
+    const clicks: string[] = [];
+    const realClick = HTMLAnchorElement.prototype.click;
+    HTMLAnchorElement.prototype.click = function (this: HTMLAnchorElement) { clicks.push(this.download); };
+    try {
+      await user.click(screen.getByRole("button", { name: /1名を書き出す/u }));
+    } finally {
+      URL.createObjectURL = realCreate;
+      URL.revokeObjectURL = realRevoke;
+      HTMLAnchorElement.prototype.click = realClick;
+    }
+    // The name says what it is and nothing about who is in it.
+    expect(clicks).toEqual(["mosaic-proposal.csv"]);
+    expect(created).toHaveLength(1);
+    const text = await created[0].text();
+    for (const member of initialWorkspace.members) {
+      expect(text, `${member.id} reached the file`).not.toContain(member.id);
+    }
+  });
+});
+
 describe("what the proposal's hiding promises", () => {
   it("says the link starts hidden and the reader can undo it", async () => {
     const user = userEvent.setup();

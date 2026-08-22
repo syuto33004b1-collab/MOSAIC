@@ -1,11 +1,17 @@
+import { anonymousCandidateLabel } from "./collaboration";
 import {
+  addDays,
   formatSkillInput,
   hydrateWorkspaceSkills,
   makeInitials,
+  matchMembers,
+  memberLabel,
+  memberLoad,
   memberSkillLevels,
   normalizeCustomValues,
   orderedCustomFields,
   parseSkillInput,
+  searchSceneFromNeed,
   type AvatarTone,
   type CustomFieldDefinition,
   type Member,
@@ -123,6 +129,68 @@ export function exportProjectsCsv(state: WorkspaceState, columns: string[]) {
   const selected = resolveColumns(available, columns);
   const rows = state.projects.map((project) => selected.map((column) => projectCell(state, project, column.key)));
   return serializeCsv(selected.map((column) => column.key), rows);
+}
+
+/**
+ * The columns a proposal can be written out with, in the order they appear in the file.
+ *
+ * #148 asked whether an externally shareable proposal should exist. It settled on a file
+ * rather than a link: a file carries no member ids, and nobody at the other end can
+ * un-anonymise it. What it also cannot do is expire, which the button says out loud.
+ */
+export const PROPOSAL_CSV_COLUMNS = ["候補", "職種", "勤務地", "スキル", "要件期間の最小空き", "4週間の稼働率"] as const;
+export type ProposalCsvColumn = typeof PROPOSAL_CSV_COLUMNS[number];
+
+/**
+ * What a proposal says with nothing chosen: who, and what they do.
+ *
+ * 「既定は最小」 is one of #148's conditions, and this is the least that is still a
+ * proposal — a few people, and what each of them is. Everything else about a person is
+ * something the sender decides to add.
+ */
+export const DEFAULT_PROPOSAL_CSV_COLUMNS: ProposalCsvColumn[] = ["候補", "職種"];
+
+/** 勤務地 is the other half of what 「氏名・勤務地を隠す」 hides, so it is not on offer then. */
+export function proposalCsvColumns(anonymous: boolean): ProposalCsvColumn[] {
+  return PROPOSAL_CSV_COLUMNS.filter((column) => !(anonymous && column === "勤務地"));
+}
+
+export function exportProposalCsv(state: WorkspaceState, input: {
+  memberIds: string[];
+  columns: string[];
+  anonymous: boolean;
+  /** The four weeks the cards show, so the file and the screen agree. */
+  weekStart: string;
+  /** The requirement the proposal answers, for 要件期間の最小空き. */
+  needId?: string;
+}) {
+  const offered = proposalCsvColumns(input.anonymous);
+  const selected = offered.filter((column) => input.columns.includes(column));
+  const columns = selected.length > 0 ? selected : DEFAULT_PROPOSAL_CSV_COLUMNS;
+  const need = input.needId ? (state.needs ?? []).find((item) => item.id === input.needId) : undefined;
+  const matches = need ? matchMembers(state, searchSceneFromNeed(need)) : [];
+  const availableById = new Map(matches.map((match) => [match.member.id, match.availablePercent]));
+  const rows = input.memberIds
+    .map((id) => state.members.find((member) => member.id === id))
+    .filter((member): member is Member => Boolean(member))
+    .map((member, index) => columns.map((column) => {
+      switch (column) {
+        // Never the id. A file that names 「候補A」 cannot be turned back into a person by
+        // whoever receives it, and neither can one that names the person outright.
+        case "候補": return input.anonymous ? anonymousCandidateLabel(index) : memberLabel(state, member);
+        case "職種": return member.role;
+        case "勤務地": return member.location;
+        case "スキル": return formatSkillInput(memberSkillLevels(member));
+        case "要件期間の最小空き": {
+          const available = availableById.get(member.id);
+          return available === undefined ? "" : `${available}%`;
+        }
+        case "4週間の稼働率": return [0, 1, 2, 3]
+          .map((offset) => `${memberLoad(state, member.id, addDays(input.weekStart, offset * 7))}%`)
+          .join(" / ");
+      }
+    }));
+  return serializeCsv([...columns], rows);
 }
 
 export function previewMemberImport(state: WorkspaceState, parsed: CsvParseResult, newId: () => string): {
