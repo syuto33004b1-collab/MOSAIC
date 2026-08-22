@@ -4567,6 +4567,40 @@ h1 {
    the widest cell's intrinsic width, and a <th> max-width does not bound that.
    A long unbreakable value pushed this column to 613px and squeezed 4週間の
    キャパシティ down to 39px. */
+/* #148's answer, folded into the toolbar rather than given its own bar: closed it is one
+   summary line, so the row it sits in keeps the height it had. */
+/* Closed it is a summary that sits beside whatever else fits on the row — measured,
+   `flex: 1 0 100%` there cost 24.2px of toolbar height for nothing. Open it takes the
+   whole row, so the checkboxes and the note are not squeezed into shrink-to-fit. */
+.proposal-export { flex: none; }
+.proposal-export[open] { flex: 1 0 100%; }
+.proposal-export summary {
+  width: max-content;
+  padding: 5px 9px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink);
+  font-size: var(--text-min);
+  font-weight: 700;
+}
+.proposal-export[open] summary { margin-bottom: 10px; }
+.proposal-export-columns {
+  margin: 0 0 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+}
+.proposal-export-columns legend { padding: 0 4px; color: var(--muted-readable); font-size: var(--text-min); font-weight: 700; }
+.proposal-export-columns label { display: flex; align-items: center; gap: 6px; color: var(--ink); font-size: var(--text-min); font-weight: 600; }
+.proposal-export-note { margin: 0 0 10px; color: var(--muted-readable); font-size: var(--text-min); line-height: var(--leading); }
+.proposal-export .view-add-button { width: max-content; }
 .custom-field-cell { display: block; max-width: 150px; overflow: hidden; color: #5d6678; font-size: var(--text-min); text-overflow: ellipsis; white-space: nowrap; }
 .custom-field-facts { margin-top: 12px; }
 /* The custom-field inputs used to share this grid, from inside a wrapper div that broke

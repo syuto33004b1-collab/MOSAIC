@@ -1,11 +1,17 @@
+import { anonymousCandidateLabel } from "./collaboration";
 import {
+  addDays,
   formatSkillInput,
   hydrateWorkspaceSkills,
   makeInitials,
+  matchMembers,
+  memberLabel,
+  memberLoad,
   memberSkillLevels,
   normalizeCustomValues,
   orderedCustomFields,
   parseSkillInput,
+  searchSceneFromNeed,
   type AvatarTone,
   type CustomFieldDefinition,
   type Member,
@@ -96,7 +102,7 @@ export function parseCsv(text: string): CsvParseResult {
   const rows = records.slice(1).filter((record) => record.some((cell) => cell.trim())).map((record) => {
     const row: Record<string, string> = {};
     headers.forEach((header, index) => {
-      row[header] = (record[index] ?? "").trim();
+      row[header] = unguardCsvCell((record[index] ?? "").trim());
     });
     return row;
   });
@@ -123,6 +129,80 @@ export function exportProjectsCsv(state: WorkspaceState, columns: string[]) {
   const selected = resolveColumns(available, columns);
   const rows = state.projects.map((project) => selected.map((column) => projectCell(state, project, column.key)));
   return serializeCsv(selected.map((column) => column.key), rows);
+}
+
+/**
+ * The columns a proposal can be written out with, in the order they appear in the file.
+ *
+ * #148 asked whether an externally shareable proposal should exist. It settled on a file
+ * rather than a link: a file carries no member ids, and nobody at the other end can
+ * un-anonymise it. What it also cannot do is expire, which the button says out loud.
+ */
+export const PROPOSAL_CSV_COLUMNS = ["候補", "職種", "勤務地", "スキル", "要件期間の最小空き", "4週間の稼働率"] as const;
+export type ProposalCsvColumn = typeof PROPOSAL_CSV_COLUMNS[number];
+
+/**
+ * 候補 is in every file and is not offered as a choice: a row that names nobody is not a
+ * proposal, and a file with no columns is not one either. The rest are the sender's to
+ * add, and 「既定は最小」 is one of #148's conditions, so only 職種 starts on.
+ *
+ * The first version let every box be unticked and quietly wrote 候補 and 職種 anyway — a
+ * screen showing nothing selected and a file with two columns in it. The evaluation on
+ * #148 caught that.
+ */
+export const REQUIRED_PROPOSAL_CSV_COLUMN: ProposalCsvColumn = "候補";
+export const DEFAULT_PROPOSAL_CSV_COLUMNS: ProposalCsvColumn[] = ["職種"];
+
+/**
+ * The columns the sender chooses from. 勤務地 is the other half of what 「氏名・勤務地を隠す」
+ * hides, so it is not on offer while that is on.
+ */
+export function proposalCsvColumns(anonymous: boolean): ProposalCsvColumn[] {
+  return PROPOSAL_CSV_COLUMNS
+    .filter((column) => column !== REQUIRED_PROPOSAL_CSV_COLUMN)
+    .filter((column) => !(anonymous && column === "勤務地"));
+}
+
+export function exportProposalCsv(state: WorkspaceState, input: {
+  memberIds: string[];
+  columns: string[];
+  anonymous: boolean;
+  /** The four weeks the cards show, so the file and the screen agree. */
+  weekStart: string;
+  /** The requirement the proposal answers, for 要件期間の最小空き. */
+  needId?: string;
+}) {
+  // 候補 always, then whatever was chosen, in the order they are declared rather than the
+  // order they were ticked. Nothing is substituted for an empty choice.
+  const offered = proposalCsvColumns(input.anonymous);
+  const columns: ProposalCsvColumn[] = [
+    REQUIRED_PROPOSAL_CSV_COLUMN,
+    ...offered.filter((column) => input.columns.includes(column)),
+  ];
+  const need = input.needId ? (state.needs ?? []).find((item) => item.id === input.needId) : undefined;
+  const matches = need ? matchMembers(state, searchSceneFromNeed(need)) : [];
+  const availableById = new Map(matches.map((match) => [match.member.id, match.availablePercent]));
+  const rows = input.memberIds
+    .map((id) => state.members.find((member) => member.id === id))
+    .filter((member): member is Member => Boolean(member))
+    .map((member, index) => columns.map((column) => {
+      switch (column) {
+        // Never the id. A file that names 「候補A」 cannot be turned back into a person by
+        // whoever receives it, and neither can one that names the person outright.
+        case "候補": return input.anonymous ? anonymousCandidateLabel(index) : memberLabel(state, member);
+        case "職種": return member.role;
+        case "勤務地": return member.location;
+        case "スキル": return formatSkillInput(memberSkillLevels(member));
+        case "要件期間の最小空き": {
+          const available = availableById.get(member.id);
+          return available === undefined ? "" : `${available}%`;
+        }
+        case "4週間の稼働率": return [0, 1, 2, 3]
+          .map((offset) => `${memberLoad(state, member.id, addDays(input.weekStart, offset * 7))}%`)
+          .join(" / ");
+      }
+    }));
+  return serializeCsv([...columns], rows);
 }
 
 export function previewMemberImport(state: WorkspaceState, parsed: CsvParseResult, newId: () => string): {
@@ -277,9 +357,31 @@ function cell(row: Record<string, string>, key: string) {
   return (row[key] ?? "").trim();
 }
 
+/**
+ * A cell a spreadsheet will not run.
+ *
+ * Excel, Sheets and LibreOffice read a cell starting with `=`, `+`, `-`, `@`, a tab or a
+ * CR as a formula, so a member named `=HYPERLINK("http://…","click")` becomes a live link
+ * in whoever's spreadsheet opens the file. Quoting does not help — the leading character
+ * is what decides. A single apostrophe in front does, and every export goes through
+ * `serializeCsv`, so this is the one place to do it. `parseCsv` takes the apostrophe back
+ * off, so a name that went out through the member export comes back through the import
+ * unchanged.
+ *
+ * It applied to the member and project exports already; #148 is what made it matter,
+ * because that file is written to be handed to somebody outside.
+ */
+const FORMULA_LEAD = /^[=+\-@\t\r]/u;
+
 function escapeCsvCell(value: string) {
-  if (/[",\n\r]/.test(value)) return `"${value.replaceAll("\"", "\"\"")}"`;
-  return value;
+  const guarded = FORMULA_LEAD.test(value) ? `'${value}` : value;
+  if (/[",\n\r]/.test(guarded)) return `"${guarded.replaceAll("\"", "\"\"")}"`;
+  return guarded;
+}
+
+/** The other half of `escapeCsvCell`: an apostrophe it added is not part of the value. */
+function unguardCsvCell(value: string) {
+  return value.startsWith("'") && FORMULA_LEAD.test(value.slice(1)) ? value.slice(1) : value;
 }
 
 function splitCsvRecords(text: string) {
