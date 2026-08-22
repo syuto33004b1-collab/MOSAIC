@@ -39,10 +39,11 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
  * about a *new* word being coined for a quantity that already has one — only
  * that these eight are gone.
  *
- * Screens only. The AI chat's impact preview is built in
- * supabase/functions/chat/workspace-tools.mjs and still says 「上限100%を超えます」;
- * it renders only for a signed-in shared-mode session, which this repo's UI
- * verification cannot reach, so it is #120 rather than an unverifiable line here.
+ * The AI chat's tool file is in scope now. Its impact preview said 「上限100%を超えます」
+ * while every screen said 稼働上限, and #120 settled it — so the file joins the sweep and
+ * a retired word cannot arrive there either. What renders it is still out of reach for
+ * this repo's UI verification (a signed-in shared-mode session), which is why the word
+ * itself is pinned by `tests/workspace-tools.test.mjs` rather than by a screenshot.
  */
 
 /**
@@ -55,6 +56,17 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const ALLOWED = {
   "src/App.tsx": ['title: "キャパシティ予測"'],
   "src/expanded-views.tsx": [],
+  /*
+   * The chat's tools speak the same vocabulary to the same people (#120).
+   *
+   * The retired-word sweep reads the whole file, so it covers this one as written. The
+   * 「今週」 check splits a file at its `export function` declarations, and this file has six
+   * of them with most of its helpers unexported — so everything before the first export
+   * counts as 「outside any component」, held to the rule with no way to excuse it. That is
+   * the strict side and it costs nothing today (「今週」 appears 0 times here); it is worth
+   * knowing before anyone tries to excuse a chunk of this file.
+   */
+  "supabase/functions/chat/workspace-tools.mjs": [],
 };
 
 const SOURCES = Object.keys(ALLOWED);
@@ -166,7 +178,9 @@ function exportedFunctions(source) {
 test("「今週」 is only on a figure that measures this week", async () => {
   for (const file of SOURCES) {
     const source = stripComments(await readFile(path.join(root, file), "utf8"));
-    const excused = MAY_SAY_CURRENT_WEEK[file];
+    // No entry means no exceptions, which is the stricter default and the right one for a
+    // file joining the sweep — reading `undefined` here threw when the chat's tools did.
+    const excused = MAY_SAY_CURRENT_WEEK[file] ?? [];
 
     // Anything outside an exported function — module constants, `pageMeta` — is
     // held to the rule unconditionally, since no chunk can excuse it.
