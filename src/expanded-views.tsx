@@ -970,15 +970,18 @@ export function ProposalView({
           <option value="">未選択</option>
           {subjects.map((item) => <option value={item.id} key={item.id}>{item.label}</option>)}
         </select></label>
-        {/* This hides the names on *this* screen. It is not anonymisation: the
-            link carries real member ids and the reader can untick the box. The
-            toolbar has always said the link needs a login; #148 is the question of
-            whether an external-safe proposal should exist at all. */}
+        {/* 「この画面で」 because that is the scope. `anonymous=1` does travel in the link —
+            it sets what the reader sees first — but it is a parameter, and unticking the box
+            brings the name back; the link carries real member ids either way. The empty
+            state below says both of those, and disappears as soon as a candidate is picked,
+            which is when the link gets copied. So the toolbar keeps the half that changes
+            what you can promise. What is safe to send outside is #148, which settled on a
+            file rather than a link (#176). */}
         <label className="view-toggle">
           <input type="checkbox" checked={anonymous} onChange={(event) => onAnonymousChange(event.target.checked)} />
-          <EyeOff size={14} />氏名・勤務地を隠す
+          <EyeOff size={14} />この画面で氏名・勤務地を隠す
         </label>
-        <span className="toolbar-result">最大{MAX_PROPOSAL_MEMBERS}名。社内リンクはログインが必要です。</span>
+        <span className="toolbar-result">最大{MAX_PROPOSAL_MEMBERS}名。社内リンクはログインが必要です。隠した氏名は、開いた側で表示に戻せます。</span>
       </div>
 
       <div className="proposal-layout">
