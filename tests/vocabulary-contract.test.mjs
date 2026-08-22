@@ -56,7 +56,16 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const ALLOWED = {
   "src/App.tsx": ['title: "キャパシティ予測"'],
   "src/expanded-views.tsx": [],
-  // The chat's tools speak the same vocabulary to the same people (#120).
+  /*
+   * The chat's tools speak the same vocabulary to the same people (#120).
+   *
+   * The retired-word sweep reads the whole file, so it covers this one as written. The
+   * 「今週」 check splits a file at its `export function` declarations, and this file has six
+   * of them with most of its helpers unexported — so everything before the first export
+   * counts as 「outside any component」, held to the rule with no way to excuse it. That is
+   * the strict side and it costs nothing today (「今週」 appears 0 times here); it is worth
+   * knowing before anyone tries to excuse a chunk of this file.
+   */
   "supabase/functions/chat/workspace-tools.mjs": [],
 };
 

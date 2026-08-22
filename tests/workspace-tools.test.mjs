@@ -306,8 +306,11 @@ test("plans a confirmed assignment with server IDs, deterministic hash, overload
   assert.equal(plan.payload.assignments.upsert[0].clientRequestId, ids.request);
   assert.match(plan.payloadHash, /^[0-9a-f]{64}$/);
   // 稼働上限, not 上限: the screens settled on one word for this ceiling in #82 and this
-  // preview was the last place using another (#120).
-  assert.match(plan.preview.impacts.join(" "), /稼働上限100%を超え/);
+  // preview was the last place using another (#120). Whole sentence rather than a
+  // substring — 「稼働上限」 matching says nothing about a stray 「上限」 elsewhere in the
+  // same impact, which is the shape this was.
+  assert.deepEqual(plan.preview.impacts.filter((line) => line.includes("を超えます")),
+    ["Alice Aさんの最大稼働が110%となり、稼働上限100%を超えます。"]);
   assert.deepEqual(buildWorkspaceSaveRequest(plan), {
     p_organization_id: ids.organization,
     p_expected_revision: 7,
