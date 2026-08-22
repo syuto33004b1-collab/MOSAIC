@@ -4780,10 +4780,6 @@ h1 {
   .pipeline-board { grid-template-columns: 1fr; }
 }
 
-@media print {
-  .ai-chat-root { display: none !important; }
-  .app-shell > .workspace::after { display: none; }
-}
 .role-permission-card { margin: 0 0 12px; }
 .role-permission-note { margin: 0 0 10px; color: var(--muted-readable); font-size: var(--text-min); font-weight: 600; }
 /* minmax, not fixed: 180 + 200 + 10px gap came to 390px inside a ~330px
@@ -4844,7 +4840,105 @@ h1 {
 .profile-request-submit { display: grid; gap: 10px; }
 .field-surfaces { color: #6d7689; font-size: var(--text-min); font-weight: 700; }
 
+/* Paper.
+   =====
+   #179 asked for the proposal on paper — the file it already writes puts the candidate cards
+   back into spreadsheet columns, and a proposal is read as cards. The browser's print dialogue
+   is also its PDF writer, so this block is the whole feature: the screen's own markup, with
+   the screen taken off it.
+
+   This block was two identical blocks, both saying the same two lines, 64 rules apart. One.
+
+   What cannot be checked from here: where the pages actually break, the `@page` margin, whether
+   backgrounds print, and the browser's own header and footer. Approximated by putting these
+   rules on screen at A4's printable width — `mediaText = "all"` over the real cascade, viewport
+   688px, which is 210mm less two 14mm margins; the matching height is 1017px, not that it can
+   be enforced here — and measured there. The remainder is one look at a real print preview,
+   which is #179's own conclusion about what a machine here can do. */
 @media print {
-  .ai-chat-root { display: none !important; }
+  /* A margin, not a paper size. `size: A4` would put A4 pages on whatever is in the tray, and
+     the reader's paper is the reader's business — the layout is fluid and takes either
+     (the evaluation on #179 asked why a proposal screen was choosing paper for every screen). */
+  @page { margin: 14mm; }
+
+  /* Never, on any screen: layers that float over the page rather than belong to it. The change
+     bar prints across a candidate, and the launcher's reserved space prints as a blank strip. */
+  .ai-chat-root,
+  .change-bar,
+  .toast,
+  .overlay,
+  .notification-popover { display: none !important; }
   .app-shell > .workspace::after { display: none; }
+
+  /* The application around the proposal, and only around the proposal. Scoped, because printing
+     is not a proposal-only act: another screen's print keeps its own sidebar, and an open panel
+     stays printable there — which the first version of this took away everywhere (#179). */
+  .app-shell:has(.proposal-view) .sidebar,
+  .app-shell:has(.proposal-view) .topbar,
+  .app-shell:has(.proposal-view) .drawer { display: none !important; }
+  /* The sidebar's column goes with it, or every page carries a 258px indent. */
+  .app-shell:has(.proposal-view) { display: block; min-height: 0; }
+  .app-shell:has(.proposal-view) .workspace { padding: 0; }
+  .proposal-view { animation: none; }
+
+  /* The proposal itself.
+     The ribbon stays: it already says what this is for — the requirement, its dates, the
+     allocation, how many candidates, and whether names are shown — so paper needs no header of
+     its own, and no print-only element in the DOM to hold one. Everything that is a control
+     goes: the toolbar with the pickers and the two buttons that started this, the candidate
+     picker down the left, and the per-card 「外す」 / 「詳細を開く」 / favourite star. */
+  .proposal-view .view-toolbar,
+  .proposal-picker,
+  .proposal-remove,
+  .proposal-open,
+  .proposal-card .favorite-star { display: none !important; }
+  .proposal-layout { display: block; }
+  /* A card broken across a page break is two half-candidates. */
+  .proposal-card { break-inside: avoid; box-shadow: none; }
+
+  /* Ink, not screen.
+     Chrome prints with 「Background graphics」 off unless the reader turns it on, and the
+     ribbon is a dark block with near-white text on it — measured on paper that is the header
+     of the handout disappearing, subject and dates and all. So the header is redrawn as ink on
+     white rather than forced to print its background, which is also the cheaper page. The
+     decorative circle goes; it is a screen flourish and half of it is off the edge anyway. */
+  .proposal-view .member-ribbon {
+    border: 1px solid #b9bfcc;
+    border-radius: 4px;
+    background: #fff;
+    color: #1b2437;
+    box-shadow: none;
+  }
+  .proposal-view .member-ribbon::after { display: none; }
+  .proposal-view .ribbon-lead strong,
+  .proposal-view .ribbon-stat strong { color: #1b2437; }
+  .proposal-view .ribbon-lead small,
+  .proposal-view .ribbon-stat span { color: #4a5468; }
+  .proposal-view .ribbon-icon,
+  .proposal-view .ribbon-icon.mint { border: 1px solid #b9bfcc; background: #fff; color: #1b2437; }
+  /* Same reason, one level down: an avatar is a coloured disc with initials on it, and the
+     disc is a background. The initials carry it; the border keeps it a disc. */
+  .proposal-card .avatar { border: 1px solid #b9bfcc; }
+  /* The bars are backgrounds too. Each one has its figure printed beside it, so nothing is
+     lost when they do not print — but an outline on the fill keeps the shape of the
+     comparison, which is the reason the bars are there. */
+  .proposal-weeks i { border: 1px solid #b9bfcc; }
+  .proposal-weeks i b { outline: 1px solid #4a5468; }
+
+  /* Which fields, from the same tick boxes the file uses (#179). `data-print` on the card list
+     carries the chosen column names; a column nobody chose takes its part of the card with it.
+     The names are the labels the checkboxes show, and `tests/proposal-print-contract.test.mjs`
+     keeps this list and `proposalCsvColumns` in step. 候補 is not among them — it is the card's
+     own heading, and a page of proposals with no candidates on it is not a proposal. */
+  .proposal-cards:not([data-print~="職種"]) .proposal-card-role,
+  .proposal-cards:not([data-print~="勤務地"]) .proposal-card-location,
+  .proposal-cards:not([data-print~="スキル"]) .member-skills,
+  .proposal-cards:not([data-print~="要件期間の最小空き"]) .proposal-match,
+  .proposal-cards:not([data-print~="4週間の稼働率"]) .proposal-weeks,
+  /* Skill data, so it goes with the skills rather than with the percentage it sits beside. */
+  .proposal-cards:not([data-print~="スキル"]) .proposal-match-skills { display: none; }
+  /* Not one of the columns at all, and 「職種」 was carrying it onto the page: the department is
+     internal, the file has never had a column for it, and the tick boxes are the whole of what
+     the sender chose (#179, from the evaluation). */
+  .proposal-card-department { display: none; }
 }

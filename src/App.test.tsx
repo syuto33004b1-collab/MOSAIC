@@ -4006,7 +4006,7 @@ describe("custom fields in a drawer form", () => {
 describe("writing the proposal out as a file", () => {
   const openPanel = async (user: ReturnType<typeof userEvent.setup>) => {
     await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^提案( |$)/u }));
-    await user.click(screen.getByText("CSVで書き出す"));
+    await user.click(screen.getByText("書き出す・印刷する"));
   };
 
   it("offers the least that is still a proposal, and says the file cannot be recalled", async () => {
@@ -4037,7 +4037,7 @@ describe("writing the proposal out as a file", () => {
     render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={sharedAdapter()} />);
     await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^提案( |$)/u }));
     await user.click(document.querySelectorAll(".proposal-picker-item")[0]);
-    await user.click(screen.getByText("CSVで書き出す"));
+    await user.click(screen.getByText("書き出す・印刷する"));
     expect(screen.getByRole("button", { name: "実名で1名を書き出す" })).toBeInTheDocument();
 
     await user.click(screen.getByLabelText("氏名・勤務地を隠す"));
@@ -4061,7 +4061,7 @@ describe("writing the proposal out as a file", () => {
     render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={sharedAdapter()} />);
     await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^提案( |$)/u }));
     await user.click(document.querySelectorAll(".proposal-picker-item")[0]);
-    await user.click(screen.getByText("CSVで書き出す"));
+    await user.click(screen.getByText("書き出す・印刷する"));
 
     const created: Blob[] = [];
     const realCreate = URL.createObjectURL;
@@ -4085,6 +4085,123 @@ describe("writing the proposal out as a file", () => {
     for (const member of initialWorkspace.members) {
       expect(text, `${member.id} reached the file`).not.toContain(member.id);
     }
+  });
+});
+
+/**
+ * #179's half of the same panel. A spreadsheet is the wrong shape for a proposal — it puts
+ * the candidate cards back into columns — so paper is the other way out, and the browser's
+ * print dialogue is the PDF writer too. What lands on the page is `@media print` over this
+ * screen's own markup, which `tests/proposal-print-contract.test.mjs` holds; what is here is
+ * the part a stylesheet cannot do: the same tick boxes deciding both, and the button saying
+ * which way the names are going.
+ */
+describe("printing the proposal", () => {
+  const openPanel = async (user: ReturnType<typeof userEvent.setup>) => {
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^提案( |$)/u }));
+    await user.click(screen.getByText("書き出す・印刷する"));
+  };
+
+  it("waits for a candidate, and says which way the names are going", async () => {
+    const user = userEvent.setup();
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={sharedAdapter()} />);
+    await openPanel(user);
+    expect(screen.getByRole("button", { name: /候補を選ぶと印刷できます/u })).toBeDisabled();
+
+    await user.click(document.querySelectorAll(".proposal-picker-item")[0]);
+    expect(screen.getByRole("button", { name: "実名で1名を印刷" })).toBeInTheDocument();
+    await user.click(screen.getByLabelText("氏名・勤務地を隠す"));
+    expect(screen.getByRole("button", { name: "氏名を隠して1名を印刷" })).toBeInTheDocument();
+  });
+
+  it("hands the page to the browser, which is also its PDF writer", async () => {
+    const user = userEvent.setup();
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={sharedAdapter()} />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^提案( |$)/u }));
+    await user.click(document.querySelectorAll(".proposal-picker-item")[0]);
+    await user.click(screen.getByText("書き出す・印刷する"));
+
+    const print = vi.fn();
+    const real = window.print;
+    window.print = print;
+    try {
+      await user.click(screen.getByRole("button", { name: "実名で1名を印刷" }));
+    } finally {
+      window.print = real;
+    }
+    expect(print).toHaveBeenCalledOnce();
+  });
+
+  /**
+   * The choice has to reach the stylesheet somehow, and CSS cannot see React state. The card
+   * list carries the ticked column names; the print rules drop the part of the card whose
+   * name is not in there. The contract test keeps this list and the rules in step.
+   */
+  it("tells the stylesheet which fields were chosen", async () => {
+    const user = userEvent.setup();
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={sharedAdapter()} />);
+    await openPanel(user);
+    const cards = () => document.querySelector(".proposal-cards")!.getAttribute("data-print");
+    // The file's own default, because it is one choice for both (#148 kept it minimal).
+    expect(cards()).toBe("職種");
+
+    const box = (name: string) => [...document.querySelectorAll<HTMLInputElement>(".proposal-export-columns input")]
+      .find((input) => input.closest("label")!.textContent!.trim() === name)!;
+    await user.click(box("スキル"));
+    expect(cards()!.split(" ")).toEqual(expect.arrayContaining(["職種", "スキル"]));
+    await user.click(box("職種"));
+    expect(cards()).toBe("スキル");
+    // Nothing ticked prints the candidates alone, which is what the file writes too.
+    await user.click(box("スキル"));
+    expect(cards()).toBe("");
+  });
+
+  /**
+   * The tick boxes are the whole of what the sender chose, so a field cannot ride along with a
+   * chosen one. jsdom does not apply `@media print`, so what is checked here is that the two
+   * that were riding along have their own elements for the print rules to drop — the rules
+   * themselves are in `tests/proposal-print-contract.test.mjs`, and the effect was measured in
+   * Chrome. Both were found by the evaluation on #179.
+   */
+  it("keeps the fields the file has no column for out of the role line", async () => {
+    const user = userEvent.setup();
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={sharedAdapter()} />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^提案( |$)/u }));
+    await user.click(document.querySelectorAll(".proposal-picker-item")[0]);
+
+    const role = document.querySelector(".proposal-card-role")!;
+    const department = role.querySelector(".proposal-card-department")!;
+    expect(department).not.toBeNull();
+    // On screen the line reads as one thing; the department is simply separable.
+    expect(role.textContent).toContain(department.textContent);
+    expect(role.textContent!.replace(department.textContent!, "").trim()).not.toBe("");
+  });
+
+  it("keeps the requirement's matched skills separable from its percentage", async () => {
+    const user = userEvent.setup();
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={sharedAdapter()} />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^提案( |$)/u }));
+    // A subject, so the cards carry a match at all.
+    await user.selectOptions(screen.getByLabelText("提案先を選ぶ"), (screen.getByLabelText("提案先を選ぶ") as HTMLSelectElement).options[1].value);
+    const matched = [...document.querySelectorAll(".proposal-picker-item")];
+    for (const item of matched.slice(0, 3)) await user.click(item);
+
+    const withSkills = [...document.querySelectorAll(".proposal-match")]
+      .find((paragraph) => paragraph.querySelector("em"));
+    expect(withSkills, "one of the top candidates should meet a required skill").toBeDefined();
+    expect(withSkills!.querySelector("em")).toHaveClass("proposal-match-skills");
+    expect(withSkills!.textContent).toContain("要件期間の最小空き");
+  });
+
+  it("keeps the note about paper being as final as the file", async () => {
+    const user = userEvent.setup();
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={sharedAdapter()} />);
+    await openPanel(user);
+    const note = document.querySelector(".proposal-export-note")!.textContent!;
+    expect(note).toContain("印刷した紙");
+    expect(note).toContain("取り消せません");
+    // And the legend covers both, since one set of boxes decides both.
+    expect(document.querySelector(".proposal-export-columns legend")!.textContent).toContain("ファイルと紙");
   });
 });
 
