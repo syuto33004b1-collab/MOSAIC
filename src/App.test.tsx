@@ -1263,7 +1263,7 @@ describe("favorites, share links, and anonymous proposals", () => {
     expect(screen.queryByRole("heading", { name: "佐伯 優斗" })).not.toBeInTheDocument();
     expect(screen.queryByText("東京")).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "提案" }));
-    expect(screen.getByLabelText("この画面で氏名・勤務地を隠す")).toBeChecked();
+    expect(screen.getByLabelText("氏名・勤務地を隠す")).toBeChecked();
   });
 
   it("loads and updates shared favorites through the workspace adapter", async () => {
@@ -2885,7 +2885,7 @@ describe("a proposal answers something", () => {
     const location = initialWorkspace.members.find((member) => member.name === name)!.location;
     expect(document.querySelector(".proposal-cards")!.textContent).toContain(location);
 
-    await user.click(screen.getByLabelText("この画面で氏名・勤務地を隠す"));
+    await user.click(screen.getByLabelText("氏名・勤務地を隠す"));
     const cards = document.querySelector(".proposal-cards")!.textContent ?? "";
     expect(cards).not.toContain(name);
     expect(cards).not.toContain(location);
@@ -3984,26 +3984,33 @@ describe("custom fields in a drawer form", () => {
  * What was true is that nothing named the move and nothing could take back just it.
  */
 /**
- * #176: 「氏名・勤務地を隠す」 read as a promise that travelled with the link. Measured, the
- * copied link is `?nav=proposal&members=saeki&anonymous=1` — real member ids, and
- * `anonymous=1` is a parameter the reader can untick. The toolbar already said the link
- * needs a login; what it did not say is that the hiding is not part of it.
+ * #176: 「氏名・勤務地を隠す」 read as a promise. What it actually does, measured: the copied
+ * link is `?nav=proposal&members=saeki&anonymous=1`, so the hiding does reach whoever opens
+ * it — they start with the names hidden — and unticking the box brings them back. Real
+ * member ids are in the URL either way, and the skills and the four-week load show whether
+ * the names are hidden or not.
+ *
+ * So the gap was never that the setting is lost in transit; it is that it cannot be
+ * enforced. The toolbar says both halves now. An earlier version of this said 「リンクに
+ * 残りません」, which was wrong in the other direction.
  */
 describe("what the proposal's hiding promises", () => {
-  it("says the hiding is this screen's, and that the link does not carry it", async () => {
+  it("says the link starts hidden and the reader can undo it", async () => {
     const user = userEvent.setup();
     const adapter = sharedAdapter();
     render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
     await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^提案( |$)/u }));
 
-    // The control names its own scope.
-    expect(screen.getByLabelText("この画面で氏名・勤務地を隠す")).toBeInTheDocument();
-    // And the toolbar says the part that decides what can be promised: the reader can
-    // put the names back. `anonymous=1` does travel in the link — it sets what they see
-    // first — so saying it does not travel would have been wrong the other way.
+    expect(screen.getByLabelText("氏名・勤務地を隠す")).toBeInTheDocument();
     const toolbar = document.querySelector(".proposal-view .toolbar-result, .toolbar-result")!;
     expect(toolbar.textContent).toContain("社内リンクはログインが必要です");
-    expect(toolbar.textContent).toContain("開いた側で表示に戻せます");
+    // Both halves: where the hiding reaches, and that it can be undone there. Either one
+    // alone reads as a promise — the first that it is safe to send, the second that the
+    // link never carried it.
+    expect(toolbar.textContent).toContain("共有リンクでも最初は隠れます");
+    expect(toolbar.textContent).toContain("開いた人が表示に戻せます");
+    // Both fields, because the checkbox hides both.
+    expect(toolbar.textContent).toContain("氏名・勤務地");
     expect(toolbar.textContent).not.toContain("リンクに残りません");
   });
 });
