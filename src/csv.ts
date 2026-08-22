@@ -102,7 +102,7 @@ export function parseCsv(text: string): CsvParseResult {
   const rows = records.slice(1).filter((record) => record.some((cell) => cell.trim())).map((record) => {
     const row: Record<string, string> = {};
     headers.forEach((header, index) => {
-      row[header] = (record[index] ?? "").trim();
+      row[header] = unguardCsvCell((record[index] ?? "").trim());
     });
     return row;
   });
@@ -142,17 +142,25 @@ export const PROPOSAL_CSV_COLUMNS = ["候補", "職種", "勤務地", "スキル
 export type ProposalCsvColumn = typeof PROPOSAL_CSV_COLUMNS[number];
 
 /**
- * What a proposal says with nothing chosen: who, and what they do.
+ * 候補 is in every file and is not offered as a choice: a row that names nobody is not a
+ * proposal, and a file with no columns is not one either. The rest are the sender's to
+ * add, and 「既定は最小」 is one of #148's conditions, so only 職種 starts on.
  *
- * 「既定は最小」 is one of #148's conditions, and this is the least that is still a
- * proposal — a few people, and what each of them is. Everything else about a person is
- * something the sender decides to add.
+ * The first version let every box be unticked and quietly wrote 候補 and 職種 anyway — a
+ * screen showing nothing selected and a file with two columns in it. The evaluation on
+ * #148 caught that.
  */
-export const DEFAULT_PROPOSAL_CSV_COLUMNS: ProposalCsvColumn[] = ["候補", "職種"];
+export const REQUIRED_PROPOSAL_CSV_COLUMN: ProposalCsvColumn = "候補";
+export const DEFAULT_PROPOSAL_CSV_COLUMNS: ProposalCsvColumn[] = ["職種"];
 
-/** 勤務地 is the other half of what 「氏名・勤務地を隠す」 hides, so it is not on offer then. */
+/**
+ * The columns the sender chooses from. 勤務地 is the other half of what 「氏名・勤務地を隠す」
+ * hides, so it is not on offer while that is on.
+ */
 export function proposalCsvColumns(anonymous: boolean): ProposalCsvColumn[] {
-  return PROPOSAL_CSV_COLUMNS.filter((column) => !(anonymous && column === "勤務地"));
+  return PROPOSAL_CSV_COLUMNS
+    .filter((column) => column !== REQUIRED_PROPOSAL_CSV_COLUMN)
+    .filter((column) => !(anonymous && column === "勤務地"));
 }
 
 export function exportProposalCsv(state: WorkspaceState, input: {
@@ -164,9 +172,13 @@ export function exportProposalCsv(state: WorkspaceState, input: {
   /** The requirement the proposal answers, for 要件期間の最小空き. */
   needId?: string;
 }) {
+  // 候補 always, then whatever was chosen, in the order they are declared rather than the
+  // order they were ticked. Nothing is substituted for an empty choice.
   const offered = proposalCsvColumns(input.anonymous);
-  const selected = offered.filter((column) => input.columns.includes(column));
-  const columns = selected.length > 0 ? selected : DEFAULT_PROPOSAL_CSV_COLUMNS;
+  const columns: ProposalCsvColumn[] = [
+    REQUIRED_PROPOSAL_CSV_COLUMN,
+    ...offered.filter((column) => input.columns.includes(column)),
+  ];
   const need = input.needId ? (state.needs ?? []).find((item) => item.id === input.needId) : undefined;
   const matches = need ? matchMembers(state, searchSceneFromNeed(need)) : [];
   const availableById = new Map(matches.map((match) => [match.member.id, match.availablePercent]));
@@ -345,9 +357,31 @@ function cell(row: Record<string, string>, key: string) {
   return (row[key] ?? "").trim();
 }
 
+/**
+ * A cell a spreadsheet will not run.
+ *
+ * Excel, Sheets and LibreOffice read a cell starting with `=`, `+`, `-`, `@`, a tab or a
+ * CR as a formula, so a member named `=HYPERLINK("http://…","click")` becomes a live link
+ * in whoever's spreadsheet opens the file. Quoting does not help — the leading character
+ * is what decides. A single apostrophe in front does, and every export goes through
+ * `serializeCsv`, so this is the one place to do it. `parseCsv` takes the apostrophe back
+ * off, so a name that went out through the member export comes back through the import
+ * unchanged.
+ *
+ * It applied to the member and project exports already; #148 is what made it matter,
+ * because that file is written to be handed to somebody outside.
+ */
+const FORMULA_LEAD = /^[=+\-@\t\r]/u;
+
 function escapeCsvCell(value: string) {
-  if (/[",\n\r]/.test(value)) return `"${value.replaceAll("\"", "\"\"")}"`;
-  return value;
+  const guarded = FORMULA_LEAD.test(value) ? `'${value}` : value;
+  if (/[",\n\r]/.test(guarded)) return `"${guarded.replaceAll("\"", "\"\"")}"`;
+  return guarded;
+}
+
+/** The other half of `escapeCsvCell`: an apostrophe it added is not part of the value. */
+function unguardCsvCell(value: string) {
+  return value.startsWith("'") && FORMULA_LEAD.test(value.slice(1)) ? value.slice(1) : value;
 }
 
 function splitCsvRecords(text: string) {

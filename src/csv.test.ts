@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { applyMemberImport, DEFAULT_PROPOSAL_CSV_COLUMNS, exportMembersCsv, exportProposalCsv, parseCsv, previewMemberImport, proposalCsvColumns, PROPOSAL_CSV_COLUMNS, serializeCsv } from "./csv";
-import { getWeekStart, initialWorkspace } from "./domain";
+import { getWeekStart, initialWorkspace, matchMembers, searchSceneFromNeed } from "./domain";
 
 describe("csv round-trip", () => {
   it("parses quoted commas and serializes a BOM", () => {
@@ -63,6 +63,36 @@ describe("writing a proposal out", () => {
     ]);
   });
 
+  /**
+   * 候補 is not one of the choices, so it cannot be turned off — and nothing is put back in
+   * its place either. The first version fell back to 候補 and 職種 when nothing was chosen,
+   * which meant a screen showing no columns and a file with two.
+   */
+  it("writes the candidates alone when nothing else is chosen", () => {
+    expect(proposalCsvColumns(false)).not.toContain("候補");
+    const csv = exportProposalCsv(initialWorkspace, {
+      memberIds: ids, columns: [], anonymous: false, weekStart,
+    });
+    expect(rows(csv)).toEqual([["候補"], ["佐伯 優斗"], ["中村 美咲"]]);
+  });
+
+  /**
+   * Excel, Sheets and LibreOffice run a cell that starts with `=`, `+`, `-`, `@`, a tab or
+   * a CR. This file is written to be handed to somebody outside, so a member called
+   * `=HYPERLINK(...)` must not arrive as a live link. Quoting does not stop it — the
+   * leading character is what decides.
+   */
+  it("writes a name that starts like a formula so no spreadsheet runs it", () => {
+    const hostile = { ...initialWorkspace.members[0], id: "hostile", name: '=HYPERLINK("http://example.test","click")' };
+    const state = { ...initialWorkspace, members: [...initialWorkspace.members, hostile] };
+    const csv = exportProposalCsv(state, { memberIds: ["hostile"], columns: [], anonymous: false, weekStart });
+    const cell = rows(csv)[1].join(",");
+    expect(cell.startsWith("=")).toBe(false);
+    expect(csv).toContain("'=HYPERLINK");
+    // And the apostrophe is not part of the value: the member import takes it back off.
+    expect(parseCsv(serializeCsv(["氏名"], [[hostile.name]])).rows[0]["氏名"]).toBe(hostile.name);
+  });
+
   it("numbers the candidates when the names are hidden", () => {
     const csv = exportProposalCsv(initialWorkspace, {
       memberIds: ids, columns: DEFAULT_PROPOSAL_CSV_COLUMNS, anonymous: true, weekStart,
@@ -71,11 +101,11 @@ describe("writing a proposal out", () => {
   });
 
   it("does not offer 勤務地 while the names are hidden", () => {
-    expect(proposalCsvColumns(false)).toEqual([...PROPOSAL_CSV_COLUMNS]);
+    expect(proposalCsvColumns(false)).toEqual(PROPOSAL_CSV_COLUMNS.filter((column) => column !== "候補"));
     expect(proposalCsvColumns(true)).not.toContain("勤務地");
     // Asking for it anyway does not get it.
     const csv = exportProposalCsv(initialWorkspace, {
-      memberIds: ["saeki"], columns: ["候補", "勤務地"], anonymous: true, weekStart,
+      memberIds: ["saeki"], columns: ["勤務地"], anonymous: true, weekStart,
     });
     expect(rows(csv)[0]).toEqual(["候補"]);
   });
@@ -94,7 +124,7 @@ describe("writing a proposal out", () => {
     const need = (initialWorkspace.needs ?? [])[0];
     expect(need, "the demo data should carry a staffing need").toBeDefined();
     const csv = exportProposalCsv(initialWorkspace, {
-      memberIds: ["matsumoto"], columns: ["候補", "4週間の稼働率", "要件期間の最小空き"], anonymous: false,
+      memberIds: ["matsumoto"], columns: ["4週間の稼働率", "要件期間の最小空き"], anonymous: false,
       weekStart, needId: need.id,
     });
     const [header, row] = rows(csv);
@@ -102,17 +132,21 @@ describe("writing a proposal out", () => {
     expect(header).toEqual(["候補", "要件期間の最小空き", "4週間の稼働率"]);
     expect(row[2]).toMatch(/^\d+% \/ \d+% \/ \d+% \/ \d+%$/u);
     // Blank rather than 0 when the requirement does not reach this person: an empty cell
-    // says 「not scored」 and 「0%」 would say 「no room」.
+    // says 「not scored」 and 「0%」 would say 「no room」. Somebody who certainly fails the
+    // requirement, so this is the empty case and not a coincidence.
+    const scored = matchMembers(initialWorkspace, searchSceneFromNeed(need)).map((match) => match.member.id);
+    const unscoredId = initialWorkspace.members.find((member) => !scored.includes(member.id))!.id;
+    expect(scored, "the demo need should not match everybody").not.toContain(unscoredId);
     const unscored = exportProposalCsv(initialWorkspace, {
-      memberIds: ["ito"], columns: ["候補", "要件期間の最小空き"], anonymous: false, weekStart, needId: need.id,
+      memberIds: [unscoredId], columns: ["要件期間の最小空き"], anonymous: false, weekStart, needId: need.id,
     });
-    expect(rows(unscored)[1][1]).toMatch(/^(\d+%)?$/u);
+    expect(rows(unscored)[1][1]).toBe("");
   });
 
-  it("falls back to the default columns rather than writing an empty file", () => {
+  it("keeps the declared column order, not the order they were asked for", () => {
     const csv = exportProposalCsv(initialWorkspace, {
-      memberIds: ["saeki"], columns: [], anonymous: false, weekStart,
+      memberIds: ["saeki"], columns: ["4週間の稼働率", "職種"], anonymous: false, weekStart,
     });
-    expect(rows(csv)[0]).toEqual(["候補", "職種"]);
+    expect(rows(csv)[0]).toEqual(["候補", "職種", "4週間の稼働率"]);
   });
 });

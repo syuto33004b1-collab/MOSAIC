@@ -994,7 +994,9 @@ export function ProposalView({
         <details className="proposal-export">
           <summary><Download size={14} />CSVで書き出す</summary>
           <fieldset className="proposal-export-columns">
-            <legend>書き出す項目</legend>
+            {/* 候補 is not in here: every file has it, and a file of nothing at all is not a
+                proposal. Saying so in the legend beats a checkbox that cannot be unticked. */}
+            <legend>書き出す項目（候補は必ず入ります）</legend>
             {proposalCsvColumns(anonymous).map((column) => (
               <label key={column}>
                 <input
@@ -1021,7 +1023,12 @@ export function ProposalView({
               needId: subject?.need.id,
             }))}
           >
-            <Download size={15} />{selected.length > 0 ? `${selected.length}名を書き出す` : "候補を選ぶと書き出せます"}
+            {/* Which way the names are going out, on the control that sends them. The panel
+                looked the same either way, and 「2名を書き出す」 does not say whether those two
+                are named in the file — the evaluation on #148 asked for this. */}
+            <Download size={15} />{selected.length > 0
+              ? `${anonymous ? "氏名を隠して" : "実名で"}${selected.length}名を書き出す`
+              : "候補を選ぶと書き出せます"}
           </button>
         </details>
       </div>

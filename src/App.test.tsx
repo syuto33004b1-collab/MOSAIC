@@ -4017,11 +4017,31 @@ describe("writing the proposal out as a file", () => {
     const columns = document.querySelector(".proposal-export-columns")!;
     const checked = [...columns.querySelectorAll("input")].filter((input) => (input as HTMLInputElement).checked)
       .map((input) => input.closest("label")!.textContent!.trim());
-    expect(checked).toEqual(["候補", "職種"]);
+    expect(checked).toEqual(["職種"]);
+    // 候補 is not a choice: every file has it, and the legend says so rather than a
+    // checkbox nobody can untick.
+    expect([...columns.querySelectorAll("label")].map((label) => label.textContent!.trim())).not.toContain("候補");
+    expect(columns.querySelector("legend")!.textContent).toContain("候補は必ず入ります");
     // A file does not expire, so that is said rather than implied.
     expect(document.querySelector(".proposal-export-note")!.textContent).toContain("取り消せません");
     // Nothing to write yet.
     expect(screen.getByRole("button", { name: /候補を選ぶと書き出せます/u })).toBeDisabled();
+  });
+
+  /**
+   * The panel looked the same whether the file was about to carry names or numbers, and
+   * 「2名を書き出す」 does not say which. The control that sends them says it.
+   */
+  it("says on the button whether the names are going out", async () => {
+    const user = userEvent.setup();
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={sharedAdapter()} />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^提案( |$)/u }));
+    await user.click(document.querySelectorAll(".proposal-picker-item")[0]);
+    await user.click(screen.getByText("CSVで書き出す"));
+    expect(screen.getByRole("button", { name: "実名で1名を書き出す" })).toBeInTheDocument();
+
+    await user.click(screen.getByLabelText("氏名・勤務地を隠す"));
+    expect(screen.getByRole("button", { name: "氏名を隠して1名を書き出す" })).toBeInTheDocument();
   });
 
   it("stops offering 勤務地 once the names are hidden", async () => {
@@ -4052,7 +4072,7 @@ describe("writing the proposal out as a file", () => {
     const realClick = HTMLAnchorElement.prototype.click;
     HTMLAnchorElement.prototype.click = function (this: HTMLAnchorElement) { clicks.push(this.download); };
     try {
-      await user.click(screen.getByRole("button", { name: /1名を書き出す/u }));
+      await user.click(screen.getByRole("button", { name: /実名で1名を書き出す/u }));
     } finally {
       URL.createObjectURL = realCreate;
       URL.revokeObjectURL = realRevoke;
