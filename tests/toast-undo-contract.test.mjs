@@ -14,7 +14,9 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
  *
  * `.toast` sets `pointer-events: none` so a hidden toast never swallows a click, and
  * `.toast.show` did not turn them back on — there had never been anything in there to
- * press. Without `pointer-events: auto` the undo is inert.
+ * press. The first fix turned them on for the whole toast, which made all forty-odd of the
+ * app's messages block whatever was under them, across the width of a narrow screen; the
+ * evaluation on #113 caught that. Only the button takes clicks now.
  *
  * ## `.undo-button` was the wrong class to reuse
  *
@@ -44,6 +46,12 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
  *
  * At 375px the toast also had only half the viewport to grow into — `left: 50%` with no
  * `right` — so the message wrapped to four lines once a button sat beside it.
+ *
+ * The first version cleared the bar with a number, 92px at wide and 80px at narrow, read
+ * off the bar as it measures today. The evaluation on #113 pointed out that the bar's
+ * height is its tallest child's and a larger user font grows the text block inside it;
+ * forced to 88.8px, the 92px stopped clearing. So `App.tsx` measures how far up the bar
+ * reaches and passes it as `--toast-lift`, kept current by a ResizeObserver.
  *
  * These read declarations. The boxes and the hit tests are browser measurements, in the
  * PR; jsdom has no layout.
@@ -75,13 +83,23 @@ function maxWidthCss(css, width) {
   return bodies.join("\n");
 }
 
-test("a toast that is up accepts a click", async () => {
+test("the button takes clicks and the toast around it does not", async () => {
   const css = withoutComments(await readCss());
+
+  const undo = css.match(/(?:^|\})\s*\.toast-undo\s*\{([^}]*)\}/u);
+  assert.ok(undo, "expected the toast's undo rule");
+  assert.match(undo[1], /pointer-events:\s*auto/u,
+    "the toast turns pointer events off so a hidden one never swallows a click; the button has to "
+    + "turn them back on for itself or it is inert (#113)");
+
+  // Not on the toast. It covers the width of a narrow screen and every one of the app's
+  // forty-odd messages passes through it — the first version of this made all of them
+  // block whatever was underneath, which the evaluation on #113 caught.
   const show = css.match(/\.toast\.show\s*\{([^}]*)\}/u);
   assert.ok(show, "expected the .toast.show rule");
-  assert.match(show[1], /pointer-events:\s*auto/u,
-    "the base rule turns pointer events off; without turning them back on when the toast is up, "
-    + "the undo inside it cannot be clicked (#113)");
+  assert.doesNotMatch(show[1], /pointer-events:\s*auto/u,
+    "a whole toast that takes clicks blocks what is under it for every message, not just the one "
+    + "with a button (#113)");
 });
 
 test("the toast's undo is described in one place, and its own", async () => {
@@ -101,24 +119,32 @@ test("the toast's undo is described in one place, and its own", async () => {
     "the toast's undo has to survive the narrow layout: a move has no other way back (#113)");
 });
 
-test("the toast steps aside for the change bar", async () => {
+test("the toast steps aside for the change bar, by measurement", async () => {
   const css = withoutComments(await readCss());
-  const lifted = /\.app-shell:has\(\.change-bar\)\s+\.toast\s*\{[^}]*bottom:\s*(\d+)px/u;
+  const rule = css.match(/\.app-shell:has\(\.change-bar\)\s+\.toast\s*\{([^}]*)\}/u);
+  assert.ok(rule, "expected the toast to be lifted while the change bar is up (#113)");
 
-  const wide = css.match(lifted);
-  assert.ok(wide, "expected the toast to be lifted while the change bar is up (#113)");
-  const narrow = maxWidthCss(css, 620);
-  const close = narrow.match(lifted);
-  assert.ok(close, "the lift has to be given again at 620px, where the bar sits lower (#113)");
+  // The lift comes from the bar's measured reach, not from a number. The bar's height is
+  // its tallest child's, and a larger user font grows the text block inside it — measured
+  // at 88.8px, where the 92px this used to hard-code stopped clearing it.
+  const lift = rule[1].match(/bottom:\s*([^;}]+)/u);
+  assert.ok(lift, "the lift has to set a bottom offset");
+  assert.match(lift[1].trim(), /^var\(\s*--toast-lift\s*,\s*(\d+)px\s*\)$/u,
+    `the lift is 「${lift[1].trim()}」; a fixed offset stops clearing the bar as soon as the bar `
+    + "grows, which a larger user font does (#113)");
 
-  // The bar's own offsets and heights, measured: 22px + 56.4 at 1425, 14px + 54 at 375.
-  // Anything at or below those and the two overlap again.
-  assert.ok(Number(wide[1]) > 79, `lifted to ${wide[1]}px; the bar reaches 78.4px at 1425 (#113)`);
-  assert.ok(Number(close[1]) > 68, `lifted to ${close[1]}px at 620; the bar reaches 68px at 375 (#113)`);
+  // The fallback covers the frame before the first measurement, so it still has to clear
+  // the bar as measured: 22px of offset plus 56.4px of height at 1425px.
+  const fallback = Number(/^var\(\s*--toast-lift\s*,\s*(\d+)px\s*\)$/u.exec(lift[1].trim())[1]);
+  assert.ok(fallback > 79, `the fallback is ${fallback}px; the bar reaches 78.4px at 1425 (#113)`);
 
   // And the toast keeps its own resting offset for when no bar is up.
   const base = css.match(/(?:^|\})\s*\.toast\s*\{[^}]*bottom:\s*(\d+)px/u);
   assert.ok(base, "expected the toast's own bottom offset");
-  assert.ok(Number(base[1]) < Number(wide[1]),
-    "the lift has to be above the resting position, or it is not a lift");
+  assert.ok(Number(base[1]) < fallback, "the lift has to be above the resting position");
+
+  // One rule, not one per width: the measurement already knows where the bar is.
+  const narrow = maxWidthCss(css, 620);
+  assert.doesNotMatch(narrow, /\.app-shell:has\(\.change-bar\)\s+\.toast/u,
+    "a second lift at 620px is a second guess at the same thing (#113)");
 });

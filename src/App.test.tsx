@@ -4019,6 +4019,41 @@ describe("moving a department", () => {
     expect(await screen.findByText("品質保証を最上位へ移しました")).toBeInTheDocument();
   });
 
+  /**
+   * The undo belongs to the most recent move, and moves before it survive pressing it.
+   *
+   * The evaluation on #113 asked for the opposite ordering — move the target, then move
+   * something else, then undo the target — because the handler captured the department
+   * list at the time of the move and would have written it back over the second one. The
+   * capture is gone (the reducer's own list is moved instead), but that sequence cannot be
+   * reached from the screen either way: the undo renders only while its own message is the
+   * one showing, and every org mutation in the app sets a message. By the time a second
+   * move lands, the first move's undo is gone. Two moves cannot even produce the same
+   * message, since selecting the value a row already has fires no change.
+   *
+   * So this holds what the screen can actually do. The capture was still worth removing —
+   * a callback that runs eight seconds later should not be holding a list from before.
+   */
+  it("leaves a department moved after it alone", async () => {
+    const user = userEvent.setup();
+    const adapter = sharedAdapter();
+    adapter.initialState = orgWorkspace();
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
+
+    let select = await parentSelect(user, "品質保証");
+    await user.selectOptions(select, "org-design-div");
+    // Second, and after the toast for the first is already on screen.
+    select = await parentSelect(user, "データ戦略");
+    await user.selectOptions(select, "org-engineering");
+
+    // The undo now belongs to the second move; put that one back.
+    await user.click(screen.getByRole("button", { name: "この移動を元に戻す" }));
+    expect(await screen.findByText("データ戦略をコーポレートへ戻しました")).toBeInTheDocument();
+    // And the first move survives it.
+    expect((screen.getByLabelText("品質保証の親部門") as HTMLSelectElement).value).toBe("org-design-div");
+    expect((screen.getByLabelText("データ戦略の親部門") as HTMLSelectElement).value).toBe("org-corporate");
+  });
+
   it("puts back just that move, and does not offer to undo the undo", async () => {
     const user = userEvent.setup();
     const adapter = sharedAdapter();

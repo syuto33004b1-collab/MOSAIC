@@ -468,6 +468,40 @@ export default function Home({ mode = "demo", organizationId, organizationName =
    */
   const [toastUndo, setToastUndo] = useState<null | { text: string; label: string; run: () => void }>(null);
   const undoableToast = toastUndo?.text === toast ? toastUndo : null;
+  /** Pointer or focus on the toast's undo, which stops it disappearing mid-reach. */
+  const [toastHeld, setToastHeld] = useState(false);
+  /**
+   * How far up the change bar reaches, so the toast can sit above it.
+   *
+   * A number in the stylesheet cannot do this: the bar's height comes from its tallest
+   * child, and a larger user font grows the two-line text block inside it. Measured — at
+   * 88.8px the 92px offset the first version used no longer cleared it, which the
+   * evaluation on #113 predicted. `bottom` is measured from the viewport's bottom, so this
+   * is what the bar occupies plus a gap (#113).
+   */
+  const [changeBarReach, setChangeBarReach] = useState(0);
+  const observeChangeBar = useCallback((node: HTMLDivElement | null) => {
+    if (!node) {
+      setChangeBarReach(0);
+      return;
+    }
+    // Its own offset plus its own height, not its rectangle: the bar animates in with a
+    // transform, and a rectangle read mid-animation is 12px low — measured, it left the
+    // toast touching the bar instead of clear of it on the first appearance.
+    const measure = () => setChangeBarReach(parseFloat(getComputedStyle(node).bottom || "0") + node.offsetHeight + 12);
+    measure();
+    // ResizeObserver catches the bar growing — a larger user font, a longer message. jsdom
+    // has neither it nor layout, so the guard keeps the tests on the stylesheet's fallback.
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
+    observer?.observe(node);
+    window.addEventListener("resize", measure);
+    changeBarCleanup.current = () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", measure);
+    };
+  }, []);
+  const changeBarCleanup = useRef<(() => void) | null>(null);
+  useEffect(() => () => changeBarCleanup.current?.(), []);
   const [unsavedChanges, setUnsavedChanges] = useState(0);
   const [hydrated, setHydrated] = useState(mode === "shared");
   const [revision, setRevision] = useState(shared?.initialRevision ?? 0);
@@ -587,14 +621,17 @@ export default function Home({ mode = "demo", organizationId, organizationName =
 
   useEffect(() => {
     if (!toast) return;
-    // 3.2 seconds is enough to read; it is not enough to read, decide and reach a
-    // button, so an offered undo holds the toast open longer (#113).
+    // 3.2 seconds is enough to read; it is not enough to read, decide and reach a button,
+    // so an offered undo holds the toast open longer. And once someone is on the button —
+    // pointer or keyboard — the countdown stops rather than taking it out from under them
+    // (#113, from the evaluation).
+    if (undoableToast && toastHeld) return;
     const timer = window.setTimeout(() => {
       setToast("");
       setToastUndo(null);
     }, undoableToast ? 8000 : 3200);
     return () => window.clearTimeout(timer);
-  }, [toast, undoableToast]);
+  }, [toast, undoableToast, toastHeld]);
 
   useEffect(() => {
     favoritesRef.current = favorites;
@@ -2139,11 +2176,29 @@ export default function Home({ mode = "demo", organizationId, organizationName =
     if (!canManageMembers) throw new Error("組織階層を変更する権限がありません");
     const units = workspace.orgUnits ?? [];
     const before = units.find((unit) => unit.id === id)?.parentId ?? null;
-    const orgUnits = moveOrgUnit(units, id, parentId);
-    setWorkspace((current) => ({ ...current, orgUnits }));
+    // Validate against what this render can see, so an impossible move reaches the caller
+    // as an error rather than the state updater.
+    moveOrgUnit(units, id, parentId);
+    // Then move the list the reducer actually holds. The undo runs up to eight seconds
+    // later, and a list captured here would be older than that: putting it back would
+    // take any department moved in between with it — the evaluation on #113 found this
+    // by ordering the edits the other way round from the test.
+    setWorkspace((current) => {
+      const live = current.orgUnits ?? [];
+      if (!live.some((unit) => unit.id === id)) return current;
+      try {
+        return { ...current, orgUnits: moveOrgUnit(live, id, parentId) };
+      } catch {
+        // The tree changed under the move — a refresh archived the parent, or another
+        // move would make this one a cycle. Leaving it alone is silent, and the row's
+        // select re-renders from the truth; throwing here would come out of a state
+        // update instead.
+        return current;
+      }
+    });
     markUnsaved();
     const moved = units.find((unit) => unit.id === id)?.name ?? "部門";
-    const to = parentId ? orgUnits.find((unit) => unit.id === parentId)?.name ?? "部門" : "最上位";
+    const to = parentId ? units.find((unit) => unit.id === parentId)?.name ?? "部門" : "最上位";
     const text = `${moved}を${to}へ${verb}`;
     setToast(text);
     // Undoing is itself a move, and it does not offer another: putting it back again is
@@ -2548,7 +2603,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
       </section>
 
       {unsavedChanges > 0 && (
-        <div className="change-bar" role="status" inert={drawer ? true : undefined}>
+        <div className="change-bar" ref={observeChangeBar} role="status" inert={drawer ? true : undefined}>
           <span className="change-count">{unsavedChanges}</span><span><strong>{unsavedChanges}件の変更があります</strong><small>保存するまで確定データには反映されません</small></span>
           <button className="undo-button" disabled={operationLocked || saveOutcomePending} onClick={undoChanges}><Undo2 size={14} />元に戻す</button><button className="save-button" disabled={operationLocked} onClick={() => void saveChanges()}><Save size={14} />{syncStatus === "saving" ? "保存中…" : syncStatus === "refreshing" ? "確認中…" : mode === "shared" ? "チームへ保存" : "デモへ保存"}</button>
         </div>
@@ -2903,8 +2958,22 @@ export default function Home({ mode = "demo", organizationId, organizationName =
         elevated={unsavedChanges > 0}
         unavailableReason={mode === "demo" ? "AIチャットは、共有モードでログインすると利用できます。" : undefined}
       />
-      <div className={"toast " + (toast ? "show" : "")} role="status" aria-live="polite"><Check size={14} />{toast}{undoableToast && (
-        <button type="button" className="toast-undo" onClick={() => { const undo = undoableToast; setToast(""); setToastUndo(null); undo.run(); }}>{undoableToast.label}</button>
+      <div className={"toast " + (toast ? "show" : "")} style={changeBarReach > 0 ? { "--toast-lift": `${changeBarReach}px` } as CSSProperties : undefined} role="status" aria-live="polite"><Check size={14} />{toast}{undoableToast && (
+        <button
+          type="button"
+          className="toast-undo"
+          onMouseEnter={() => setToastHeld(true)}
+          onMouseLeave={() => setToastHeld(false)}
+          onFocus={() => setToastHeld(true)}
+          onBlur={() => setToastHeld(false)}
+          onClick={() => {
+            const undo = undoableToast;
+            setToastHeld(false);
+            setToast("");
+            setToastUndo(null);
+            undo.run();
+          }}
+        >{undoableToast.label}</button>
       )}</div>
       {!hydrated && <span className="sr-only">保存データを読み込み中</span>}
     </main>
