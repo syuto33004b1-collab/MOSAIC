@@ -3983,6 +3983,38 @@ describe("custom fields in a drawer form", () => {
  * change bar appears), so the Issue's premise that DEMO commits immediately was stale.
  * What was true is that nothing named the move and nothing could take back just it.
  */
+/**
+ * #176: 「氏名・勤務地を隠す」 read as a promise. What it actually does, measured: the copied
+ * link is `?nav=proposal&members=saeki&anonymous=1`, so the hiding does reach whoever opens
+ * it — they start with the names hidden — and unticking the box brings them back. Real
+ * member ids are in the URL either way, and the skills and the four-week load show whether
+ * the names are hidden or not.
+ *
+ * So the gap was never that the setting is lost in transit; it is that it cannot be
+ * enforced. The toolbar says both halves now. An earlier version of this said 「リンクに
+ * 残りません」, which was wrong in the other direction.
+ */
+describe("what the proposal's hiding promises", () => {
+  it("says the link starts hidden and the reader can undo it", async () => {
+    const user = userEvent.setup();
+    const adapter = sharedAdapter();
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^提案( |$)/u }));
+
+    expect(screen.getByLabelText("氏名・勤務地を隠す")).toBeInTheDocument();
+    const toolbar = document.querySelector(".proposal-view .toolbar-result, .toolbar-result")!;
+    expect(toolbar.textContent).toContain("社内リンクはログインが必要です");
+    // Both halves: where the hiding reaches, and that it can be undone there. Either one
+    // alone reads as a promise — the first that it is safe to send, the second that the
+    // link never carried it.
+    expect(toolbar.textContent).toContain("共有リンクでも最初は隠れます");
+    expect(toolbar.textContent).toContain("開いた人が表示に戻せます");
+    // Both fields, because the checkbox hides both.
+    expect(toolbar.textContent).toContain("氏名・勤務地");
+    expect(toolbar.textContent).not.toContain("リンクに残りません");
+  });
+});
+
 describe("moving a department", () => {
   const orgWorkspace = () => initialWorkspace;
 
