@@ -3514,10 +3514,11 @@ h1 {
 .drawer-icon.cobalt,
 .drawer-icon.coral,
 .drawer-icon.mint { border-radius: 50%; background: var(--coral-soft); color: var(--coral-deep); }
-/* The theme meant this for the drawer's close button and named a class that does not
-   exist, so it never applied: the button kept the base layer's 10px corners and #687285
-   while the drawer icons beside it were circles. Renamed to the class the button actually
-   has (#170). */
+/* The theme meant this for a panel's close button and named a class that does not exist,
+   so it never applied: the button kept the base layer's 10px corners and #687285 while the
+   drawer icons beside it were circles. Renamed to the class the buttons actually have —
+   the drawer's and the production operations panel's, which is the same control in a
+   screen DEMO cannot reach (#170). */
 .close-button { border-color: var(--line); border-radius: 50%; color: var(--ink); }
 .assignment-form > label > input,
 .assignment-form > label > select,
