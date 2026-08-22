@@ -550,8 +550,17 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   letter-spacing: .17em;
 }
 .close-button {
-  width: 33px;
-  height: 33px;
+  /* 44px, like every other tap target here (`.icon-button`, `.primary-button`, the drawer's
+     own buttons, `.nav-item` at narrow). It was 33px, which clears WCAG 2.5.8's 24px and
+     misses 2.5.5's 44px — and #122 left one way to close a panel, so this is the whole of
+     it. `min-*` rather than a fixed box, matching those others: the floor holds and a
+     larger icon or user font can still grow it (#182). */
+  min-width: 44px;
+  min-height: 44px;
+  /* Because the floor is a floor: content that grows on one axis only would make this an
+     ellipse, the theme having made it a circle (#170). Nothing grows it today — the icon
+     is 18px and there is no text — which is exactly when it is cheap to say (#182). */
+  aspect-ratio: 1;
   border: 1px solid var(--line);
   border-radius: 10px;
   background: #fff;
