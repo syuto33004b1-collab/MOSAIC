@@ -557,6 +557,10 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
      larger icon or user font can still grow it (#182). */
   min-width: 44px;
   min-height: 44px;
+  /* Because the floor is a floor: content that grows on one axis only would make this an
+     ellipse, the theme having made it a circle (#170). Nothing grows it today — the icon
+     is 18px and there is no text — which is exactly when it is cheap to say (#182). */
+  aspect-ratio: 1;
   border: 1px solid var(--line);
   border-radius: 10px;
   background: #fff;
