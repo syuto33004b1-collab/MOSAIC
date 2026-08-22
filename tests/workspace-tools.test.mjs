@@ -305,7 +305,9 @@ test("plans a confirmed assignment with server IDs, deterministic hash, overload
   assert.equal(plan.payload.assignments.upsert[0].id, ids.generated);
   assert.equal(plan.payload.assignments.upsert[0].clientRequestId, ids.request);
   assert.match(plan.payloadHash, /^[0-9a-f]{64}$/);
-  assert.match(plan.preview.impacts.join(" "), /上限100%を超え/);
+  // 稼働上限, not 上限: the screens settled on one word for this ceiling in #82 and this
+  // preview was the last place using another (#120).
+  assert.match(plan.preview.impacts.join(" "), /稼働上限100%を超え/);
   assert.deepEqual(buildWorkspaceSaveRequest(plan), {
     p_organization_id: ids.organization,
     p_expected_revision: 7,
