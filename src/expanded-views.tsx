@@ -14,6 +14,7 @@ import {
   Layers3,
   MailPlus,
   Plus,
+  Printer,
   Search,
   SlidersHorizontal,
   Sparkles,
@@ -996,11 +997,16 @@ export function ProposalView({
             and nothing at the other end to untick. What a file cannot do is expire, so the
             panel says that where the button is rather than leaving it implied. */}
         <details className="proposal-export">
-          <summary><Download size={14} />CSVで書き出す</summary>
+          {/* Two ways out, one set of choices. #179 asked for paper as well as the file, and
+              made the same tick boxes decide what goes on it: the alternative was a second
+              list of fields to keep in step with this one. Which is why the summary names
+              both — the boxes are in here, and a print button behind a 「CSV」 label is a
+              print button nobody finds. */}
+          <summary><Download size={14} />書き出す・印刷する</summary>
           <fieldset className="proposal-export-columns">
             {/* 候補 is not in here: every file has it, and a file of nothing at all is not a
                 proposal. Saying so in the legend beats a checkbox that cannot be unticked. */}
-            <legend>書き出す項目（候補は必ず入ります）</legend>
+            <legend>ファイルと紙に入れる項目（候補は必ず入ります）</legend>
             {proposalCsvColumns(anonymous).map((column) => (
               <label key={column}>
                 <input
@@ -1014,7 +1020,7 @@ export function ProposalView({
               </label>
             ))}
           </fieldset>
-          <p className="proposal-export-note">書き出したファイルは取り消せません。共有リンクと違って氏名を戻す操作はありませんが、渡した後に消すこともできません。</p>
+          <p className="proposal-export-note">書き出したファイルと印刷した紙は取り消せません。共有リンクと違って氏名を戻す操作はありませんが、渡した後に消すこともできません。</p>
           <button
             type="button"
             className="view-add-button"
@@ -1033,6 +1039,21 @@ export function ProposalView({
             <Download size={15} />{selected.length > 0
               ? `${anonymous ? "氏名を隠して" : "実名で"}${selected.length}名を書き出す`
               : "候補を選ぶと書き出せます"}
+          </button>
+          {/* Paper, for the case a spreadsheet is the wrong thing to hand over: the file puts
+              the cards back into columns, and a proposal is read as cards. The browser's own
+              print dialogue is the PDF writer too, so this is the whole of the feature — what
+              lands on the page is `@media print` in the stylesheet, working from this screen's
+              own markup. It says which way the names are going, like the button above (#179). */}
+          <button
+            type="button"
+            className="view-add-button"
+            disabled={selected.length === 0}
+            onClick={() => window.print()}
+          >
+            <Printer size={15} />{selected.length > 0
+              ? `${anonymous ? "氏名を隠して" : "実名で"}${selected.length}名を印刷`
+              : "候補を選ぶと印刷できます"}
           </button>
         </details>
       </div>
@@ -1065,7 +1086,13 @@ export function ProposalView({
           </div>
         </aside>
 
-        <div className="proposal-cards">
+        {/* What the tick boxes chose, for the print rules to read: CSS cannot see React state,
+            and the alternative was a class per field. The values are the column names the
+            checkboxes show, so `tests/proposal-print-contract.test.mjs` holds the stylesheet
+            to the list `proposalCsvColumns` offers — rename one there and the print rule that
+            still says the old name fails rather than quietly printing a field nobody asked
+            for (#179). */}
+        <div className="proposal-cards" data-print={exportColumns.join(" ")}>
           {selected.length === 0 && (
             <div className="view-empty proposal-empty">
               <UsersRound size={22} />
@@ -1081,10 +1108,13 @@ export function ProposalView({
               <article className={"proposal-card" + (anonymous ? " is-anonymous" : "")} key={member.id}>
                 <header>
                   <span className={"avatar " + (anonymous ? "sand" : member.avatarTone)}>{anonymous ? anonymousCandidateLabel(index).slice(-1) : member.initials}</span>
+                  {/* Named so the print rules can drop the ones the tick boxes did not
+                      choose. Structural selectors would reach these two today and mean
+                      something else the next time a line is added here (#179). */}
                   <div>
                     <h3>{label}</h3>
-                    <p>{member.role}{anonymous ? "" : ` · ${member.department}`}</p>
-                    {!anonymous && <small>{member.location}</small>}
+                    <p className="proposal-card-role">{member.role}{anonymous ? "" : ` · ${member.department}`}</p>
+                    {!anonymous && <small className="proposal-card-location">{member.location}</small>}
                   </div>
                   {onToggleFavorite && !anonymous && <FavoriteStar name={memberLabel(state, member)} pressed={isFavorited(favorites, "member", member.id)} onToggle={() => onToggleFavorite(member.id)} />}
                   <button type="button" className="proposal-remove" onClick={() => onSelectedIdsChange(selectedIds.filter((id) => id !== member.id))}>外す</button>
