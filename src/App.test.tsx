@@ -4156,6 +4156,43 @@ describe("printing the proposal", () => {
     expect(cards()).toBe("");
   });
 
+  /**
+   * The tick boxes are the whole of what the sender chose, so a field cannot ride along with a
+   * chosen one. jsdom does not apply `@media print`, so what is checked here is that the two
+   * that were riding along have their own elements for the print rules to drop — the rules
+   * themselves are in `tests/proposal-print-contract.test.mjs`, and the effect was measured in
+   * Chrome. Both were found by the evaluation on #179.
+   */
+  it("keeps the fields the file has no column for out of the role line", async () => {
+    const user = userEvent.setup();
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={sharedAdapter()} />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^提案( |$)/u }));
+    await user.click(document.querySelectorAll(".proposal-picker-item")[0]);
+
+    const role = document.querySelector(".proposal-card-role")!;
+    const department = role.querySelector(".proposal-card-department")!;
+    expect(department).not.toBeNull();
+    // On screen the line reads as one thing; the department is simply separable.
+    expect(role.textContent).toContain(department.textContent);
+    expect(role.textContent!.replace(department.textContent!, "").trim()).not.toBe("");
+  });
+
+  it("keeps the requirement's matched skills separable from its percentage", async () => {
+    const user = userEvent.setup();
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={sharedAdapter()} />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^提案( |$)/u }));
+    // A subject, so the cards carry a match at all.
+    await user.selectOptions(screen.getByLabelText("提案先を選ぶ"), (screen.getByLabelText("提案先を選ぶ") as HTMLSelectElement).options[1].value);
+    const matched = [...document.querySelectorAll(".proposal-picker-item")];
+    for (const item of matched.slice(0, 3)) await user.click(item);
+
+    const withSkills = [...document.querySelectorAll(".proposal-match")]
+      .find((paragraph) => paragraph.querySelector("em"));
+    expect(withSkills, "one of the top candidates should meet a required skill").toBeDefined();
+    expect(withSkills!.querySelector("em")).toHaveClass("proposal-match-skills");
+    expect(withSkills!.textContent).toContain("要件期間の最小空き");
+  });
+
   it("keeps the note about paper being as final as the file", async () => {
     const user = userEvent.setup();
     render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={sharedAdapter()} />);

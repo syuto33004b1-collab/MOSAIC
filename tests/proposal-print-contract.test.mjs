@@ -25,7 +25,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
  * | ------------------------------- | ---------------------------------------------- |
  * | sidebar, topbar, toolbar, picker, per-card controls | all `checkVisibility` false |
  * | ribbon, cards, and the five fields | visible |
- * | card box | 688 x 267, three candidates and the header in 991px |
+ * | card box | 688 x 267, three candidates and the header in 991px, page 1017 |
  * | document overflow at 688px | none |
  * | ticking off 勤務地 and 4週間の稼働率 | card 267 → 148px |
  * | ticking everything off | card 68px, the candidate's name alone |
@@ -70,25 +70,46 @@ const rulesFor = (body, selector) => [...body.matchAll(/([^{}]+)\{([^{}]*)\}/gu)
   .map(([, , declarations]) => declarations)
   .join(";");
 
-test("there is one print block, and it sets the page up", async () => {
+test("there is one print block, and it sets a margin without choosing the paper", async () => {
   const blocks = await printBlock();
   // It was two, 64 rules apart, with the same two declarations in each.
   assert.equal(blocks.length, 1, "@media print should be one block; two of them drift (#179)");
-  assert.match(blocks[0], /@page\s*\{[^}]*size:\s*A4/u, "the page needs a size, or it is the browser's default (#179)");
-  assert.match(blocks[0], /@page\s*\{[^}]*margin:\s*\d+mm/u, "and a margin, in a paper unit (#179)");
+  assert.match(blocks[0], /@page\s*\{[^}]*margin:\s*\d+mm/u, "the page needs a margin, in a paper unit (#179)");
+  // `@page` cannot be scoped to a screen, so whatever it says is said to every print in the
+  // app. A size would put A4 pages in a Letter tray for the sake of one screen's handout.
+  assert.doesNotMatch(blocks[0], /@page\s*\{[^}]*size:/u,
+    "the reader's paper is the reader's; the layout is fluid and takes either (#179)");
 });
 
 test("the application does not print, only the document it is showing", async () => {
   const [body] = await printBlock();
-  // Fixed layers first: they print over whatever page they happen to be on, and the change
-  // bar sits across a candidate.
-  for (const selector of [".sidebar", ".topbar", ".change-bar", ".toast", ".overlay", ".drawer",
-    ".ai-chat-root", ".notification-popover"]) {
-    assert.match(rulesFor(body, selector), /display:\s*none/u,
-      `${selector} would print as part of the handout (#179)`);
+  const rules = [...body.matchAll(/([^{}]+)\{([^{}]*)\}/gu)]
+    .map(([, selectors, declarations]) => ({ parts: selectors.split(",").map((part) => part.trim()), declarations }));
+  const hiddenBy = (selector) => rules.filter(({ parts, declarations }) =>
+    /display:\s*none/u.test(declarations) && parts.some((part) => part.endsWith(selector)));
+
+  // Layers that float over the page rather than belong to it, on any screen: the change bar
+  // prints across a candidate, and the launcher's reserved strip prints as blank paper.
+  for (const selector of [".change-bar", ".toast", ".overlay", ".ai-chat-root", ".notification-popover"]) {
+    const hiding = hiddenBy(selector);
+    assert.ok(hiding.length > 0, `${selector} would print over the page (#179)`);
+    assert.ok(hiding.some(({ parts }) => parts.includes(selector)),
+      `${selector} should be hidden everywhere, not only where a proposal is on screen (#179)`);
   }
+
+  // The application's own furniture, only where the proposal is: printing is not a
+  // proposal-only act, and the first version of this took the sidebar off every screen's
+  // print and made an open panel unprintable anywhere (the evaluation on #179).
+  for (const selector of [".sidebar", ".topbar", ".drawer"]) {
+    const hiding = hiddenBy(selector);
+    assert.ok(hiding.length > 0, `${selector} would print as part of the handout (#179)`);
+    assert.ok(hiding.every(({ parts }) => parts.filter((part) => part.endsWith(selector))
+      .every((part) => part.includes(".proposal-view"))),
+      `${selector} is hidden for every print, not just the proposal's (#179)`);
+  }
+
   // The sidebar's grid column has to go with the sidebar, or every page carries its indent.
-  assert.match(rulesFor(body, ".app-shell"), /display:\s*block/u,
+  assert.match(rulesFor(body, ".app-shell:has(.proposal-view)"), /display:\s*block/u,
     "the shell's two columns leave a 258px indent on paper once the sidebar is hidden (#179)");
 });
 
@@ -126,17 +147,40 @@ test("every field the tick boxes offer has a print rule that answers to it", asy
   assert.ok(required, "expected REQUIRED_PROPOSAL_CSV_COLUMN in src/csv.ts");
   assert.ok(columns.includes(required), "the required column should be one of the columns");
 
+  // `data-print` is a space-separated list read with `~=`, so a column name with a space in it
+  // could never be matched — and the rule mentioning it would still be here, looking right.
+  const spaced = columns.filter((column) => /\s/u.test(column));
+  assert.deepEqual(spaced, [], `a column name with whitespace cannot be matched by [data-print~=]: `
+    + `${spaced.join(", ")}. Either take the space out or give the attribute stable keys (#179)`);
+
+  const quote = (value) => value.replaceAll(/[.*+?^${}()|[\]\\]/gu, "\\$&");
   // `data-print` carries the ticked column names, so the stylesheet holds the same list of
   // labels the checkboxes show. Renaming a column and leaving the print rule behind would
   // otherwise print a field nobody asked for, quietly.
   for (const column of columns.filter((name) => name !== required)) {
-    assert.match(body, new RegExp(`data-print~="${column}"`, "u"),
+    assert.match(body, new RegExp(`data-print~="${quote(column)}"`, "u"),
       `the print rules do not mention 「${column}」, so unticking it does nothing on paper. `
       + "Either the column is new or it was renamed without the stylesheet (#179)");
   }
   // The required one is the card's own heading and has no rule to drop it: a page of
   // proposals with no candidates on it is not a proposal.
-  assert.doesNotMatch(body, new RegExp(`data-print~="${required}"`, "u"),
+  assert.doesNotMatch(body, new RegExp(`data-print~="${quote(required)}"`, "u"),
     `「${required}」 is in every file and on every page; a rule to drop it would be a way to print `
     + "nothing (#148, #179)");
+});
+
+/**
+ * The tick boxes are the whole of what the sender chose, so a field that rides along with a
+ * chosen one is a field nobody chose. Both of these were found by the evaluation on #179: the
+ * department was inside the same element as the role, and the requirement's matched skills were
+ * inside the same paragraph as its availability percentage.
+ */
+test("nothing rides along with a field that was chosen", async () => {
+  const [body] = await printBlock();
+  // Not a column at all — the file has never had one for it.
+  assert.match(rulesFor(body, ".proposal-card-department"), /display:\s*none/u,
+    "「職種」 would otherwise put 「QA Engineer · 品質保証」 on a page going outside (#179)");
+  // Skill data, so it answers to the skills box rather than to the percentage beside it.
+  assert.match(body, /:not\(\[data-print~="スキル"\]\)\s*\.proposal-match-skills/u,
+    "the requirement's matched skills print with 「要件期間の最小空き」 unticked otherwise (#179)");
 });

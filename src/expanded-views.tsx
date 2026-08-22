@@ -1109,11 +1109,16 @@ export function ProposalView({
                 <header>
                   <span className={"avatar " + (anonymous ? "sand" : member.avatarTone)}>{anonymous ? anonymousCandidateLabel(index).slice(-1) : member.initials}</span>
                   {/* Named so the print rules can drop the ones the tick boxes did not
-                      choose. Structural selectors would reach these two today and mean
-                      something else the next time a line is added here (#179). */}
+                      choose. Structural selectors would reach these today and mean something
+                      else the next time a line is added here (#179).
+
+                      The department is its own element because it is not one of the columns:
+                      ticking 「職種」 would otherwise put 「QA Engineer · 品質保証」 on a page
+                      going outside the organisation, and only the first half of that was
+                      asked for. The evaluation on #179 found it. */}
                   <div>
                     <h3>{label}</h3>
-                    <p className="proposal-card-role">{member.role}{anonymous ? "" : ` · ${member.department}`}</p>
+                    <p className="proposal-card-role">{member.role}{anonymous ? "" : <span className="proposal-card-department"> · {member.department}</span>}</p>
                     {!anonymous && <small className="proposal-card-location">{member.location}</small>}
                   </div>
                   {onToggleFavorite && !anonymous && <FavoriteStar name={memberLabel(state, member)} pressed={isFavorited(favorites, "member", member.id)} onToggle={() => onToggleFavorite(member.id)} />}
@@ -1128,8 +1133,12 @@ export function ProposalView({
                   const match = matchById.get(member.id);
                   return (
                     <p className={"proposal-match" + (match ? "" : " is-unmatched")}>
+                      {/* The matched skills are skill data, and paper asks about skills with
+                          its own tick box — 「要件期間の最小空き」 is the percentage beside it.
+                          Its own class, so the two answer to the boxes they belong to (#179,
+                          from the evaluation). */}
                       {match
-                        ? <>要件期間の最小空き {match.availablePercent}% {match.matchedMust.length > 0 && <em><Check size={11} />{match.matchedMust.join("・")}</em>}</>
+                        ? <>要件期間の最小空き {match.availablePercent}% {match.matchedMust.length > 0 && <em className="proposal-match-skills"><Check size={11} />{match.matchedMust.join("・")}</em>}</>
                         : <>この要件には適合していません</>}
                     </p>
                   );
