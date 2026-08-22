@@ -4117,6 +4117,15 @@ describe("moving a department", () => {
     return screen.getByLabelText(`${unit}の親部門`) as HTMLSelectElement;
   };
 
+  /**
+   * The row's undo, by the name a screen reader hears. The visible words are 「この移動を
+   * 元に戻す」 for every row, so the name says which department too — from a list of
+   * buttons there is no row to read it from. Asking for it by department is also how these
+   * tests tell an offer that followed a later move from one that stayed behind.
+   */
+  const undoOffer = (unit: string) => screen.getByRole("button", { name: `この移動を元に戻す（${unit}）` });
+  const noUndoOffer = () => expect(screen.queryByRole("button", { name: /^この移動を元に戻す/u })).not.toBeInTheDocument();
+
   it("says what moved and where to", async () => {
     const user = userEvent.setup();
     const adapter = sharedAdapter();
@@ -4126,7 +4135,9 @@ describe("moving a department", () => {
     const select = await parentSelect(user, "品質保証");
     await user.selectOptions(select, "org-design-div");
     expect(await screen.findByText("品質保証をデザイン本部へ移しました")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "この移動を元に戻す" })).toBeInTheDocument();
+    expect(undoOffer("品質保証")).toBeInTheDocument();
+    // Written short, because the cell is 208px wide at 375px.
+    expect(undoOffer("品質保証")).toHaveTextContent("この移動を元に戻す");
     // The change bar's 「元に戻す」 is on screen too and means the whole workspace, so the
     // two must not answer to one name (#88, #124). This is how the collision was found.
     expect(screen.getByRole("button", { name: "元に戻す" })).toBeInTheDocument();
@@ -4151,14 +4162,10 @@ describe("moving a department", () => {
    * The evaluation on #113 asked for the opposite ordering — move the target, then move
    * something else, then undo the target — because the handler captured the department
    * list at the time of the move and would have written it back over the second one. The
-   * capture is gone (the reducer's own list is moved instead), but that sequence cannot be
-   * reached from the screen either way: the undo renders only while its own message is the
-   * one showing, and every org mutation in the app sets a message. By the time a second
-   * move lands, the first move's undo is gone. Two moves cannot even produce the same
-   * message, since selecting the value a row already has fires no change.
-   *
-   * So this holds what the screen can actually do. The capture was still worth removing —
-   * a callback that runs eight seconds later should not be holding a list from before.
+   * capture is gone (the reducer's own list is moved instead), and that sequence still
+   * cannot be reached from the screen: one move is offered at a time, so a second move
+   * takes the offer from the first. What the screen can do is this — undo the second and
+   * find the first untouched.
    */
   it("leaves a department moved after it alone", async () => {
     const user = userEvent.setup();
@@ -4173,7 +4180,7 @@ describe("moving a department", () => {
     await user.selectOptions(select, "org-engineering");
 
     // The undo now belongs to the second move; put that one back.
-    await user.click(screen.getByRole("button", { name: "この移動を元に戻す" }));
+    await user.click(undoOffer("データ戦略"));
     expect(await screen.findByText("データ戦略をコーポレートへ戻しました")).toBeInTheDocument();
     // And the first move survives it.
     expect((screen.getByLabelText("品質保証の親部門") as HTMLSelectElement).value).toBe("org-design-div");
@@ -4192,21 +4199,24 @@ describe("moving a department", () => {
     select = await parentSelect(user, "品質保証");
     await user.selectOptions(select, "org-design-div");
 
-    await user.click(screen.getByRole("button", { name: "この移動を元に戻す" }));
+    await user.click(undoOffer("品質保証"));
     expect(await screen.findByText("品質保証を開発本部へ戻しました")).toBeInTheDocument();
+    // The select has the focus, rather than the document: the button that had it has just
+    // unmounted, and this is where the next move starts (#173, from the evaluation).
+    expect(screen.getByLabelText("品質保証の親部門")).toHaveFocus();
     // Back where it was, and the other edit is still there.
-    expect((await parentSelect(user, "品質保証")).value).toBe("org-engineering");
+    expect((screen.getByLabelText("品質保証の親部門") as HTMLSelectElement).value).toBe("org-engineering");
     expect((screen.getByLabelText("データ戦略の親部門") as HTMLSelectElement).value).toBe("org-engineering");
     // Putting it back again is the select, still in the row.
-    expect(screen.queryByRole("button", { name: "この移動を元に戻す" })).not.toBeInTheDocument();
+    noUndoOffer();
   });
 
   /**
-   * The undo remembers the message it was made for, and renders only while that is the
-   * message on screen. `setToast` is the plain setter and some forty places call it; this
-   * is what keeps a stale undo from riding along under someone else's words.
+   * The undo is in the row, so it does not race a message: #113 had it in the toast, where
+   * it stood eight seconds and sat at the end of the document. Leaving the screen and
+   * coming back finds it where it was.
    */
-  it("drops the undo as soon as the toast says something else", async () => {
+  it("keeps the offer in its row while other things happen", async () => {
     const user = userEvent.setup();
     const adapter = sharedAdapter();
     adapter.initialState = orgWorkspace();
@@ -4214,12 +4224,133 @@ describe("moving a department", () => {
 
     const select = await parentSelect(user, "品質保証");
     await user.selectOptions(select, "org-design-div");
-    expect(screen.getByRole("button", { name: "この移動を元に戻す" })).toBeInTheDocument();
+    // In the cell with the select that did it, so a keyboard is one Tab away.
+    const undo = undoOffer("品質保証");
+    expect(undo.closest("td")).toBe(screen.getByLabelText("品質保証の親部門").closest("td"));
 
-    // Anything else that speaks.
+    // Something else entirely, including another message.
     await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^メンバー( |$)/u }));
     await user.click(screen.getAllByRole("button", { name: /提案へ/u })[0]);
     expect(await screen.findByText("提案ビューに追加しました")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "この移動を元に戻す" })).not.toBeInTheDocument();
+
+    // Back on the org screen it is still there, in the same row.
+    await parentSelect(user, "品質保証");
+    expect(undoOffer("品質保証").closest("td"))
+      .toBe(screen.getByLabelText("品質保証の親部門").closest("td"));
+  });
+
+  /** One row at a time: the offer belongs to the move that happened last. */
+  it("moves the offer to the row that moved most recently", async () => {
+    const user = userEvent.setup();
+    const adapter = sharedAdapter();
+    adapter.initialState = orgWorkspace();
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
+
+    let select = await parentSelect(user, "品質保証");
+    await user.selectOptions(select, "org-design-div");
+    select = await parentSelect(user, "データ戦略");
+    await user.selectOptions(select, "org-engineering");
+
+    const offers = screen.getAllByRole("button", { name: /^この移動を元に戻す/u });
+    expect(offers).toHaveLength(1);
+    expect(offers[0]).toBe(undoOffer("データ戦略"));
+    expect(offers[0].closest("td")).toBe(screen.getByLabelText("データ戦略の親部門").closest("td"));
+  });
+
+  /**
+   * Once the move is committed, putting it back would be a new change rather than an undo,
+   * so the row stops offering it.
+   */
+  it("stops offering once the change is saved", async () => {
+    const user = userEvent.setup();
+    const adapter = sharedAdapter();
+    const save = vi.fn().mockResolvedValue({ revision: 8, savedAt: "2026-08-17T10:00:00Z" });
+    adapter.initialState = orgWorkspace();
+    adapter.save = save;
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
+
+    const select = await parentSelect(user, "品質保証");
+    await user.selectOptions(select, "org-design-div");
+    expect(undoOffer("品質保証")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "チームへ保存" }));
+    await waitFor(() => expect(save).toHaveBeenCalledOnce());
+    await waitFor(() => noUndoOffer());
+  });
+
+  /**
+   * The move is what empties the department it came from, and an empty department can be
+   * deleted — so the place the offer points back to can be gone while the offer is up. It
+   * cannot go there: `moveOrgUnit` refuses a parent it cannot find, and unlike the select
+   * beside it the button had no error slot to put that in. Found by the evaluation on #173.
+   */
+  it("stops offering when the department it came from is deleted", async () => {
+    const user = userEvent.setup();
+    const adapter = sharedAdapter();
+    // Two units of our own: the shipped ones all have children or members, so none of them
+    // can be deleted at all (#86).
+    const base = orgWorkspace();
+    adapter.initialState = {
+      ...base,
+      orgUnits: [...(base.orgUnits ?? []),
+        { id: "org-temp", name: "臨時室", parentId: null },
+        { id: "org-temp-team", name: "臨時班", parentId: "org-temp" }],
+    };
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
+
+    const select = await parentSelect(user, "臨時班");
+    await user.selectOptions(select, "org-corporate");
+    expect(undoOffer("臨時班")).toBeInTheDocument();
+
+    // 臨時室 is empty now, so it can go.
+    const emptied = screen.getByLabelText("臨時室の親部門").closest("tr") as HTMLElement;
+    await user.click(within(emptied).getByRole("button", { name: "削除" }));
+    expect(await screen.findByText("部門を削除しました")).toBeInTheDocument();
+
+    noUndoOffer();
+    // The move itself stands — this is the offer going, not the move.
+    expect((screen.getByLabelText("臨時班の親部門") as HTMLSelectElement).value).toBe("org-corporate");
+  });
+
+  /**
+   * And it has to still be the move that happened. A refresh in shared mode, or an
+   * organization or mode switch that does not remount, can move the unit out from under an
+   * offer that is still on screen; putting 「back」 then would write an old parent over the
+   * new one. The offer asks whether the unit is still where this move left it, which is the
+   * one question that covers all of those (#173, from the evaluation).
+   */
+  it("stops offering when something else moves the same department", async () => {
+    const user = userEvent.setup();
+    const adapter = sharedAdapter();
+    adapter.initialState = orgWorkspace();
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
+
+    const select = await parentSelect(user, "品質保証");
+    await user.selectOptions(select, "org-design-div");
+    expect(undoOffer("品質保証")).toBeInTheDocument();
+
+    // The same row, moved on somewhere else. Whatever did it, the recorded move is no
+    // longer the state of the tree.
+    await user.selectOptions(screen.getByLabelText("品質保証の親部門"), "org-corporate");
+    expect(await screen.findByText("品質保証をコーポレートへ移しました")).toBeInTheDocument();
+    // What is offered is the move that just happened, and it goes back to デザイン本部 —
+    // where the row was — rather than to 開発本部, where it started.
+    await user.click(undoOffer("品質保証"));
+    expect(await screen.findByText("品質保証をデザイン本部へ戻しました")).toBeInTheDocument();
+  });
+
+  /** And dropping every pending change leaves it nothing to put back. */
+  it("stops offering once every pending change is dropped", async () => {
+    const user = userEvent.setup();
+    const adapter = sharedAdapter();
+    adapter.initialState = orgWorkspace();
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
+
+    const select = await parentSelect(user, "品質保証");
+    await user.selectOptions(select, "org-design-div");
+    await user.click(screen.getByRole("button", { name: "元に戻す" }));
+    noUndoOffer();
+    // And the move itself is back where it started.
+    expect((screen.getByLabelText("品質保証の親部門") as HTMLSelectElement).value).toBe("org-engineering");
   });
 });

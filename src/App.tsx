@@ -459,17 +459,20 @@ export default function Home({ mode = "demo", organizationId, organizationName =
   const [selectedNeedId, setSelectedNeedId] = useState(startingWorkspace.needs[0]?.id ?? "");
   const [toast, setToast] = useState(opening.toast ?? "");
   /**
-   * An undo offered inside the toast, for an action that already took effect.
+   * The org move that can still be put back, offered in the row it belongs to.
    *
-   * It carries the message it was made for, and the button only renders while that is
-   * still the message on screen. `setToast` is the plain state setter and some forty
-   * places call it, so anything that says something else clears this by construction
-   * rather than by every one of them remembering to (#113).
+   * #113 put this in the toast, which stood for eight seconds and sat at the end of the
+   * document — measured, a keyboard reached it past every remaining row and the change
+   * bar, if it reached it at all. In the row it is one Tab from the select that did the
+   * move, and it can wait: it stays until the next move replaces it, or until it stops
+   * being a move that can be put back (#173).
+   *
+   * Both parents are here, and `orgMoveOffer` is where they are checked. Without them the
+   * offer only knew that the unit still existed, and an undo needs more than that: the
+   * place it came from has to still be there to go back into, and nothing can have moved
+   * the unit somewhere else in the meantime.
    */
-  const [toastUndo, setToastUndo] = useState<null | { text: string; label: string; run: () => void }>(null);
-  const undoableToast = toastUndo?.text === toast ? toastUndo : null;
-  /** Pointer or focus on the toast's undo, which stops it disappearing mid-reach. */
-  const [toastHeld, setToastHeld] = useState(false);
+  const [lastOrgMove, setLastOrgMove] = useState<null | { unitId: string; name: string; parentId: string | null; previousParentId: string | null }>(null);
   /**
    * How far up the change bar reaches, so the toast can sit above it.
    *
@@ -621,17 +624,9 @@ export default function Home({ mode = "demo", organizationId, organizationName =
 
   useEffect(() => {
     if (!toast) return;
-    // 3.2 seconds is enough to read; it is not enough to read, decide and reach a button,
-    // so an offered undo holds the toast open longer. And once someone is on the button —
-    // pointer or keyboard — the countdown stops rather than taking it out from under them
-    // (#113, from the evaluation).
-    if (undoableToast && toastHeld) return;
-    const timer = window.setTimeout(() => {
-      setToast("");
-      setToastUndo(null);
-    }, undoableToast ? 8000 : 3200);
+    const timer = window.setTimeout(() => setToast(""), 3200);
     return () => window.clearTimeout(timer);
-  }, [toast, undoableToast, toastHeld]);
+  }, [toast]);
 
   useEffect(() => {
     favoritesRef.current = favorites;
@@ -1431,6 +1426,9 @@ export default function Home({ mode = "demo", organizationId, organizationName =
 
   const undoChanges = () => {
     if (operationLocked) return;
+    // The row's undo is about one move inside the pending set; dropping the whole set
+    // leaves nothing for it to put back (#173).
+    setLastOrgMove(null);
     setWorkspace(cloneState(committedWorkspace));
     setPendingSave(null);
     updateSaveOutcomePending(false);
@@ -1475,6 +1473,9 @@ export default function Home({ mode = "demo", organizationId, organizationName =
       updateSaveOutcomePending(false);
       setUnsavedChanges(0);
       unsavedRef.current = 0;
+      // Once it is committed, 「put this move back」 would be a new change rather than an
+      // undo, and the row should stop offering it (#173).
+      setLastOrgMove(null);
       clearFormDraft();
       setSyncStatus("idle");
     } catch (error) {
@@ -2199,23 +2200,45 @@ export default function Home({ mode = "demo", organizationId, organizationName =
     markUnsaved();
     const moved = units.find((unit) => unit.id === id)?.name ?? "部門";
     const to = parentId ? units.find((unit) => unit.id === parentId)?.name ?? "部門" : "最上位";
-    const text = `${moved}を${to}へ${verb}`;
-    setToast(text);
-    // Undoing is itself a move, and it does not offer another: putting it back again is
-    // the select, still in the row.
-    // 「この移動を」 because the change bar's own 「元に戻す」 is on screen at the same time and
-    // means something else — it returns the whole workspace to its last committed state.
-    // Two controls with one name pointing at different operations is what #88 and #124
-    // ruled out; the rendering test that first found both is in `src/App.test.tsx`.
-    setToastUndo(undoable
-      ? { text, label: "この移動を元に戻す", run: () => moveOrgUnitTo(id, before, "戻しました", false) }
-      : null);
+    setToast(`${moved}を${to}へ${verb}`);
+    // Undoing is itself a move and does not offer another: putting it back again is the
+    // select, still in the row. The row's label says 「この移動を」 because the change bar's
+    // own 「元に戻す」 can be on screen at the same time meaning something else — it returns
+    // the whole workspace to its last committed state, and two controls with one name
+    // pointing at different operations is what #88 and #124 ruled out.
+    setLastOrgMove(undoable ? { unitId: id, name: moved, parentId, previousParentId: before } : null);
   };
+
+  /**
+   * The move the row can still offer to put back, or null.
+   *
+   * Existing is not enough for either end of it. The evaluation on #173 walked one of
+   * these: move a department out of an emptied parent, delete that parent — now allowed,
+   * since the move is what emptied it — and the offer was still there, pointing at an id
+   * that has gone. `moveOrgUnit` validates the parent and throws, and unlike the select
+   * beside it the button had nothing to catch that. And on the other end, the unit has to
+   * still be where this move left it: a refresh in shared mode, or an organization or mode
+   * switch without a remount, can move it out from under a stale offer, which would then
+   * write an old parent over the new one. Both are one question — is this still the move
+   * that happened — so both are asked here rather than in the places that could cause it.
+   */
+  const orgMoveOffer = (() => {
+    if (!lastOrgMove) return null;
+    const units = workspace.orgUnits ?? [];
+    const unit = units.find((item) => item.id === lastOrgMove.unitId);
+    if (!unit || (unit.parentId ?? null) !== lastOrgMove.parentId) return null;
+    if (lastOrgMove.previousParentId && !units.some((item) => item.id === lastOrgMove.previousParentId)) return null;
+    return lastOrgMove;
+  })();
 
   const handleMoveOrgUnit = (id: string, parentId: string | null) => moveOrgUnitTo(id, parentId, "移しました", true);
 
   const handleArchiveOrgUnit = (id: string) => {
     if (!canManageMembers) throw new Error("組織階層を変更する権限がありません");
+    // Deleting either end of the last move takes the offer with it, and `orgMoveOffer` is
+    // where that is decided — the unit being gone and the parent it came from being gone
+    // are the same question, and asking it here as well would be a second answer to keep
+    // in step (#173).
     setWorkspace((current) => archiveOrgUnit(current, id));
     markUnsaved();
     setToast("部門を削除しました");
@@ -2591,7 +2614,17 @@ export default function Home({ mode = "demo", organizationId, organizationName =
         {activeNav === "opportunities" && <OpportunitiesView state={workspace} onOpen={openOpportunity} />}
         {activeNav === "members" && <MembersView state={workspace} weekOffset={viewWeekOffset} onOpen={openMember} onAssign={openAssignmentFor} onAddScene={handleAddSearchScene} onDeleteScene={handleDeleteSearchScene} canEdit={canEdit} canManageScenes={canManageMembers && featureEnabled("searchScenes")} query={memberQuery} onQueryChange={setMemberQuery} favorites={favorites} favoritesOnly={favoritesOnly} onFavoritesOnlyChange={setFavoritesOnly} onToggleFavorite={(memberId) => void toggleFavoriteTarget("member", memberId)} onAddToProposal={addMemberToProposal} onCopyQuery={() => void copyShareLink({ nav: "members", q: memberQuery }, "検索リンクをコピーしました")} />}
         {activeNav === "proposal" && <ProposalView state={workspace} weekOffset={viewWeekOffset} selectedIds={visibleProposalIds} anonymous={proposalAnonymous} favorites={favorites} needId={proposalNeedId || undefined} onNeedIdChange={setProposalNeedId} onSelectedIdsChange={setProposalMemberIds} onAnonymousChange={setProposalAnonymous} onOpenMember={openMember} onToggleFavorite={(memberId) => void toggleFavoriteTarget("member", memberId)} />}
-        {activeNav === "org" && <OrgView state={workspace} onAddUnit={handleAddOrgUnit} onMoveUnit={handleMoveOrgUnit} onArchiveUnit={handleArchiveOrgUnit} canManage={canManageMembers} />}
+        {activeNav === "org" && <OrgView
+          state={workspace}
+          onAddUnit={handleAddOrgUnit}
+          onMoveUnit={handleMoveOrgUnit}
+          onArchiveUnit={handleArchiveOrgUnit}
+          canManage={canManageMembers}
+          lastMove={orgMoveOffer}
+          onUndoMove={orgMoveOffer
+            ? () => moveOrgUnitTo(orgMoveOffer.unitId, orgMoveOffer.previousParentId, "戻しました", false)
+            : undefined}
+        />}
         {activeNav === "skills" && <SkillsView state={hydrateWorkspaceSkills(workspace)} onAddCatalogEntry={handleAddCatalogEntry} onOpenMember={openMember} onResolveNeed={openStaffingNeed} canEdit={canEdit} />}
         {activeNav === "fields" && (
           <>
@@ -2958,23 +2991,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
         elevated={unsavedChanges > 0}
         unavailableReason={mode === "demo" ? "AIチャットは、共有モードでログインすると利用できます。" : undefined}
       />
-      <div className={"toast " + (toast ? "show" : "")} style={changeBarReach > 0 ? { "--toast-lift": `${changeBarReach}px` } as CSSProperties : undefined} role="status" aria-live="polite"><Check size={14} />{toast}{undoableToast && (
-        <button
-          type="button"
-          className="toast-undo"
-          onMouseEnter={() => setToastHeld(true)}
-          onMouseLeave={() => setToastHeld(false)}
-          onFocus={() => setToastHeld(true)}
-          onBlur={() => setToastHeld(false)}
-          onClick={() => {
-            const undo = undoableToast;
-            setToastHeld(false);
-            setToast("");
-            setToastUndo(null);
-            undo.run();
-          }}
-        >{undoableToast.label}</button>
-      )}</div>
+      <div className={"toast " + (toast ? "show" : "")} style={changeBarReach > 0 ? { "--toast-lift": `${changeBarReach}px` } as CSSProperties : undefined} role="status" aria-live="polite"><Check size={14} />{toast}</div>
       {!hydrated && <span className="sr-only">保存データを読み込み中</span>}
     </main>
   );

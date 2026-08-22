@@ -7,45 +7,25 @@ import { fileURLToPath } from "node:url";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 /**
- * #113 put a button inside the toast, and three things about the toast made that harder
- * than it sounds. All three were measured before the change and after it.
+ * The toast is fixed to the bottom of the viewport and so is the change bar, and they were
+ * overlapping. Measured at 375px with a toast up, `elementFromPoint` on 「デモへ保存」
+ * returned the toast — the save could not be pressed at all.
  *
- * ## It could not be clicked
- *
- * `.toast` sets `pointer-events: none` so a hidden toast never swallows a click, and
- * `.toast.show` did not turn them back on — there had never been anything in there to
- * press. The first fix turned them on for the whole toast, which made all forty-odd of the
- * app's messages block whatever was under them, across the width of a narrow screen; the
- * evaluation on #113 caught that. Only the button takes clicks now.
- *
- * ## `.undo-button` was the wrong class to reuse
- *
- * It is described in two places: the colours in `.undo-button`, the box in `.change-bar
- * button` (height, padding, `display: inline-flex`). Only the colours would reach a button
- * outside the bar, so borrowing it would style this one half by the bar's rules and half
- * by nothing.
- *
- * The 620px block reads `.change-bar > span:nth-child(2), .undo-button { display: none; }`,
- * which looks like a second reason — the bar dropping its undo to fit — and is not one:
- * `.change-bar button` is (0,1,1) against `.undo-button`'s (0,1,0), and a media query adds
- * no specificity, so that `display: none` never applies. Measured at 375px: the bar's undo
- * is 92px wide and `display: flex`. Filed as #172; this file does not assert it.
- *
- * ## It sat on top of the change bar
- *
- * Both are fixed to the bottom of the viewport. Measured at 375px with the toast up,
- * `elementFromPoint` on 「デモへ保存」 returned the toast — the save could not be pressed.
- * That was already true of every toast in the app; #113 made it matter, because a toast
- * offering an undo stays up for eight seconds rather than three.
+ * That was true of every one of the app's forty-odd messages. #113 is what made it worth
+ * fixing: it put a button in the toast and held the toast open for eight seconds so the
+ * button could be reached, turning a flicker into an eight-second block on saving. #173
+ * then moved that button into the row it belongs to, where a keyboard reaches it in one
+ * Tab — so the toast is a message again and holds for 3.2s. The overlap is still worth
+ * keeping fixed: 3.2 seconds of a covered save button is a defect that predates both.
  *
  * | | before | after |
  * | ---------------- | ---------------------- | --------------------- |
  * | 375px toast box  | 187.5 x 86.8, 4 lines  | 347 x 54, 1 line      |
  * | 375px save button| unreachable            | reachable             |
- * | 1425px gap       | overlapping            | 14px clear            |
+ * | 1425px gap       | overlapping            | 12px clear            |
  *
  * At 375px the toast also had only half the viewport to grow into — `left: 50%` with no
- * `right` — so the message wrapped to four lines once a button sat beside it.
+ * `right` — so a longer message wrapped to four lines.
  *
  * The first version cleared the bar with a number, 92px at wide and 80px at narrow, read
  * off the bar as it measures today. The evaluation on #113 pointed out that the bar's
@@ -83,40 +63,33 @@ function maxWidthCss(css, width) {
   return bodies.join("\n");
 }
 
-test("the button takes clicks and the toast around it does not", async () => {
+test("a toast never takes a click meant for something under it", async () => {
   const css = withoutComments(await readCss());
-
-  const undo = css.match(/(?:^|\})\s*\.toast-undo\s*\{([^}]*)\}/u);
-  assert.ok(undo, "expected the toast's undo rule");
-  assert.match(undo[1], /pointer-events:\s*auto/u,
-    "the toast turns pointer events off so a hidden one never swallows a click; the button has to "
-    + "turn them back on for itself or it is inert (#113)");
-
-  // Not on the toast. It covers the width of a narrow screen and every one of the app's
-  // forty-odd messages passes through it — the first version of this made all of them
-  // block whatever was underneath, which the evaluation on #113 caught.
+  // Both halves, because the default is `auto`: asserting only that `.toast.show` does not
+  // turn them on would pass with the base rule deleted (the evaluation on #173 asked).
+  const base = css.match(/(?:^|\})\s*\.toast\s*\{([^}]*)\}/u);
+  assert.ok(base, "expected the .toast rule");
+  assert.match(base[1], /pointer-events:\s*none/u,
+    "a toast spans the width of a narrow screen and is up 3.2s after every one of the app's "
+    + "forty-odd messages; without this it takes the clicks under it");
   const show = css.match(/\.toast\.show\s*\{([^}]*)\}/u);
   assert.ok(show, "expected the .toast.show rule");
+  // It carries no controls of its own — #173 moved the one it had into the row that moved.
+  // #113 turned pointer events on for the whole toast for a while, which blocked whatever
+  // was under every message in the app.
   assert.doesNotMatch(show[1], /pointer-events:\s*auto/u,
-    "a whole toast that takes clicks blocks what is under it for every message, not just the one "
-    + "with a button (#113)");
+    "a toast that takes clicks blocks what is under it, and it has nothing to click (#113, #173)");
 });
 
-test("the toast's undo is described in one place, and its own", async () => {
-  const css = withoutComments(await readCss());
-  const rule = css.match(/(?:^|\})\s*\.toast-undo\s*\{([^}]*)\}/u);
-  assert.ok(rule, "expected the toast's own button class (#113)");
-  // Everything the button needs, rather than half of it borrowed from the change bar.
-  for (const property of ["min-height", "padding", "border", "border-radius", "background", "color"]) {
-    assert.match(rule[1], new RegExp(`${property}:`, "u"),
-      `.toast-undo does not set ${property}; borrowing it from .undo-button reaches only the colours, `
-      + "because the box lives in `.change-bar button` (#113)");
+test("the narrow toast gets the whole width", async () => {
+  const narrow = maxWidthCss(withoutComments(await readCss()), 620);
+  const rule = narrow.match(/(?:^|\})\s*\.toast\s*\{([^}]*)\}/u);
+  assert.ok(rule, "expected the toast to be pinned at 620px (#113)");
+  for (const property of ["left", "right"]) {
+    assert.match(rule[1], new RegExp(`${property}:\\s*\\d+px`, "u"),
+      `.toast needs a ${property} here: with only \`left: 50%\` it can grow into half the viewport, `
+      + "which wrapped a message to four lines (#113)");
   }
-
-  // And it does not disappear at the narrow width, where it is the only way back.
-  const narrow = maxWidthCss(css, 620);
-  assert.doesNotMatch(narrow, /\.toast-undo[^{]*\{[^}]*display:\s*none/u,
-    "the toast's undo has to survive the narrow layout: a move has no other way back (#113)");
 });
 
 test("the toast steps aside for the change bar, by measurement", async () => {
