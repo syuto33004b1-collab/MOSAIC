@@ -458,6 +458,16 @@ export default function Home({ mode = "demo", organizationId, organizationName =
   const [selectedAssignmentId, setSelectedAssignmentId] = useState("");
   const [selectedNeedId, setSelectedNeedId] = useState(startingWorkspace.needs[0]?.id ?? "");
   const [toast, setToast] = useState(opening.toast ?? "");
+  /**
+   * An undo offered inside the toast, for an action that already took effect.
+   *
+   * It carries the message it was made for, and the button only renders while that is
+   * still the message on screen. `setToast` is the plain state setter and some forty
+   * places call it, so anything that says something else clears this by construction
+   * rather than by every one of them remembering to (#113).
+   */
+  const [toastUndo, setToastUndo] = useState<null | { text: string; label: string; run: () => void }>(null);
+  const undoableToast = toastUndo?.text === toast ? toastUndo : null;
   const [unsavedChanges, setUnsavedChanges] = useState(0);
   const [hydrated, setHydrated] = useState(mode === "shared");
   const [revision, setRevision] = useState(shared?.initialRevision ?? 0);
@@ -577,9 +587,14 @@ export default function Home({ mode = "demo", organizationId, organizationName =
 
   useEffect(() => {
     if (!toast) return;
-    const timer = window.setTimeout(() => setToast(""), 3200);
+    // 3.2 seconds is enough to read; it is not enough to read, decide and reach a
+    // button, so an offered undo holds the toast open longer (#113).
+    const timer = window.setTimeout(() => {
+      setToast("");
+      setToastUndo(null);
+    }, undoableToast ? 8000 : 3200);
     return () => window.clearTimeout(timer);
-  }, [toast]);
+  }, [toast, undoableToast]);
 
   useEffect(() => {
     favoritesRef.current = favorites;
@@ -2113,13 +2128,36 @@ export default function Home({ mode = "demo", organizationId, organizationName =
     setToast("部門を追加しました");
   };
 
-  const handleMoveOrgUnit = (id: string, parentId: string | null) => {
+  /**
+   * 「部門の所属を更新しました」 did not say which department or where to, so a select
+   * touched by accident left nothing on screen to read. And the only way back was the
+   * change bar's 「元に戻す」, which returns the whole workspace to its last committed
+   * state — every other pending edit with it. This names the move and offers to put back
+   * just this one (#113).
+   */
+  const moveOrgUnitTo = (id: string, parentId: string | null, verb: "移しました" | "戻しました", undoable: boolean) => {
     if (!canManageMembers) throw new Error("組織階層を変更する権限がありません");
-    const orgUnits = moveOrgUnit(workspace.orgUnits ?? [], id, parentId);
+    const units = workspace.orgUnits ?? [];
+    const before = units.find((unit) => unit.id === id)?.parentId ?? null;
+    const orgUnits = moveOrgUnit(units, id, parentId);
     setWorkspace((current) => ({ ...current, orgUnits }));
     markUnsaved();
-    setToast("部門の所属を更新しました");
+    const moved = units.find((unit) => unit.id === id)?.name ?? "部門";
+    const to = parentId ? orgUnits.find((unit) => unit.id === parentId)?.name ?? "部門" : "最上位";
+    const text = `${moved}を${to}へ${verb}`;
+    setToast(text);
+    // Undoing is itself a move, and it does not offer another: putting it back again is
+    // the select, still in the row.
+    // 「この移動を」 because the change bar's own 「元に戻す」 is on screen at the same time and
+    // means something else — it returns the whole workspace to its last committed state.
+    // Two controls with one name pointing at different operations is what #88 and #124
+    // ruled out; the rendering test that first found both is in `src/App.test.tsx`.
+    setToastUndo(undoable
+      ? { text, label: "この移動を元に戻す", run: () => moveOrgUnitTo(id, before, "戻しました", false) }
+      : null);
   };
+
+  const handleMoveOrgUnit = (id: string, parentId: string | null) => moveOrgUnitTo(id, parentId, "移しました", true);
 
   const handleArchiveOrgUnit = (id: string) => {
     if (!canManageMembers) throw new Error("組織階層を変更する権限がありません");
@@ -2865,7 +2903,9 @@ export default function Home({ mode = "demo", organizationId, organizationName =
         elevated={unsavedChanges > 0}
         unavailableReason={mode === "demo" ? "AIチャットは、共有モードでログインすると利用できます。" : undefined}
       />
-      <div className={"toast " + (toast ? "show" : "")} role="status" aria-live="polite"><Check size={14} />{toast}</div>
+      <div className={"toast " + (toast ? "show" : "")} role="status" aria-live="polite"><Check size={14} />{toast}{undoableToast && (
+        <button type="button" className="toast-undo" onClick={() => { const undo = undoableToast; setToast(""); setToastUndo(null); undo.run(); }}>{undoableToast.label}</button>
+      )}</div>
       {!hydrated && <span className="sr-only">保存データを読み込み中</span>}
     </main>
   );

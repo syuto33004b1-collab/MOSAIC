@@ -841,7 +841,36 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   transition: opacity .22s ease, transform .22s ease;
 }
 .toast svg { color: #a9e1d0; }
-.toast.show { opacity: 1; transform: translate(-50%, 0); }
+/* `pointer-events` back on when it is up, or the undo inside it cannot be clicked —
+   the base rule turns them off so a hidden toast never swallows a click (#113). */
+.toast.show { opacity: 1; pointer-events: auto; transform: translate(-50%, 0); }
+/* Its own class rather than `.undo-button`. That one is described in two places — the
+   colours in `.undo-button` and the box in `.change-bar button` — and only the colours
+   would reach a button outside the bar, leaving this one styled half by the bar's rules
+   and half by nothing. One place for the button that lives in the toast (#113). */
+.toast-undo {
+  flex: none;
+  min-height: 32px;
+  padding: 4px 10px;
+  border: 1px solid #3a465e;
+  border-radius: 8px;
+  background: #222d43;
+  color: #fff;
+  cursor: pointer;
+  font-size: inherit;
+  font-weight: 700;
+}
+.toast-undo:hover { background: #2c3a55; }
+/* Out of the change bar's way while that bar is up. Both are fixed to the bottom and
+   they were overlapping: measured at 375px, the toast covered 「デモへ保存」 and
+   `elementFromPoint` on the button returned the toast — so the save could not be pressed
+   at all. It was already true of every toast; #113 made it matter, because a toast that
+   offers an undo stays up for eight seconds rather than three.
+
+   The offsets come from the bar: it sits at `bottom: 22px` and measured 56.4px tall at
+   1425px, and at `bottom: 14px` and 54px at 375px, so clearing it needs more than 78.4
+   and 68. These leave about 12px of gap. Without the bar the toast keeps its own 26px. */
+.app-shell:has(.change-bar) .toast { bottom: 92px; }
 
 /* `backwards`, never `both` or `forwards`. An animation of `opacity` or
    `transform` that is still filling makes its element a stacking context, and
@@ -922,6 +951,12 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   }
   .change-bar > span:nth-child(2), .undo-button { display: none; }
   .save-button { flex: 1; }
+  /* `left: 50%` with no `right` leaves the toast half the viewport to grow into — 187.5px
+     at 375px — so a message with a button beside it wrapped to four lines and stood 86.8px
+     tall. Pinned to both edges it is one line again (#113). */
+  .toast { left: 14px; right: 14px; max-width: none; transform: translateY(12px); }
+  .toast.show { transform: none; }
+  .app-shell:has(.change-bar) .toast { bottom: 80px; }
   .overlay { padding: 0; align-items: flex-end; }
   .drawer {
     /* Not a container here. This sheet is full-bleed and a different shape, and

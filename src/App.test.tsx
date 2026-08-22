@@ -3971,3 +3971,94 @@ describe("custom fields in a drawer form", () => {
     expect(document.querySelector(".drawer form .custom-field-inputs")).toBeNull();
   });
 });
+
+/**
+ * #113: the org table's 親部門 select takes effect the moment it changes, and the toast
+ * said 「部門の所属を更新しました」 — not which department, not where to. A select touched by
+ * accident left nothing on screen to read. And the only way back was the change bar's
+ * 「元に戻す」, which returns the whole workspace to its last committed state, every other
+ * pending edit with it.
+ *
+ * Measured before: the move stages rather than persisting (localStorage untouched, the
+ * change bar appears), so the Issue's premise that DEMO commits immediately was stale.
+ * What was true is that nothing named the move and nothing could take back just it.
+ */
+describe("moving a department", () => {
+  const orgWorkspace = () => initialWorkspace;
+
+  const parentSelect = async (user: ReturnType<typeof userEvent.setup>, unit: string) => {
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: "組織" }));
+    return screen.getByLabelText(`${unit}の親部門`) as HTMLSelectElement;
+  };
+
+  it("says what moved and where to", async () => {
+    const user = userEvent.setup();
+    const adapter = sharedAdapter();
+    adapter.initialState = orgWorkspace();
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
+
+    const select = await parentSelect(user, "品質保証");
+    await user.selectOptions(select, "org-design-div");
+    expect(await screen.findByText("品質保証をデザイン本部へ移しました")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "この移動を元に戻す" })).toBeInTheDocument();
+    // The change bar's 「元に戻す」 is on screen too and means the whole workspace, so the
+    // two must not answer to one name (#88, #124). This is how the collision was found.
+    expect(screen.getByRole("button", { name: "元に戻す" })).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: /元に戻す/u })).toHaveLength(2);
+  });
+
+  it("names the top level by the word the table uses", async () => {
+    const user = userEvent.setup();
+    const adapter = sharedAdapter();
+    adapter.initialState = orgWorkspace();
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
+
+    const select = await parentSelect(user, "品質保証");
+    await user.selectOptions(select, "");
+    // The row's own subtitle and the select's first option both say 最上位.
+    expect(await screen.findByText("品質保証を最上位へ移しました")).toBeInTheDocument();
+  });
+
+  it("puts back just that move, and does not offer to undo the undo", async () => {
+    const user = userEvent.setup();
+    const adapter = sharedAdapter();
+    adapter.initialState = orgWorkspace();
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
+
+    // Two edits, so an all-or-nothing revert would take the first one with it.
+    let select = await parentSelect(user, "データ戦略");
+    await user.selectOptions(select, "org-engineering");
+    select = await parentSelect(user, "品質保証");
+    await user.selectOptions(select, "org-design-div");
+
+    await user.click(screen.getByRole("button", { name: "この移動を元に戻す" }));
+    expect(await screen.findByText("品質保証を開発本部へ戻しました")).toBeInTheDocument();
+    // Back where it was, and the other edit is still there.
+    expect((await parentSelect(user, "品質保証")).value).toBe("org-engineering");
+    expect((screen.getByLabelText("データ戦略の親部門") as HTMLSelectElement).value).toBe("org-engineering");
+    // Putting it back again is the select, still in the row.
+    expect(screen.queryByRole("button", { name: "この移動を元に戻す" })).not.toBeInTheDocument();
+  });
+
+  /**
+   * The undo remembers the message it was made for, and renders only while that is the
+   * message on screen. `setToast` is the plain setter and some forty places call it; this
+   * is what keeps a stale undo from riding along under someone else's words.
+   */
+  it("drops the undo as soon as the toast says something else", async () => {
+    const user = userEvent.setup();
+    const adapter = sharedAdapter();
+    adapter.initialState = orgWorkspace();
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
+
+    const select = await parentSelect(user, "品質保証");
+    await user.selectOptions(select, "org-design-div");
+    expect(screen.getByRole("button", { name: "この移動を元に戻す" })).toBeInTheDocument();
+
+    // Anything else that speaks.
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^メンバー( |$)/u }));
+    await user.click(screen.getAllByRole("button", { name: /提案へ/u })[0]);
+    expect(await screen.findByText("提案ビューに追加しました")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "この移動を元に戻す" })).not.toBeInTheDocument();
+  });
+});
