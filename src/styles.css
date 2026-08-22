@@ -953,7 +953,10 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
     min-width: 0;
     transform: none;
   }
-  .change-bar > span:nth-child(2), .undo-button { display: none; }
+  /* 「N件の変更があります」 goes; the undo stays, on purpose. `.undo-button` used to be in
+     this group and never applied — `.change-bar button` outranks it and a media query adds
+     no specificity — so the reasoning is in #172 rather than here. */
+  .change-bar > span:nth-child(2) { display: none; }
   .save-button { flex: 1; }
   /* `left: 50%` with no `right` leaves the toast half the viewport to grow into — 187.5px
      at 375px — so a message with a button beside it wrapped to four lines and stood 86.8px
