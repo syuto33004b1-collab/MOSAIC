@@ -818,23 +818,6 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
      left column, and a right border there would draw a rule into empty space. */
   .drawer .detail-member-list button:nth-child(odd):not(:last-child) { border-right: 1px solid var(--line); }
 }
-.report-hero {
-  margin-bottom: 20px;
-  padding: 18px;
-  border-radius: 14px;
-  background: #172033;
-  color: #fff;
-}
-.report-hero span { color: #aab3c6; font-size: 8px; }
-.report-hero strong { margin-top: 5px; display: block; font-family: var(--font-data); font-size: 35px; letter-spacing: -.05em; }
-.report-hero p { margin: 4px 0 0; color: #929db2; font-size: 8px; }
-.report-bars { margin-bottom: 18px; display: flex; flex-direction: column; gap: 11px; }
-.report-bars > div { display: grid; grid-template-columns: 70px 1fr 34px; align-items: center; gap: 8px; }
-.report-bars span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 8px; }
-.report-bars i { height: 6px; border-radius: 999px; background: #edf0f4; overflow: hidden; }
-.report-bars b { display: block; height: 100%; border-radius: inherit; background: #8492ee; }
-.report-bars b.over { background: #eb776d; }
-.report-bars > div > strong { color: #626c7e; font-family: var(--font-data); font-size: 8px; text-align: right; }
 
 .toast {
   position: fixed;
@@ -1184,8 +1167,7 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .filter-label { font-size: var(--text-min); font-weight: 700; white-space: nowrap; }
 /* Two containers, not one: 「8件を表示」 answers what is in the list, 「並び順: …」
    answers how it is ordered. They were the same class. */
-.toolbar-result,
-.toolbar-status { margin-left: 4px; color: #929aaa; font-size: 8px; }
+.toolbar-result { margin-left: 4px; color: #929aaa; font-size: 8px; }
 /* Everything that *does* something, pushed to the far end. The row held filters,
    a status line and two buttons in one flow, so 「このシーンを削除」 sat between two
    selects and read like one of them (#138). Position is the whole distinction; no
@@ -2475,10 +2457,6 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .candidate-list em,
 .candidate-list button,
 .drawer-footnote,
-.report-hero span,
-.report-hero p,
-.report-bars span,
-.report-bars > div > strong,
 .toast,
 .read-only-label,
 .candidate-empty small,
@@ -2495,7 +2473,6 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .inline-search input,
 .view-filter select,
 .toolbar-result,
-.toolbar-status,
 .view-add-button,
 .portfolio-table th,
 .member-table th,
@@ -2572,13 +2549,11 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .role-brief > span,
 .candidate-list small,
 .drawer-footnote,
-.report-hero p,
 .candidate-empty small,
 .sync-banner small,
 .attention-clear p,
 .planned-candidate small,
 .toolbar-result,
-.toolbar-status,
 .project-name-cell small,
 .member-name-cell small,
 .milestone-cell small,
@@ -3312,8 +3287,7 @@ h1 {
   color: var(--ink);
 }
 .view-add-button.ghost:hover { border-color: var(--ink); background: var(--paper-deep); }
-.toolbar-result,
-.toolbar-status { color: var(--muted); }
+.toolbar-result { color: var(--muted); }
 .toolbar-chips-lead { color: var(--muted); }
 /* The chips take the theme's tokens rather than the cool blues of the layer
    above, which would read as a different component (#138). Square corners to
