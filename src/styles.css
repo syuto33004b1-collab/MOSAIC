@@ -953,12 +953,9 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
     min-width: 0;
     transform: none;
   }
-  /* 「N件の変更があります」 goes; the undo stays. `.undo-button { display: none }` used to be
-     in this group and never applied — `.change-bar button` is (0,1,1) against its (0,1,0)
-     and a media query adds no specificity, so it was a rule that read as a decision and
-     did nothing. Measured at 375px: the bar's children come to 298px inside 347px, so
-     there is room, and #113 made the whole-workspace undo worth keeping in reach — the
-     toast's undo puts back one move, this one drops every pending change (#172). */
+  /* 「N件の変更があります」 goes; the undo stays, on purpose. `.undo-button` used to be in
+     this group and never applied — `.change-bar button` outranks it and a media query adds
+     no specificity — so the reasoning is in #172 rather than here. */
   .change-bar > span:nth-child(2) { display: none; }
   .save-button { flex: 1; }
   /* `left: 50%` with no `right` leaves the toast half the viewport to grow into — 187.5px
