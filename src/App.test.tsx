@@ -4202,11 +4202,11 @@ describe("moving a department", () => {
   });
 
   /**
-   * The undo remembers the message it was made for, and renders only while that is the
-   * message on screen. `setToast` is the plain setter and some forty places call it; this
-   * is what keeps a stale undo from riding along under someone else's words.
+   * The undo is in the row, so it does not race a message: #113 had it in the toast, where
+   * it stood eight seconds and sat at the end of the document. Leaving the screen and
+   * coming back finds it where it was.
    */
-  it("drops the undo as soon as the toast says something else", async () => {
+  it("keeps the offer in its row while other things happen", async () => {
     const user = userEvent.setup();
     const adapter = sharedAdapter();
     adapter.initialState = orgWorkspace();
@@ -4214,12 +4214,71 @@ describe("moving a department", () => {
 
     const select = await parentSelect(user, "品質保証");
     await user.selectOptions(select, "org-design-div");
-    expect(screen.getByRole("button", { name: "この移動を元に戻す" })).toBeInTheDocument();
+    // In the cell with the select that did it, so a keyboard is one Tab away.
+    const undo = screen.getByRole("button", { name: "この移動を元に戻す" });
+    expect(undo.closest("td")).toBe(screen.getByLabelText("品質保証の親部門").closest("td"));
 
-    // Anything else that speaks.
+    // Something else entirely, including another message.
     await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^メンバー( |$)/u }));
     await user.click(screen.getAllByRole("button", { name: /提案へ/u })[0]);
     expect(await screen.findByText("提案ビューに追加しました")).toBeInTheDocument();
+
+    // Back on the org screen it is still there, in the same row.
+    await parentSelect(user, "品質保証");
+    expect(screen.getByRole("button", { name: "この移動を元に戻す" }).closest("td"))
+      .toBe(screen.getByLabelText("品質保証の親部門").closest("td"));
+  });
+
+  /** One row at a time: the offer belongs to the move that happened last. */
+  it("moves the offer to the row that moved most recently", async () => {
+    const user = userEvent.setup();
+    const adapter = sharedAdapter();
+    adapter.initialState = orgWorkspace();
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
+
+    let select = await parentSelect(user, "品質保証");
+    await user.selectOptions(select, "org-design-div");
+    select = await parentSelect(user, "データ戦略");
+    await user.selectOptions(select, "org-engineering");
+
+    const offers = screen.getAllByRole("button", { name: "この移動を元に戻す" });
+    expect(offers).toHaveLength(1);
+    expect(offers[0].closest("td")).toBe(screen.getByLabelText("データ戦略の親部門").closest("td"));
+  });
+
+  /**
+   * Once the move is committed, putting it back would be a new change rather than an undo,
+   * so the row stops offering it.
+   */
+  it("stops offering once the change is saved", async () => {
+    const user = userEvent.setup();
+    const adapter = sharedAdapter();
+    const save = vi.fn().mockResolvedValue({ revision: 8, savedAt: "2026-08-17T10:00:00Z" });
+    adapter.initialState = orgWorkspace();
+    adapter.save = save;
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
+
+    const select = await parentSelect(user, "品質保証");
+    await user.selectOptions(select, "org-design-div");
+    expect(screen.getByRole("button", { name: "この移動を元に戻す" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "チームへ保存" }));
+    await waitFor(() => expect(save).toHaveBeenCalledOnce());
+    await waitFor(() => expect(screen.queryByRole("button", { name: "この移動を元に戻す" })).not.toBeInTheDocument());
+  });
+
+  /** And dropping every pending change leaves it nothing to put back. */
+  it("stops offering once every pending change is dropped", async () => {
+    const user = userEvent.setup();
+    const adapter = sharedAdapter();
+    adapter.initialState = orgWorkspace();
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
+
+    const select = await parentSelect(user, "品質保証");
+    await user.selectOptions(select, "org-design-div");
+    await user.click(screen.getByRole("button", { name: "元に戻す" }));
     expect(screen.queryByRole("button", { name: "この移動を元に戻す" })).not.toBeInTheDocument();
+    // And the move itself is back where it started.
+    expect((screen.getByLabelText("品質保証の親部門") as HTMLSelectElement).value).toBe("org-engineering");
   });
 });

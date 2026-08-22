@@ -842,32 +842,40 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 }
 .toast svg { color: #a9e1d0; }
 .toast.show { opacity: 1; transform: translate(-50%, 0); }
-/* Its own class rather than `.undo-button`. That one is described in two places — the
+/* The way back from a move, in the row that moved. #113 had it in the toast; #173 moved it
+   here, where a keyboard reaches it in one Tab from the select.
+
+   Its own class rather than `.undo-button`. That one is described in two places — the
    colours in `.undo-button` and the box in `.change-bar button` — and only the colours
    would reach a button outside the bar, leaving this one styled half by the bar's rules
-   and half by nothing. One place for the button that lives in the toast (#113). */
-.toast-undo {
-  /* The toast keeps `pointer-events: none` — it covers the width of a narrow screen and
-     every one of the app's forty-odd messages passes through it. Only the button takes
-     clicks, and only while its toast is up (#113). */
-  pointer-events: auto;
-  flex: none;
+   and half by nothing. */
+.org-undo-move {
+  /* `flex`, not `inline-flex`: inline put it beside the select, which widened the 親部門
+     column to hold both — measured, the table went 693 → 839px at 375px for a control that
+     belongs under the thing it undoes. Block-level drops it onto its own line and the
+     column keeps its width. 32px to match the select above it (#173). */
+  width: max-content;
   min-height: 32px;
-  padding: 4px 10px;
-  border: 1px solid #3a465e;
+  margin-top: 6px;
+  padding: 4px 9px;
+  border: 1px solid var(--line-strong);
   border-radius: 8px;
-  background: #222d43;
-  color: #fff;
+  background: var(--paper-pure);
+  color: var(--ink);
   cursor: pointer;
-  font-size: inherit;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--text-min);
   font-weight: 700;
+  white-space: nowrap;
 }
-.toast-undo:hover { background: #2c3a55; }
+.org-undo-move:hover { background: var(--paper-deep); }
 /* Out of the change bar's way while that bar is up. Both are fixed to the bottom and they
    were overlapping: measured at 375px, the toast covered 「デモへ保存」 and
    `elementFromPoint` on the button returned the toast — so the save could not be pressed
-   at all. It was already true of every toast; #113 made it matter, because a toast that
-   offers an undo stays up for eight seconds rather than three.
+   at all. It is true of every one of the app's forty-odd messages; #113 found it while the
+   toast still held a button, and it outlived that (#173).
 
    `--toast-lift` is how far up the bar actually reaches, measured in `App.tsx` and kept
    current by a ResizeObserver. A number here cannot do it: the bar's height comes from its

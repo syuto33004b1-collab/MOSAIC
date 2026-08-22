@@ -19,6 +19,7 @@ import {
   Sparkles,
   Star,
   Trash2,
+  Undo2,
   Upload,
   UserRoundPlus,
   UsersRound,
@@ -239,6 +240,9 @@ type OrgViewProps = {
   onMoveUnit: (id: string, parentId: string | null) => void;
   onArchiveUnit: (id: string) => void;
   canManage?: boolean;
+  /** The move that can still be put back, if there is one — see `onUndoMove` (#173). */
+  lastMove?: { unitId: string; name: string } | null;
+  onUndoMove?: () => void;
 };
 
 type MemberOrgFieldsProps = {
@@ -1978,7 +1982,7 @@ export function MemberOrgFields({ units, primaryUnitId, extraUnitIds, managerUni
   );
 }
 
-export function OrgView({ state, onAddUnit, onMoveUnit, onArchiveUnit, canManage = false }: OrgViewProps) {
+export function OrgView({ state, onAddUnit, onMoveUnit, onArchiveUnit, canManage = false, lastMove = null, onUndoMove }: OrgViewProps) {
   const [query, setQuery] = useState("");
   const [name, setName] = useState("");
   const [parentId, setParentId] = useState("");
@@ -2083,6 +2087,16 @@ export function OrgView({ state, onAddUnit, onMoveUnit, onArchiveUnit, canManage
                           <option value={candidate.id} key={candidate.id}>{orgUnitPath(state.orgUnits, candidate.id).join(" / ")}</option>
                         ))}
                       </select>
+                      {/* In the cell, right after the select, because that is the one place a
+                          keyboard reaches in a single Tab from the control that did the move.
+                          #113 put this in the toast, where it stood eight seconds and sat at
+                          the end of the document — measured, past every remaining row and the
+                          change bar. It stays until the next move, so nothing races (#173). */}
+                      {lastMove?.unitId === unit.id && onUndoMove && (
+                        <button type="button" className="org-undo-move" onClick={onUndoMove}>
+                          <Undo2 size={13} />この移動を元に戻す
+                        </button>
+                      )}
                     </td>
                   )}
                   {canManage && (
