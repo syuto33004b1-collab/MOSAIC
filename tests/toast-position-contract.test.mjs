@@ -65,11 +65,18 @@ function maxWidthCss(css, width) {
 
 test("a toast never takes a click meant for something under it", async () => {
   const css = withoutComments(await readCss());
+  // Both halves, because the default is `auto`: asserting only that `.toast.show` does not
+  // turn them on would pass with the base rule deleted (the evaluation on #173 asked).
+  const base = css.match(/(?:^|\})\s*\.toast\s*\{([^}]*)\}/u);
+  assert.ok(base, "expected the .toast rule");
+  assert.match(base[1], /pointer-events:\s*none/u,
+    "a toast spans the width of a narrow screen and is up 3.2s after every one of the app's "
+    + "forty-odd messages; without this it takes the clicks under it");
   const show = css.match(/\.toast\.show\s*\{([^}]*)\}/u);
   assert.ok(show, "expected the .toast.show rule");
-  // It covers the width of a narrow screen and carries no controls of its own — #173 moved
-  // the one it had into the row that moved. #113 turned pointer events on for the whole
-  // toast for a while, which blocked whatever was under every message in the app.
+  // It carries no controls of its own — #173 moved the one it had into the row that moved.
+  // #113 turned pointer events on for the whole toast for a while, which blocked whatever
+  // was under every message in the app.
   assert.doesNotMatch(show[1], /pointer-events:\s*auto/u,
     "a toast that takes clicks blocks what is under it, and it has nothing to click (#113, #173)");
 });

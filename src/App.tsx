@@ -464,10 +464,15 @@ export default function Home({ mode = "demo", organizationId, organizationName =
    * #113 put this in the toast, which stood for eight seconds and sat at the end of the
    * document — measured, a keyboard reached it past every remaining row and the change
    * bar, if it reached it at all. In the row it is one Tab from the select that did the
-   * move, and it can wait: it stays until the next move replaces it, the unit is gone, or
-   * the workspace is saved or reverted (#173).
+   * move, and it can wait: it stays until the next move replaces it, or until it stops
+   * being a move that can be put back (#173).
+   *
+   * Both parents are here, and `orgMoveOffer` is where they are checked. Without them the
+   * offer only knew that the unit still existed, and an undo needs more than that: the
+   * place it came from has to still be there to go back into, and nothing can have moved
+   * the unit somewhere else in the meantime.
    */
-  const [lastOrgMove, setLastOrgMove] = useState<null | { unitId: string; name: string; previousParentId: string | null }>(null);
+  const [lastOrgMove, setLastOrgMove] = useState<null | { unitId: string; name: string; parentId: string | null; previousParentId: string | null }>(null);
   /**
    * How far up the change bar reaches, so the toast can sit above it.
    *
@@ -2201,16 +2206,39 @@ export default function Home({ mode = "demo", organizationId, organizationName =
     // own 「元に戻す」 can be on screen at the same time meaning something else — it returns
     // the whole workspace to its last committed state, and two controls with one name
     // pointing at different operations is what #88 and #124 ruled out.
-    setLastOrgMove(undoable ? { unitId: id, name: moved, previousParentId: before } : null);
+    setLastOrgMove(undoable ? { unitId: id, name: moved, parentId, previousParentId: before } : null);
   };
+
+  /**
+   * The move the row can still offer to put back, or null.
+   *
+   * Existing is not enough for either end of it. The evaluation on #173 walked one of
+   * these: move a department out of an emptied parent, delete that parent — now allowed,
+   * since the move is what emptied it — and the offer was still there, pointing at an id
+   * that has gone. `moveOrgUnit` validates the parent and throws, and unlike the select
+   * beside it the button had nothing to catch that. And on the other end, the unit has to
+   * still be where this move left it: a refresh in shared mode, or an organization or mode
+   * switch without a remount, can move it out from under a stale offer, which would then
+   * write an old parent over the new one. Both are one question — is this still the move
+   * that happened — so both are asked here rather than in the places that could cause it.
+   */
+  const orgMoveOffer = (() => {
+    if (!lastOrgMove) return null;
+    const units = workspace.orgUnits ?? [];
+    const unit = units.find((item) => item.id === lastOrgMove.unitId);
+    if (!unit || (unit.parentId ?? null) !== lastOrgMove.parentId) return null;
+    if (lastOrgMove.previousParentId && !units.some((item) => item.id === lastOrgMove.previousParentId)) return null;
+    return lastOrgMove;
+  })();
 
   const handleMoveOrgUnit = (id: string, parentId: string | null) => moveOrgUnitTo(id, parentId, "移しました", true);
 
   const handleArchiveOrgUnit = (id: string) => {
     if (!canManageMembers) throw new Error("組織階層を変更する権限がありません");
-    // Nothing to put back into: the row is going away. The view already hides the offer
-    // for a unit that no longer exists; this drops the state with it (#173).
-    if (lastOrgMove?.unitId === id) setLastOrgMove(null);
+    // Deleting either end of the last move takes the offer with it, and `orgMoveOffer` is
+    // where that is decided — the unit being gone and the parent it came from being gone
+    // are the same question, and asking it here as well would be a second answer to keep
+    // in step (#173).
     setWorkspace((current) => archiveOrgUnit(current, id));
     markUnsaved();
     setToast("部門を削除しました");
@@ -2592,10 +2620,10 @@ export default function Home({ mode = "demo", organizationId, organizationName =
           onMoveUnit={handleMoveOrgUnit}
           onArchiveUnit={handleArchiveOrgUnit}
           canManage={canManageMembers}
-          lastMove={lastOrgMove && (workspace.orgUnits ?? []).some((unit) => unit.id === lastOrgMove.unitId)
-            ? { unitId: lastOrgMove.unitId, name: lastOrgMove.name }
-            : null}
-          onUndoMove={() => moveOrgUnitTo(lastOrgMove!.unitId, lastOrgMove!.previousParentId, "戻しました", false)}
+          lastMove={orgMoveOffer}
+          onUndoMove={orgMoveOffer
+            ? () => moveOrgUnitTo(orgMoveOffer.unitId, orgMoveOffer.previousParentId, "戻しました", false)
+            : undefined}
         />}
         {activeNav === "skills" && <SkillsView state={hydrateWorkspaceSkills(workspace)} onAddCatalogEntry={handleAddCatalogEntry} onOpenMember={openMember} onResolveNeed={openStaffingNeed} canEdit={canEdit} />}
         {activeNav === "fields" && (

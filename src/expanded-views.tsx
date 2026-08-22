@@ -2093,7 +2093,31 @@ export function OrgView({ state, onAddUnit, onMoveUnit, onArchiveUnit, canManage
                           the end of the document — measured, past every remaining row and the
                           change bar. It stays until the next move, so nothing races (#173). */}
                       {lastMove?.unitId === unit.id && onUndoMove && (
-                        <button type="button" className="org-undo-move" onClick={onUndoMove}>
+                        <button
+                          type="button"
+                          className="org-undo-move"
+                          /* The visible words stay short — the cell is 208px at 375px — and the
+                             name a screen reader reads says which department, because a button
+                             list gives no row to read it from. It opens with the visible text
+                             rather than replacing it, so speaking what is written still works. */
+                          aria-label={`この移動を元に戻す（${lastMove.name}）`}
+                          onClick={(event) => {
+                            // Same guard as the select above: `moveOrgUnit` throws, and the
+                            // offer is only as fresh as the last render. Without this the
+                            // throw would leave an event handler rather than the error slot.
+                            const select = event.currentTarget.closest("td")?.querySelector("select");
+                            try {
+                              onUndoMove();
+                              setError("");
+                            } catch (caught) {
+                              setError(caught instanceof Error ? caught.message : "部門を移せませんでした");
+                            }
+                            // This button is about to unmount, and focus would land on the
+                            // document. Back to the select, which is where another move starts
+                            // and is the only other way back (#173).
+                            select?.focus();
+                          }}
+                        >
                           <Undo2 size={13} />この移動を元に戻す
                         </button>
                       )}
