@@ -2755,6 +2755,38 @@ describe("a proposal answers something", () => {
   });
 
   /**
+   * The ribbon is one element in normal flow, so a printed proposal that runs past
+   * one page had nothing on its later pages saying whose proposal it was — four
+   * candidates does it, at 267px a card in 1017px of printable height. Every card
+   * carries the line now (#185).
+   *
+   * Whether it prints is the stylesheet's half, in
+   * `tests/proposal-print-contract.test.mjs`. This is the content: the subject and
+   * the display mode, on every card, including the one thing a reader holding only
+   * page two could not otherwise know — that names are being withheld.
+   */
+  it("puts the proposal's own name on every candidate for the printed page", async () => {
+    const user = await openProposal();
+    const picker = screen.getByLabelText("提案先を選ぶ") as HTMLSelectElement;
+    const subject = [...picker.options].find((option) => option.value !== "")!;
+    await user.selectOptions(picker, subject.value);
+
+    const group = [...document.querySelectorAll(".proposal-picker-group")]
+      .find((element) => element.querySelector("small")?.textContent === "メンバー")!;
+    for (const item of [...group.querySelectorAll(".proposal-picker-item")].slice(0, 2)) {
+      await user.click(item as HTMLElement);
+    }
+    const provenance = () => [...document.querySelectorAll(".proposal-card-provenance")].map((el) => el.textContent);
+    expect(provenance()).toHaveLength(document.querySelectorAll(".proposal-card").length);
+    expect(provenance().length).toBeGreaterThan(1);
+    expect(new Set(provenance()).size).toBe(1);
+    expect(provenance()[0]).toBe(`${subject.textContent} · 氏名あり`);
+
+    await user.click(screen.getByLabelText("氏名・勤務地を隠す"));
+    expect(provenance()[0]).toBe(`${subject.textContent} · 氏名なし`);
+  });
+
+  /**
    * Ordering, actually asserted. A first version clicked the top candidate and
    * accepted either 「適合」 or 「適合していません」 on the card, which is true of any
    * order at all.
