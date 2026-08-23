@@ -184,3 +184,38 @@ test("nothing rides along with a field that was chosen", async () => {
   assert.match(body, /:not\(\[data-print~="スキル"\]\)\s*\.proposal-match-skills/u,
     "the requirement's matched skills print with 「要件期間の最小空き」 unticked otherwise (#179)");
 });
+
+/**
+ * Whose proposal a later page belongs to (#185).
+ *
+ * The ribbon that names the subject is one element in normal flow, so it appears on
+ * page one and nowhere else. Measured under the same approximation as the rest of this
+ * file, viewport 688 x 1017 with nine candidates and every column unticked: the cards
+ * are 108px each, the document 1230px, so it already runs onto a second page — and with
+ * the columns ticked a card is 267px and four of them do it.
+ *
+ * A running header would say it once per page, which is the better shape and the reason
+ * this was not done in #179: `@page` margin boxes are not in Chrome, and whether a
+ * `position: fixed` element repeats per page is engine-dependent and not measurable
+ * here. A line per card certainly prints.
+ *
+ * What this holds is that the line is paper-only and reaches paper. Its content — the
+ * subject and the display mode — is in `src/App.test.tsx`, where there is a DOM.
+ */
+test("every printed candidate says whose proposal it is", async () => {
+  const [body] = await printBlock();
+  const css = withoutComments(await readCss());
+
+  // Paper only. Twelve copies of one line, two inches under the ribbon that already says
+  // it, is noise on a screen.
+  const base = css.replace(/@media[^{]*\{(?:[^{}]*\{[^{}]*\})*[^{}]*\}/gu, "");
+  assert.match(rulesFor(base, ".proposal-card-provenance"), /display:\s*none/u,
+    "the provenance line belongs to the printed page, not to the screen (#185)");
+  assert.match(rulesFor(body, ".proposal-card-provenance"), /display:\s*block/u,
+    "the print block has to turn it back on, or nothing says whose proposal page two is (#185)");
+
+  // And it is not swept away by the tick boxes: it is not one of the columns, it is the
+  // thing that says which proposal the columns belong to.
+  assert.doesNotMatch(body, /:not\(\[data-print~="[^"]*"\]\)[^{,]*\.proposal-card-provenance/u,
+    "the provenance line is not one of the chosen fields; unticking a column must not take it (#185)");
+});

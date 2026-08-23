@@ -1106,6 +1106,16 @@ export function ProposalView({
             const weeklyLoads = proposalWeeklyLoads(state, member, weekStart);
             return (
               <article className={"proposal-card" + (anonymous ? " is-anonymous" : "")} key={member.id}>
+                {/* Paper only, and on every card. The ribbon that names the proposal is one
+                    element in normal flow, so once the candidates spill past the first page —
+                    four of them, at 267px a card in 1017px of printable height — every later
+                    page is candidates with nothing saying whose proposal they are. A running
+                    header would say it once per page, but `position: fixed` repeats are
+                    engine-dependent and cannot be measured here, and `@page` margin boxes are
+                    not in Chrome, so this is the one that certainly prints (#185).
+                    The display mode comes with it: a reader holding only page two would not
+                    otherwise know that names were being withheld. */}
+                <p className="proposal-card-provenance">{subject ? subject.label : "提案先未選択"} · {anonymous ? "氏名なし" : "氏名あり"}</p>
                 <header>
                   <span className={"avatar " + (anonymous ? "sand" : member.avatarTone)}>{anonymous ? anonymousCandidateLabel(index).slice(-1) : member.initials}</span>
                   {/* Named so the print rules can drop the ones the tick boxes did not

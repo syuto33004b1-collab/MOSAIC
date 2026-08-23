@@ -1554,6 +1554,10 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   font-size: var(--text-min);
   font-weight: 700;
 }
+/* Off screen entirely: twelve cards carrying the same line is noise on a display
+   where the ribbon is two inches above it, and useful only once the pages are
+   separate objects (#185). */
+.proposal-card-provenance { display: none; }
 .proposal-weeks { display: grid; gap: 7px; }
 .proposal-weeks > div { display: grid; grid-template-columns: 52px minmax(0, 1fr) 72px; gap: 8px; align-items: center; font-size: var(--text-min); }
 .proposal-weeks i { height: 8px; border-radius: 99px; background: #eef1f6; overflow: hidden; }
@@ -5156,6 +5160,16 @@ h1 {
   .proposal-cards:not([data-print~="4週間の稼働率"]) .proposal-weeks,
   /* Skill data, so it goes with the skills rather than with the percentage it sits beside. */
   .proposal-cards:not([data-print~="スキル"]) .proposal-match-skills { display: none; }
+  /* On paper it is the only thing on a later page that says whose proposal this is.
+     Small and grey: it is provenance, not a heading, and the candidate's name is
+     what should still be read first. */
+  .proposal-card-provenance {
+    display: block;
+    margin: 0 0 6px;
+    color: #4a5468;
+    font-size: var(--text-min);
+    font-weight: 700;
+  }
   /* Not one of the columns at all, and 「職種」 was carrying it onto the page: the department is
      internal, the file has never had a column for it, and the tick boxes are the whole of what
      the sender chose (#179, from the evaluation). */
