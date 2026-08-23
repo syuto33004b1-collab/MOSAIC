@@ -556,8 +556,12 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   z-index: 1;
   /* 410px was the width at every viewport, so on a 1440px screen the panel used
      28% of it while its own content overflowed by 268px and the other 1030px sat
-     behind a dim backdrop doing nothing (#137). */
-  width: min(100%, clamp(410px, 52vw, 760px));
+     behind a dim backdrop doing nothing (#137).
+     62vw and 1000px rather than #137's 52vw and 760px. The shape is its: a floor, a term
+     that follows the viewport, a cap so an ultra-wide screen does not get an ultra-wide
+     panel. What moved is how much of the screen a detail is allowed — 748.8px of 1440
+     becomes 892.8px, and 1920px stops being capped at 40% of itself (#196). */
+  width: min(100%, clamp(410px, 62vw, 1000px));
   /* The panel's own width is what decides whether its blocks can sit side by
      side, not the viewport's — the two differ by a sidebar and two paddings. See
      the @container rule after `.drawer-footnote`.
