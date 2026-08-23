@@ -587,6 +587,30 @@ export function boardRange(unit: BoardUnit, offset: number, today = currentLocal
 }
 
 /**
+ * The one week the board's week-scoped figures measure.
+ *
+ * Today's week when today is somewhere in the range, and the range's opening week
+ * otherwise. In week mode those are the same answer — the range is one week, and its
+ * start is that week's Monday either way — so this only decides anything in month mode,
+ * where it is the difference between 「the week you are in」 and 「the week this month
+ * happens to open in」.
+ *
+ * Measured before the change, on 2026-08-23 with August in view: the average said 0%
+ * because it was reading 8/3週, three weeks past. The assignment form reads the same week,
+ * so it offered 鈴木健太 at 「0%」 while the board showed him at 120% — an empty slot where
+ * there was none (#187).
+ *
+ * A month-wide aggregate would be a different figure with a different denominator, and
+ * every drawer and the other tabs read this same week. So the week stays a week, and the
+ * label beside it keeps naming which one (#115).
+ */
+export function boardBasisWeek(range: BoardRange, today = currentLocalDate()) {
+  // ISO dates compare as strings in date order, so this is 「is today in the span」.
+  const inView = today >= range.start && today <= range.end;
+  return getWeekStartForDate(inView ? today : range.start);
+}
+
+/**
  * Which columns an assignment occupies, 1-based, or null if it is not in view.
  *
  * The column is the assignment's position in `range.days`, looked up — not its
