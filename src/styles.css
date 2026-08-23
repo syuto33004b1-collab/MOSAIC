@@ -4596,6 +4596,14 @@ h1 {
 .skill-catalog-form input,
 .skill-catalog-form select {
   height: 36px;
+  /* Without this the control keeps its own intrinsic floor and hangs out of its
+     cell. A select's is its widest option: 親部門 lists full org paths, so it
+     measured 200px and drew 32px past the card's right edge from a 152px cell
+     (form scrollWidth 378 against clientWidth 345). An input's is its default
+     20-character size, 159px, which spilled 7px into the gap. The closed select
+     clips its value instead, which is what every other select here does — the
+     popup still shows the whole path (#212). */
+  min-width: 0;
   padding: 0 10px;
   border: 1px solid var(--line);
   border-radius: 9px;
@@ -4901,6 +4909,28 @@ h1 {
 @container (max-width: 470px) {
   .field-catalog-form { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }
   .role-permission-form { grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); }
+}
+
+/* The same shedding, with each form's own number. .skill-catalog-form holds
+   120px for 種類 plus 179px of add-button plus 30px of gap, so the two flexible
+   tracks split whatever is left of the container less 363px — which reaches 0 at
+   a 347px container, where the 名前 input then drew 159px wide across the two
+   cells beside it and elementFromPoint on it returned the 種類 select.
+   660px and 420px are the widths where each form's 親分類 / 親部門 track falls
+   under the 124px a closed select needs to show 「なし（最上位）」: 84px of text
+   at bold 12px, 22px of padding and border, ~18px of arrow. Below that the
+   select shows a clipped value, so the columns are worth more than the row.
+   Two thresholds rather than one because the track counts differ — putting the
+   org form on 660px would break a 169/169/107 single row that still fits (#212). */
+@container (max-width: 660px) {
+  .skills-view .skill-catalog-form { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
+  /* Otherwise the button lands in a 140px track and 「分類またはスキルを追加」
+     wraps to two lines. .field-catalog-form carries the same pair outright. */
+  .skills-view .skill-catalog-form .view-add-button { grid-column: 1 / -1; justify-self: start; }
+}
+@container (max-width: 420px) {
+  .org-view .org-catalog-form { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
+  .org-view .org-catalog-form .view-add-button { grid-column: 1 / -1; justify-self: start; }
 }
 .role-permission-features,
 .role-permission-fields {
