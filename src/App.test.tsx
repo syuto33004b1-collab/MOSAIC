@@ -1845,7 +1845,7 @@ describe("one name per control on the board", () => {
 
     // Switching the axis relabels the grid and the row header, not the tabs.
     await user.click(within(axis).getByRole("button", { name: "プロジェクト別" }));
-    expect(screen.getByRole("grid", { name: "プロジェクト別の週間アサイン" })).toBeInTheDocument();
+    expect(screen.getByRole("grid", { name: "プロジェクト別の週間アサイン（平日のみ）" })).toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: "プロジェクト別" })).toHaveLength(1);
   });
 
@@ -2620,11 +2620,11 @@ describe("the board can show a month", () => {
 
   it("names the range it is showing, in the words of the unit", async () => {
     const user = await openBoard();
-    expect(screen.getByRole("grid", { name: "メンバー別の週間アサイン" })).toBeInTheDocument();
+    expect(screen.getByRole("grid", { name: "メンバー別の週間アサイン（平日のみ）" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "次の週" })).toBeInTheDocument();
 
     await showMonth(user);
-    expect(screen.getByRole("grid", { name: "メンバー別の月間アサイン" })).toBeInTheDocument();
+    expect(screen.getByRole("grid", { name: "メンバー別の月間アサイン（平日のみ）" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "次の月" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "次の週" })).not.toBeInTheDocument();
     // 「2026年 8月」, where the week reads 「8月 第3週」. It was 「MONTH 8」 and 「WEEK 34」 — an
@@ -3028,7 +3028,7 @@ describe("the board says where it is", () => {
   };
   afterEach(() => { vi.useRealTimers(); });
 
-  const eyebrow = () => document.querySelector(".eyebrow")!.textContent!.replace(/s+/gu, " ").trim();
+  const eyebrow = () => document.querySelector(".eyebrow")!.textContent!.replace(/\s+/gu, " ").trim();
   const dateRange = () => document.querySelector(".date-range")!.textContent!;
 
   it("names the week by its place in the month, and the month by its year", async () => {
@@ -3059,12 +3059,64 @@ describe("the board says where it is", () => {
     await user.click(screen.getByRole("button", { name: "前の週" }));
     expect(dateRange()).toBe("2026年 8月10日 — 8月14日 · 1週前");
 
-    // Months count in months, not in the weeks they contain.
+    // Months count in months, not in the weeks they contain. 「平日のみ」 comes with month
+    // mode, and the distance goes first because it is the part that changes (#191).
     await user.click(screen.getByRole("button", { name: "今日" }));
     await user.click(within(screen.getByRole("group", { name: "表示する期間" })).getByRole("button", { name: "月" }));
-    expect(dateRange()).toBe("2026年 8月3日 — 8月31日");
+    expect(dateRange()).toBe("2026年 8月3日 — 8月31日 · 平日のみ");
     await user.click(screen.getByRole("button", { name: "次の月" }));
-    expect(dateRange()).toBe("2026年 9月1日 — 9月30日 · 1か月後");
+    expect(dateRange()).toBe("2026年 9月1日 — 9月30日 · 1か月後 · 平日のみ");
+  });
+});
+
+/**
+ * #191 was reported as 「add Saturday and Sunday」 and 「the 1st and 2nd of the month are
+ * missing」. Reading the code first: weekends carry no load anywhere in this model —
+ * `memberDailyLoads` skips them and the capacity denominator is 稼働上限 × 5 — and
+ * `assignmentSpan` maps assignments onto weekday columns. Ten always-empty columns in a
+ * 31-day month, and measured at 1425px, 95px more sideways scroll (187 → 282px).
+ *
+ * So the columns are not what is missing. Saying which days the board counts is. Month mode
+ * is where it shows: 8月3日 — 8月31日 with no 1st or 2nd. Week mode's five columns are its
+ * whole range, so it says nothing extra; the grid's name carries it for a reader who cannot
+ * see the gaps either way.
+ */
+describe("the board says it counts weekdays", () => {
+  const showMonthMode = async (user: ReturnType<typeof userEvent.setup>) => {
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^アサインボード( |$)/u }));
+    await user.click(within(screen.getByRole("group", { name: "表示する期間" })).getByRole("button", { name: "月" }));
+  };
+
+  it("says so on the range in month mode, and not in week mode", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^アサインボード( |$)/u }));
+    // Week mode shows its whole range: five columns, five days, nothing absent.
+    expect(document.querySelector(".date-range")!.textContent).not.toContain("平日のみ");
+
+    await user.click(within(screen.getByRole("group", { name: "表示する期間" })).getByRole("button", { name: "月" }));
+    expect(document.querySelector(".date-range")!.textContent).toContain("平日のみ");
+  });
+
+  it("tells a screen reader in both modes, where the gaps cannot be seen", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^アサインボード( |$)/u }));
+    expect(screen.getByRole("grid", { name: /週間アサイン（平日のみ）$/u })).toBeInTheDocument();
+
+    await user.click(within(screen.getByRole("group", { name: "表示する期間" })).getByRole("button", { name: "月" }));
+    expect(screen.getByRole("grid", { name: /月間アサイン（平日のみ）$/u })).toBeInTheDocument();
+  });
+
+  /** And the columns really are weekdays only, which is what the label is about. */
+  it("draws no weekend column", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await showMonthMode(user);
+    const days = [...document.querySelectorAll(".day-label span")].map((node) => node.textContent);
+    expect(days.length).toBeGreaterThan(19);
+    expect(days).not.toContain("土");
+    expect(days).not.toContain("日");
   });
 });
 describe("a week-scoped figure names the week it measures", () => {
@@ -3109,14 +3161,16 @@ describe("a week-scoped figure names the week it measures", () => {
     const user = onWednesday();
     render(<App />);
     await user.click(within(screen.getByRole("group", { name: "表示する期間" })).getByRole("button", { name: "月" }));
-    expect(document.querySelector(".date-range")!.textContent).toBe("2026年 8月3日 — 8月31日");
+    // 「· 平日のみ」 comes with month mode, where the 1st and 2nd are simply absent (#191).
+    expect(document.querySelector(".date-range")!.textContent).toBe("2026年 8月3日 — 8月31日 · 平日のみ");
     expect(pulseLabel()).toBe("8/17週の空き");
 
     // September 2026 opens on a Tuesday, so the week its first column belongs to began on
     // 8/31 — in August, which no label naming the month could say.
     await user.click(screen.getByRole("button", { name: "次の月" }));
-    // 「· 1か月後」 comes with having paged away from today (#194).
-    expect(document.querySelector(".date-range")!.textContent).toBe("2026年 9月1日 — 9月30日 · 1か月後");
+    // 「· 1か月後」 comes with having paged away from today (#194), 「· 平日のみ」 with month
+    // mode (#191).
+    expect(document.querySelector(".date-range")!.textContent).toBe("2026年 9月1日 — 9月30日 · 1か月後 · 平日のみ");
     expect(pulseLabel()).toBe("8/31週の空き");
   });
 
