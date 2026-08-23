@@ -995,7 +995,10 @@ export default function Home({ mode = "demo", organizationId, organizationName =
         projectId: project.id,
       }];
     });
-    const staffed = projectMembersOnDays(workspace, project.id, range.days);
+    // Working days, not every column. The board draws the weekend now, but nothing
+    // in the model says anyone works it, so a weekend-only assignment draws its bar
+    // and staffs nothing — which is the same answer this gave before (#207).
+    const staffed = projectMembersOnDays(workspace, project.id, range.days.filter((day) => !day.weekend));
     return {
       id: project.id,
       initials: project.code.slice(0, 2),
@@ -2604,16 +2607,17 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                 about where in the month you are, which is the question (#194). */}
             <p className="eyebrow">{page.eyebrow} <span>/</span> {activeNav === "board" ? boardRangeName(range) : "MOSAIC"}</p>
             <h1>{page.title}</h1>
-            {/* Then how far from today, and then which days are counted.
+            {/* Then how far from today, and then what the figures count.
                 The distance is empty at zero: 「今週」 is the word #146 retired from these
                 screens, and today is a weekend two days in seven, where the week on screen
                 does not contain it at all (#194).
-                「平日のみ」 in month mode, where the range reads 8月3日 — 8月31日 and the 1st and
-                2nd are simply missing. Weekends carry no load anywhere in the model — the
-                daily loads skip them and the capacity denominator is 稼働上限 × 5 — so the
-                columns are not what is missing; saying so is (#191).
-                Distance first because it changes as you page; the weekday note is constant. */}
-            <p className="date-range">{activeNav === "board" ? days[0].year + "年 " + rangeLabel + rangeDistanceLabel + (range.unit === "month" ? " · 平日のみ" : "") : page.description}</p>
+                「稼働は平日で集計」 always, not only in month mode: the columns include
+                Saturday and Sunday now, and every figure on the screen is still measured
+                over weekdays — the daily loads skip them and the denominator is 稼働上限 × 5.
+                While the weekends were missing from the board, saying 「平日のみ」 described
+                the columns; now it has to describe the arithmetic instead (#207).
+                Distance first because it changes as you page; the note is constant. */}
+            <p className="date-range">{activeNav === "board" ? days[0].year + "年 " + rangeLabel + rangeDistanceLabel + " · 稼働は平日で集計" : page.description}</p>
           </div>
           <div className="topbar-actions">
             {activeNav === "board" && (searchOpen ? (
@@ -2749,13 +2753,13 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                 />
 
                 <div className="schedule-scroller">
-                  <div className="schedule-table" role="grid" aria-label={(viewMode === "members" ? "メンバー別の" : "プロジェクト別の") + unitWord + "間アサイン（平日のみ）"}>
+                  <div className="schedule-table" role="grid" aria-label={(viewMode === "members" ? "メンバー別の" : "プロジェクト別の") + unitWord + "間アサイン（稼働は平日で集計）"}>
                     <div className="schedule-head" role="row">
                       <div className="people-label" role="columnheader">{viewMode === "members" ? "メンバー" : "プロジェクト"} <span>{rows.length}</span></div>
                       {/* Today by date, not by position: it is the first column
                           only in the current week, and somewhere in the middle of
                           the current month. */}
-                      {days.map((day) => <div className={"day-label " + (day.iso === todayIso ? "today" : "")} role="columnheader" key={day.iso}><span>{day.day}</span><strong>{day.date}</strong></div>)}
+                      {days.map((day) => <div className={"day-label" + (day.weekend ? " weekend" : "") + (day.iso === todayIso ? " today" : "")} role="columnheader" key={day.iso}><span>{day.day}</span><strong>{day.date}</strong></div>)}
                     </div>
                     <div className="schedule-body">
                       {rows.length > 0 ? rows.map((row) => (
@@ -2777,7 +2781,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                           <div className="week-cell" role="gridcell" aria-label={row.name + "のアサイン"}>
                             {/* One line per column, from the range rather than a
                                 hard-coded five (#139). */}
-                            <div className="day-grid" aria-hidden="true">{days.map((day) => <i key={day.iso} />)}</div>
+                            <div className="day-grid" aria-hidden="true">{days.map((day) => <i className={day.weekend ? "weekend" : ""} key={day.iso} />)}</div>
                             {row.assignments.map((assignment) => (
                               <button className={"assignment " + assignment.tone + (assignment.status === "draft" ? " provisional" : "")} style={{ gridColumn: assignment.start + " / span " + assignment.span }} onClick={() => openAssignment(assignment.id)} aria-label={assignment.name + "のアサイン詳細（" + row.name + "・" + assignmentDayRange(days, assignment.start, assignment.span) + "）"} title={assignment.name + " · " + assignment.allocation + "%"} key={assignment.id}>
                                 <span>{assignment.name}</span>{assignment.allocation > 0 && <small>{assignment.allocation}%</small>}

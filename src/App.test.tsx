@@ -1847,7 +1847,7 @@ describe("one name per control on the board", () => {
 
     // Switching the axis relabels the grid and the row header, not the tabs.
     await user.click(within(axis).getByRole("button", { name: "プロジェクト別" }));
-    expect(screen.getByRole("grid", { name: "プロジェクト別の週間アサイン（平日のみ）" })).toBeInTheDocument();
+    expect(screen.getByRole("grid", { name: "プロジェクト別の週間アサイン（稼働は平日で集計）" })).toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: "プロジェクト別" })).toHaveLength(1);
   });
 
@@ -2520,20 +2520,23 @@ describe("the board can show a month", () => {
     await user.click(within(group).getByRole("button", { name: "月" }));
   };
 
-  it("draws one column per weekday of the month, and one grid line each", async () => {
+  it("draws one column per day of the month, and one grid line each", async () => {
     const user = await openBoard();
-    expect(columns()).toHaveLength(5);
+    // Monday to Sunday. It was five, and a month drawn without its weekends was not a
+    // calendar — the 1st and 2nd of August were simply absent (#207).
+    expect(columns()).toHaveLength(7);
 
     await showMonth(user);
     const monthColumns = columns();
-    // 20 to 23 weekdays, depending on the month; never five.
-    expect(monthColumns.length).toBeGreaterThanOrEqual(20);
-    expect(monthColumns.length).toBeLessThanOrEqual(23);
+    // 28 to 31, depending on the month; never seven.
+    expect(monthColumns.length).toBeGreaterThanOrEqual(28);
+    expect(monthColumns.length).toBeLessThanOrEqual(31);
     // The backdrop lines are per column too — they were a hard-coded five.
     expect(document.querySelectorAll(".schedule-row .day-grid i").length / document.querySelectorAll(".schedule-row").length)
       .toBe(monthColumns.length);
-    // No weekend gets a column.
-    expect(monthColumns.some((label) => label?.startsWith("土") || label?.startsWith("日"))).toBe(false);
+    // Every weekend of the month is a column, and marked as one.
+    expect(monthColumns.filter((label) => label?.startsWith("土") || label?.startsWith("日")).length)
+      .toBeGreaterThanOrEqual(8);
   });
 
   /**
@@ -2567,9 +2570,12 @@ describe("the board can show a month", () => {
     const bar = document.querySelector("button.assignment") as HTMLElement;
     expect(bar, "the fixture assignment should be on the board").toBeTruthy();
     // The header's own idea of where those dates sit.
-    const dates = columns().map((text) => (text ?? "").replace(/^[月火水木金]/u, ""));
+    const dates = columns().map((text) => (text ?? "").replace(/^[月火水木金土日]/u, ""));
     const startColumn = dates.indexOf(String(Number(from.slice(8, 10)))) + 1;
     const endColumn = dates.indexOf(String(Number(to.slice(8, 10)))) + 1;
+    // Column N is day N: the day list skips nothing, so 「position in the list」 and
+    // 「date of the month」 coincide. The two code paths are still separate — the header
+    // builds one and `assignmentSpan` the other — which is what this compares (#207).
     expect(startColumn).toBe(8);
     expect(bar.style.gridColumn).toBe(`${startColumn} / span ${endColumn - startColumn + 1}`);
   });
@@ -2592,14 +2598,14 @@ describe("the board can show a month", () => {
       render(<App />);
       const marked = () => [...document.querySelectorAll(".day-label.today strong")].map((el) => el.textContent);
 
-      expect(columns()).toEqual(["月17", "火18", "水19", "木20", "金21"]);
+      expect(columns()).toEqual(["月17", "火18", "水19", "木20", "金21", "土22", "日23"]);
       expect(marked()).toEqual(["19"]);
 
       await showMonth(user);
-      expect(columns()[0]).toBe("月3");
+      expect(columns()[0]).toBe("土1");
       expect(marked()).toEqual(["19"]);
-      // Thirteenth column, not the first.
-      expect(columns().indexOf("水19")).toBe(12);
+      // Nineteenth column, not the first. Day N is column N now (#207).
+      expect(columns().indexOf("水19")).toBe(18);
     } finally {
       vi.useRealTimers();
     }
@@ -2614,7 +2620,7 @@ describe("the board can show a month", () => {
     vi.setSystemTime(new Date("2026-12-30T09:00:00+09:00"));
     try {
       render(<App />);
-      expect(document.querySelector(".date-range")!.textContent).toBe("2026年 12月28日 — 2027年 1月1日");
+      expect(document.querySelector(".date-range")!.textContent).toBe("2026年 12月28日 — 2027年 1月3日 · 稼働は平日で集計");
     } finally {
       vi.useRealTimers();
     }
@@ -2622,11 +2628,11 @@ describe("the board can show a month", () => {
 
   it("names the range it is showing, in the words of the unit", async () => {
     const user = await openBoard();
-    expect(screen.getByRole("grid", { name: "メンバー別の週間アサイン（平日のみ）" })).toBeInTheDocument();
+    expect(screen.getByRole("grid", { name: "メンバー別の週間アサイン（稼働は平日で集計）" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "次の週" })).toBeInTheDocument();
 
     await showMonth(user);
-    expect(screen.getByRole("grid", { name: "メンバー別の月間アサイン（平日のみ）" })).toBeInTheDocument();
+    expect(screen.getByRole("grid", { name: "メンバー別の月間アサイン（稼働は平日で集計）" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "次の月" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "次の週" })).not.toBeInTheDocument();
     // 「2026年 8月」, where the week reads 「8月 第3週」. It was 「MONTH 8」 and 「WEEK 34」 — an
@@ -3079,78 +3085,100 @@ describe("the board says where it is", () => {
     render(<App />);
     // Nothing at zero. 「今週」 is the word #146 retired from these screens, and today is a
     // weekend two days in seven, where the week on screen holds no column for it.
-    expect(dateRange()).toBe("2026年 8月17日 — 8月21日");
+    expect(dateRange()).toBe("2026年 8月17日 — 8月23日 · 稼働は平日で集計");
 
     await user.click(screen.getByRole("button", { name: "次の週" }));
-    expect(dateRange()).toBe("2026年 8月24日 — 8月28日 · 1週後");
+    expect(dateRange()).toBe("2026年 8月24日 — 8月30日 · 1週後 · 稼働は平日で集計");
     await user.click(screen.getByRole("button", { name: "次の週" }));
-    expect(dateRange()).toBe("2026年 8月31日 — 9月4日 · 2週後");
+    expect(dateRange()).toBe("2026年 8月31日 — 9月6日 · 2週後 · 稼働は平日で集計");
     expect(eyebrow()).toBe("RESOURCE PLANNING / 8月 第5週");
 
     await user.click(screen.getByRole("button", { name: "今日" }));
-    expect(dateRange()).toBe("2026年 8月17日 — 8月21日");
+    expect(dateRange()).toBe("2026年 8月17日 — 8月23日 · 稼働は平日で集計");
 
     await user.click(screen.getByRole("button", { name: "前の週" }));
-    expect(dateRange()).toBe("2026年 8月10日 — 8月14日 · 1週前");
+    expect(dateRange()).toBe("2026年 8月10日 — 8月16日 · 1週前 · 稼働は平日で集計");
 
-    // Months count in months, not in the weeks they contain. 「平日のみ」 comes with month
-    // mode, and the distance goes first because it is the part that changes (#191).
+    // Months count in months, not in the weeks they contain, and the distance goes first
+    // because it is the part that changes (#194). The weekday note is constant now that
+    // the weekends have columns — it describes the arithmetic, not the columns (#207).
     await user.click(screen.getByRole("button", { name: "今日" }));
     await user.click(within(screen.getByRole("group", { name: "表示する期間" })).getByRole("button", { name: "月" }));
-    expect(dateRange()).toBe("2026年 8月3日 — 8月31日 · 平日のみ");
+    expect(dateRange()).toBe("2026年 8月1日 — 8月31日 · 稼働は平日で集計");
     await user.click(screen.getByRole("button", { name: "次の月" }));
-    expect(dateRange()).toBe("2026年 9月1日 — 9月30日 · 1か月後 · 平日のみ");
+    expect(dateRange()).toBe("2026年 9月1日 — 9月30日 · 1か月後 · 稼働は平日で集計");
   });
 });
 
 /**
  * #191 was reported as 「add Saturday and Sunday」 and 「the 1st and 2nd of the month are
- * missing」. Reading the code first: weekends carry no load anywhere in this model —
- * `memberDailyLoads` skips them and the capacity denominator is 稼働上限 × 5 — and
- * `assignmentSpan` maps assignments onto weekday columns. Ten always-empty columns in a
- * 31-day month, and measured at 1425px, 95px more sideways scroll (187 → 282px).
+ * missing」. Reading the code then: weekends carried no load anywhere in the model, and
+ * `assignmentSpan` mapped assignments onto weekday columns, so ten always-empty columns
+ * were the wrong answer and saying which days were counted was the right one.
  *
- * So the columns are not what is missing. Saying which days the board counts is. Month mode
- * is where it shows: 8月3日 — 8月31日 with no 1st or 2nd. Week mode's five columns are its
- * whole range, so it says nothing extra; the grid's name carries it for a reader who cannot
- * see the gaps either way.
+ * #207 settled the other half. The columns are there now — a month is the 1st to the 31st,
+ * a week is Monday to Sunday, and a bar crossing a weekend is one bar. The figures are
+ * still weekday-only, because an assignment carries a date range and no working days, and
+ * 12 of the 15 in the seed span a weekend simply by lasting more than a week. So the note
+ * stayed and changed what it is about: not 「these columns are missing」 but 「these numbers
+ * count weekdays」, on both modes, since it is now equally true of both.
  */
-describe("the board says it counts weekdays", () => {
+describe("the board says what its figures count", () => {
   const showMonthMode = async (user: ReturnType<typeof userEvent.setup>) => {
     await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^アサインボード( |$)/u }));
     await user.click(within(screen.getByRole("group", { name: "表示する期間" })).getByRole("button", { name: "月" }));
   };
 
-  it("says so on the range in month mode, and not in week mode", async () => {
+  it("says so on the range in both modes, because it is true of both", async () => {
     const user = userEvent.setup();
     render(<App />);
     await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^アサインボード( |$)/u }));
-    // Week mode shows its whole range: five columns, five days, nothing absent.
+    expect(document.querySelector(".date-range")!.textContent).toContain("稼働は平日で集計");
+    // And not the old wording, which described columns that are no longer missing.
     expect(document.querySelector(".date-range")!.textContent).not.toContain("平日のみ");
 
     await user.click(within(screen.getByRole("group", { name: "表示する期間" })).getByRole("button", { name: "月" }));
-    expect(document.querySelector(".date-range")!.textContent).toContain("平日のみ");
+    expect(document.querySelector(".date-range")!.textContent).toContain("稼働は平日で集計");
   });
 
-  it("tells a screen reader in both modes, where the gaps cannot be seen", async () => {
+  it("tells a screen reader in both modes, where the tint cannot be seen", async () => {
     const user = userEvent.setup();
     render(<App />);
     await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^アサインボード( |$)/u }));
-    expect(screen.getByRole("grid", { name: /週間アサイン（平日のみ）$/u })).toBeInTheDocument();
+    expect(screen.getByRole("grid", { name: /週間アサイン（稼働は平日で集計）$/u })).toBeInTheDocument();
 
     await user.click(within(screen.getByRole("group", { name: "表示する期間" })).getByRole("button", { name: "月" }));
-    expect(screen.getByRole("grid", { name: /月間アサイン（平日のみ）$/u })).toBeInTheDocument();
+    expect(screen.getByRole("grid", { name: /月間アサイン（稼働は平日で集計）$/u })).toBeInTheDocument();
   });
 
-  /** And the columns really are weekdays only, which is what the label is about. */
-  it("draws no weekend column", async () => {
+  /**
+   * The columns the note used to be about. They are drawn and marked: `.weekend` is what
+   * tints them, and it is the only thing that separates 「a day with no room in it」 from
+   * 「a day nobody has booked yet」 once a bar runs straight across both.
+   */
+  it("draws the weekend and marks it as a weekend", async () => {
     const user = userEvent.setup();
     render(<App />);
     await showMonthMode(user);
-    const days = [...document.querySelectorAll(".day-label span")].map((node) => node.textContent);
-    expect(days.length).toBeGreaterThan(19);
-    expect(days).not.toContain("土");
-    expect(days).not.toContain("日");
+    const labels = [...document.querySelectorAll(".day-label")];
+    // Every day of August, weekends included.
+    expect(labels).toHaveLength(31);
+    const days = labels.map((node) => node.querySelector("span")!.textContent);
+    expect(days.filter((day) => day === "土")).toHaveLength(5);
+    expect(days.filter((day) => day === "日")).toHaveLength(5);
+    // 2026-08-01 is a Saturday, so the month opens on one — the day that used to be absent.
+    expect(days[0]).toBe("土");
+    expect(labels[0].classList.contains("weekend")).toBe(true);
+
+    // Marked, and only the weekend is.
+    const marked = labels.filter((node) => node.classList.contains("weekend"));
+    expect(marked).toHaveLength(10);
+    for (const node of marked) {
+      expect(["土", "日"]).toContain(node.querySelector("span")!.textContent);
+    }
+    // The lines behind the bars carry it too, or the tint stops at the header.
+    expect(document.querySelectorAll(".day-grid i.weekend").length % 10).toBe(0);
+    expect(document.querySelectorAll(".day-grid i.weekend").length).toBeGreaterThan(0);
   });
 });
 describe("a week-scoped figure names the week it measures", () => {
@@ -3195,16 +3223,16 @@ describe("a week-scoped figure names the week it measures", () => {
     const user = onWednesday();
     render(<App />);
     await user.click(within(screen.getByRole("group", { name: "表示する期間" })).getByRole("button", { name: "月" }));
-    // 「· 平日のみ」 comes with month mode, where the 1st and 2nd are simply absent (#191).
-    expect(document.querySelector(".date-range")!.textContent).toBe("2026年 8月3日 — 8月31日 · 平日のみ");
+    // The month is the 1st to the 31st now that the weekends have columns, and the note
+    // is about the arithmetic rather than about missing days (#207).
+    expect(document.querySelector(".date-range")!.textContent).toBe("2026年 8月1日 — 8月31日 · 稼働は平日で集計");
     expect(pulseLabel()).toBe("8/17週の空き");
 
     // September 2026 opens on a Tuesday, so the week its first column belongs to began on
     // 8/31 — in August, which no label naming the month could say.
     await user.click(screen.getByRole("button", { name: "次の月" }));
-    // 「· 1か月後」 comes with having paged away from today (#194), 「· 平日のみ」 with month
-    // mode (#191).
-    expect(document.querySelector(".date-range")!.textContent).toBe("2026年 9月1日 — 9月30日 · 1か月後 · 平日のみ");
+    // 「· 1か月後」 comes with having paged away from today (#194).
+    expect(document.querySelector(".date-range")!.textContent).toBe("2026年 9月1日 — 9月30日 · 1か月後 · 稼働は平日で集計");
     expect(pulseLabel()).toBe("8/31週の空き");
   });
 

@@ -313,6 +313,15 @@ export type WeekDay = {
   month: number;
   year: number;
   iso: string;
+  /**
+   * Saturday or Sunday. The board draws these columns so a month looks like a
+   * month and a bar crossing a weekend stays one bar — but the figures are still
+   * counted over weekdays only, because an assignment is a date range with no
+   * working days in it, and 12 of the 15 in the seed span a weekend simply by
+   * running for more than a week. Recording actual weekend work needs a field on
+   * the assignment (#207, and #222 for that field).
+   */
+  weekend: boolean;
 };
 
 export const projectTone: Record<string, Tone> = {
@@ -532,35 +541,41 @@ export function getWeekStart(offset: number, anchor = getCurrentWeekStart()) {
 
 export function getWeekDays(offset: number, anchor = getCurrentWeekStart()): WeekDay[] {
   const start = getWeekStart(offset, anchor);
-  // Five days from a Monday are all weekdays, so nothing here is ever dropped.
-  return Array.from({ length: 5 }, (_, index) => weekDayFrom(addDays(start, index))!);
+  // Monday to Sunday. It was Monday to Friday, and a month drawn without its
+  // weekends is not a calendar — the 8th and 9th were simply missing, and a bar
+  // running from one week into the next arrived as two bars (#207).
+  return Array.from({ length: 7 }, (unused, index) => weekDayFrom(addDays(start, index)));
 }
 
 export type BoardUnit = "week" | "month";
 
 /**
- * What the board is showing: the weekdays in view, and the dates they span.
+ * What the board is showing: the days in view, and the dates they span.
  *
- * A week is the five weekdays from a Monday, as it always was. A month is every
- * weekday of a calendar month — 20 to 23 of them — so the range's own ends are
- * the first and last weekday, not the 1st and the 31st. Nothing in this app draws
- * a Saturday, and a range that claimed to start on one would put the wrong date
- * under the wrong column.
+ * A week is Monday to Sunday. A month is every day of the calendar month, so the
+ * range's ends are the 1st and the last — which they were not while weekends were
+ * dropped: August opened on a Saturday, so its range began on the 3rd.
+ *
+ * Weekends are columns, not figures. Nothing here decides whether anyone works
+ * them; the loads and the capacity are still counted over weekdays, because an
+ * assignment carries a date range and no working days, and most of them span a
+ * weekend simply by lasting more than a week (#207, and #222 for the field that
+ * would let a Saturday mean something).
  */
 export type BoardRange = { unit: BoardUnit; start: string; end: string; days: WeekDay[] };
 
-const WEEKDAY_LABELS = ["月", "火", "水", "木", "金"];
+const DAY_LABELS = ["月", "火", "水", "木", "金", "土", "日"];
 
-function weekDayFrom(iso: string): WeekDay | null {
+function weekDayFrom(iso: string): WeekDay {
   const date = new Date(iso + "T00:00:00Z");
   const index = (date.getUTCDay() + 6) % 7;
-  if (index > 4) return null;
   return {
-    day: WEEKDAY_LABELS[index],
+    day: DAY_LABELS[index],
     date: date.getUTCDate(),
     month: date.getUTCMonth() + 1,
     year: date.getUTCFullYear(),
     iso,
+    weekend: index > 4,
   };
 }
 
@@ -580,8 +595,7 @@ export function boardRange(unit: BoardUnit, offset: number, today = currentLocal
   const month = first.getUTCMonth();
   const days: WeekDay[] = [];
   for (const cursor = first; cursor.getUTCMonth() === month; cursor.setUTCDate(cursor.getUTCDate() + 1)) {
-    const day = weekDayFrom(isoDate(cursor));
-    if (day) days.push(day);
+    days.push(weekDayFrom(isoDate(cursor)));
   }
   return { unit, start: days[0].iso, end: days[days.length - 1].iso, days };
 }
@@ -607,7 +621,16 @@ export function boardRange(unit: BoardUnit, offset: number, today = currentLocal
 export function boardBasisWeek(range: BoardRange, today = currentLocalDate()) {
   // ISO dates compare as strings in date order, so this is 「is today in the span」.
   const inView = today >= range.start && today <= range.end;
-  return getWeekStartForDate(inView ? today : range.start);
+  if (inView) return getWeekStartForDate(today);
+  /*
+   * The range's first *working* day, not its first day. August 2026 opens on a
+   * Saturday, and now that the board draws weekends the range starts on the 1st —
+   * whose week began on 7月27日, four days of which are July. Measuring a month by
+   * a mostly-previous-month week is a worse answer than the one this gave while
+   * the weekends were missing, and the working day gives that answer back (#207).
+   */
+  const firstWorkingDay = range.days.find((day) => !day.weekend);
+  return getWeekStartForDate(firstWorkingDay?.iso ?? range.start);
 }
 
 /**
@@ -667,8 +690,9 @@ export function assignmentSpan(assignment: Assignment, range: BoardRange) {
   for (let index = range.days.length - 1; index >= 0; index -= 1) {
     if (range.days[index].iso <= assignment.endDate) { last = index; break; }
   }
-  // Both are -1 only for an assignment that overlaps the range's span but lands
-  // entirely on its weekends — a Saturday-to-Sunday assignment inside the month.
+  // Both are -1 only for a range that overlaps the span but holds none of its days,
+  // which the day list no longer produces now that it skips nothing. The guard
+  // stays: it is what makes the return type honest for any range that ever does.
   if (first < 0 || last < 0 || last < first) return null;
   return { start: first + 1, span: last - first + 1 };
 }
@@ -677,6 +701,12 @@ export function overlaps(startDate: string, endDate: string, rangeStart: string,
   return startDate <= rangeEnd && endDate >= rangeStart;
 }
 
+/**
+ * The week's last *working* day, Friday. Deliberately not Sunday even though the
+ * board draws Sunday now: this is the window every load figure is measured over,
+ * and stretching it to the weekend would count the weekends that assignments span
+ * merely by lasting more than a week (#207).
+ */
 export function weekEnd(weekStart: string) {
   return addDays(weekStart, 4);
 }

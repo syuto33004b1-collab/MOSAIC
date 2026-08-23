@@ -180,6 +180,13 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
    that is why the boundary lines looked right while the bars did not. */
 .day-grid { position: absolute; inset: 0; display: grid; grid-template-columns: var(--schedule-day-tracks); pointer-events: none; }
 .day-grid i { border-left: 1px solid #edf0f5; }
+/* Saturday and Sunday, drawn but not counted. The figures on this screen are all
+   measured over weekdays, so a weekend column is background rather than a day
+   with room in it — the tint is what stops a bar crossing one from reading as
+   five days of work in a row (#207). */
+.day-label.weekend { background: var(--paper-deep); color: #9aa2b2; }
+.day-label.weekend strong { color: #8a93a5; }
+.day-grid i.weekend { background: var(--paper-deep); }
 .assignment { z-index: 1; min-width: 0; margin: 0 4px; padding: 6px 9px; border-radius: 7px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #4351aa; font-size: 8px; font-weight: 700; line-height: 1.4; }
 .assignment.blue { background: #e6e9ff; }.assignment.mint { background: #dcf2ea; color: #317463; }.assignment.orange { background: #ffeadf; color: #a75e3f; }
 
