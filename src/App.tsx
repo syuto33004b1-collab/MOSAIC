@@ -44,6 +44,8 @@ import {
   assignmentSpan,
   boardBasisWeek,
   boardRange,
+  boardRangeDistance,
+  boardRangeName,
   ownerCandidates,
   ownerLabel,
   ownerMember,
@@ -55,7 +57,6 @@ import {
   createProjectCode,
   formatDate,
   formatSkillInput,
-  getIsoWeekNumber,
   memberLabel,
   weekLabel,
   currentLocalDate,
@@ -974,6 +975,14 @@ export default function Home({ mode = "demo", organizationId, organizationName =
   const rangeLabel = days[0].month + "月" + days[0].date + "日 — "
     + (rangeEndDay.year === days[0].year ? "" : rangeEndDay.year + "年 ")
     + rangeEndDay.month + "月" + rangeEndDay.date + "日";
+  /**
+   * 「 · 2週後」 or 「 · 1か月前」, and empty for the one on screen now. Counted in the unit the
+   * board is showing, so paging by months does not read as weeks (#194).
+   */
+  const rangeDistance = boardRangeDistance(range);
+  const rangeDistanceLabel = rangeDistance === 0
+    ? ""
+    : ` · ${Math.abs(rangeDistance)}${range.unit === "week" ? "週" : "か月"}${rangeDistance > 0 ? "後" : "前"}`;
   const todayIso = currentLocalDate();
 
   const changeView = (mode: "members" | "projects") => {
@@ -2486,9 +2495,14 @@ export default function Home({ mode = "demo", organizationId, organizationName =
       <section className="workspace" id="board" inert={drawer ? true : undefined}>
         <header className="topbar">
           <div>
-            <p className="eyebrow">{page.eyebrow} <span>/</span> {activeNav === "board" ? (range.unit === "week" ? "WEEK " + getIsoWeekNumber(days[0].iso) : "MONTH " + days[0].month) : "MOSAIC"}</p>
+            {/* 「8月 第3週」, not 「WEEK 34」: an ISO week number is year-wide and says nothing
+                about where in the month you are, which is the question (#194). */}
+            <p className="eyebrow">{page.eyebrow} <span>/</span> {activeNav === "board" ? boardRangeName(range) : "MOSAIC"}</p>
             <h1>{page.title}</h1>
-            <p className="date-range">{activeNav === "board" ? days[0].year + "年 " + rangeLabel : page.description}</p>
+            {/* And how far from today, when it is not today's. Nothing at zero: 「今週」 is the
+                word #146 retired from these screens, and today is a weekend two days in seven,
+                where the week on screen does not contain it at all (#194). */}
+            <p className="date-range">{activeNav === "board" ? days[0].year + "年 " + rangeLabel + rangeDistanceLabel : page.description}</p>
           </div>
           <div className="topbar-actions">
             {activeNav === "board" && (searchOpen ? (

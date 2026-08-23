@@ -10,6 +10,8 @@ import {
   assignmentSpan,
   boardBasisWeek,
   boardRange,
+  boardRangeDistance,
+  boardRangeName,
   projectMembersOnDays,
   buildSkillMap,
   cancelProfileRequest,
@@ -151,6 +153,62 @@ describe("calendar helpers", () => {
       const august = boardRange("month", 0, "2026-08-02");
       expect(august.start).toBe("2026-08-03");
       expect(boardBasisWeek(august, "2026-08-02")).toBe("2026-08-03");
+    });
+  });
+
+  /**
+   * Where the board says it is. 「WEEK 34」 was an ISO week number — year-wide, and no answer
+   * to 「what week of the month is this」, which is what #194 asked.
+   */
+  describe("naming where the board is", () => {
+    it("counts the Mondays of the month the week starts in", () => {
+      // August 2026's Mondays: 3, 10, 17, 24, 31.
+      expect(boardRangeName(boardRange("week", 0, "2026-08-03"))).toBe("8月 第1週");
+      expect(boardRangeName(boardRange("week", 0, "2026-08-19"))).toBe("8月 第3週");
+      // A fifth Monday is a fifth week, not a rounding error.
+      expect(boardRangeName(boardRange("week", 0, "2026-08-31"))).toBe("8月 第5週");
+    });
+
+    it("gives a week that crosses a year end to the month its Monday is in", () => {
+      // 2026-12-28 is a Monday and that week runs to 2027-01-01. December's Mondays: 7, 14,
+      // 21, 28.
+      expect(boardRangeName(boardRange("week", 0, "2026-12-30"))).toBe("12月 第4週");
+    });
+
+    it("names a month with its year", () => {
+      expect(boardRangeName(boardRange("month", 0, "2026-08-19"))).toBe("2026年 8月");
+      expect(boardRangeName(boardRange("month", 1, "2026-12-15"))).toBe("2027年 1月");
+    });
+  });
+
+  /**
+   * And how far that is from today. Paging three weeks out moved every figure and said
+   * nothing about how far out it was (#194).
+   */
+  describe("how far the board is from today", () => {
+    it("counts weeks in week mode, signed", () => {
+      expect(boardRangeDistance(boardRange("week", 0, "2026-08-19"), "2026-08-19")).toBe(0);
+      expect(boardRangeDistance(boardRange("week", 2, "2026-08-19"), "2026-08-19")).toBe(2);
+      expect(boardRangeDistance(boardRange("week", -1, "2026-08-19"), "2026-08-19")).toBe(-1);
+    });
+
+    /**
+     * Zero on a weekend too, when the week on screen does not contain today at all — which is
+     * why the screen writes nothing at zero rather than claiming today is in it.
+     */
+    it("is zero for the week today belongs to, weekend included", () => {
+      // 2026-08-23 is a Sunday; its week is 8/17-8/21 and holds no Sunday column.
+      const week = boardRange("week", 0, "2026-08-23");
+      expect(week.start).toBe("2026-08-17");
+      expect(boardRangeDistance(week, "2026-08-23")).toBe(0);
+    });
+
+    it("counts months in month mode, across a year boundary", () => {
+      expect(boardRangeDistance(boardRange("month", 0, "2026-08-19"), "2026-08-19")).toBe(0);
+      expect(boardRangeDistance(boardRange("month", 1, "2026-08-19"), "2026-08-19")).toBe(1);
+      expect(boardRangeDistance(boardRange("month", -2, "2026-08-19"), "2026-08-19")).toBe(-2);
+      // December to January is one month, not eleven back.
+      expect(boardRangeDistance(boardRange("month", 1, "2026-12-15"), "2026-12-15")).toBe(1);
     });
   });
 
