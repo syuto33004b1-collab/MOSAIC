@@ -127,7 +127,7 @@ describe("calendar helpers", () => {
 
     it("is today's week while the month holding today is in view", () => {
       const august = boardRange("month", 0, "2026-08-23");
-      expect(august.start).toBe("2026-08-03");
+      expect(august.start).toBe("2026-08-01");
       // 8/23 is a Sunday, and the week it belongs to opened on the 17th.
       expect(boardBasisWeek(august, "2026-08-23")).toBe("2026-08-17");
       // A weekday in the same week reads the same, and so does the month's own first day.
@@ -145,14 +145,19 @@ describe("calendar helpers", () => {
     });
 
     /**
-     * A month whose first days fall on a weekend starts on its first weekday, so a today
-     * inside those dropped days is *before* the range rather than in it — and its own week
-     * has no column in view at all. The opening week is the right answer there.
+     * A month that opens on a weekend now starts on the 1st, so a today inside those
+     * days is in the range after all — and the week measured is today's, which is a week
+     * that began in the month before. The range's own opening week is the fallback for a
+     * month nobody is standing in, and it takes the first *working* day, so August is
+     * measured over 8/3週 rather than the mostly-July 7/27週 (#207).
      */
-    it("takes the opening week when today is in the month but not in the range", () => {
+    it("measures a month nobody is standing in from its first working day", () => {
       const august = boardRange("month", 0, "2026-08-02");
-      expect(august.start).toBe("2026-08-03");
-      expect(boardBasisWeek(august, "2026-08-02")).toBe("2026-08-03");
+      expect(august.start).toBe("2026-08-01");
+      // 8/2 is a Sunday and now has a column, so this is the 「today is in view」 branch.
+      expect(boardBasisWeek(august, "2026-08-02")).toBe("2026-07-27");
+      // From outside the month, the answer stays inside it.
+      expect(boardBasisWeek(august, "2026-09-15")).toBe("2026-08-03");
     });
   });
 
@@ -230,29 +235,38 @@ describe("calendar helpers", () => {
    */
   it("counts columns, not days, once the range is a month", () => {
     const month = boardRange("month", 0, "2026-08-17");
-    expect(month.start).toBe("2026-08-03");
+    expect(month.start).toBe("2026-08-01");
     expect(month.end).toBe("2026-08-31");
-    expect(month.days).toHaveLength(21);
-    // Every day in view is a weekday, and they are in order.
+    expect(month.days).toHaveLength(31);
+    // Every day of the month is in view, in order, weekends included (#207).
     expect(month.days.every((day) => day.month === 8)).toBe(true);
     expect(month.days.map((day) => day.iso)).toEqual([...month.days.map((day) => day.iso)].sort());
+    expect(month.days.filter((day) => day.weekend)).toHaveLength(10);
 
-    expect(assignmentSpan(assignment("2026-08-03", "2026-08-07"), month)).toEqual({ start: 1, span: 5 });
-    // The Monday of the fourth week: day 21 of the month, column 16.
-    expect(assignmentSpan(assignment("2026-08-24", "2026-08-24"), month)).toEqual({ start: 16, span: 1 });
-    // Spanning a weekend takes the columns either side of it and not the weekend.
-    expect(assignmentSpan(assignment("2026-08-07", "2026-08-10"), month)).toEqual({ start: 5, span: 2 });
+    // Column N is day N now that nothing is skipped, which is the plainest form of
+    // 「position in the list, not distance in days」 this can take.
+    expect(assignmentSpan(assignment("2026-08-03", "2026-08-07"), month)).toEqual({ start: 3, span: 5 });
+    expect(assignmentSpan(assignment("2026-08-24", "2026-08-24"), month)).toEqual({ start: 24, span: 1 });
+    // Spanning a weekend is one bar across it: it was two, one per work week, and a
+    // month of them read as a fortnight of gaps that were never in the data (#207).
+    expect(assignmentSpan(assignment("2026-08-07", "2026-08-10"), month)).toEqual({ start: 7, span: 4 });
   });
 
   it("clamps an assignment that runs past both ends of the range", () => {
     const month = boardRange("month", 0, "2026-08-17");
-    expect(assignmentSpan(assignment("2026-07-01", "2026-09-30"), month)).toEqual({ start: 1, span: 21 });
+    expect(assignmentSpan(assignment("2026-07-01", "2026-09-30"), month)).toEqual({ start: 1, span: 31 });
   });
 
-  it("drops an assignment that lands only on a weekend inside the range", () => {
+  /**
+   * It used to draw nothing: the board had no weekend columns, so a Saturday-to-Sunday
+   * assignment had nowhere to go. It has columns now, so the bar appears — while the
+   * figures beside it stay weekday-only, because a date range does not say whether
+   * anyone worked those days (#207, and #222 for the field that would).
+   */
+  it("draws an assignment that lands only on a weekend inside the range", () => {
     const month = boardRange("month", 0, "2026-08-17");
-    // 8/8 is a Saturday and 8/9 a Sunday: inside the month, on no column.
-    expect(assignmentSpan(assignment("2026-08-08", "2026-08-09"), month)).toBeNull();
+    // 8/8 is a Saturday and 8/9 a Sunday: columns 8 and 9 of the month.
+    expect(assignmentSpan(assignment("2026-08-08", "2026-08-09"), month)).toEqual({ start: 8, span: 2 });
   });
 
   /**
@@ -263,7 +277,7 @@ describe("calendar helpers", () => {
   it("takes the month from today, not from this week's Monday", () => {
     for (const day of ["2026-08-01", "2026-08-02"]) {
       const range = boardRange("month", 0, day);
-      expect(range.start, day).toBe("2026-08-03");
+      expect(range.start, day).toBe("2026-08-01");
       expect(range.end, day).toBe("2026-08-31");
     }
     // And the week still normalises to its Monday, from any day in it.
@@ -272,31 +286,34 @@ describe("calendar helpers", () => {
   });
 
   /**
-   * The board has no weekend columns, so an assignment that only touches a weekend
-   * draws no bar. A staffing count that included it would put a number on screen
-   * with nothing behind it.
+   * The days are the caller's choice, which is the whole of how the weekend is handled:
+   * the board passes every column to draw the bars, and the working days to count the
+   * staffing, because a date range says nothing about whether a Saturday was worked
+   * (#207). Both readings are here so that neither can drift into the other.
    */
-  it("counts only the people whose assignment lands on a day in view", () => {
+  it("counts the people whose assignment lands on one of the days it is given", () => {
     const month = boardRange("month", 0, "2026-08-17");
     const state = {
       members: [], projects: [], needs: [],
       assignments: [
         { id: "weekday", personId: "a", projectId: "p", startDate: "2026-08-10", endDate: "2026-08-11", allocation: 50, status: "confirmed" },
-        // 8/8 Saturday to 8/9 Sunday: inside the month's span, on no column.
+        // 8/8 Saturday to 8/9 Sunday: a column of its own now, and no working day.
         { id: "weekend", personId: "b", projectId: "p", startDate: "2026-08-08", endDate: "2026-08-09", allocation: 50, status: "confirmed" },
       ],
     } as unknown as WorkspaceState;
-    expect(projectMembersOnDays(state, "p", month.days)).toBe(1);
+    expect(projectMembersOnDays(state, "p", month.days)).toBe(2);
+    expect(projectMembersOnDays(state, "p", month.days.filter((day) => !day.weekend))).toBe(1);
   });
 
   it("keeps a week that straddles New Year in one range", () => {
     // 2026-12-28 is a Monday; that week runs into 2027.
     const week = boardRange("week", 0, "2026-12-30");
     expect(week.days.map((day) => day.iso)).toEqual([
-      "2026-12-28", "2026-12-29", "2026-12-30", "2026-12-31", "2027-01-01",
+      "2026-12-28", "2026-12-29", "2026-12-30", "2026-12-31",
+      "2027-01-01", "2027-01-02", "2027-01-03",
     ]);
     expect(week.days[0].year).toBe(2026);
-    expect(week.days[4].year).toBe(2027);
+    expect(week.days[6].year).toBe(2027);
   });
 
   it("pages by the unit it is showing", () => {
