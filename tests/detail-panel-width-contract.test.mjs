@@ -117,10 +117,11 @@ test("the threshold is pinned, and every rule in the block is .drawer-prefixed",
   const block = containerBlock(css);
   assert.ok(block, "expected an @container block for the panel");
   // Exactly 600, not a range: the number is load-bearing at both ends. It puts the
-  // switch at a 650px panel, so two columns from about a 1250px viewport at 52vw
-  // with each column near 300px; and it leaves the 620px sheet's content box 18px
-  // short, which is the only thing keeping that sheet in one column besides the
-  // `container: none` above.
+  // switch at a 650px panel — two columns from about a 1045px viewport at #196's 62vw,
+  // where it was about 1250px at #137's 52vw, and the columns measured 289px at 1060px
+  // against 300px at 1250px, which is the same design point reached sooner. And it leaves
+  // the 620px sheet's content box 18px short, which is the only thing keeping that sheet
+  // in one column besides the `container: none` above.
   assert.equal(block.width, 600,
     `the block starts at ${block.width}px. 600 is measured — moving it changes both which viewports `
     + "get two columns and how much clearance the mobile sheet has (#137)");
