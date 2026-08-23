@@ -121,7 +121,9 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .day-label.today strong { color: var(--cobalt); }
 .schedule-row { min-height: 78px; display: grid; grid-template-columns: var(--schedule-label-col) minmax(0, 1fr); border-bottom: 1px solid var(--line); }
 .schedule-row:last-child { border-bottom: 0; }
-.person-cell { position: sticky; z-index: 2; left: 0; min-width: 0; padding: 14px 15px 14px 18px; background: var(--paper); display: flex; align-items: center; gap: 10px; }
+/* 10px, not 14px: the row's height is its content now, so the padding is the whole of what
+   is spare. 8px was measured too — 4px a row, against a legible gutter (#192). */
+.person-cell { position: sticky; z-index: 2; left: 0; min-width: 0; padding: 10px 15px 10px 18px; background: var(--paper); display: flex; align-items: center; gap: 10px; }
 /* The row's hover tint has to reach the sticky cell too, or the cell stays pale
    while the rest of the row lights up. */
 .schedule-row:hover .person-cell { background: #fafbfe; }
@@ -167,7 +169,7 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
    goes from 8+5=13px to 5px, while the gap between two days stays 5+5=10px.
    Every bar is now inset 5px from its own day boundary; before, the first and
    last were 13px in from the cell edge and so did not line up at all. */
-.week-cell { position: relative; padding: 14px 0; display: grid; grid-template-columns: var(--schedule-day-tracks); grid-auto-rows: 23px; gap: 4px 0; overflow: hidden; }
+.week-cell { position: relative; padding: 10px 0; display: grid; grid-template-columns: var(--schedule-day-tracks); grid-auto-rows: 23px; gap: 4px 0; overflow: hidden; }
 /* The same day tracks as the header and the cell. This was `repeat(5, 1fr)`
    over the cell's padding box, which agreed with the header by coincidence —
    that is why the boundary lines looked right while the bars did not. */
@@ -2519,8 +2521,9 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .sync-banner button,
 .production-audit-detail summary { min-height: 36px; }
 .assignment { min-height: 36px; }
-.week-cell { grid-auto-rows: minmax(36px, auto); }
-.schedule-row { min-height: 104px; }
+/* `align-content: start`, or the one bar in a single-assignment row grows to fill the cell:
+   measured, 36px of bar drawn 75px tall, a day's work looking like three days' (#192). */
+.week-cell { grid-auto-rows: minmax(36px, auto); align-content: start; }
 .project-name-cell,
 .member-name-cell,
 .exception-list button,
@@ -2787,7 +2790,6 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   .production-audit-detail summary { min-height: 44px; }
   .assignment { min-height: 44px; }
   .week-cell { grid-auto-rows: minmax(44px, auto); }
-  .schedule-row { min-height: 120px; }
   .inline-search,
   .view-filter,
   .view-add-button { min-height: 44px; }
