@@ -339,6 +339,18 @@ describe("capacity calculations", () => {
     expect(memberDailyLoads(state, "m", "2026-08-17", "2026-08-21").map((day) => day.load)).toEqual([100, 100, 0, 0, 0]);
     expect(memberLoad(state, "m", "2026-08-17")).toBe(100);
     expect(memberPeakLoad(state, "m", "2026-08-17", "2026-08-28")).toBe(100);
+
+    /*
+     * Every caller used to pass a week the board had computed. The assignment form
+     * passes its own date inputs now (#199), and an empty one made `addDays` return
+     * a date built from `new Date("T00:00:00Z")` — so the walk started from
+     * 「NaN-NaN-NaN」 rather than stopping. Same guard `memberPeakLoad` already had.
+     */
+    expect(memberDailyLoads(state, "m", "", "2026-08-21")).toEqual([]);
+    expect(memberDailyLoads(state, "m", "2026-08-17", "")).toEqual([]);
+    expect(memberDailyLoads(state, "m", "2026-8-17", "2026-08-21")).toEqual([]);
+    // A backwards range is not malformed, just empty — the loop condition covers it.
+    expect(memberDailyLoads(state, "m", "2026-08-21", "2026-08-17")).toEqual([]);
   });
 
   it("calculates peak load for an extreme date range without scanning every day", () => {

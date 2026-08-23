@@ -701,6 +701,10 @@ function intervalContainsBusinessDay(startDay: number, endDay: number) {
 }
 
 export function memberDailyLoads(state: WorkspaceState, memberId: string, startDate: string, endDate: string): DailyLoad[] {
+  // The same guard `memberPeakLoad` has. Every caller used to pass a week the
+  // board had computed; the assignment form now passes its own date inputs, and a
+  // half-typed one makes `addDays` return NaN rather than a date (#199).
+  if (isoDayNumber(startDate) === null || isoDayNumber(endDate) === null) return [];
   const days: DailyLoad[] = [];
   for (let date = startDate; date <= endDate; date = addDays(date, 1)) {
     const day = new Date(date + "T00:00:00Z").getUTCDay();
