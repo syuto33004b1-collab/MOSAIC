@@ -4730,3 +4730,118 @@ describe("moving a department", () => {
     expect((screen.getByLabelText("品質保証の親部門") as HTMLSelectElement).value).toBe("org-engineering");
   });
 });
+
+/**
+ * The board could only ever narrow by one thing: 職種 on the member axis, 状態 on
+ * the project axis. The conditions now live behind a trigger, because the
+ * toolbar had 74px of spare width at a 1425px viewport — the board is 758px of
+ * it — and three more controls want about 410px (#198).
+ *
+ * What these hold is the behaviour, not the geometry: the widths are in the PR.
+ */
+describe("the board narrows by more than one thing", () => {
+  const openBoard = async (user: ReturnType<typeof userEvent.setup>) => {
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^アサインボード( |$)/u }));
+  };
+  const openFilters = async (user: ReturnType<typeof userEvent.setup>) => {
+    await user.click(screen.getByRole("button", { name: /絞り込み/u }));
+  };
+  const rowNames = () => [...document.querySelectorAll(".schedule-row .person-open strong")].map((el) => el.textContent ?? "");
+  const chips = () => [...document.querySelectorAll(".filter-chip")].map((el) => el.textContent ?? "");
+
+  it("narrows the member axis by department, and says so in a chip", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await openBoard(user);
+    const everyone = rowNames();
+    expect(everyone.length).toBeGreaterThan(2);
+    // Nothing applied: no chip row at all, which is what keeps the idle board
+    // the height it was.
+    expect(document.querySelector(".toolbar-chips")).toBeNull();
+
+    await openFilters(user);
+    await user.selectOptions(screen.getByLabelText("部門で絞り込み"), "org-design");
+    const designers = rowNames();
+    expect(designers.length).toBeGreaterThan(0);
+    expect(designers.length).toBeLessThan(everyone.length);
+    expect(everyone).toEqual(expect.arrayContaining(designers));
+    expect(chips()).toEqual(["部門: デザイン本部 / デザイン"]);
+    expect(document.querySelector(".toolbar-chips-lead")!.textContent).toBe(`絞り込み中 · ${designers.length}名`);
+
+    // The chip is the way back out of that one condition.
+    await user.click(screen.getByRole("button", { name: /部門の絞り込み「デザイン本部 \/ デザイン」を外す/u }));
+    expect(rowNames()).toEqual(everyone);
+    expect(document.querySelector(".toolbar-chips")).toBeNull();
+  });
+
+  it("leaves only the rows carrying their own warning", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await openBoard(user);
+    const everyone = rowNames();
+
+    await openFilters(user);
+    await user.click(screen.getByLabelText("上限超過のみ"));
+    const overloaded = rowNames();
+    expect(overloaded.length).toBeGreaterThan(0);
+    expect(overloaded.length).toBeLessThan(everyone.length);
+    // Every remaining row is one the board itself marks, and every dropped row is not.
+    const marked = [...document.querySelectorAll(".schedule-row")]
+      .map((row) => row.querySelector(".load")!.classList.contains("over"));
+    expect(marked.every(Boolean)).toBe(true);
+  });
+
+  /**
+   * 「要調整」 is the pulse strip's count, which also counts unfilled roles — a
+   * different set from a row's own warning. So the control is named after what
+   * it actually filters, and the name follows the axis.
+   */
+  it("names the warning after the axis, and drops the condition that has no meaning there", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await openBoard(user);
+    await openFilters(user);
+
+    expect(screen.getByLabelText("職種で絞り込み")).toBeInTheDocument();
+    expect(screen.getByLabelText("部門で絞り込み")).toBeInTheDocument();
+    expect(screen.getByLabelText("上限超過のみ")).toBeInTheDocument();
+    expect(screen.queryByLabelText("要員不足のみ")).toBeNull();
+
+    await user.selectOptions(screen.getByLabelText("部門で絞り込み"), "org-design");
+    await user.click(within(screen.getByRole("group", { name: "表示軸" })).getByRole("button", { name: /プロジェクト別/u }));
+
+    expect(screen.getByLabelText("状態で絞り込み")).toBeInTheDocument();
+    expect(screen.getByLabelText("要員不足のみ")).toBeInTheDocument();
+    // A project carries no unit, so there is nothing to compare — and the
+    // member-axis choice does not linger as an invisible condition.
+    expect(screen.queryByLabelText("部門で絞り込み")).toBeNull();
+    expect(chips()).toEqual([]);
+
+    // Coming back does not hand the old department filter back either: switching
+    // axes clears the axis-specific conditions, the same as 職種/状態 already did.
+    await user.click(within(screen.getByRole("group", { name: "表示軸" })).getByRole("button", { name: /メンバー別/u }));
+    expect((screen.getByLabelText("部門で絞り込み") as HTMLSelectElement).value).toBe("");
+    expect(chips()).toEqual([]);
+  });
+
+  it("hands back every condition from the empty state", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await openBoard(user);
+    const everyone = rowNames();
+
+    await openFilters(user);
+    await user.selectOptions(screen.getByLabelText("部門で絞り込み"), "org-design");
+    await user.click(screen.getByLabelText("上限超過のみ"));
+    // Designers who are over capacity: none, which is the state worth testing —
+    // the way out used to reset two of the conditions and leave the rest on.
+    expect(rowNames()).toEqual([]);
+    expect(document.querySelector(".empty-state")).not.toBeNull();
+
+    await user.click(within(document.querySelector(".empty-state") as HTMLElement).getByRole("button", { name: "条件をクリア" }));
+    expect(rowNames()).toEqual(everyone);
+    expect((screen.getByLabelText("部門で絞り込み") as HTMLSelectElement).value).toBe("");
+    expect((screen.getByLabelText("上限超過のみ") as HTMLInputElement).checked).toBe(false);
+    expect(document.querySelector(".toolbar-chips")).toBeNull();
+  });
+});

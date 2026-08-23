@@ -96,7 +96,12 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .view-tabs button { height: 30px; padding: 0 13px; border-color: transparent; border-radius: 8px; background: transparent; color: #858da0; font-size: 9px; font-weight: 700; }
 .view-tabs button.selected { background: #fff; color: var(--ink); box-shadow: 0 2px 7px rgba(42,52,77,.09); }
 .toolbar-actions { display: flex; gap: 6px; }
-.toolbar-actions button { min-width: 52px; height: 31px; padding: 0 10px; border-radius: 8px; color: #747d90; font-size: 8px; }
+/* This row scrolls sideways rather than shrinking — that is what the
+   `overflow-x` at 620px is for. Without these two, flex shrank the buttons to
+   their 52px min-width and wrapped the labels instead: 「絞り込み」 came out on
+   three clipped lines at 375px, and 「今日」 on two before that (#198). */
+.toolbar-actions > * { flex: none; }
+.toolbar-actions button { min-width: 52px; height: 31px; padding: 0 10px; border-radius: 8px; color: #747d90; font-size: 8px; white-space: nowrap; }
 .toolbar-actions .arrow-button { min-width: 30px; padding: 0; font-family: var(--font-data); font-size: 17px; }
 .schedule-head { min-height: 46px; display: grid; grid-template-columns: var(--schedule-label-col) var(--schedule-day-tracks); border-bottom: 1px solid var(--line); background: #fafbfc; }
 /* Sticky, both of these. A month is 21 columns and the grid scrolls sideways —
@@ -349,25 +354,39 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   transition: border-color .2s ease, background .2s ease;
 }
 .toolbar-actions > button:hover { border-color: #cdd4e0; background: #fafbfc; }
-.filter-select {
-  height: 31px;
-  padding: 0 8px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: #fff;
+/* The trigger takes the shape `.toolbar-actions button` already gives 今日 and
+   the arrows, so it only needs to say when it is doing something. */
+.filter-trigger.active { border-color: #b9c2ea; background: #f4f6fd; color: var(--cobalt); }
+/* Sized like `.nav-count`, the count pill the sidebar already uses: the token
+   rather than a literal, so it is not a hole in the 12px floor. */
+.filter-count {
+  min-width: 18px;
+  padding: 0 4px;
+  border-radius: 99px;
+  background: var(--cobalt);
+  color: #fff;
+  text-align: center;
+  font-family: var(--font-data);
+  font-size: var(--text-min);
+  line-height: 18px;
+}
+/* Its own row under the toolbar rather than a layer over it: `.toolbar-actions`
+   turns into a 31px `overflow-x: auto` strip at 620px, and anything positioned
+   inside that is clipped (#198). */
+.board-filter-panel {
+  padding: 10px 15px 10px 18px;
+  border-bottom: 1px solid var(--line);
+  background: #fafbfc;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 5px;
-  color: #747d90;
+  gap: 8px;
 }
-.filter-select select {
-  max-width: 126px;
-  border: 0;
-  background: transparent;
-  color: inherit;
-  font-size: 9px;
-  cursor: pointer;
-}
+/* `.toolbar-chips` is written for the wrapping toolbars on the member and
+   project screens, where it is a 100%-wide flex item. Here it is a block, so it
+   brings its own gutters — matched to the toolbar's, so the chips line up under
+   the controls that set them. */
+.schedule-card > .toolbar-chips { margin: 0; padding: 8px 15px 8px 18px; border-bottom: 1px solid var(--line); }
 .people-label { font-size: 9px; }
 .day-label { font-size: 9px; }
 .day-label strong { font-size: 12px; }
@@ -1030,7 +1049,6 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   .pulse-metric strong { font-size: 21px; }
   .schedule-toolbar { align-items: flex-start; flex-direction: column; }
   .toolbar-actions { width: 100%; overflow-x: auto; padding-bottom: 2px; }
-  .filter-select { flex: 1; min-width: 138px; }
   .attention-panel { display: block; }
   .change-bar {
     left: 88px;
@@ -2564,7 +2582,6 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .pulse-metric > span,
 .view-tabs button,
 .toolbar-actions button,
-.filter-select select,
 .people-label,
 .day-label,
 .person-copy small,
