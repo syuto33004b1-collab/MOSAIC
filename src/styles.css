@@ -1240,6 +1240,10 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
      1064px row, and flex wraps before it shrinks, so those 3px cost the add
      button its place on the first line. Shrinkable as well, for narrow widths. */
   flex: 0 1 200px;
+  /* The pill is a `<label>` now, so the whole 40px of it focuses the field rather than the
+     18.2px the input itself occupied — measured, a click 3px inside the top edge landed on
+     the wrapper and did nothing. The text cursor says the whole pill is the field (#190). */
+  cursor: text;
   min-width: 150px;
   height: 34px;
   padding: 0 10px;
@@ -1794,7 +1798,26 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .csv-view h2 { margin: 0 0 6px; font-size: var(--text-lg); }
 .csv-lead { margin: 0 0 12px; color: var(--muted-readable); font-size: var(--text-min); }
 .csv-toolbar, .csv-presets, .csv-import { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
+/* The preset name field had no styling at all — measured, a 21px browser default beside a
+   40px button, padding 1px 2px and a 13.3px font while every other input on the screen is
+   40px at 12px. It reads from the same tokens as the search pill and the filters, which is
+   what it should have looked like all along (#190). */
+.csv-presets > input {
+  min-height: 40px;
+  padding: 0 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 3px;
+  background: var(--paper-pure);
+  color: var(--ink);
+  font-size: var(--text-sm);
+}
 .csv-columns { display: flex; flex-wrap: wrap; gap: 8px 12px; margin-bottom: 12px; }
+/* 24px is WCAG 2.5.8's minimum, and these tick boxes were 21.6px — measured on the 項目定義
+   screen, eleven of them. The 36 / 40 / 44px tiers above this are deliberate (a finger gets
+   44px at 620px and below); what was not deliberate is a target under the floor (#190). */
+.csv-columns .field-flag,
+.org-flag-set .field-flag,
+.profile-request-submit > label { min-height: 24px; }
 .csv-preset { display: inline-flex; align-items: center; border: 1px solid #dce2eb; border-radius: 999px; overflow: hidden; }
 .csv-preset button { height: 32px; padding: 0 10px; border: 0; background: #f7f8ff; color: #5663b2; cursor: pointer; font-size: var(--text-min); font-weight: 700; }
 .csv-preset button + button { border-left: 1px solid #dce2eb; background: #fff; color: #687285; }
@@ -4651,7 +4674,9 @@ h1 {
 .proficiency-rail i.filled.level-4 { background: #b7c2f5; color: #2d3d7a; }
 .proficiency-rail i.filled.level-5 { background: #91a0ff; color: #172033; }
 .skill-departments { color: var(--muted-readable); font-size: var(--text-min); }
-.skill-need-link { border: 0; background: none; color: var(--cobalt); cursor: pointer; font: inherit; font-weight: 700; }
+/* 24px, from 23.6: WCAG 2.5.8's floor, and a button in a sentence is the one shape that
+   cannot borrow height from a box around it (#190). */
+.skill-need-link { min-height: 24px; border: 0; background: none; color: var(--cobalt); cursor: pointer; font: inherit; font-weight: 700; }
 .skill-gap { color: var(--coral-deep); font-family: var(--font-data); }
 .skill-ok { color: var(--sage); font-size: var(--text-min); font-weight: 700; }
 .member-skills span small,
