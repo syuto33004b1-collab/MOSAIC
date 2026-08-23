@@ -433,7 +433,7 @@ export function ProjectsView({
           undifferentiated flow, so on the member screen 「このシーンを削除」 sat
           between two selects and read like one of them. */}
       <div className="view-toolbar">
-        <div className="inline-search"><Search size={15} /><input value={searchValue} onChange={(event) => setSearchValue(event.target.value)} placeholder="案件名・責任者を検索" aria-label="案件を検索" /></div>
+        <label className="inline-search"><Search size={15} /><input value={searchValue} onChange={(event) => setSearchValue(event.target.value)} placeholder="案件名・責任者を検索" aria-label="案件を検索" /></label>
         <label className="view-filter"><span className="filter-label">状態</span><select value={status} onChange={(event) => setStatus(event.target.value)} aria-label="状態で絞り込み">
           {["すべて", "進行中", "要注意", "準備中", "完了間近", "完了", "欠員あり"].map((option) => <option key={option}>{option}</option>)}
         </select></label>
@@ -557,7 +557,7 @@ export function OpportunitiesView({ state, onOpen }: OpportunitiesViewProps) {
       </div>
 
       <div className="view-toolbar">
-        <div className="inline-search"><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="案件名・スキルを検索" aria-label="受注前案件を検索" /></div>
+        <label className="inline-search"><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="案件名・スキルを検索" aria-label="受注前案件を検索" /></label>
         <label className="view-filter"><span className="filter-label">段階</span><select value={stage} onChange={(event) => setStage(event.target.value)} aria-label="段階で絞り込み">
           {["進行中", "引き合い", "提案", "商談", "受注", "失注", "すべて"].map((option) => <option key={option}>{option}</option>)}
         </select></label>
@@ -755,7 +755,7 @@ export function MembersView({
       </div>
 
       <div className="view-toolbar">
-        <div className="inline-search"><Search size={15} /><input value={searchValue} onChange={(event) => setSearchValue(event.target.value)} placeholder="名前・スキル・経歴を検索" aria-label="メンバーを検索" /></div>
+        <label className="inline-search"><Search size={15} /><input value={searchValue} onChange={(event) => setSearchValue(event.target.value)} placeholder="名前・スキル・経歴を検索" aria-label="メンバーを検索" /></label>
         <label className="view-filter"><span className="filter-label">職種</span><select value={role} onChange={(event) => setRole(event.target.value)} aria-label="職種で絞り込み">{roles.map((option) => <option key={option}>{option}</option>)}</select></label>
         {orgUnits.length > 0 && (
           <label className="view-filter"><span className="filter-label">部門</span><select value={orgFilter} onChange={(event) => setOrgFilter(event.target.value)} aria-label="部門で絞り込み">
@@ -1060,7 +1060,7 @@ export function ProposalView({
 
       <div className="proposal-layout">
         <aside className="proposal-picker">
-          <div className="inline-search"><Search size={15} /><input value={pickerQuery} onChange={(event) => setPickerQuery(event.target.value)} placeholder="候補を検索して追加" aria-label="提案に追加するメンバーを検索" /></div>
+          <label className="inline-search"><Search size={15} /><input value={pickerQuery} onChange={(event) => setPickerQuery(event.target.value)} placeholder="候補を検索して追加" aria-label="提案に追加するメンバーを検索" /></label>
           {favoriteMembers.length > 0 && (
             <div className="proposal-picker-group">
               <small>お気に入り</small>
@@ -1351,7 +1351,7 @@ export function SkillsView({ state, onAddCatalogEntry, onOpenMember, onResolveNe
       </div>
 
       <div className="view-toolbar">
-        <div className="inline-search"><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="スキル・分類を検索" aria-label="スキルを検索" /></div>
+        <label className="inline-search"><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="スキル・分類を検索" aria-label="スキルを検索" /></label>
         <label className="view-filter"><span className="filter-label">表示</span><select value={focus} onChange={(event) => setFocus(event.target.value as typeof focus)} aria-label="表示を絞り込み">
           {(["すべて", "不足あり", "保有あり"] as const).map((option) => <option key={option}>{option}</option>)}
         </select></label>
@@ -1887,7 +1887,7 @@ export function FieldsView({ state, onAddField, canManage = false, canManageRequ
       />
 
       <div className="view-toolbar">
-        <div className="inline-search"><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="項目名・キーを検索" aria-label="項目を検索" /></div>
+        <label className="inline-search"><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="項目名・キーを検索" aria-label="項目を検索" /></label>
         <label className="view-filter"><span className="filter-label">対象</span><select value={entityType} onChange={(event) => setEntityType(event.target.value as typeof entityType)} aria-label="対象で絞り込み">
           {(["すべて", "member", "project"] as const).map((option) => <option value={option} key={option}>{option === "すべて" ? "すべて" : option === "member" ? "メンバー" : "プロジェクト"}</option>)}
         </select></label>
@@ -2058,7 +2058,7 @@ export function OrgView({ state, onAddUnit, onMoveUnit, onArchiveUnit, canManage
       </div>
 
       <div className="view-toolbar">
-        <div className="inline-search"><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="部門名を検索" aria-label="部門を検索" /></div>
+        <label className="inline-search"><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="部門名を検索" aria-label="部門を検索" /></label>
         <span className="toolbar-result">{filtered.length}件を表示</span>
       </div>
 
