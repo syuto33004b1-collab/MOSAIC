@@ -377,6 +377,26 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   font-family: var(--font-data);
   font-size: 7px;
 }
+/* A bar narrow enough that the percentage would take the name's place drops the
+   percentage instead.
+   Measured at 1440px in month mode, where a column is 34px: a two-day bar is 58px wide,
+   38px of it inside the padding, and the badge plus its gap is 31.8px of that — leaving
+   the project name 3.3px of the 102px it wants. Nothing was legible, ellipsis included.
+   The name is the only thing on the bar that says which project it is; the percentage is
+   also in the bar's `title`, in the drawer behind it, and the row's own total is in the
+   `.load` chip to the left. So the name wins the space.
+   100px, because with the badge a three-day bar (92px) still leaves the name 40px — four
+   or five Japanese characters. Without it: 1 day 4px, 2 days 38px, 3 days 72px, and from
+   four days up both fit. A week-mode column is 72px, where the shortest bar is around
+   200px, so nothing there changes.
+   A container query rather than a media query: the thing that is too narrow is the bar,
+   not the viewport. `.section-view` and `.drawer` already do this for their two-column
+   layouts. The bar's own padding cannot be touched from in here — `@container` styles the
+   container's descendants, not the container — and dropping the badge is enough (#188). */
+.assignment { container-type: inline-size; }
+@container (max-width: 100px) {
+  .assignment small { display: none; }
+}
 .assignment:hover {
   filter: saturate(1.08);
   transform: translateY(-1px);

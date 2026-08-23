@@ -174,3 +174,46 @@ test("the wide-screen override comes after the tokens it overrides", async () =>
     }
   }
 });
+
+/**
+ * A bar too narrow to hold both its name and its percentage keeps the name.
+ *
+ * Measured at 1440px in month mode, where a day column is 34px: a two-day bar is 58px
+ * wide, 38px of that inside its padding, and the percentage badge with its gap is 31.8px —
+ * the project name got 3.3px of the 102px it wanted, ellipsis and all. The name is the only
+ * thing on the bar that says which project it is; the percentage is also in the bar's
+ * `title`, in the drawer behind it, and the row's total is in the `.load` chip beside it.
+ *
+ * 100px is measured, not chosen: with the badge, a three-day bar (92px) still leaves the
+ * name 40px. Without it the name gets 4px at one day, 38px at two, 72px at three, and from
+ * four days up both fit. Week mode's columns are 72px, where the shortest bar is around
+ * 200px, so it never reaches this rule (#188).
+ *
+ * Static, like the rest of this file: it reads the declarations, not the rendered bar. The
+ * rendered evidence is in the PR — 3.3px → 35px on the two-day bar, badge gone, every
+ * wider bar keeping both.
+ */
+test("a narrow bar drops the percentage rather than the project name", async () => {
+  const css = withoutComments(await read()).replaceAll("\r\n", "\n");
+
+  // The bar has to be its own container: what is too narrow is the bar, not the viewport,
+  // and the same viewport holds bars of every width.
+  const bar = allRules(css, "assignment").filter(({ selector }) => selector === ".assignment");
+  const containerTypes = bar.flatMap(({ body }) => [
+    ...declarations(body, "container-type"),
+    ...declarations(body, "container"),
+  ]);
+  assert.ok(
+    containerTypes.some((value) => /inline-size/u.test(value)),
+    "`.assignment` must be an inline-size container, or the query below has nothing to measure",
+  );
+
+  const query = css.match(/@container\s*\(max-width:\s*(\d+)px\)\s*\{([\s\S]*?)\n\}/u);
+  assert.ok(query, "expected a @container block for the narrow bar");
+  assert.equal(query[1], "100", "the threshold is measured: 92px still leaves the name 40px with the badge");
+  assert.match(query[2], /\.assignment small\s*\{[^}]*display:\s*none/u,
+    "the badge is what goes; the name is the only thing that identifies the bar");
+  // And not the name — the failure this replaces was the name being the one that vanished.
+  assert.doesNotMatch(query[2], /\.assignment span\s*\{[^}]*display:\s*none/u,
+    "dropping the name would be the bug this rule exists to fix");
+});
