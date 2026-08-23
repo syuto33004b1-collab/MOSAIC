@@ -672,6 +672,51 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 }
 .assignment-form select:focus { border-color: #91a0ff; box-shadow: 0 0 0 3px rgba(86, 104, 232, .1); }
 .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 11px; }
+/* The assignment form's candidate list. Shaped on `.proposal-picker`, which
+   solves the same problem one screen over — a searchable list of members with a
+   row you press. Native radios inside the rows, so arrow keys, Home/End and the
+   reading order come from the platform instead of from ARIA (#199). */
+.member-picker { min-width: 0; margin: 0 0 17px; padding: 0; border: 0; }
+.member-picker legend { padding: 0; color: #626c7f; font-size: var(--text-min); font-weight: 700; }
+.member-picker legend small { color: var(--muted-readable); font-size: var(--text-min); font-weight: 600; }
+.member-picker-head { margin: 7px 0; display: flex; align-items: center; gap: 8px; }
+/* `min-width: 0` because the count beside it must not be the thing that shrinks:
+   it is the sentence that says the list is not all of them. */
+.member-picker-head .inline-search { flex: 1 1 auto; min-width: 0; }
+.member-picker-count { color: var(--muted-readable); font-size: var(--text-min); font-weight: 700; white-space: nowrap; }
+/* Scrolls at about five rows. The drawer scrolls too, and a list that pushes the
+   dates and the allocation slider off the bottom hides the fields this figure is
+   measured over. */
+.member-picker-list { max-height: 296px; overflow-y: auto; display: grid; gap: 6px; padding: 1px; }
+.member-picker-item {
+  min-height: 44px;
+  padding: 7px 9px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--paper-pure);
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 4px 8px;
+  cursor: pointer;
+}
+.member-picker-item.chosen { border-color: var(--cobalt); background: var(--cobalt-soft); }
+.member-picker-item input { accent-color: var(--cobalt); }
+.member-picker-copy { min-width: 0; display: grid; }
+.member-picker-copy strong { font-size: var(--text-min); }
+.member-picker-copy small { color: var(--muted-readable); font-size: var(--text-min); }
+.member-picker-load { font-family: var(--font-data); font-size: var(--text-min); font-weight: 700; white-space: nowrap; }
+.member-picker-load.over { color: var(--coral-deep); }
+/* One column per weekday, so the rail always fits its row rather than scrolling.
+   `grid-column: 1 / -1` puts it on a second line under the copy — it is the last
+   child, so nothing gets pushed past it (#189 was the other way round). */
+.member-picker-rail { grid-column: 1 / -1; height: 10px; display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 1px; }
+/* Filled to the day's share of the ceiling, not merely coloured when busy: a day
+   at 10% and a day at 100% were the same block of green, which is the one thing
+   the rail exists to tell apart. */
+.member-picker-rail i { border-radius: 2px; background: linear-gradient(to top, var(--sage) var(--fill, 0%), var(--paper-deep) var(--fill, 0%)); }
+.member-picker-rail i.over { background: var(--coral); }
+.member-picker-empty { margin: 0; padding: 10px 2px; color: var(--muted-readable); font-size: var(--text-min); }
 .allocation-input {
   min-height: 48px;
   margin-top: 7px;

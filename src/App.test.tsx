@@ -4,7 +4,7 @@ import axe from "axe-core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import App, { type SharedWorkspaceAdapter } from "./App";
 import { DEMO_FAVORITES_KEY } from "./collaboration";
-import { addDays, boardRange, getWeekDays, getWeekStart, initialWorkspace, memberDailyLoads, memberLoad, type WorkspaceState } from "./domain";
+import { addDays, boardRange, getWeekDays, getWeekStart, initialWorkspace, memberDailyLoads, memberLoad, memberPeakLoad, type WorkspaceState } from "./domain";
 import type { ChatTransport } from "./lib/ai/chatClient";
 
 function sharedAdapter(): SharedWorkspaceAdapter {
@@ -255,7 +255,9 @@ describe("role-aware workspace", () => {
     expect(screen.getByRole("button", { name: "アサインを追加" })).toBeEnabled();
     await user.click(screen.getByRole("button", { name: "アサインを追加" }));
     dialog = within(screen.getByRole("dialog", { name: "詳細パネル" }));
-    expect(dialog.getByLabelText("メンバー")).not.toHaveValue("");
+    // A candidate is chosen on arrival. It was a `<select>` with a non-empty
+    // value; it is a radio group now, so the same guarantee is a checked row (#199).
+    expect(dialog.getAllByRole("radio", { checked: true })).toHaveLength(1);
     expect(dialog.getByLabelText("プロジェクト")).not.toHaveValue("");
     await user.click(dialog.getByRole("button", { name: "この内容で仮置きする" }));
     expect(document.querySelectorAll(".assignment.provisional")).toHaveLength(1);
@@ -3185,6 +3187,11 @@ describe("a week-scoped figure names the week it measures", () => {
    *
    * 鈴木 by name, because he is the demo's overloaded member and the whole point is that the
    * form must not disagree with the board about him.
+   *
+   * The form reads its own date inputs now rather than the board's measured week (#199), so
+   * the property is stronger than it was: the figure cannot follow the board into the wrong
+   * week because it no longer asks the board anything. Both halves are checked — the figure
+   * is right, and switching the board's unit does not move it.
    */
   it("does not offer a fully booked member as free once the board shows a month", async () => {
     window.localStorage.removeItem("mosaic-local-workspace-v3");
@@ -3192,8 +3199,8 @@ describe("a week-scoped figure names the week it measures", () => {
     render(<App />);
 
     const average = () => document.querySelector(".month-card-label strong")!.textContent;
-    const optionFor = (name: string) => [...(document.getElementById("assignment-member") as HTMLSelectElement).options]
-      .find((option) => option.textContent!.startsWith(name))!.textContent!;
+    const rowFor = (name: string) => [...document.querySelectorAll(".member-picker-item")]
+      .find((row) => row.querySelector("strong")!.textContent === name)!;
 
     const weekAverage = average();
     await user.click(within(screen.getByRole("group", { name: "表示する期間" })).getByRole("button", { name: "月" }));
@@ -3202,13 +3209,25 @@ describe("a week-scoped figure names the week it measures", () => {
     expect(document.querySelector(".month-card-label span")!.textContent).toBe("8/17週の平均稼働率");
 
     await user.click(screen.getByRole("button", { name: /アサインを追加/u }));
-    const suzuki = optionFor("鈴木 健太");
-    expect(suzuki).toContain("8/17週");
+    // The form opens on this week, Monday to Friday, which is what the legend names.
+    expect(document.querySelector(".member-picker legend")!.textContent).toContain("8月17日 — 8月21日");
+    const suzuki = rowFor("鈴木 健太");
+    const load = suzuki.querySelector(".member-picker-load")!;
     // 120% in the demo data, and over his 100% ceiling either way — the reading that was
     // 「0%」 before, which is the one that reads as room to spare.
-    const percent = Number(suzuki.match(/ (\d+)%$/u)![1]);
-    expect(percent).toBe(memberLoad(initialWorkspace, "suzuki", "2026-08-17"));
+    const percent = Number(load.textContent!.match(/^(\d+)%/u)![1]);
+    expect(percent).toBe(memberPeakLoad(initialWorkspace, "suzuki", "2026-08-17", "2026-08-21"));
     expect(percent).toBeGreaterThan(100);
+    // And it is marked as over, not merely numerically larger.
+    expect(load.classList.contains("over")).toBe(true);
+    expect(memberLoad(initialWorkspace, "suzuki", "2026-08-17")).toBeGreaterThan(100);
+
+    // Back to week mode: the figure the form shows is the same, because it never came
+    // from the board's unit in the first place.
+    await user.click(document.querySelector(".drawer .close-button") as HTMLElement);
+    await user.click(within(screen.getByRole("group", { name: "表示する期間" })).getByRole("button", { name: "週" }));
+    await user.click(screen.getByRole("button", { name: /アサインを追加/u }));
+    expect(rowFor("鈴木 健太").querySelector(".member-picker-load")!.textContent).toBe(load.textContent);
   });
 
   /**
@@ -3257,21 +3276,33 @@ describe("a week-scoped figure names the week it measures", () => {
       return `2026-${String(m![1]).padStart(2, "0")}-${String(m![2]).padStart(2, "0")}`;
     };
 
-    // The assignment form: 「{氏名} · {M/D週} {n}%」.
+    // The assignment form no longer names a week: it names its own range once, in the
+    // legend, and every row is the peak over that range (#199). Same property as before —
+    // a figure and the words for what it measures, paired — with the form's dates as the
+    // thing being named instead of the board's week.
     await user.click(screen.getByRole("button", { name: /アサインを追加/u }));
-    // By id: 「メンバー」 also names the nav item, so a label lookup is ambiguous.
-    const options = [...(document.getElementById("assignment-member") as HTMLSelectElement).options];
-    expect(options.length).toBeGreaterThan(0);
-    for (const option of options) {
-      const parsed = option.textContent!.match(/^(.+) · (\d+\/\d+週) (\d+)%$/u);
-      expect(parsed, `unexpected option shape: ${option.textContent}`).not.toBeNull();
-      const member = initialWorkspace.members.find((item) => item.name === parsed![1])!;
-      expect(Number(parsed![3]), `${parsed![1]} at ${parsed![2]}`)
-        .toBe(memberLoad(initialWorkspace, member.id, mondayFrom(parsed![2])));
+    const legend = document.querySelector(".member-picker legend")!.textContent!;
+    const range = legend.match(/(\d+)月(\d+)日 — (\d+)月(\d+)日/u);
+    expect(range, `expected a range in 「${legend}」`).not.toBeNull();
+    const iso = (month: string, day: string) => `2026-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
+    const from = iso(range![1], range![2]);
+    const to = iso(range![3], range![4]);
+    const candidateRows = [...document.querySelectorAll(".member-picker-item")];
+    expect(candidateRows.length).toBeGreaterThan(0);
+    for (const row of candidateRows) {
+      const name = row.querySelector("strong")!.textContent!;
+      const parsed = row.querySelector(".member-picker-load")!.textContent!.match(/^(\d+)% \/ (\d+)%$/u);
+      expect(parsed, `unexpected load shape for ${name}`).not.toBeNull();
+      const member = initialWorkspace.members.find((item) => name.startsWith(item.name))!;
+      expect(Number(parsed![1]), `${name} over ${from}–${to}`)
+        .toBe(memberPeakLoad(initialWorkspace, member.id, from, to));
+      expect(Number(parsed![2])).toBe(member.capacity);
     }
-    // 8/17, today’s week, because August is the month today is in (#187). The literal is
-    // here so the pairing above cannot be satisfied by self-consistency alone.
-    expect(options[0].textContent).toMatch(/ 8\/17週 /u);
+    // 8/17–8/21, this week, with the board a month wide behind it: the range is the form's
+    // own and does not follow the unit. The literal is here so the pairing above cannot be
+    // satisfied by self-consistency alone.
+    expect(from).toBe("2026-08-17");
+    expect(to).toBe("2026-08-21");
     // `.close-button`, not the role lookup: the backdrop carries the same
     // accessible name, which is #122. Two matches would fail here for a reason
     // that has nothing to do with this test.
@@ -3794,10 +3825,13 @@ describe("two members with one name", () => {
       .filter((name) => name.startsWith(sharedName));
     expect(new Set(cellNames).size).toBe(cellNames.length);
 
-    // The assignment form's member picker.
+    // The assignment form's member picker. Searched rather than read off the whole list:
+    // it draws 12 rows at a time and this fixture has 11 members, which is close enough
+    // that the cap could become the reason a namesake looks missing (#199).
     await user.click(screen.getByRole("button", { name: /アサインを追加/u }));
-    const options = [...(document.getElementById("assignment-member") as HTMLSelectElement).options]
-      .map((option) => option.textContent ?? "").filter((text) => text.startsWith(sharedName));
+    await user.type(screen.getByLabelText("アサインするメンバーを検索"), sharedName);
+    const options = [...document.querySelectorAll(".member-picker-item strong")]
+      .map((el) => el.textContent ?? "").filter((text) => text.startsWith(sharedName));
     expect(options).toHaveLength(2);
     expect(new Set(options).size).toBe(2);
     await user.click(document.querySelector(".drawer .close-button") as HTMLElement);
@@ -4843,5 +4877,132 @@ describe("the board narrows by more than one thing", () => {
     expect((screen.getByLabelText("部門で絞り込み") as HTMLSelectElement).value).toBe("");
     expect((screen.getByLabelText("上限超過のみ") as HTMLInputElement).checked).toBe(false);
     expect(document.querySelector(".toolbar-chips")).toBeNull();
+  });
+});
+
+/**
+ * The assignment form used to pick its member from a native `<select>`. Every
+ * option already carried a name and a percentage, but you could not type a name,
+ * and the percentage was the load in the week *the board* was measuring rather
+ * than over the dates the form was about to book (#199).
+ *
+ * The geometry is in the PR. What these hold is the four things that would each
+ * quietly undo the point: the search, the chosen row surviving it, the figures
+ * following the form's own dates, and the count telling you the list is capped.
+ */
+describe("choosing who to assign", () => {
+  const openForm = async (user: ReturnType<typeof userEvent.setup>) => {
+    await user.click(screen.getByRole("button", { name: /アサインを追加/u }));
+  };
+  const rows = () => [...document.querySelectorAll(".member-picker-item")];
+  const names = () => rows().map((row) => row.querySelector("strong")!.textContent ?? "");
+  const loadFor = (name: string) => rows()
+    .find((row) => row.querySelector("strong")!.textContent!.startsWith(name))
+    ?.querySelector(".member-picker-load")!.textContent ?? null;
+
+  it("narrows the candidates by name and by what they do", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await openForm(user);
+    const everyone = names();
+    expect(everyone.length).toBeGreaterThan(3);
+
+    const search = screen.getByLabelText("アサインするメンバーを検索");
+    // The chosen row stays whatever the search says, so what the search returns is the
+    // rest of the list. That pin is the next test's subject.
+    const chosen = document.querySelector(".member-picker-item.chosen strong")!.textContent!;
+    const matched = () => names().filter((name) => name !== chosen);
+    await user.type(search, "鈴木");
+    expect(matched()).toEqual(["鈴木 健太"]);
+
+    // Not just the name: the same field reaches the role, which is how you find
+    // the three QA engineers without knowing any of their names.
+    await user.clear(search);
+    await user.type(search, "QA Engineer");
+    const qa = matched();
+    expect(qa.length).toBeGreaterThan(0);
+    expect(qa.length).toBeLessThan(everyone.length);
+    for (const name of qa) {
+      const member = initialWorkspace.members.find((item) => name.startsWith(item.name))!;
+      expect(member.role).toBe("QA Engineer");
+    }
+
+    await user.clear(search);
+    expect(names()).toEqual(everyone);
+  });
+
+  /**
+   * The row the form is about to submit has to stay on screen. Hiding it behind a
+   * search term leaves every visible radio unchecked above a button that would
+   * have booked someone — the same shape of mistake as #187, from the other end.
+   */
+  it("keeps the chosen candidate in the list even when the search excludes them", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await openForm(user);
+    const chosen = document.querySelector(".member-picker-item.chosen strong")!.textContent!;
+
+    await user.type(screen.getByLabelText("アサインするメンバーを検索"), "鈴木");
+    expect(chosen.startsWith("鈴木")).toBe(false);
+    expect(names()).toContain(chosen);
+    expect(document.querySelectorAll(".member-picker-item.chosen")).toHaveLength(1);
+    // And it is still the checked one, not merely present.
+    expect((document.querySelector(".member-picker-item.chosen input") as HTMLInputElement).checked).toBe(true);
+  });
+
+  it("moves every figure when the dates move", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await openForm(user);
+    const before = loadFor("鈴木 健太");
+    expect(before).toBe("120% / 100%");
+    expect(document.querySelector(".member-picker legend")!.textContent).toContain("8月17日 — 8月21日");
+
+    // A week with nothing booked in it. 鈴木's 120% is two overlapping assignments in
+    // the week the form opens on, and neither reaches December.
+    const dates = document.querySelectorAll(".assignment-form input[type=date]");
+    await user.clear(dates[1] as HTMLElement);
+    await user.type(dates[1] as HTMLElement, "2026-12-25");
+    await user.clear(dates[0] as HTMLElement);
+    await user.type(dates[0] as HTMLElement, "2026-12-21");
+
+    expect(document.querySelector(".member-picker legend")!.textContent).toContain("12月21日 — 12月25日");
+    expect(loadFor("鈴木 健太")).toBe("0% / 100%");
+    // Nobody is over their ceiling in a week nobody is booked in.
+    expect(document.querySelectorAll(".member-picker-load.over")).toHaveLength(0);
+  });
+
+  it("orders by room and says how many it is not showing", async () => {
+    const user = userEvent.setup();
+    const adapter = sharedAdapter();
+    // Twenty members, so the 12-row cap is doing something.
+    adapter.initialState = {
+      ...initialWorkspace,
+      members: [
+        ...initialWorkspace.members,
+        ...Array.from({ length: 11 }, (unused, index) => ({
+          ...initialWorkspace.members[0],
+          id: `extra-${index}`,
+          name: `予備 ${index}`,
+          initials: "YB",
+        })),
+      ],
+    };
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
+    await openForm(user);
+
+    expect(rows()).toHaveLength(12);
+    expect(document.querySelector(".member-picker-count")!.textContent).toBe("該当20名中 12名");
+
+    // The chosen row is pinned to the front, so it sits outside the ordering: with twenty
+    // members it is not among the twelve with the most room, and it still has to be here.
+    const chosen = document.querySelector(".member-picker-item.chosen strong")!.textContent!;
+    expect(names()[0]).toBe(chosen);
+    // Most room first for the rest, which is what makes a cap of 12 the right 12 to keep.
+    const peaks = rows().slice(1)
+      .map((row) => Number(row.querySelector(".member-picker-load")!.textContent!.match(/^(\d+)%/u)![1]));
+    expect(peaks).toEqual([...peaks].sort((a, b) => a - b));
+    // The one nobody can take is not in the visible twelve.
+    expect(names()).not.toContain("鈴木 健太");
   });
 });
