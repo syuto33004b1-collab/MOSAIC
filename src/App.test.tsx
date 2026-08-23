@@ -2410,6 +2410,49 @@ describe("the list says how it is ordered and what is filtering it", () => {
  * follow the range, and everything that stays week-scoped has to keep saying
  * 「週」.
  */
+/**
+ * The count above the board says how many things need adjusting; pressing it used to open
+ * one of them — the overload if there was one, otherwise the first unfilled role — and
+ * leave the rest unreachable from there. Measured at 375px, the panel that lists all of
+ * them sits 1780px down a page 812px tall, so that button is the only way in (#197).
+ */
+describe("the 要調整 count takes you to the list", () => {
+  // The summary button, by its own shape: 「3件要調整」. The overload card in the panel also
+  // has 要調整 in its long accessible name, so the anchor matters.
+  const countButton = () => screen.getByRole("button", { name: /^\d+件要調整$/u });
+
+  it("goes to the panel instead of opening one of the items", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^アサインボード( |$)/u }));
+
+    const panel = document.querySelector(".attention-panel") as HTMLElement;
+    // More than one thing to adjust, or this test would pass on a screen with one.
+    expect(panel.querySelectorAll(".alert-card").length).toBeGreaterThan(1);
+    expect(countButton().textContent).toContain(String(panel.querySelectorAll(".alert-card").length));
+
+    await user.click(countButton());
+    // No drawer: the list is the destination, and its cards are the way into each item.
+    expect(document.querySelector(".drawer")).toBeNull();
+    expect(panel).toHaveFocus();
+    expect(panel.scrollIntoView).toHaveBeenCalled();
+  });
+
+  /** And each card still opens its own item, so nothing lost a way in. */
+  it("keeps each card as the way into its own item", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^アサインボード( |$)/u }));
+    const cards = [...document.querySelectorAll(".attention-panel .alert-card")] as HTMLElement[];
+
+    await user.click(cards[0]);
+    expect(document.querySelector(".drawer")).not.toBeNull();
+    await user.click(document.querySelector(".drawer .close-button") as HTMLElement);
+
+    await user.click(cards[1]);
+    expect(document.querySelector(".drawer")).not.toBeNull();
+  });
+});
 describe("the board can show a month", () => {
   const openBoard = async () => {
     const user = userEvent.setup();

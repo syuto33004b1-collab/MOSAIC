@@ -789,6 +789,14 @@ export default function Home({ mode = "demo", organizationId, organizationName =
    * レポート is open.
    */
   const activeNavItemRef = useRef<HTMLButtonElement | null>(null);
+  /**
+   * The 要調整 panel, so the count above the board can take you to it.
+   *
+   * The count used to open one item — the overload if there was one, otherwise the first
+   * unfilled role — while saying 「3件」. At 375px the panel is 1780px down a page 812px
+   * tall, so that button is the only way in, and it reached one of the three (#197).
+   */
+  const attentionPanelRef = useRef<HTMLElement | null>(null);
   useEffect(() => {
     const bringIntoView = () => {
       if (!window.matchMedia("(max-width: 620px)").matches) return;
@@ -841,7 +849,6 @@ export default function Home({ mode = "demo", organizationId, organizationName =
     .filter((assignment) => assignment.personId === overloadMember.id && overloadDates.some((date) => assignment.startDate <= date && assignment.endDate >= date))
     .sort((a, b) => a.allocation - b.allocation) : [];
   const activeNeeds = workspace.needs.filter((need) => need.status !== "filled");
-  const displayNeed = activeNeeds[0];
   const selectedNeed = workspace.needs.find((need) => need.id === selectedNeedId);
   const candidateMatches = selectedNeed ? matchMembers(workspace, searchSceneFromNeed(selectedNeed)).slice(0, 5) : [];
   const adjustmentCount = currentOverloads.length + (overloadPlanned ? 1 : 0) + activeNeeds.length;
@@ -1092,6 +1099,20 @@ export default function Home({ mode = "demo", organizationId, organizationName =
     setActiveNav("proposal");
     closeDrawer();
     setToast("提案ビューに追加しました");
+  };
+
+  /**
+   * Take the reader to the 要調整 list.
+   *
+   * Focus as well as scroll: at 1281px and up the panel is already beside the board, so
+   * scrolling alone would look like the button did nothing, and a keyboard would still be
+   * up at the summary. The panel carries `tabIndex={-1}` for this (#197).
+   */
+  const showAttentionPanel = () => {
+    const panel = attentionPanelRef.current;
+    if (!panel) return;
+    panel.scrollIntoView({ block: "nearest" });
+    panel.focus();
   };
 
   const openStaffingNeed = (needId: string) => {
@@ -2514,7 +2535,10 @@ export default function Home({ mode = "demo", organizationId, organizationName =
               <div className="pulse-rule" />
               <div className="pulse-metric"><strong>{freeDays}<small>人日</small></strong><span>{measuredWeekLabel}の空き</span></div>
               <div className="pulse-rule" />
-              <button className="pulse-metric warning" onClick={() => { if (currentOverloads.length > 0 || overloadPlanned) setDrawer("overload"); else if (displayNeed) openStaffingNeed(displayNeed.id); }}><strong>{adjustmentCount}<small>件</small></strong><span>要調整</span><ArrowRight size={14} /></button>
+              {/* To the list, not into one of its items: a count is a summary, and 「3件」 that
+                  opens one thing is one label over two operations (#88, #124, #197). The
+                  panel’s own cards are the way into each. */}
+              <button className="pulse-metric warning" onClick={showAttentionPanel}><strong>{adjustmentCount}<small>件</small></strong><span>要調整</span><ArrowRight size={14} /></button>
             </section>
 
             <div className="board-layout">
@@ -2590,8 +2614,8 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                 </div>
               </section>
 
-              <aside className="attention-panel">
-                <div className="attention-title"><div><small>NEEDS ATTENTION</small><h2>要調整</h2></div><span>{adjustmentCount}</span></div>
+              <aside className="attention-panel" ref={attentionPanelRef} tabIndex={-1} aria-labelledby="attention-heading">
+                <div className="attention-title"><div><small>NEEDS ATTENTION</small><h2 id="attention-heading">要調整</h2></div><span>{adjustmentCount}</span></div>
                 {(currentOverloads.length > 0 || overloadPlanned) && overloadMember && (
                   <button className={"alert-card urgent " + (overloadPlanned ? "planned" : "")} onClick={() => setDrawer("overload")}>
                     <div className="alert-top"><span>{overloadPlanned ? <CheckCircle2 size={11} /> : <AlertTriangle size={11} />} {overloadPlanned ? "解消予定" : "上限超過"}</span><small>{memberLoad(workspace, overloadMember.id, weekStart)}%</small></div>
