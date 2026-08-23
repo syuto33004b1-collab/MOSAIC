@@ -134,3 +134,50 @@ test("the toolbar's search box can give up width", async () => {
   assert.ok(flex, ".inline-search needs an explicit `flex: <grow> <shrink> <basis>`");
   assert.ok(Number(flex[2]) >= 1, `.inline-search has flex-shrink ${flex[2]}; it must be able to shrink`);
 });
+
+/**
+ * The pulse metrics keep their labels at narrow widths.
+ *
+ * They used to be `display: none` below 620px, which left 「69%」 「14.5人日」 「3件」 with
+ * nothing saying what any of them was. Measured at 375px in a 347px strip: side by side with
+ * their labels the three metrics want 380px and wrap onto rows of their own; each one laid
+ * out as a two-row grid — number and arrow above, label across the bottom — wants 192px and
+ * they stay on one row, 18px taller than before. Flex could not do it either way: as a column
+ * the 要調整 arrow took a third row of its own, and wrapped it still sized each metric to its
+ * items side by side (#189).
+ *
+ * Static, so it cannot tell whether anything fits. The widths above are the measurement, and
+ * they are in the PR; what this holds is that the labels are not hidden and that the grid the
+ * arrow is placed into is still there to place it in.
+ */
+test("the pulse metrics say what their numbers are at narrow widths", async () => {
+  const css = withoutComments(await read()).replaceAll("\r\n", "\n");
+  // Every 620px block, brace-counted. There are two of them, and a non-greedy match finds
+  // the one-line one first and then runs past its end into the rules that follow it.
+  const bodies = [];
+  const marker = /@media \(max-width: 620px\)\s*\{/gu;
+  for (let found; (found = marker.exec(css)) !== null;) {
+    let depth = 1;
+    let index = found.index + found[0].length;
+    const start = index;
+    while (depth > 0 && index < css.length) {
+      if (css[index] === "{") depth += 1;
+      else if (css[index] === "}") depth -= 1;
+      index += 1;
+    }
+    bodies.push(css.slice(start, index - 1));
+  }
+  assert.ok(bodies.length > 0, "expected a 620px block");
+  const narrow = bodies.join("\n");
+
+  assert.doesNotMatch(narrow, /\.pulse-metric > span\s*\{[^}]*display:\s*none/u,
+    "a number with no label is not a metric; stack them instead (#189)");
+  const metric = narrow.match(/(?:^|\})\s*\.pulse-metric\s*\{([^}]*)\}/u);
+  assert.ok(metric, "expected .pulse-metric to be re-laid-out at 620px");
+  assert.match(metric[1], /display:\s*grid/u, "the two rows are a grid: flex sized them side by side");
+  assert.match(narrow, /\.pulse-metric > span\s*\{[^}]*grid-column:\s*1 \/ -1/u,
+    "the label takes the second row on its own");
+  // The 要調整 metric's arrow, which auto-placement pushed onto a third row below the label.
+  assert.match(narrow, /\.pulse-metric > svg\s*\{[^}]*grid-area:\s*1 \/ 2/u,
+    "the arrow belongs beside the number, not under the label (#189)");
+});
