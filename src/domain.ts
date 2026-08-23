@@ -611,6 +611,45 @@ export function boardBasisWeek(range: BoardRange, today = currentLocalDate()) {
 }
 
 /**
+ * Where the board is, in the words the rest of the screen uses.
+ *
+ * 「8月 第3週」 for a week, 「2026年 8月」 for a month. It replaced 「WEEK 34」, an ISO week
+ * number: correct, year-wide, and no answer at all to 「what week of the month is this」,
+ * which is what #194 was asked.
+ *
+ * 第N週 counts Mondays inside the month the week starts in — August's are the 3rd, 10th,
+ * 17th, 24th and 31st, so the week of the 17th is its third. A week that crosses into
+ * January belongs to the month of its Monday, so 12/28 is December's fourth.
+ */
+export function boardRangeName(range: BoardRange) {
+  const start = range.days[0];
+  if (range.unit === "month") return `${start.year}年 ${start.month}月`;
+  // `range.start` is a Monday, so its date decides which Monday of the month it is.
+  const nth = Math.floor((Number(range.start.slice(8, 10)) - 1) / 7) + 1;
+  return `${start.month}月 第${nth}週`;
+}
+
+/**
+ * How far the range is from today, counted in the unit the board is showing: 0 for the week
+ * or month today belongs to, positive ahead, negative behind.
+ *
+ * Paging three weeks out moved every figure and said nothing about how far out it was. The
+ * screen writes this as 「3週後」 and writes nothing at 0 — 「今週」 is the word #146 retired
+ * from these screens, and inventing a replacement would be worse than the silence: today is
+ * a Saturday or Sunday two days in seven, when the week on screen does not contain it at all
+ * (#194).
+ */
+export function boardRangeDistance(range: BoardRange, today = currentLocalDate()) {
+  if (range.unit === "week") {
+    const here = Date.parse(getWeekStartForDate(today) + "T00:00:00Z");
+    return Math.round((Date.parse(range.start + "T00:00:00Z") - here) / 604_800_000);
+  }
+  const now = new Date(today + "T00:00:00Z");
+  const there = range.days[0];
+  return (there.year - now.getUTCFullYear()) * 12 + (there.month - 1 - now.getUTCMonth());
+}
+
+/**
  * Which columns an assignment occupies, 1-based, or null if it is not in view.
  *
  * The column is the assignment's position in `range.days`, looked up — not its

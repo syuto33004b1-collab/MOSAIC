@@ -2627,7 +2627,9 @@ describe("the board can show a month", () => {
     expect(screen.getByRole("grid", { name: "メンバー別の月間アサイン" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "次の月" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "次の週" })).not.toBeInTheDocument();
-    expect(document.querySelector(".eyebrow")!.textContent).toMatch(/MONTH \d+/u);
+    // 「2026年 8月」, where the week reads 「8月 第3週」. It was 「MONTH 8」 and 「WEEK 34」 — an
+    // ISO week number, which is year-wide and says nothing about the month (#194).
+    expect(document.querySelector(".eyebrow")!.textContent).toMatch(/\d{4}年 \d+月$/u);
   });
 
   /**
@@ -3009,6 +3011,62 @@ describe("a proposal answers something", () => {
  * the reports screen and nothing else. Every other week-scoped figure names its
  * week, the shape #119 already gave the sidebar.
  */
+/**
+ * #194: the board named its position 「WEEK 34」 — an ISO week number, year-wide, and no
+ * answer to 「what week of the month is this」. And after three clicks of ▶ nothing said how
+ * far out you were.
+ *
+ * On a fixed clock, because both labels are literals about a date. Wednesday 2026-08-19 is in
+ * August's third Monday-week, so 第3週 and 8/17 are different statements and the week label
+ * cannot pass by coincidence.
+ */
+describe("the board says where it is", () => {
+  const onWednesday = () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date("2026-08-19T09:00:00+09:00"));
+    return userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+  };
+  afterEach(() => { vi.useRealTimers(); });
+
+  const eyebrow = () => document.querySelector(".eyebrow")!.textContent!.replace(/s+/gu, " ").trim();
+  const dateRange = () => document.querySelector(".date-range")!.textContent!;
+
+  it("names the week by its place in the month, and the month by its year", async () => {
+    const user = onWednesday();
+    render(<App />);
+    expect(eyebrow()).toBe("RESOURCE PLANNING / 8月 第3週");
+
+    await user.click(within(screen.getByRole("group", { name: "表示する期間" })).getByRole("button", { name: "月" }));
+    expect(eyebrow()).toBe("RESOURCE PLANNING / 2026年 8月");
+  });
+
+  it("says how far it has been paged, in the unit it is paging by", async () => {
+    const user = onWednesday();
+    render(<App />);
+    // Nothing at zero. 「今週」 is the word #146 retired from these screens, and today is a
+    // weekend two days in seven, where the week on screen holds no column for it.
+    expect(dateRange()).toBe("2026年 8月17日 — 8月21日");
+
+    await user.click(screen.getByRole("button", { name: "次の週" }));
+    expect(dateRange()).toBe("2026年 8月24日 — 8月28日 · 1週後");
+    await user.click(screen.getByRole("button", { name: "次の週" }));
+    expect(dateRange()).toBe("2026年 8月31日 — 9月4日 · 2週後");
+    expect(eyebrow()).toBe("RESOURCE PLANNING / 8月 第5週");
+
+    await user.click(screen.getByRole("button", { name: "今日" }));
+    expect(dateRange()).toBe("2026年 8月17日 — 8月21日");
+
+    await user.click(screen.getByRole("button", { name: "前の週" }));
+    expect(dateRange()).toBe("2026年 8月10日 — 8月14日 · 1週前");
+
+    // Months count in months, not in the weeks they contain.
+    await user.click(screen.getByRole("button", { name: "今日" }));
+    await user.click(within(screen.getByRole("group", { name: "表示する期間" })).getByRole("button", { name: "月" }));
+    expect(dateRange()).toBe("2026年 8月3日 — 8月31日");
+    await user.click(screen.getByRole("button", { name: "次の月" }));
+    expect(dateRange()).toBe("2026年 9月1日 — 9月30日 · 1か月後");
+  });
+});
 describe("a week-scoped figure names the week it measures", () => {
   afterEach(() => { vi.useRealTimers(); });
 
@@ -3057,7 +3115,8 @@ describe("a week-scoped figure names the week it measures", () => {
     // September 2026 opens on a Tuesday, so the week its first column belongs to began on
     // 8/31 — in August, which no label naming the month could say.
     await user.click(screen.getByRole("button", { name: "次の月" }));
-    expect(document.querySelector(".date-range")!.textContent).toBe("2026年 9月1日 — 9月30日");
+    // 「· 1か月後」 comes with having paged away from today (#194).
+    expect(document.querySelector(".date-range")!.textContent).toBe("2026年 9月1日 — 9月30日 · 1か月後");
     expect(pulseLabel()).toBe("8/31週の空き");
   });
 
