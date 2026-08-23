@@ -4793,6 +4793,12 @@ h1 {
 .field-catalog-form input,
 .field-catalog-form select {
   height: 36px;
+  /* An input's intrinsic floor is its default 20-character size, 159px, which
+     the cell no longer reaches once the query above sheds a column. In the last
+     column that goes straight out of the card: the memo field measured 159px in
+     a 136.5px cell and crossed the card's border by 6px, with the form itself
+     7px wider than its box. Same reason as the catalog forms' own rule (#214). */
+  min-width: 0;
   padding: 0 10px;
   border: 1px solid var(--line-strong);
   border-radius: 3px;
@@ -4896,6 +4902,27 @@ h1 {
    380px span, so their checkboxes hung 56px outside the card. */
 .role-permission-form { grid-template-columns: minmax(0, 180px) minmax(0, 200px); }
 
+/* What the forms' reflow queries measure. The queries themselves are further
+   down, below every form's own track list — see the comment there. */
+.section-view,
+.balance-card { container-type: inline-size; }
+.role-permission-features,
+.role-permission-fields {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 8px 0 0;
+  border: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+}
+.role-permission-features legend,
+.role-permission-fields legend { color: var(--muted-readable); font-size: var(--text-min); font-weight: 700; }
+.role-permission-form .role-permission-note { grid-column: 1 / -1; margin: 0; }
+
+.profile-request-card { margin: 0 0 12px; }
+.profile-request-form { grid-template-columns: minmax(0, 1fr) 160px minmax(0, 1.2fr); }
+
 /* The four named tracks need 400px of track plus 30px of gap plus the card's
    own padding. Below that the flexible one collapses to 0 and its input
    overflows a zero-width cell, and dropping the column count is the only way a
@@ -4903,9 +4930,14 @@ h1 {
    Keyed off the container, not the viewport: these forms sit at different
    depths — the report one is nested inside a card — so the same viewport width
    leaves them different amounts of room. A 620px media query left the report
-   form at `120px 0px 147px 120px` while the others still fitted. */
-.section-view,
-.balance-card { container-type: inline-size; }
+   form at `120px 0px 147px 120px` while the others still fitted.
+   These blocks sit below every variant's own track list on purpose. `@container`
+   adds no specificity, so each rule in here carries one class — exactly what
+   `.profile-request-form` carries — and source order is the only thing that
+   makes the query win. Declared above it, as they were, the query never reached
+   that form: at a 347px container it stayed on `46.8px 160px 56.2px` and its
+   依頼内容 select drew 114px out of a 47px cell, across the memo field beside it,
+   while the other two forms on the same screen reflowed correctly (#214). */
 @container (max-width: 470px) {
   .field-catalog-form { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }
   .role-permission-form { grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); }
@@ -4932,22 +4964,6 @@ h1 {
   .org-view .org-catalog-form { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
   .org-view .org-catalog-form .view-add-button { grid-column: 1 / -1; justify-self: start; }
 }
-.role-permission-features,
-.role-permission-fields {
-  grid-column: 1 / -1;
-  margin: 0;
-  padding: 8px 0 0;
-  border: 0;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px 14px;
-}
-.role-permission-features legend,
-.role-permission-fields legend { color: var(--muted-readable); font-size: var(--text-min); font-weight: 700; }
-.role-permission-form .role-permission-note { grid-column: 1 / -1; margin: 0; }
-
-.profile-request-card { margin: 0 0 12px; }
-.profile-request-form { grid-template-columns: minmax(0, 1fr) 160px minmax(0, 1.2fr); }
 .profile-request-members {
   grid-column: 1 / -1;
   margin: 0;

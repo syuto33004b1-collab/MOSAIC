@@ -258,3 +258,62 @@ test("the skills and org catalog forms shed columns before their selects clip", 
   assert.match(control[1], /min-width:\s*0/u,
     "without min-width: 0 the select keeps its widest option as a floor and overflows its cell (#212)");
 });
+
+/**
+ * The query that sheds `.field-catalog-form`'s columns carries one class per
+ * rule, and `@container` adds no specificity. So any variant that declares its
+ * own track list *after* that block beats it and never reflows — silently, in
+ * the same file, next to two variants that do.
+ *
+ * `.profile-request-form` did exactly that. On the 項目定義 screen at 375px the
+ * other two forms read `151.5 151.5` and `136.5 136.5` while it stayed on
+ * `46.8px 160px 56.2px`, and its 依頼内容 select drew 114px out of a 47px cell,
+ * across the memo field beside it (#214).
+ *
+ * The variant list comes from the TSX rather than from a literal here, so a
+ * variant added later is covered without anyone remembering to add it.
+ */
+test("no variant declares its own tracks after the query that sheds them", async () => {
+  const css = withoutComments(await read()).replaceAll("\r\n", "\n");
+  const tsx = await readFile(path.join(root, "src", "expanded-views.tsx"), "utf8");
+
+  const variants = new Set();
+  for (const [, rest] of tsx.matchAll(/className="field-catalog-form([^"]*)"/gu)) {
+    for (const cls of rest.trim().split(/\s+/u).filter(Boolean)) variants.add(cls);
+  }
+  assert.ok(variants.size >= 3,
+    `expected the form's variants from the TSX, found ${[...variants].join(", ") || "none"}`);
+
+  const blockAt = css.search(/@container[^{]*\{[^{}]*\.field-catalog-form\s*\{/u);
+  assert.ok(blockAt > 0, "expected an @container block shedding .field-catalog-form's columns");
+
+  // Only the variants that override the track list are in scope: a variant that
+  // just sets a margin may sit anywhere.
+  // Split on the closing brace rather than matching rules: a global regex that
+  // both requires and consumes `}` skips every other rule, which read as "no
+  // variant overrides anything" while two of them did.
+  const rules = baseLayer(css).split("}").map((chunk) => {
+    const brace = chunk.indexOf("{");
+    return brace < 0 ? null : { selector: chunk.slice(0, brace).trim(), body: chunk.slice(brace + 1) };
+  }).filter(Boolean);
+  const overriding = [...variants].filter((cls) =>
+    rules.some((r) => r.selector === `.${cls}` && /grid-template-columns/u.test(r.body)));
+  assert.ok(overriding.length >= 2,
+    `expected variants with their own track lists, found ${overriding.join(", ") || "none"}`);
+
+  for (const cls of overriding) {
+    const at = css.indexOf(`.${cls} {`);
+    assert.ok(at >= 0, `expected a .${cls} rule`);
+    assert.ok(at < blockAt,
+      `.${cls} declares its own grid-template-columns after the @container block, so it wins on `
+      + "source order and the query never reaches it — move the block below it (#214)");
+  }
+
+  // Reflowing puts a text field in the last column, where its 20-character
+  // default width leaves the card instead of the gap: the memo field measured
+  // 159px in a 136.5px cell and crossed the card's border by 6px.
+  const control = css.match(/\.field-catalog-form input,\s*\n\.field-catalog-form select\s*\{([^}]*)\}/u);
+  assert.ok(control, "expected the shared input/select rule for the field forms");
+  assert.match(control[1], /min-width:\s*0/u,
+    "without min-width: 0 the input keeps its default size as a floor and leaves the card (#214)");
+});
