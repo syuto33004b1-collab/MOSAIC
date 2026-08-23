@@ -977,7 +977,32 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   .topbar-actions { padding-top: 0; }
   .search-box { position: absolute; z-index: 12; left: 0; right: 0; top: 0; width: auto; }
   .pulse-strip { padding: 15px; }
-  .pulse-metric > span { display: none; }
+  /* Stacked, not hidden. The labels used to be `display: none` here, which left 「69%」
+     「14.5人日」 「3件」 standing on their own with nothing saying what any of them was.
+     Measured at 375px, in a 347px strip: side by side with their labels the three metrics
+     want 380px and wrap; stacked they want 202px and stay on one line. Same words, one row,
+     about 14px more height — the arrangement was the thing to change, not the wording
+     (「平均稼働率」→「稼働率」 would be one thing under two names, and 「8/17週の空き」 cannot
+     lose the week) (#189).
+     A grid, not a stacked flex box and not a wrapped one. Measured all three at 375px:
+     `flex-direction: column` sized each metric to its widest child (60.8 / 79.7 / 36px,
+     one row) but put the 要調整 metric's arrow on a third line of its own, 34px taller than
+     its neighbours; `flex-wrap` kept the arrow beside the number but still sized each metric
+     to its items laid side by side (98.8 / 156.2 / 93.5 = 348.5px in a 347px strip), so all
+     three wrapped onto rows of their own and the strip stood 237.7px tall. A grid takes the
+     wider of its two rows: the number and its arrow above, the label across both columns
+     below. */
+  .pulse-metric {
+    display: grid;
+    grid-template-columns: auto auto;
+    justify-content: start;
+    column-gap: 6px;
+    row-gap: 2px;
+  }
+  .pulse-metric > span { grid-column: 1 / -1; }
+  /* Placed, not auto-placed: the label claims a whole row, so auto-placement put the arrow
+     on a third row below it. */
+  .pulse-metric > svg { grid-area: 1 / 2; }
   .pulse-metric strong { font-size: 21px; }
   .schedule-toolbar { align-items: flex-start; flex-direction: column; }
   .toolbar-actions { width: 100%; overflow-x: auto; padding-bottom: 2px; }
