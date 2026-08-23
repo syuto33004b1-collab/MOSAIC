@@ -2499,10 +2499,16 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                 about where in the month you are, which is the question (#194). */}
             <p className="eyebrow">{page.eyebrow} <span>/</span> {activeNav === "board" ? boardRangeName(range) : "MOSAIC"}</p>
             <h1>{page.title}</h1>
-            {/* And how far from today, when it is not today's. Nothing at zero: 「今週」 is the
-                word #146 retired from these screens, and today is a weekend two days in seven,
-                where the week on screen does not contain it at all (#194). */}
-            <p className="date-range">{activeNav === "board" ? days[0].year + "年 " + rangeLabel + rangeDistanceLabel : page.description}</p>
+            {/* Then how far from today, and then which days are counted.
+                The distance is empty at zero: 「今週」 is the word #146 retired from these
+                screens, and today is a weekend two days in seven, where the week on screen
+                does not contain it at all (#194).
+                「平日のみ」 in month mode, where the range reads 8月3日 — 8月31日 and the 1st and
+                2nd are simply missing. Weekends carry no load anywhere in the model — the
+                daily loads skip them and the capacity denominator is 稼働上限 × 5 — so the
+                columns are not what is missing; saying so is (#191).
+                Distance first because it changes as you page; the weekday note is constant. */}
+            <p className="date-range">{activeNav === "board" ? days[0].year + "年 " + rangeLabel + rangeDistanceLabel + (range.unit === "month" ? " · 平日のみ" : "") : page.description}</p>
           </div>
           <div className="topbar-actions">
             {activeNav === "board" && (searchOpen ? (
@@ -2597,7 +2603,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                 </div>
 
                 <div className="schedule-scroller">
-                  <div className="schedule-table" role="grid" aria-label={(viewMode === "members" ? "メンバー別の" : "プロジェクト別の") + unitWord + "間アサイン"}>
+                  <div className="schedule-table" role="grid" aria-label={(viewMode === "members" ? "メンバー別の" : "プロジェクト別の") + unitWord + "間アサイン（平日のみ）"}>
                     <div className="schedule-head" role="row">
                       <div className="people-label" role="columnheader">{viewMode === "members" ? "メンバー" : "プロジェクト"} <span>{rows.length}</span></div>
                       {/* Today by date, not by position: it is the first column
