@@ -8,6 +8,7 @@ import {
   addSkillCatalogEntry,
   archiveOrgUnit,
   assignmentSpan,
+  boardBasisWeek,
   boardRange,
   projectMembersOnDays,
   buildSkillMap,
@@ -101,6 +102,56 @@ describe("calendar helpers", () => {
     expect(first).toBe("PROJECTA-00000000000");
     expect(second).toBe("PROJECTA-11111111000");
     expect(first).not.toBe(second);
+  });
+
+  /**
+   * The figures on the board are week-scoped, and this is the week they measure.
+   *
+   * Week mode cannot tell the two readings apart: the range is one week, so its start is
+   * that week's Monday whether or not today is inside it. Month mode can, and did — on
+   * 2026-08-23 with August in view the average read 8/3週 and said 0%, three weeks after
+   * the fact, and the assignment form read the same week and offered a fully booked person
+   * as free (#187).
+   */
+  describe("the week the board measures", () => {
+    it("is the same week either way while a week is in view", () => {
+      for (const today of ["2026-08-17", "2026-08-19", "2026-08-21"]) {
+        const week = boardRange("week", 0, today);
+        expect(boardBasisWeek(week, today), today).toBe("2026-08-17");
+      }
+      // Paged a week forward, today is no longer in view and the range still answers.
+      expect(boardBasisWeek(boardRange("week", 1, "2026-08-19"), "2026-08-19")).toBe("2026-08-24");
+    });
+
+    it("is today's week while the month holding today is in view", () => {
+      const august = boardRange("month", 0, "2026-08-23");
+      expect(august.start).toBe("2026-08-03");
+      // 8/23 is a Sunday, and the week it belongs to opened on the 17th.
+      expect(boardBasisWeek(august, "2026-08-23")).toBe("2026-08-17");
+      // A weekday in the same week reads the same, and so does the month's own first day.
+      expect(boardBasisWeek(august, "2026-08-19")).toBe("2026-08-17");
+      expect(boardBasisWeek(august, "2026-08-03")).toBe("2026-08-03");
+    });
+
+    it("is the opening week of a month that does not hold today", () => {
+      // October 2026 opens on a Thursday, so its first column belongs to the week of 9/28.
+      const october = boardRange("month", 1, "2026-09-15");
+      expect(october.start).toBe("2026-10-01");
+      expect(boardBasisWeek(october, "2026-09-15")).toBe("2026-09-28");
+      // And backwards, where today is past the whole range: August opens on Monday 8/3.
+      expect(boardBasisWeek(boardRange("month", -1, "2026-09-15"), "2026-09-15")).toBe("2026-08-03");
+    });
+
+    /**
+     * A month whose first days fall on a weekend starts on its first weekday, so a today
+     * inside those dropped days is *before* the range rather than in it — and its own week
+     * has no column in view at all. The opening week is the right answer there.
+     */
+    it("takes the opening week when today is in the month but not in the range", () => {
+      const august = boardRange("month", 0, "2026-08-02");
+      expect(august.start).toBe("2026-08-03");
+      expect(boardBasisWeek(august, "2026-08-02")).toBe("2026-08-03");
+    });
   });
 
   const assignment = (startDate: string, endDate: string) => ({

@@ -2539,9 +2539,10 @@ describe("the board can show a month", () => {
    * the week it names has to be the week it measured — which in month mode can
    * begin in the month before the board's first column.
    *
-   * September 2026 opens on a Tuesday, so its first column is 9/1 and the week it
-   * belongs to began on 8/31. Naming the figure from `days[0]` would say 「9/1週」.
-   * August was no test at all: it opens on Monday 8/3, where both readings agree.
+   * The month holding today measures today's week (#187), so the month-before case is
+   * reached by paging: October 2026 opens on a Thursday, its first column is 10/1, and the
+   * week that column belongs to began on 9/28. Naming the figure from `days[0]` would say
+   * 「10/1週」. September, where today is, is the other half of the pair.
    */
   it("keeps the week-scoped figure labelled with the week it measures", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
@@ -2554,7 +2555,13 @@ describe("the board can show a month", () => {
 
       await showMonth(user);
       expect(columns()[0]).toBe("火1");
-      expect(label()).toBe("8/31週の平均稼働率");
+      // Today is in this month, so the figure is the week today is in — not the week the
+      // month happens to open in, which is what it used to read (#187).
+      expect(label()).toBe("9/14週の平均稼働率");
+
+      await user.click(screen.getByRole("button", { name: "次の月" }));
+      expect(columns()[0]).toBe("木1");
+      expect(label()).toBe("9/28週の平均稼働率");
     } finally {
       vi.useRealTimers();
     }
@@ -2573,7 +2580,7 @@ describe("the board can show a month", () => {
       const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
       render(<App />);
       await showMonth(user);
-      expect(document.querySelector(".month-card-label span")!.textContent).toBe("8/31週の平均稼働率");
+      expect(document.querySelector(".month-card-label span")!.textContent).toBe("9/14週の平均稼働率");
 
       await user.click(screen.getByRole("button", { name: "次の月" }));
       expect(columns()[0]).toBe("木1");
@@ -2939,17 +2946,60 @@ describe("a week-scoped figure names the week it measures", () => {
   });
 
   /**
-   * The month-mode case, which is the one 「今週」 could not survive: the figure is
-   * measured over 8/3–8/7 while the board shows 8/3–8/31, so a label reading
-   * 「今週」 would be two weeks out and a label reading 「8月」 would claim a month's
-   * figure for a week's (#115).
+   * The month-mode case, where a label reading 「8月」 would claim a month's figure for a
+   * week's (#115). The month holding today measures today's week now (#187), so 「今週」
+   * would survive that one — and not the paged one below, where the figure is measured over
+   * 8/31–9/4 while the board shows September.
    */
   it("month mode names the week inside the month, not the month", async () => {
     const user = onWednesday();
     render(<App />);
     await user.click(within(screen.getByRole("group", { name: "表示する期間" })).getByRole("button", { name: "月" }));
     expect(document.querySelector(".date-range")!.textContent).toBe("2026年 8月3日 — 8月31日");
-    expect(pulseLabel()).toBe("8/3週の空き");
+    expect(pulseLabel()).toBe("8/17週の空き");
+
+    // September 2026 opens on a Tuesday, so the week its first column belongs to began on
+    // 8/31 — in August, which no label naming the month could say.
+    await user.click(screen.getByRole("button", { name: "次の月" }));
+    expect(document.querySelector(".date-range")!.textContent).toBe("2026年 9月1日 — 9月30日");
+    expect(pulseLabel()).toBe("8/31週の空き");
+  });
+
+  /**
+   * What #187 was actually about, from the reader's end rather than the label's.
+   *
+   * Measured before the fix, on a Wednesday with August in view: switching to month mode
+   * took the average from 69% to 0% and the sidebar from 8/17週 to 8/3週 — a week three
+   * weeks gone, with nothing booked in it. The same week reaches the assignment form, so it
+   * offered 鈴木健太 at 「0%」 while the board behind it drew him at 120%: an empty slot
+   * where there was none.
+   *
+   * 鈴木 by name, because he is the demo's overloaded member and the whole point is that the
+   * form must not disagree with the board about him.
+   */
+  it("does not offer a fully booked member as free once the board shows a month", async () => {
+    window.localStorage.removeItem("mosaic-local-workspace-v3");
+    const user = onWednesday();
+    render(<App />);
+
+    const average = () => document.querySelector(".month-card-label strong")!.textContent;
+    const optionFor = (name: string) => [...(document.getElementById("assignment-member") as HTMLSelectElement).options]
+      .find((option) => option.textContent!.startsWith(name))!.textContent!;
+
+    const weekAverage = average();
+    await user.click(within(screen.getByRole("group", { name: "表示する期間" })).getByRole("button", { name: "月" }));
+    // The figures do not move when the unit does: same week, same numbers.
+    expect(average()).toBe(weekAverage);
+    expect(document.querySelector(".month-card-label span")!.textContent).toBe("8/17週の平均稼働率");
+
+    await user.click(screen.getByRole("button", { name: /アサインを追加/u }));
+    const suzuki = optionFor("鈴木 健太");
+    expect(suzuki).toContain("8/17週");
+    // 120% in the demo data, and over his 100% ceiling either way — the reading that was
+    // 「0%」 before, which is the one that reads as room to spare.
+    const percent = Number(suzuki.match(/ (\d+)%$/u)![1]);
+    expect(percent).toBe(memberLoad(initialWorkspace, "suzuki", "2026-08-17"));
+    expect(percent).toBeGreaterThan(100);
   });
 
   /**
@@ -3010,9 +3060,9 @@ describe("a week-scoped figure names the week it measures", () => {
       expect(Number(parsed![3]), `${parsed![1]} at ${parsed![2]}`)
         .toBe(memberLoad(initialWorkspace, member.id, mondayFrom(parsed![2])));
     }
-    // 8/3, not 8/17: the month opens two weeks before today, and that is the whole
-    // point — a literal here so a regression cannot satisfy this by self-consistency.
-    expect(options[0].textContent).toMatch(/ 8\/3週 /u);
+    // 8/17, today’s week, because August is the month today is in (#187). The literal is
+    // here so the pairing above cannot be satisfied by self-consistency alone.
+    expect(options[0].textContent).toMatch(/ 8\/17週 /u);
     // `.close-button`, not the role lookup: the backdrop carries the same
     // accessible name, which is #122. Two matches would fail here for a reason
     // that has nothing to do with this test.
@@ -3032,7 +3082,7 @@ describe("a week-scoped figure names the week it measures", () => {
     const rows = [...rail.querySelectorAll(":scope > div")];
     expect(rows).toHaveLength(4);
     const monday = mondayFrom(rows[0].querySelector("span")!.textContent!);
-    expect(monday).toBe("2026-08-03");
+    expect(monday).toBe("2026-08-17");
     rows.forEach((row, index) => {
       const load = Number(row.querySelector("strong")!.textContent!.match(/^(\d+)%/u)![1]);
       expect(load, `rail cell ${index}`).toBe(memberLoad(initialWorkspace, member!.id, addDays(monday, index * 7)));

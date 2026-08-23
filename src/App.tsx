@@ -42,6 +42,7 @@ import {
   addSkillCatalogEntry,
   archiveOrgUnit,
   assignmentSpan,
+  boardBasisWeek,
   boardRange,
   ownerCandidates,
   ownerLabel,
@@ -55,7 +56,6 @@ import {
   formatDate,
   formatSkillInput,
   getIsoWeekNumber,
-  getWeekStartForDate,
   memberLabel,
   weekLabel,
   currentLocalDate,
@@ -808,8 +808,11 @@ export default function Home({ mode = "demo", organizationId, organizationName =
    * Derived from the range, not from `weekOffset` directly. The offset counts
    * whatever unit the board is showing, so `getWeekStart(weekOffset)` read a month
    * of paging as that many *weeks*: one page into September put these figures on
-   * the week after next. In week mode this is the same value it always was; in
-   * month mode it is the week the month opens in.
+   * the week after next.
+   *
+   * Which week inside the range is `boardBasisWeek`: today’s, when today is in
+   * view. It used to be the range’s opening week unconditionally, which in month
+   * mode meant looking at this month and reading a week already gone (#187).
    *
    * One binding, not two. There used to be a `weekStart` alias beside it,
    * and an evaluator reading #146 took the pair for two different weeks and read
@@ -818,7 +821,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
    * one binding, "the label names the week the value measures" is syntax rather
    * than a claim.
    */
-  const weekStart = getWeekStartForDate(range.start);
+  const weekStart = boardBasisWeek(range);
   const visibleProposalIds = retainedMemberIds(proposalMemberIds, workspace.members.map((member) => member.id));
   /** The same week, as a count of weeks from this one, for the screens that take one. */
   const viewWeekOffset = Math.round((Date.parse(weekStart + "T00:00:00Z") - Date.parse(getWeekStart(0) + "T00:00:00Z")) / 604_800_000);
