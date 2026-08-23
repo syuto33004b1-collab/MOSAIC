@@ -2218,7 +2218,17 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
    (#146), and the longest that gets is 「12/28週」 at 41.1px — 0.9px of headroom
    in the old track. Same number as `.proposal-weeks`, which holds the same
    labels. The bar loses 10px of about 250. */
-.profile-capacity > div { display: grid; grid-template-columns: 52px 1fr 31px; align-items: center; gap: 8px; }
+/* 80px for the figure, not 31: 31px was the width of 「40% / 100%」 at the 7px this
+   rail used to be set in, and the 12px floor left the number in a fraction of the
+   room it needs — 「120% / 100%」 came out 31x49, three wrapped lines beside a 359px
+   bar. Measured in this rail's own font, bold 12px Manrope: 68px for
+   「40% / 100%」, 74px for 「100% / 100%」, 75px for a three-digit ceiling, so 80px
+   clears the widest of them. `.proposal-weeks` gets the same figure into 72px
+   because it is not set in Manrope — the number is not transferable.
+   Fixed rather than `auto` because each row is its own grid, so content-sized
+   numbers would give the four bars four different lengths, and comparing their
+   lengths down the column is what the rail is for (#210). */
+.profile-capacity > div { display: grid; grid-template-columns: 52px minmax(0, 1fr) 80px; align-items: center; gap: 8px; }
 .profile-capacity span { color: #848d9e; font-size: 7px; }
 .profile-capacity i { height: 6px; border-radius: 99px; background: #edf0f4; overflow: hidden; }
 .profile-capacity b { display: block; height: 100%; border-radius: inherit; background: #8391e7; }
