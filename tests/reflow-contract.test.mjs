@@ -181,3 +181,80 @@ test("the pulse metrics say what their numbers are at narrow widths", async () =
   assert.match(narrow, /\.pulse-metric > svg\s*\{[^}]*grid-area:\s*1 \/ 2/u,
     "the arrow belongs beside the number, not under the label (#189)");
 });
+
+/**
+ * The same shape, two forms further on. `.skill-catalog-form` held 120px for 種類
+ * plus 179px of add-button plus 30px of gap, so at a 347px container its two
+ * flexible tracks were 0px and the 名前 input drew 159px wide across the cells
+ * beside it: `elementFromPoint` on that input returned the 種類 select, and on
+ * the 親分類 select it returned the button. Two of the three fields could not be
+ * reached at all.
+ *
+ * Both numbers below are the width where that form's 親分類 / 親部門 track drops
+ * under the 124px a closed select needs to show 「なし（最上位）」 — 84px of text at
+ * bold 12px measured on a canvas, 22px of padding and border, ~18px of arrow.
+ * Measured tracks, skill form: 107px at a 620px container, 123.75 at 660, 140.4
+ * at 700. Org form: 109.5 at 380, 129.5 at 420.
+ *
+ * Static, like the rest of this file. The sweep is in the PR: after the change
+ * the skill form reads `151.5 151.5` at 347, `149 149 149` at 500, four 149s at
+ * 660 and the untouched `175.6 120 125.4 179` at 664, with scrollWidth equal to
+ * clientWidth at every step.
+ */
+test("the skills and org catalog forms shed columns before their selects clip", async () => {
+  const css = withoutComments(await read()).replaceAll("\r\n", "\n");
+  const blocks = [];
+  const marker = /@container\s*\(max-width:\s*(\d+)px\)\s*\{/gu;
+  for (let found; (found = marker.exec(css)) !== null;) {
+    let depth = 1;
+    let index = found.index + found[0].length;
+    const start = index;
+    while (depth > 0 && index < css.length) {
+      if (css[index] === "{") depth += 1;
+      else if (css[index] === "}") depth -= 1;
+      index += 1;
+    }
+    blocks.push({ width: Number(found[1]), body: css.slice(start, index - 1), at: found.index });
+  }
+
+  for (const { form, pattern, width, base } of [
+    {
+      form: ".skills-view .skill-catalog-form",
+      pattern: /\.skills-view \.skill-catalog-form\s*\{[^}]*repeat\(auto-fit/u,
+      width: 660,
+      base: ".skills-view .skill-catalog-form,",
+    },
+    {
+      form: ".org-view .org-catalog-form",
+      pattern: /\.org-view \.org-catalog-form\s*\{[^}]*repeat\(auto-fit/u,
+      width: 420,
+      base: ".org-view .org-catalog-form {",
+    },
+  ]) {
+    const holding = blocks.filter((b) => pattern.test(b.body));
+    assert.equal(holding.length, 1,
+      `expected exactly one @container block dropping ${form} to auto-fit, found ${holding.length}`);
+    // Pinned, not a range: it is the width where the select stops showing its value.
+    assert.equal(holding[0].width, width,
+      `${form} sheds columns at ${holding[0].width}px; ${width}px is the measured point where its `
+      + "親分類 / 親部門 track falls under the 124px a closed select needs (#212)");
+    // Equal specificity to the base rule, so source order is the only thing that
+    // makes this win — the exact trap that left `.profile-request-form` never
+    // reflowing on the 項目定義 screen (#214).
+    const baseAt = css.indexOf(base);
+    assert.ok(baseAt >= 0, `expected the base declaration ${base}`);
+    assert.ok(holding[0].at > baseAt,
+      `the @container block for ${form} is declared before its base rule; with equal specificity `
+      + "the base rule wins and the query does nothing (#214)");
+    assert.match(holding[0].body, /\.view-add-button\s*\{[^}]*grid-column:\s*1 \/ -1/u,
+      `${form}: the add button needs its own row once the tracks are 140px, or its label wraps`);
+  }
+
+  // A select's intrinsic floor is its widest option. 親部門 lists full org paths,
+  // so it measured 200px and hung 32px past the card from a 152px cell — the
+  // reflow alone did not bring it back in.
+  const control = css.match(/\.skill-catalog-form input,\s*\n\.skill-catalog-form select\s*\{([^}]*)\}/u);
+  assert.ok(control, "expected the shared input/select rule for the catalog forms");
+  assert.match(control[1], /min-width:\s*0/u,
+    "without min-width: 0 the select keeps its widest option as a floor and overflows its cell (#212)");
+});
