@@ -194,3 +194,33 @@ test("neither ribbon rule sets a min-height", async () => {
       "the ribbon holds one 45px stat; a min-height taller than that is dead space above every list (#136)");
   }
 });
+
+/**
+ * The board's strip is the same part as those ribbons, and #136 missed it.
+ *
+ * Measured at 1425px before this: 108px against the ribbons' 69.2px, while holding shorter
+ * content — a 37.8px metric against their 45.2px stat. `min-height: 108px` in the theme and
+ * 82px in the base put 28px of nothing inside the box, 21px of padding against their 12px
+ * put more, and `margin-bottom: 24px` against their 16px put 8px under it.
+ *
+ * Both min-heights had to go, which is the shape of #136's own bug: editing the base rule
+ * alone changed nothing on screen, because the theme rule wins. After: 61.8px, 7px under the
+ * ribbons because their stat stacks its label under the number where a metric keeps it
+ * alongside. The pixels were never the contract — following the content is (#193).
+ */
+test("no rule gives the board's strip a min-height either", async () => {
+  const css = withoutComments(await read());
+  const rules = [...css.matchAll(/(?:^|\})\s*\.pulse-strip\s*\{([^}]*)\}/gu)];
+  assert.ok(rules.length >= 2, `expected the base and theme strip rules, found ${rules.length}`);
+  for (const [, body] of rules) {
+    assert.doesNotMatch(body, /min-height:/u,
+      "the strip holds one 37.8px metric; a min-height taller than that is dead space above the board (#193)");
+  }
+  // And the box it does keep is the ribbons', so the two are measured the same way. By the
+  // theme rule's own declaration rather than by position: the last `.pulse-strip` rule in the
+  // file is a breakpoint's `padding`, not this one.
+  const theme = rules.map(([, body]) => body).filter((body) => /background:\s*var\(--ink\)/u.test(body));
+  assert.equal(theme.length, 1, `expected one theme rule for the strip, found ${theme.length}`);
+  assert.match(theme[0], /padding:\s*12px 24px/u, "the strip takes the ribbons' padding (#136, #193)");
+  assert.match(theme[0], /margin-bottom:\s*16px/u, "and their space beneath it");
+});

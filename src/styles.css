@@ -73,7 +73,9 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .primary-button { height: 40px; padding: 0 16px; border-color: var(--cobalt); border-radius: 11px; background: var(--cobalt); color: #fff; font-size: var(--text-min); font-weight: 700; box-shadow: 0 8px 18px rgba(86,104,232,.2); }
 .primary-button span { margin-right: 5px; font-size: var(--text-lg); font-weight: 400; }
 
-.pulse-strip { min-height: 82px; margin-bottom: 18px; padding: 14px 18px; border: 1px solid #dfe4ed; border-radius: 17px; background: var(--paper); box-shadow: 0 6px 22px rgba(36,48,78,.04); display: flex; flex-wrap: wrap; align-items: center; gap: 25px; overflow: hidden; }
+/* No min-height, like `.member-ribbon` above it: the theme layer decides the box, and it
+   decides it from the content (#136, #193). */
+.pulse-strip { margin-bottom: 18px; padding: 14px 18px; border: 1px solid #dfe4ed; border-radius: 17px; background: var(--paper); box-shadow: 0 6px 22px rgba(36,48,78,.04); display: flex; flex-wrap: wrap; align-items: center; gap: 25px; overflow: hidden; }
 .pulse-heading { min-width: 185px; display: flex; align-items: center; gap: 11px; }
 .live-dot { width: 10px; height: 10px; border: 3px solid #dfe4ff; border-radius: 50%; background: var(--cobalt); box-shadow: 0 0 0 5px #f1f3ff; }
 .pulse-heading small, .pulse-heading strong { display: block; }
@@ -3187,9 +3189,16 @@ h1 {
 
 .pulse-strip {
   position: relative;
-  min-height: 108px;
-  margin-bottom: 24px;
-  padding: 21px 24px;
+  /* #136's decision about the list screens' ribbons, applied to the board's strip, which it
+     missed. Measured at 1425px: this box was 108px against their 69.2px while holding
+     *shorter* content — 37.8px of metric against their 45.2px stat — because `min-height:
+     108px` and 21px of padding put 28px of nothing inside it and 8px more below.
+     No min-height, and the same 12px 24px and 16px the ribbons use. The result is about
+     61.8px, 7px under theirs: their stat stacks its label under the number where a metric
+     keeps it alongside, so the content differs. Matching the pixels was never the point —
+     both boxes now follow their content (#193). */
+  margin-bottom: 16px;
+  padding: 12px 24px;
   overflow: hidden;
   border: 0;
   border-radius: 4px;
