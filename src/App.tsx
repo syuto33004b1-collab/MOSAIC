@@ -2594,8 +2594,19 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                     <div className="schedule-body">
                       {rows.length > 0 ? rows.map((row) => (
                         <div className="schedule-row" role="row" key={row.id}>
+                          {/* A button inside the row header, not the header itself: the cell
+                              carries `role="rowheader"` and a `<button>` would take that
+                              away. The same shape the member list uses for its name cell
+                              (`.member-name-cell`), and the same style.
+                              The load chip stays outside it — a status, not part of the name.
+                              Whichever axis the board is showing, the row header opens what
+                              that row is: `row.id` is a member's in メンバー別 and a
+                              project's in プロジェクト別 (#195). */}
                           <div className="person-cell" role="rowheader">
-                            <span className={"avatar " + row.avatarTone}>{row.initials}</span><span className="person-copy"><strong>{row.name}</strong><small>{row.role}</small></span><span className={"load " + (row.alert ? "over" : "")}>{row.tagLabel}</span>
+                            <button className="person-open" onClick={() => viewMode === "members" ? openMember(row.id) : openProject(row.id)}>
+                              <span className={"avatar " + row.avatarTone}>{row.initials}</span><span className="person-copy"><strong>{row.name}</strong><small>{row.role}</small></span>
+                            </button>
+                            <span className={"load " + (row.alert ? "over" : "")}>{row.tagLabel}</span>
                           </div>
                           <div className="week-cell" role="gridcell" aria-label={row.name + "のアサイン"}>
                             {/* One line per column, from the range rather than a

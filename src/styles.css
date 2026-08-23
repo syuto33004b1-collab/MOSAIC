@@ -130,6 +130,22 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 /* One rule per AvatarTone in src/domain.ts. A tone with no rule here renders
    with no background at all, which reads as a meaningful difference. */
 .avatar.lavender { background: var(--lavender); }.avatar.peach { background: var(--peach); }.avatar.sky { background: var(--sky); }.avatar.mint { background: var(--mint); }.avatar.sand { background: var(--sand); }.avatar.rose { background: var(--rose); }
+/* The row header's own control, styled like `.member-name-cell` because it is the same
+   thing on a different screen: the avatar and the name, opening what the row is (#195). */
+.person-open {
+  min-width: 0;
+  flex: 1;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-align: left;
+  color: inherit;
+  font: inherit;
+}
 .person-copy { min-width: 0; flex: 1; }
 /* These wrap rather than ellipsis (#87). Truncating them put the only copy of a
    value behind a hover, and the board's row header is not clickable, so there was

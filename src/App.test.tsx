@@ -2416,6 +2416,59 @@ describe("the list says how it is ordered and what is filtering it", () => {
  * leave the rest unreachable from there. Measured at 375px, the panel that lists all of
  * them sits 1780px down a page 812px tall, so that button is the only way in (#197).
  */
+/**
+ * The row header on the board opens what the row is.
+ *
+ * It was a `<div>` with nothing on it, so the only way to a person's detail from the board
+ * was to leave for the メンバー screen and find them again. The cell keeps its
+ * `role="rowheader"` — a `<button>` in its place would take that away — and holds a button
+ * shaped like the member list's own name cell (#195).
+ */
+describe("the board's row header opens the row", () => {
+  const openBoardScreen = async (user: ReturnType<typeof userEvent.setup>) => {
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^アサインボード( |$)/u }));
+  };
+
+  it("opens the member from a member row, and the project from a project row", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await openBoardScreen(user);
+
+    const header = document.querySelector(".schedule-row .person-cell") as HTMLElement;
+    expect(header.getAttribute("role")).toBe("rowheader");
+    const open = header.querySelector(".person-open") as HTMLElement;
+    expect(open.tagName).toBe("BUTTON");
+    const name = open.querySelector("strong")!.textContent!;
+
+    await user.click(open);
+    expect(document.querySelector(".drawer-kicker")!.textContent).toBe("MEMBER PROFILE");
+    expect(document.querySelector(".drawer")!.textContent).toContain(name);
+    await user.click(document.querySelector(".drawer .close-button") as HTMLElement);
+
+    // The other axis: the same header, a project behind it.
+    await user.click(within(screen.getByRole("group", { name: "表示軸" })).getByRole("button", { name: /プロジェクト別/u }));
+    const projectRow = document.querySelector(".schedule-row .person-open") as HTMLElement;
+    const projectName = projectRow.querySelector("strong")!.textContent!;
+    await user.click(projectRow);
+    expect(document.querySelector(".drawer-kicker")!.textContent).toBe("PROJECT DETAIL");
+    expect(document.querySelector(".drawer")!.textContent).toContain(projectName);
+  });
+
+  /** The load chip is a status, not part of what you press to open the row. */
+  it("leaves the load chip outside the control", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await openBoardScreen(user);
+
+    const header = document.querySelector(".schedule-row .person-cell") as HTMLElement;
+    const open = header.querySelector(".person-open") as HTMLElement;
+    const load = header.querySelector(".load") as HTMLElement;
+    expect(load).not.toBeNull();
+    expect(open.contains(load)).toBe(false);
+    // And it is one control per row, not two.
+    expect(header.querySelectorAll("button")).toHaveLength(1);
+  });
+});
 describe("the 要調整 count takes you to the list", () => {
   // The summary button, by its own shape: 「3件要調整」. The overload card in the panel also
   // has 要調整 in its long accessible name, so the anchor matters.
