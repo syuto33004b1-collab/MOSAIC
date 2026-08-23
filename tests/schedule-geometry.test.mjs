@@ -217,3 +217,40 @@ test("a narrow bar drops the percentage rather than the project name", async () 
   assert.doesNotMatch(query[2], /\.assignment span\s*\{[^}]*display:\s*none/u,
     "dropping the name would be the bug this rule exists to fix");
 });
+
+/**
+ * A row is as tall as what is in it.
+ *
+ * `.schedule-row` had `min-height: 104px` — 36px of bar twice, a 4px gap and 14px of padding
+ * top and bottom, which is a row with two assignments. Measured at 1425px, every row was
+ * 104-105px whether it held one bar or two, and a single bar *stretched* to fill the space:
+ * 36px of assignment drawn 75px tall, one day's work looking like three days'.
+ *
+ * With the floor gone, `align-content: start` to stop the stretch, and 10px of padding
+ * instead of 14: rows 78 / 97px at 1425px against 104 / 105, page 1430 → 1286, seven of nine
+ * rows on screen instead of six. At 375px, 78 / 113 against 120 / 121, page 2426 → 2199. Bars
+ * hold their tap size at both widths — 36px and 44px — which is what stops the two-bar rows
+ * shrinking further, and is #190's question rather than this one's.
+ *
+ * 8px of padding was measured too: 4px a row against a legible gutter, and the gutter won.
+ * Shortening the person cell's wrapped subtitle would have been the biggest single win
+ * (72.6 → 56.4px) and is not taken here: it drops the department from the row (#192).
+ */
+test("a schedule row takes its height from its content", async () => {
+  const css = withoutComments(await read()).replaceAll("\r\n", "\n");
+
+  // 78px is one row of content — the person cell's avatar beside two lines of name, plus the
+  // row's 10px of padding — so it is a floor for a row with nothing in its week, not padding
+  // for one with something. 104px and 120px were two assignments' worth, desktop and narrow.
+  const floors = allRules(css, "schedule-row")
+    .flatMap(({ selector, body }) => declarations(body, "min-height").map((value) => ({ selector, value })))
+    .filter(({ value }) => !/^\d+(?:\.\d+)?px$/u.test(value) || Number.parseFloat(value) > 78);
+  assert.deepEqual(floors.map(({ selector, value }) => `${selector} → ${value}`), [],
+    "a floor above one row of content pads every row that holds less than two assignments (#192)");
+
+  // The stretch is the other half. Without this the single bar in a row fills the cell.
+  const cells = allRules(css, "week-cell");
+  const alignments = cells.flatMap(({ body }) => declarations(body, "align-content"));
+  assert.ok(alignments.includes("start"),
+    "`.week-cell` needs `align-content: start`, or one assignment is drawn as tall as the row (#192)");
+});
