@@ -29,7 +29,7 @@ import {
   X,
   type LucideIcon,
 } from "lucide-react";
-import { CustomFieldFacts, CustomFieldInputs, CsvTransferPanel, FavoriteStar, FieldsView, MemberOrgFields, MembersView, OpportunitiesView, OrgFacts, OrgView, ProjectsView, ProposalView, ReportsView, SkillsView, WorkHistoryEditor, WorkHistoryList } from "./expanded-views";
+import { ActiveFilters, CustomFieldFacts, CustomFieldInputs, CsvTransferPanel, FavoriteStar, FieldsView, MemberOrgFields, MembersView, OpportunitiesView, OrgFacts, OrgView, ProjectsView, ProposalView, ReportsView, SkillsView, WorkHistoryEditor, WorkHistoryList } from "./expanded-views";
 import { AiChat } from "./components/ai-chat/AiChat";
 import type { ChatTransport } from "./lib/ai/chatClient";
 import {
@@ -70,11 +70,13 @@ import {
   memberLoad,
   memberMatchesNeed,
   memberOrgMemberships,
+  membersInOrgSubtree,
   memberPeakLoad,
   matchMembers,
   memberSearchText,
   memberSkillLevels,
   moveOrgUnit,
+  orgUnitPath,
   needSkillRequirements,
   normalizeCustomValues,
   normalizeWorkHistory,
@@ -442,6 +444,14 @@ export default function Home({ mode = "demo", organizationId, organizationName =
    */
   const [boardUnit, setBoardUnit] = useState<BoardUnit>("week");
   const [filter, setFilter] = useState("すべて");
+  /**
+   * The board's other conditions. They live behind a trigger rather than on the
+   * toolbar because the toolbar had 74px of room left at a 1425px viewport — the
+   * board is 758px of it — and three more controls want about 410px (#198).
+   */
+  const [boardFiltersOpen, setBoardFiltersOpen] = useState(false);
+  const [boardOrgFilter, setBoardOrgFilter] = useState("");
+  const [alertOnly, setAlertOnly] = useState(false);
   const [query, setQuery] = useState("");
   const [memberQuery, setMemberQuery] = useState(startingShare?.nav === "members" ? startingShare.q ?? "" : "");
   const [projectQuery, setProjectQuery] = useState(startingShare?.nav === "projects" ? startingShare.q ?? "" : "");
@@ -948,6 +958,14 @@ export default function Home({ mode = "demo", organizationId, organizationName =
     };
   });
 
+  /**
+   * The board's org filter, as ids. Members only: `Project` carries no unit, so
+   * on the project axis there is nothing to compare and the control is not
+   * offered — the condition is skipped rather than matching nothing (#198).
+   */
+  const boardOrgMemberIds = viewMode === "members" && boardOrgFilter
+    ? new Set(membersInOrgSubtree(workspace, boardOrgFilter, "any").map((member) => member.id))
+    : null;
   const rows = (viewMode === "members" ? memberRows : projectRows).filter((row) => {
     const entity = viewMode === "members" ? memberById(workspace, row.id) : projectById(workspace, row.id);
     const extraSearch = entity && "skills" in entity
@@ -957,8 +975,33 @@ export default function Home({ mode = "demo", organizationId, organizationName =
         : "";
     const queryMatch = (row.name + " " + row.role + " " + row.assignments.map((item) => item.name).join(" ") + " " + extraSearch).toLowerCase().includes(query.toLowerCase());
     const filterMatch = filter === "すべて" || row.filterKey === filter;
-    return queryMatch && filterMatch;
+    const orgMatch = !boardOrgMemberIds || boardOrgMemberIds.has(row.id);
+    // `alert` is the row's own warning: over capacity somewhere in view for a
+    // member, short of its demand for a project. Deliberately not the pulse
+    // strip's 要調整 count, which also counts unfilled roles — so the label says
+    // 上限超過 / 要員不足 rather than borrowing that word for a different set.
+    const alertMatch = !alertOnly || Boolean(row.alert);
+    const favoriteMatch = !favoritesOnly || isFavorited(favorites, viewMode === "members" ? "member" : "project", row.id);
+    return queryMatch && filterMatch && orgMatch && alertMatch && favoriteMatch;
   });
+
+  const boardOrgUnits = workspace.orgUnits ?? [];
+  const alertOnlyLabel = viewMode === "members" ? "上限超過のみ" : "要員不足のみ";
+  const boardFilterAxisLabel = viewMode === "members" ? "職種" : "状態";
+  const clearBoardFilters = () => {
+    setQuery("");
+    setFilter("すべて");
+    setBoardOrgFilter("");
+    setAlertOnly(false);
+    setFavoritesOnly(false);
+  };
+  const appliedBoardFilters = [
+    ...(query.trim() ? [{ key: "query", label: "検索", value: query.trim(), onClear: () => setQuery("") }] : []),
+    ...(filter !== "すべて" ? [{ key: "axis", label: boardFilterAxisLabel, value: filter, onClear: () => setFilter("すべて") }] : []),
+    ...(boardOrgMemberIds ? [{ key: "org", label: "部門", value: orgUnitPath(boardOrgUnits, boardOrgFilter).join(" / "), onClear: () => setBoardOrgFilter("") }] : []),
+    ...(alertOnly ? [{ key: "alert", label: alertOnlyLabel.replace("のみ", ""), value: "のみ", onClear: () => setAlertOnly(false) }] : []),
+    ...(favoritesOnly ? [{ key: "favorites", label: "お気に入り", value: "のみ", onClear: () => setFavoritesOnly(false) }] : []),
+  ];
 
   /**
    * One place for the words that describe the range, because #115 was a label and
@@ -988,6 +1031,10 @@ export default function Home({ mode = "demo", organizationId, organizationName =
   const changeView = (mode: "members" | "projects") => {
     setViewMode(mode);
     setFilter("すべて");
+    // Both axis-specific: 職種 and 状態 share one piece of state, and 部門 has no
+    // meaning on the project axis. 上限超過/要員不足 and お気に入り apply to both, so
+    // they stay (#198).
+    setBoardOrgFilter("");
   };
 
   const markUnsaved = () => {
@@ -2585,10 +2632,19 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                     <button className={viewMode === "projects" ? "selected" : ""} aria-pressed={viewMode === "projects"} onClick={() => changeView("projects")}><BriefcaseBusiness size={13} />プロジェクト別</button>
                   </div>
                   <div className="toolbar-actions">
-                    <label className="filter-select"><SlidersHorizontal size={13} /><select aria-label={viewMode === "members" ? "職種で絞り込み" : "状態で絞り込み"} value={filter} onChange={(event) => setFilter(event.target.value)}>
-                      <option value="すべて">{viewMode === "members" ? "すべての職種" : "すべての状態"}</option>
-                      {(viewMode === "members" ? Array.from(new Set(workspace.members.map((member) => member.role))) : ["進行中", "要注意", "準備中", "完了間近", "完了"]).map((option) => <option key={option}>{option}</option>)}
-                    </select></label>
+                    {/* One trigger instead of the 職種 select that used to sit
+                        here: the toolbar had 74px of spare width and the
+                        conditions want about 410px (#198). The count is on the
+                        button so a filtered board says so even while shut. */}
+                    <button
+                      className={"filter-trigger" + (appliedBoardFilters.length > 0 ? " active" : "")}
+                      aria-expanded={boardFiltersOpen}
+                      aria-controls="board-filter-panel"
+                      onClick={() => setBoardFiltersOpen((open) => !open)}
+                    >
+                      <SlidersHorizontal size={13} />絞り込み
+                      {appliedBoardFilters.length > 0 && <span className="filter-count">{appliedBoardFilters.length}</span>}
+                    </button>
                     {/* The unit changes what the arrows step by, so it sits with
                         them rather than in the axis group above. Offset resets on
                         the way: 3 weeks out is not 3 months out. */}
@@ -2601,6 +2657,38 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                     <button className="arrow-button" aria-label={"次の" + unitWord} onClick={() => setWeekOffset((offset) => offset + 1)}><ChevronRight size={16} /></button>
                   </div>
                 </div>
+
+                {/* In flow below the toolbar, and state rather than `<details>`:
+                    `.toolbar-actions` becomes `overflow-x: auto` at 620px, which
+                    computes overflow-y to auto as well, so a panel positioned
+                    inside it would be clipped by a 31px row. Open, it pushes the
+                    grid down — the same as the members screen's scene
+                    disclosure. Shut, it costs nothing (#198). */}
+                {boardFiltersOpen && (
+                  <div className="board-filter-panel" id="board-filter-panel">
+                    <label className="view-filter"><span className="filter-label">{boardFilterAxisLabel}</span><select aria-label={boardFilterAxisLabel + "で絞り込み"} value={filter} onChange={(event) => setFilter(event.target.value)}>
+                      <option value="すべて">すべて</option>
+                      {(viewMode === "members" ? Array.from(new Set(workspace.members.map((member) => member.role))) : ["進行中", "要注意", "準備中", "完了間近", "完了"]).map((option) => <option key={option}>{option}</option>)}
+                    </select></label>
+                    {/* Members only: a project carries no unit, so there would be
+                        nothing to compare it against. */}
+                    {viewMode === "members" && boardOrgUnits.length > 0 && (
+                      <label className="view-filter"><span className="filter-label">部門</span><select aria-label="部門で絞り込み" value={boardOrgFilter} onChange={(event) => setBoardOrgFilter(event.target.value)}>
+                        <option value="">すべて</option>
+                        {boardOrgUnits.map((unit) => <option value={unit.id} key={unit.id}>{orgUnitPath(boardOrgUnits, unit.id).join(" / ")}</option>)}
+                      </select></label>
+                    )}
+                    <label className="view-toggle"><input type="checkbox" checked={alertOnly} onChange={(event) => setAlertOnly(event.target.checked)} />{alertOnlyLabel}</label>
+                    <label className="view-toggle"><input type="checkbox" checked={favoritesOnly} onChange={(event) => setFavoritesOnly(event.target.checked)} />お気に入りのみ</label>
+                    <button className="view-add-button ghost" onClick={() => setBoardFiltersOpen(false)}>閉じる</button>
+                  </div>
+                )}
+
+                <ActiveFilters
+                  applied={appliedBoardFilters}
+                  result={rows.length + (viewMode === "members" ? "名" : "件")}
+                  onClearAll={clearBoardFilters}
+                />
 
                 <div className="schedule-scroller">
                   <div className="schedule-table" role="grid" aria-label={(viewMode === "members" ? "メンバー別の" : "プロジェクト別の") + unitWord + "間アサイン（平日のみ）"}>
@@ -2639,7 +2727,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                             ))}
                           </div>
                         </div>
-                      )) : <div className="empty-state"><Search size={22} /><strong>条件に合う項目がありません</strong><p>検索語または絞り込み条件を見直してください。</p><button onClick={() => { setQuery(""); setFilter("すべて"); }}>条件をクリア</button></div>}
+                      )) : <div className="empty-state"><Search size={22} /><strong>条件に合う項目がありません</strong><p>検索語または絞り込み条件を見直してください。</p><button onClick={clearBoardFilters}>条件をクリア</button></div>}
                     </div>
                   </div>
                 </div>
