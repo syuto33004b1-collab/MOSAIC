@@ -32,6 +32,10 @@ import {
   inferSkillCatalog,
   initialWorkspace,
   memberDailyLoads,
+  overlaps,
+  WEEKEND_PICKER_LIMIT,
+  weekendDatesBetween,
+  weekEnd,
   memberLoad,
   memberMatchesNeed,
   memberPeakLoad,
@@ -1113,5 +1117,165 @@ describe("whom an owner name names", () => {
   it("labels an owner whose name two people share, once the id says which", () => {
     const members = state(person("a", "林 葵"), person("b", "林 葵"));
     expect(ownerLabel(members, { ownerPersonId: "b", ownerName: "林 葵" })).toBe("林 葵（#b）");
+  });
+});
+
+/**
+ * Weekend work, once it can be recorded (#222).
+ *
+ * #207 gave the board its Saturday and Sunday columns and changed no figure,
+ * because the range says nothing about whether anyone worked them: 12 of the 15
+ * assignments in the seed span a weekend simply by lasting more than a week.
+ * Recording the days is what turns a weekend into a fact, and the ceiling does not
+ * move — a recorded Saturday is excess above a week that is still five days long.
+ */
+describe("weekend work", () => {
+  const member = { id: "m", initials: "M", name: "Member", role: "QA", department: "QA", avatarTone: "mint" as const, skills: [], location: "Tokyo", capacity: 100 };
+  // 2026-08-17 is a Monday, so 8/22 is its Saturday and 8/23 its Sunday.
+  const state = (weekendWorkDates?: string[]): WorkspaceState => ({
+    members: [member],
+    projects: [],
+    needs: [],
+    assignments: [{
+      id: "a", personId: "m", projectId: "p",
+      startDate: "2026-08-17", endDate: "2026-08-28",
+      allocation: 60, status: "confirmed",
+      ...(weekendWorkDates ? { weekendWorkDates } : {}),
+    }],
+  } satisfies WorkspaceState);
+
+  it("leaves a spanned weekend empty and fills a recorded one", () => {
+    const spanned = memberDailyLoads(state(), "m", "2026-08-21", "2026-08-24");
+    expect(spanned.map((day) => `${day.date}:${day.load}${day.weekend ? "*" : ""}`)).toEqual([
+      "2026-08-21:60",
+      // The assignment covers both of these. Nobody worked them, so they are 0 —
+      // this is the reading that would have put 鈴木健太 at 120% on a Saturday.
+      "2026-08-22:0*",
+      "2026-08-23:0*",
+      "2026-08-24:60",
+    ]);
+
+    const recorded = memberDailyLoads(state(["2026-08-22"]), "m", "2026-08-21", "2026-08-24");
+    expect(recorded.map((day) => `${day.date}:${day.load}${day.weekend ? "*" : ""}`)).toEqual([
+      "2026-08-21:60",
+      "2026-08-22:60*",
+      "2026-08-23:0*",
+      "2026-08-24:60",
+    ]);
+  });
+
+  it("counts a recorded weekend in the week's peak, and a spanned one not at all", () => {
+    // The week ends on Sunday now, or a recorded weekend would be invisible in
+    // every figure — which is the whole feature (#222).
+    expect(weekEnd("2026-08-17")).toBe("2026-08-23");
+    expect(memberLoad(state(), "m", "2026-08-17")).toBe(60);
+    expect(memberLoad(state(["2026-08-22"]), "m", "2026-08-17")).toBe(60);
+
+    // Two assignments on the same Saturday stack, and only because both named it.
+    const both: WorkspaceState = {
+      ...state(["2026-08-22"]),
+      assignments: [
+        { id: "a", personId: "m", projectId: "p", startDate: "2026-08-17", endDate: "2026-08-28", allocation: 60, status: "confirmed", weekendWorkDates: ["2026-08-22"] },
+        { id: "b", personId: "m", projectId: "q", startDate: "2026-08-17", endDate: "2026-08-28", allocation: 50, status: "confirmed", weekendWorkDates: ["2026-08-22"] },
+      ],
+    };
+    expect(memberLoad(both, "m", "2026-08-17")).toBe(110);
+
+    // The second one only spans it: the Saturday carries 60, the weekdays 110.
+    const one: WorkspaceState = {
+      ...both,
+      assignments: [both.assignments[0], { ...both.assignments[1], weekendWorkDates: [] }],
+    };
+    expect(memberDailyLoads(one, "m", "2026-08-22", "2026-08-22")[0].load).toBe(60);
+    expect(memberLoad(one, "m", "2026-08-17")).toBe(110);
+  });
+
+  /**
+   * The sweep stays for weekdays. It has to: a span can run to 9999-12-31, and the
+   * peak has to come from the range ends rather than from three million steps. The
+   * weekend half is a maximum over the recorded dates, which is a list, not a scan.
+   */
+  it("still answers an extreme range without walking it", () => {
+    const long: WorkspaceState = {
+      members: [member],
+      projects: [],
+      needs: [],
+      assignments: [
+        { id: "long", personId: "m", projectId: "p", startDate: "2026-08-17", endDate: "9999-12-31", allocation: 40, status: "confirmed", weekendWorkDates: ["2026-08-22"] },
+        { id: "sat", personId: "m", projectId: "q", startDate: "2026-08-22", endDate: "2026-08-22", allocation: 90, status: "confirmed", weekendWorkDates: ["2026-08-22"] },
+      ],
+    };
+    const started = Date.now();
+    // 40 on every weekday, and 130 on the one Saturday both of them named.
+    expect(memberPeakLoad(long, "m", "2026-08-17", "9999-12-31")).toBe(130);
+    expect(Date.now() - started).toBeLessThan(2000);
+  });
+
+  it("offers the weekend days of a span, and says when it stopped", () => {
+    const week = weekendDatesBetween("2026-08-17", "2026-08-28");
+    expect(week.dates).toEqual(["2026-08-22", "2026-08-23"]);
+    expect(week.capped).toBe(false);
+
+    // A form cannot draw three hundred thousand checkboxes, so the offer is capped
+    // and says so. What is already stored is never capped.
+    const forever = weekendDatesBetween("2026-08-17", "9999-12-31");
+    expect(forever.dates).toHaveLength(WEEKEND_PICKER_LIMIT);
+    expect(forever.capped).toBe(true);
+
+    // A half-typed date offers nothing rather than walking from NaN.
+    expect(weekendDatesBetween("", "2026-08-28").dates).toEqual([]);
+    expect(weekendDatesBetween("2026-08-17", "2026-08-19").dates).toEqual([]);
+  });
+
+  it("ignores a recorded day outside the assignment's own range", () => {
+    // The database prunes these and the forms filter them, but the reading has to
+    // be right on data that arrived any other way.
+    const stale: WorkspaceState = {
+      ...state(),
+      assignments: [{ ...state().assignments[0], endDate: "2026-08-21", weekendWorkDates: ["2026-08-22"] }],
+    };
+    expect(memberDailyLoads(stale, "m", "2026-08-22", "2026-08-22")[0].load).toBe(0);
+    expect(memberPeakLoad(stale, "m", "2026-08-17", "2026-08-23")).toBe(60);
+  });
+
+
+  /**
+   * What else moved when the week's window reached Sunday. `weekEnd` is not only
+   * the load window: `pipelineDemandForWeek` and three drawer lists ask 「does this
+   * overlap the week」 through it, and a thing that touches only the Saturday used
+   * to fall outside. Pinned because the evaluation asked for it (#222).
+   */
+  it("brings what only touches the weekend into the week", () => {
+    const weekendOnly = { startDate: "2026-08-22", endDate: "2026-08-23" };
+    expect(overlaps(weekendOnly.startDate, weekendOnly.endDate, "2026-08-17", weekEnd("2026-08-17"))).toBe(true);
+    // And it is genuinely the change: against the old Friday end it did not.
+    expect(overlaps(weekendOnly.startDate, weekendOnly.endDate, "2026-08-17", "2026-08-21")).toBe(false);
+
+    const pipeline: Pick<WorkspaceState, "opportunities"> = {
+      opportunities: [{
+        id: "o", code: "OP", name: "週末案件", summary: "", stage: "proposal",
+        ownerName: null, tone: "blue", startDate: "2026-08-22", endDate: "2026-08-23", demand: 3,
+      }],
+    };
+    expect(pipelineDemandForWeek(pipeline, "2026-08-17")).toBe(3);
+  });
+
+  it("does not let a weekend outside the window raise the peak inside it", () => {
+    // 8/29 is a Saturday, and two assignments recorded it — 110 there against 60 on
+    // any weekday. Ask about the week *before* and the answer has to be 60: the
+    // recorded days are a list, and the list has to be clipped to what was asked
+    // for. The two figures differ on purpose, or a clip that never happened would
+    // still read 60 and prove nothing.
+    const later: WorkspaceState = {
+      ...state(),
+      assignments: [
+        { ...state().assignments[0], endDate: "2026-09-30", weekendWorkDates: ["2026-08-29"] },
+        { id: "b", personId: "m", projectId: "q", startDate: "2026-08-24", endDate: "2026-09-30", allocation: 50, status: "confirmed", weekendWorkDates: ["2026-08-29"] },
+      ],
+    };
+    expect(memberPeakLoad(later, "m", "2026-08-17", "2026-08-23")).toBe(60);
+    // And in the week that holds it, it is there in full.
+    expect(memberPeakLoad(later, "m", "2026-08-24", "2026-08-30")).toBe(110);
+    expect(memberDailyLoads(later, "m", "2026-08-29", "2026-08-29")[0].load).toBe(110);
   });
 });

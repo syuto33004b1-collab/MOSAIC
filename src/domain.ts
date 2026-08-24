@@ -161,6 +161,18 @@ export type Assignment = {
   label?: string;
   staffingNeedId?: string | null;
   clientRequestId?: string | null;
+  /**
+   * The weekend days this assignment was actually worked, as 'YYYY-MM-DD'.
+   *
+   * Opt-in, one date at a time, because the range says nothing about it: 12 of the
+   * 15 assignments in the seed span a weekend simply by lasting more than a week,
+   * and counting those would put 鈴木健太 at 120% on a Saturday nobody works. The
+   * weekday ceiling does not move — these are the excess above it (#222).
+   *
+   * Absent and `[]` mean the same thing here, and differ only in the save payload,
+   * where absent leaves the stored days alone and `[]` clears them.
+   */
+  weekendWorkDates?: string[];
 };
 
 export type StaffingNeed = {
@@ -702,22 +714,81 @@ export function overlaps(startDate: string, endDate: string, rangeStart: string,
 }
 
 /**
- * The week's last *working* day, Friday. Deliberately not Sunday even though the
- * board draws Sunday now: this is the window every load figure is measured over,
- * and stretching it to the weekend would count the weekends that assignments span
- * merely by lasting more than a week (#207).
+ * The week's last day, Sunday.
+ *
+ * It was Friday, on purpose: while a weekend could not be recorded, reaching into
+ * it would have counted the weekends that assignments span merely by lasting more
+ * than a week (#207). Now that a weekend day carries load only when it was
+ * recorded, the window has to include it or the whole feature would be invisible
+ * in every figure (#222).
+ *
+ * The ceiling is still five weekdays. This is the window loads are read over, not
+ * a claim about how much anyone is expected to work.
  */
 export function weekEnd(weekStart: string) {
-  return addDays(weekStart, 4);
+  return addDays(weekStart, 6);
 }
 
-export type DailyLoad = { date: string; load: number };
+export type DailyLoad = {
+  date: string;
+  load: number;
+  /**
+   * Saturday or Sunday. Callers that treat capacity as five weekdays filter on
+   * this: weekend load is excess above the ceiling, and a free weekend is not 空き
+   * (#222).
+   */
+  weekend: boolean;
+};
 
 const millisecondsPerDay = 86_400_000;
 
 function isoDayNumber(value: string) {
   const milliseconds = Date.parse(value + "T00:00:00Z");
   return Number.isFinite(milliseconds) ? Math.floor(milliseconds / millisecondsPerDay) : null;
+}
+
+/**
+ * Does this assignment put load on this date?
+ *
+ * Inside its range on a weekday, and on a weekend only if that day was recorded.
+ * The set is built per assignment rather than scanned, because the daily loop asks
+ * this question once per day per assignment.
+ */
+function assignmentCoversDate(assignment: Assignment, date: string, weekend: boolean) {
+  if (assignment.startDate > date || assignment.endDate < date) return false;
+  if (!weekend) return true;
+  return (assignment.weekendWorkDates ?? []).includes(date);
+}
+
+export function isWeekendDate(iso: string) {
+  const day = new Date(iso + "T00:00:00Z").getUTCDay();
+  return day === 0 || day === 6;
+}
+
+/**
+ * The load on each day of a span, weekends included.
+ *
+ * It used to skip Saturday and Sunday outright. They are here now, carrying only
+ * the assignments that recorded them — which is the whole of how weekend work
+ * enters the figures. Every caller that treats capacity as five weekdays has to
+ * filter on `weekend` itself: the ceiling did not move, so a weekend day's load is
+ * excess, and its unused hours are not 空き (#222).
+ */
+export function memberDailyLoads(state: WorkspaceState, memberId: string, startDate: string, endDate: string): DailyLoad[] {
+  // The same guard `memberPeakLoad` has. Every caller used to pass a week the
+  // board had computed; the assignment form now passes its own date inputs, and a
+  // half-typed one makes `addDays` return NaN rather than a date (#199).
+  if (isoDayNumber(startDate) === null || isoDayNumber(endDate) === null) return [];
+  const mine = state.assignments.filter((assignment) => assignment.personId === memberId);
+  const days: DailyLoad[] = [];
+  for (let date = startDate; date <= endDate; date = addDays(date, 1)) {
+    const weekend = isWeekendDate(date);
+    const load = mine
+      .filter((assignment) => assignmentCoversDate(assignment, date, weekend))
+      .reduce((sum, assignment) => sum + assignment.allocation, 0);
+    days.push({ date, load, weekend });
+  }
+  return days;
 }
 
 function intervalContainsBusinessDay(startDay: number, endDay: number) {
@@ -730,31 +801,30 @@ function intervalContainsBusinessDay(startDay: number, endDay: number) {
   return false;
 }
 
-export function memberDailyLoads(state: WorkspaceState, memberId: string, startDate: string, endDate: string): DailyLoad[] {
-  // The same guard `memberPeakLoad` has. Every caller used to pass a week the
-  // board had computed; the assignment form now passes its own date inputs, and a
-  // half-typed one makes `addDays` return NaN rather than a date (#199).
-  if (isoDayNumber(startDate) === null || isoDayNumber(endDate) === null) return [];
-  const days: DailyLoad[] = [];
-  for (let date = startDate; date <= endDate; date = addDays(date, 1)) {
-    const day = new Date(date + "T00:00:00Z").getUTCDay();
-    if (day === 0 || day === 6) continue;
-    const load = state.assignments
-      .filter((assignment) => assignment.personId === memberId && assignment.startDate <= date && assignment.endDate >= date)
-      .reduce((sum, assignment) => sum + assignment.allocation, 0);
-    days.push({ date, load });
-  }
-  return days;
-}
-
+/**
+ * The highest load on any one day of a span.
+ *
+ * Two halves, because the two kinds of day are counted differently and only one of
+ * them can be walked.
+ *
+ * Weekdays keep the interval sweep: every assignment contributes to every weekday
+ * of its range, so the peak is found from the range ends alone. That matters — a
+ * span can run to 9999-12-31, which is three million days, and the sweep is one
+ * event per assignment either way.
+ *
+ * Weekends cannot be swept, because an assignment contributes only to the days it
+ * recorded. But there is nothing to scan either: the recorded days *are* the list.
+ * So the weekend half is a maximum over those dates, bounded by how many were
+ * actually entered rather than by the length of the span (#222).
+ */
 export function memberPeakLoad(state: WorkspaceState, memberId: string, startDate: string, endDate: string) {
   const rangeStart = isoDayNumber(startDate);
   const rangeEnd = isoDayNumber(endDate);
   if (rangeStart === null || rangeEnd === null || rangeEnd < rangeStart) return 0;
+  const mine = state.assignments.filter((assignment) => assignment.personId === memberId);
 
   const events = new Map<number, number>();
-  state.assignments.forEach((assignment) => {
-    if (assignment.personId !== memberId) return;
+  mine.forEach((assignment) => {
     const assignmentStart = isoDayNumber(assignment.startDate);
     const assignmentEnd = isoDayNumber(assignment.endDate);
     if (assignmentStart === null || assignmentEnd === null) return;
@@ -776,7 +846,46 @@ export function memberPeakLoad(state: WorkspaceState, memberId: string, startDat
       peak = Math.max(peak, load);
     }
   });
+
+  // Every weekend day anyone recorded inside the span, each carrying only the
+  // assignments that named it.
+  const recorded = new Set<string>();
+  mine.forEach((assignment) => {
+    (assignment.weekendWorkDates ?? []).forEach((date) => {
+      if (date >= startDate && date <= endDate) recorded.add(date);
+    });
+  });
+  recorded.forEach((date) => {
+    const dayLoad = mine
+      .filter((assignment) => assignment.startDate <= date
+        && assignment.endDate >= date
+        && (assignment.weekendWorkDates ?? []).includes(date))
+      .reduce((sum, assignment) => sum + assignment.allocation, 0);
+    peak = Math.max(peak, dayLoad);
+  });
   return peak;
+}
+
+/** How many weekend days a form will offer at once. Two years of them. */
+export const WEEKEND_PICKER_LIMIT = 210;
+
+/**
+ * The weekend days inside a span, for the form that ticks them.
+ *
+ * Capped, and the caller is told when it capped: an assignment can run to
+ * 9999-12-31, and a list of three hundred thousand checkboxes is not a form. The
+ * cap is on what is *offered*, never on what is stored — dates already recorded
+ * outside it stay recorded (#222).
+ */
+export function weekendDatesBetween(startDate: string, endDate: string, limit = WEEKEND_PICKER_LIMIT) {
+  if (isoDayNumber(startDate) === null || isoDayNumber(endDate) === null) return { dates: [], capped: false };
+  const dates: string[] = [];
+  for (let date = startDate; date <= endDate; date = addDays(date, 1)) {
+    if (!isWeekendDate(date)) continue;
+    if (dates.length >= limit) return { dates, capped: true };
+    dates.push(date);
+  }
+  return { dates, capped: false };
 }
 
 export function memberLoad(state: WorkspaceState, memberId: string, weekStart: string) {

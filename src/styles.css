@@ -187,6 +187,10 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .day-label.weekend { background: var(--paper-deep); color: #9aa2b2; }
 .day-label.weekend strong { color: #8a93a5; }
 .day-grid i.weekend { background: var(--paper-deep); }
+/* A weekend that was actually worked. Without this a bar crossing a Saturday looks
+   the same whether anyone was there or not, which is the one thing the tint exists
+   to tell apart (#222). */
+.day-grid i.weekend.worked { background: var(--paper-pure); box-shadow: inset 0 -3px 0 var(--sage); }
 .assignment { z-index: 1; min-width: 0; margin: 0 4px; padding: 6px 9px; border-radius: 7px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #4351aa; font-size: 8px; font-weight: 700; line-height: 1.4; }
 .assignment.blue { background: #e6e9ff; }.assignment.mint { background: #dcf2ea; color: #317463; }.assignment.orange { background: #ffeadf; color: #a75e3f; }
 
@@ -679,6 +683,48 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 }
 .assignment-form select:focus { border-color: #91a0ff; box-shadow: 0 0 0 3px rgba(86, 104, 232, .1); }
 .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 11px; }
+/* The weekend days of an assignment. Shut by default: most assignments have none,
+   and a quarter's worth is 26 checkboxes (#222). */
+.weekend-picker { margin: 0 0 17px; }
+.weekend-picker > summary {
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #626c7f;
+  font-size: var(--text-min);
+  font-weight: 700;
+  cursor: pointer;
+}
+.weekend-picker > summary small { color: var(--muted-readable); font-family: var(--font-data); font-weight: 700; }
+.weekend-picker-body { padding: 10px 0 0; display: grid; gap: 10px; }
+.weekend-picker-note { margin: 0; color: var(--muted-readable); font-size: var(--text-min); line-height: 1.6; }
+.weekend-picker-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.weekend-picker-month { display: grid; gap: 6px; }
+.weekend-picker-month > small { color: var(--muted-readable); font-size: var(--text-min); font-weight: 700; }
+.weekend-picker-days { display: flex; flex-wrap: wrap; gap: 6px; }
+/* 44px, because these are the smallest things on the screen anyone taps, and a
+   row of them at 24px is the shape #190 was about. */
+.weekend-picker-day {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--paper-pure);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--font-data);
+  font-size: var(--text-min);
+  font-weight: 700;
+  cursor: pointer;
+}
+.weekend-picker-day.chosen { border-color: var(--cobalt); background: var(--cobalt-soft); color: var(--cobalt); }
+.weekend-picker-day small { color: var(--muted-readable); font-family: var(--font-body); font-weight: 700; }
+.weekend-picker-day.chosen small { color: var(--cobalt); }
+.weekend-picker-day input { accent-color: var(--cobalt); }
+.weekend-picker-empty { margin: 0 0 17px; color: var(--muted-readable); font-size: var(--text-min); }
 /* The assignment form's candidate list. Shaped on `.proposal-picker`, which
    solves the same problem one screen over — a searchable list of members with a
    row you press. Native radios inside the rows, so arrow keys, Home/End and the
