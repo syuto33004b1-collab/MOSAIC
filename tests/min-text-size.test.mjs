@@ -15,8 +15,17 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
  * ## What this is
  *
  * A narrow syntactic guard: no `font-size` or `font` shorthand below the token,
- * declared after the floor rule, outside the allowlist. It exists to stop the
- * specific regression that shipped — a small literal written after the floor.
+ * declared after the floor rule. It exists to stop the specific regression that
+ * shipped — a small literal written after the floor.
+ *
+ * There was an allowlist, `/^\.ai-chat-/`, for the whole AI chat panel: it does
+ * not render in DEMO mode, so raising those sizes could not be seen on screen
+ * (#72, tracked in #101). It is gone, and the 23 rules it excused are on the
+ * token. What made that possible was rendering the real panel locally by passing
+ * `AiChat` a stub transport — no authentication involved, the component and this
+ * stylesheet as shipped — and measuring every state it can show. The numbers are
+ * in #101's PR; the stub was not committed. Reach for the same trick before
+ * writing another exception for something that only renders when signed in.
  *
  * ## What this is not
  *
@@ -33,14 +42,6 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 const read = () => readFile(path.join(root, "src", "styles.css"), "utf8");
 const FLOOR = ".production-runtime-info {\n  font-size: var(--text-min);";
-
-/**
- * The AI chat panel does not render in DEMO mode — `.ai-chat-root` carries
- * `is-unavailable` and the panel's contents never enter the DOM — so raising
- * these could not be verified on screen. Tracked in #101. Empty this list when
- * they are fixed, and delete it when it is empty.
- */
-const UNVERIFIABLE_IN_DEMO = /^\.ai-chat-/u;
 
 /** Sizes in px and rem, from both `font-size:` and the `font:` shorthand. */
 function* sizes(css) {
@@ -112,7 +113,6 @@ test("no rule after the floor declares a size below it", async () => {
 
   const offenders = [...sizes(css.slice(anchor))]
     .filter((d) => d.px < token)
-    .filter((d) => !UNVERIFIABLE_IN_DEMO.test(d.selector))
     .map((d) => `${d.selector.slice(0, 60)} => ${d.raw}`);
 
   assert.deepEqual(
@@ -197,24 +197,9 @@ test("the scale above the floor is tokens, not literals", async () => {
     // so this looks at the rest of the file.
     const bare = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/gu)]
       .filter(([, , body]) => new RegExp(`font-size:\\s*${value}`, "u").test(body))
-      .map(([, selector]) => selector.replace(/\/\*[\s\S]*?\*\//gu, "").trim().replace(/\s+/gu, " "))
-      .filter((selector) => !selector.includes(".ai-chat-"));
+      .map(([, selector]) => selector.replace(/\/\*[\s\S]*?\*\//gu, "").trim().replace(/\s+/gu, " "));
     assert.deepEqual(bare, [], `${value} written as a literal instead of var(${name}): ${bare.join(", ")}`);
   }
-});
-
-test("the allowlist stays honest about what it excuses", async () => {
-  const css = (await read()).replaceAll("\r\n", "\n");
-  const token = Number(css.match(/--text-min:\s*(\d+)px/u)[1]);
-  const anchor = css.indexOf(FLOOR);
-  const excused = [...sizes(css.slice(anchor))]
-    .filter((d) => d.px < token && UNVERIFIABLE_IN_DEMO.test(d.selector));
-  // If the allowlist stops excusing anything, the exception has outlived its
-  // reason — delete it rather than leaving a rule nobody needs.
-  assert.ok(
-    excused.length > 0,
-    "nothing is below the floor in the AI chat panel any more; remove UNVERIFIABLE_IN_DEMO and close #101",
-  );
 });
 
 test("the rules that were raised still reference the token", async () => {
