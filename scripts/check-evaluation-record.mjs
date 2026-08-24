@@ -219,7 +219,7 @@ async function main() {
   const changed = await lines(process.argv[3]);
   const growth = new Map();
   for (const row of await lines(process.argv[4])) {
-    const [sha, files, insertions, deletions] = row.split(/s+/u);
+    const [sha, files, insertions, deletions] = row.split(/\s+/u);
     if (SHA_PATTERN.test((sha ?? "").toLowerCase())) {
       growth.set(sha.toLowerCase(), { files, insertions, deletions });
     }

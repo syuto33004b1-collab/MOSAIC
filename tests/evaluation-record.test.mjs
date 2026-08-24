@@ -239,3 +239,87 @@ test("leaves the growth note out when there is nothing to say", () => {
   const zeroed = checkEvaluationRecord(body({ commit: B }), [A, B], new Map([[B, { files: 0, insertions: 0, deletions: 0 }]]));
   assert.doesNotMatch(zeroed.warnings.join(" "), /ファイル/u);
 });
+
+/**
+ * Through the CLI, with real files, because the tests above call
+ * `checkEvaluationRecord` directly and never touch the parsing between the
+ * workflow and it. That gap shipped a bug: the growth rows were split on
+ * `/s+/` — the letter `s`, not whitespace — so the file was read, matched
+ * nothing, and every pull request silently reported no size at all while the
+ * unit tests stayed green. The evaluation on this PR caught it (#74).
+ */
+test("the CLI reads the workflow's own files, growth rows included", async () => {
+  const { mkdtemp, writeFile, rm } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { execFile } = await import("node:child_process");
+  const path = await import("node:path");
+  const { fileURLToPath } = await import("node:url");
+
+  const script = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "scripts", "check-evaluation-record.mjs");
+  const dir = await mkdtemp(path.join(tmpdir(), "evalrec-"));
+  try {
+    // rev-list order: newest first. B is the head, A was evaluated.
+    await writeFile(path.join(dir, "commits.txt"), `${B}\n${A}\n`);
+    await writeFile(path.join(dir, "changed.txt"), "src/App.tsx\n");
+    // Exactly the shape the workflow writes: `sha files insertions deletions`.
+    await writeFile(path.join(dir, "growth.txt"), `${B} 0 0 0\n${A} 7 210 34\n`);
+
+    const run = () => new Promise((resolve) => {
+      const child = execFile(process.execPath, [script, path.join(dir, "commits.txt"), path.join(dir, "changed.txt"), path.join(dir, "growth.txt")], (error, stdout, stderr) => {
+        resolve({ code: error?.code ?? 0, stdout, stderr });
+      });
+      child.stdin.end(body({ commit: A }));
+    });
+
+    const { code, stdout } = await run();
+    assert.equal(code, 0, stdout);
+    // The warning the workflow surfaces, with the size in it rather than a bare count.
+    assert.match(stdout, /評価後に 1 件のコミットが追加されています（7 ファイル \/ \+210 -34 行）/u);
+    assert.match(stdout, /評価対象コミット: a{40}/u);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("the CLI reports a claimed bypass to the workflow, so it can be labelled", async () => {
+  const { mkdtemp, writeFile, readFile, rm } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { execFile } = await import("node:child_process");
+  const path = await import("node:path");
+  const { fileURLToPath } = await import("node:url");
+
+  const script = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "scripts", "check-evaluation-record.mjs");
+  const dir = await mkdtemp(path.join(tmpdir(), "evalrec-"));
+  try {
+    await writeFile(path.join(dir, "commits.txt"), `${A}\n`);
+    const outputPath = path.join(dir, "output.txt");
+    await writeFile(outputPath, "");
+
+    const run = (prBody) => new Promise((resolve) => {
+      const child = execFile(process.execPath, [script, path.join(dir, "commits.txt")], {
+        env: { ...process.env, GITHUB_OUTPUT: outputPath },
+      }, (error, stdout, stderr) => resolve({ code: error?.code ?? 0, stdout, stderr }));
+      child.stdin.end(prBody);
+    });
+
+    // Granted, and reported.
+    const granted = await run("評価なし承認: モデルが使用上限で起動できず、利用者から評価なしで進める指示を受けている");
+    assert.equal(granted.code, 0, granted.stderr);
+    assert.match(await readFile(outputPath, "utf8"), /bypass=true/u);
+
+    // Refused for a two-word reason — and still reported, which is what the label
+    // is for. Written before the exit code, so the failure does not lose it.
+    await writeFile(outputPath, "");
+    const refused = await run("評価なし承認: 急ぎ");
+    assert.notEqual(refused.code, 0);
+    assert.match(await readFile(outputPath, "utf8"), /bypass=true/u);
+
+    // A real record claims nothing.
+    await writeFile(outputPath, "");
+    const proper = await run(body({ commit: A }));
+    assert.equal(proper.code, 0, proper.stderr);
+    assert.match(await readFile(outputPath, "utf8"), /bypass=false/u);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});

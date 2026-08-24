@@ -107,7 +107,8 @@ jobs:
           : > "$RUNNER_TEMP/growth.txt"
           while read -r sha; do
             [ -n "$sha" ] || continue
-            stat=$(git diff --shortstat "$sha".."$HEAD_SHA")
+            # Parsed by its English words below, so the locale is pinned.
+            stat=$(LC_ALL=C git diff --shortstat "$sha".."$HEAD_SHA")
             files=$(printf '%s' "$stat" | grep -oE '[0-9]+ file' | grep -oE '[0-9]+' || echo 0)
             plus=$(printf '%s' "$stat" | grep -oE '[0-9]+ insertion' | grep -oE '[0-9]+' || echo 0)
             minus=$(printf '%s' "$stat" | grep -oE '[0-9]+ deletion' | grep -oE '[0-9]+' || echo 0)
