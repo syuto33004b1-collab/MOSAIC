@@ -176,3 +176,150 @@ test("does not backtrack catastrophically on a long run of asterisks", () => {
   const ms = Number(process.hrtime.bigint() - started) / 1e6;
   assert.ok(ms < 500, `field() took ${Math.round(ms)}ms on a hostile body`);
 });
+
+/**
+ * #74 decided not to run the evaluator in CI: it would prove the evaluator was
+ * called and not that it read anything, and the failure this repository actually
+ * has is not forgery by an outsider — it is the agent quietly normalising the
+ * bypass. Twenty consecutive bypassed pull requests happened here in one week.
+ *
+ * So the controls are the ones that make that visible: every claimed bypass is
+ * labelled, and what was added after the evaluated commit is reported in files
+ * and lines. Neither proves anything. Both make a pattern findable later.
+ */
+test("the label follows the bypass claim, not the grant", () => {
+  const granted = checkEvaluationRecord(
+    "評価なし承認: モデルが使用上限で起動できず、利用者から評価なしで進める指示を受けている",
+    [A],
+  );
+  assert.equal(granted.ok, true);
+  assert.equal(granted.bypass, true);
+  assert.equal(granted.bypassClaimed, true);
+
+  // Too short to mean anything: refused, and still labelled. A body that tried
+  // to skip the evaluation is the one most worth finding again later.
+  const refused = checkEvaluationRecord("評価なし承認: 急ぎ", [A]);
+  assert.equal(refused.ok, false);
+  assert.equal(refused.bypass, false);
+  assert.equal(refused.bypassClaimed, true);
+
+  // A real record claims nothing.
+  const proper = checkEvaluationRecord(body(), [A]);
+  assert.equal(proper.bypassClaimed, false);
+});
+
+test("says how much was added after the evaluation, in files and lines", () => {
+  // rev-list order: newest first, so [C, B, A] means A was evaluated and two
+  // commits landed on top of it.
+  const C = "c".repeat(40);
+  const growth = new Map([[A, { files: 7, insertions: 210, deletions: 34 }]]);
+  const result = checkEvaluationRecord(body({ commit: A }), [C, B, A], growth);
+  assert.equal(result.ok, true);
+  const warning = result.warnings.join(" ");
+  assert.match(warning, /2 件のコミットが追加されています/u);
+  // The part that matters: a commit count alone said 「1 件」 for a whole-diff
+  // rewrite and 「3 件」 for three typo fixes.
+  assert.match(warning, /7 ファイル \/ \+210 -34 行/u);
+  assert.equal(result.record.addedAfterEvaluation, "7 ファイル / +210 -34 行");
+});
+
+test("leaves the growth note out when there is nothing to say", () => {
+  // Evaluated at the head: nothing was added, so no warning at all.
+  const atHead = checkEvaluationRecord(body({ commit: A }), [A, B], new Map());
+  assert.deepEqual(atHead.warnings, []);
+  assert.equal(atHead.record.addedAfterEvaluation, "");
+
+  // Commits were added but the workflow could not measure them: the count still
+  // reports, without inventing a size.
+  const unmeasured = checkEvaluationRecord(body({ commit: B }), [A, B]);
+  assert.match(unmeasured.warnings.join(" "), /1 件のコミットが追加されています。/u);
+  assert.doesNotMatch(unmeasured.warnings.join(" "), /ファイル/u);
+
+  // A row of zeroes is not a size either.
+  const zeroed = checkEvaluationRecord(body({ commit: B }), [A, B], new Map([[B, { files: 0, insertions: 0, deletions: 0 }]]));
+  assert.doesNotMatch(zeroed.warnings.join(" "), /ファイル/u);
+});
+
+/**
+ * Through the CLI, with real files, because the tests above call
+ * `checkEvaluationRecord` directly and never touch the parsing between the
+ * workflow and it. That gap shipped a bug: the growth rows were split on
+ * `/s+/` — the letter `s`, not whitespace — so the file was read, matched
+ * nothing, and every pull request silently reported no size at all while the
+ * unit tests stayed green. The evaluation on this PR caught it (#74).
+ */
+test("the CLI reads the workflow's own files, growth rows included", async () => {
+  const { mkdtemp, writeFile, rm } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { execFile } = await import("node:child_process");
+  const path = await import("node:path");
+  const { fileURLToPath } = await import("node:url");
+
+  const script = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "scripts", "check-evaluation-record.mjs");
+  const dir = await mkdtemp(path.join(tmpdir(), "evalrec-"));
+  try {
+    // rev-list order: newest first. B is the head, A was evaluated.
+    await writeFile(path.join(dir, "commits.txt"), `${B}\n${A}\n`);
+    await writeFile(path.join(dir, "changed.txt"), "src/App.tsx\n");
+    // Exactly the shape the workflow writes: `sha files insertions deletions`.
+    await writeFile(path.join(dir, "growth.txt"), `${B} 0 0 0\n${A} 7 210 34\n`);
+
+    const run = () => new Promise((resolve) => {
+      const child = execFile(process.execPath, [script, path.join(dir, "commits.txt"), path.join(dir, "changed.txt"), path.join(dir, "growth.txt")], (error, stdout, stderr) => {
+        resolve({ code: error?.code ?? 0, stdout, stderr });
+      });
+      child.stdin.end(body({ commit: A }));
+    });
+
+    const { code, stdout } = await run();
+    assert.equal(code, 0, stdout);
+    // The warning the workflow surfaces, with the size in it rather than a bare count.
+    assert.match(stdout, /評価後に 1 件のコミットが追加されています（7 ファイル \/ \+210 -34 行）/u);
+    assert.match(stdout, /評価対象コミット: a{40}/u);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("the CLI reports a claimed bypass to the workflow, so it can be labelled", async () => {
+  const { mkdtemp, writeFile, readFile, rm } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { execFile } = await import("node:child_process");
+  const path = await import("node:path");
+  const { fileURLToPath } = await import("node:url");
+
+  const script = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "scripts", "check-evaluation-record.mjs");
+  const dir = await mkdtemp(path.join(tmpdir(), "evalrec-"));
+  try {
+    await writeFile(path.join(dir, "commits.txt"), `${A}\n`);
+    const outputPath = path.join(dir, "output.txt");
+    await writeFile(outputPath, "");
+
+    const run = (prBody) => new Promise((resolve) => {
+      const child = execFile(process.execPath, [script, path.join(dir, "commits.txt")], {
+        env: { ...process.env, GITHUB_OUTPUT: outputPath },
+      }, (error, stdout, stderr) => resolve({ code: error?.code ?? 0, stdout, stderr }));
+      child.stdin.end(prBody);
+    });
+
+    // Granted, and reported.
+    const granted = await run("評価なし承認: モデルが使用上限で起動できず、利用者から評価なしで進める指示を受けている");
+    assert.equal(granted.code, 0, granted.stderr);
+    assert.match(await readFile(outputPath, "utf8"), /bypass=true/u);
+
+    // Refused for a two-word reason — and still reported, which is what the label
+    // is for. Written before the exit code, so the failure does not lose it.
+    await writeFile(outputPath, "");
+    const refused = await run("評価なし承認: 急ぎ");
+    assert.notEqual(refused.code, 0);
+    assert.match(await readFile(outputPath, "utf8"), /bypass=true/u);
+
+    // A real record claims nothing.
+    await writeFile(outputPath, "");
+    const proper = await run(body({ commit: A }));
+    assert.equal(proper.code, 0, proper.stderr);
+    assert.match(await readFile(outputPath, "utf8"), /bypass=false/u);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});

@@ -80,6 +80,9 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: read
+      # For the bypass label, and nothing else. Fork pull requests get a
+      # read-only token regardless, which the label step checks for (#74).
+      pull-requests: write
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -97,7 +100,22 @@ jobs:
           set -euo pipefail
           git rev-list "$BASE_SHA".."$HEAD_SHA" > "$RUNNER_TEMP/commits.txt"
           git diff --name-only "$BASE_SHA".."$HEAD_SHA" > "$RUNNER_TEMP/changed.txt"
+          # How much the head adds on top of each commit, so the check can report
+          # what went unevaluated in files and lines rather than in commits: one
+          # commit can rewrite the whole diff (#74). One row per commit, and a
+          # pull request has few of them.
+          : > "$RUNNER_TEMP/growth.txt"
+          while read -r sha; do
+            [ -n "$sha" ] || continue
+            # Parsed by its English words below, so the locale is pinned.
+            stat=$(LC_ALL=C git diff --shortstat "$sha".."$HEAD_SHA")
+            files=$(printf '%s' "$stat" | grep -oE '[0-9]+ file' | grep -oE '[0-9]+' || echo 0)
+            plus=$(printf '%s' "$stat" | grep -oE '[0-9]+ insertion' | grep -oE '[0-9]+' || echo 0)
+            minus=$(printf '%s' "$stat" | grep -oE '[0-9]+ deletion' | grep -oE '[0-9]+' || echo 0)
+            printf '%s %s %s %s\n' "$sha" "${files:-0}" "${plus:-0}" "${minus:-0}" >> "$RUNNER_TEMP/growth.txt"
+          done < "$RUNNER_TEMP/commits.txt"
       - name: Check the pre-PR evaluation record
+        id: record
         env:
           # The body is author-controlled. Pass it through the environment and
           # stdin only; never interpolate it into the shell.
@@ -105,7 +123,25 @@ jobs:
         run: |
           set -euo pipefail
           printf '%s' "$PR_BODY" | node scripts/check-evaluation-record.mjs \
-            "$RUNNER_TEMP/commits.txt" "$RUNNER_TEMP/changed.txt"
+            "$RUNNER_TEMP/commits.txt" "$RUNNER_TEMP/changed.txt" "$RUNNER_TEMP/growth.txt"
+      # The whole of what #74 decided to build: a bypassed pull request has to be
+      # findable later without reading every body. `always()` because a bypass
+      # whose reason was too short still fails the step above, and that one is the
+      # most worth finding. Skipped for forks, where the token is read-only —
+      # this job runs on `pull_request`, never on `pull_request_target`.
+      - name: Label a pull request that skipped the evaluation
+        if: >-
+          always()
+          && steps.record.outputs.bypass == 'true'
+          && github.event.pull_request.head.repo.full_name == github.repository
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          gh label create 評価なし --color BFD4F2 --description "独立評価を通していない PR（#74）" 2>/dev/null || true
+          gh api "repos/${GITHUB_REPOSITORY}/issues/${NUMBER}/labels" -f "labels[]=評価なし"
 
   dependency-review:
     name: Dependency review

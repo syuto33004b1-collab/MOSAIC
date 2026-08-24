@@ -10,12 +10,19 @@
  * anything. Nothing here is an attestation.
  *
  * What it does buy: a missing record fails, a stale record pointing at main or
- * another branch fails, and the number of commits added after the recorded one
- * is reported so review can see how much went unevaluated. It removes accidental
- * omission and silent reuse. It does not remove deliberate fabrication.
+ * another branch fails, and what was added after the recorded commit is reported
+ * in files and lines so review can see how much went unevaluated. It removes
+ * accidental omission and silent reuse. It does not remove deliberate
+ * fabrication.
  *
- * Proving the evaluation would mean CI running the evaluator itself. That needs
- * a model credential in CI and is tracked separately.
+ * Proving the evaluation would mean CI running the evaluator itself. #74 settled
+ * that: not worth its cost here, because it would prove the evaluator was called
+ * and not that it read anything, and the failure this repository actually has is
+ * not forgery by an outsider — it is the agent quietly normalising the bypass.
+ * So the controls are the ones that make that visible instead: every bypass is
+ * labelled, and the size of what was added after the evaluation is reported in
+ * files and lines rather than in commits, because one commit can change
+ * everything.
  *
  * The body is attacker-controlled text. It is only ever matched against anchored
  * patterns here, never executed or interpolated into a shell.
@@ -55,12 +62,30 @@ function field(body, label) {
 }
 
 /**
+ * How much was added after the evaluated commit, in the units that mean
+ * something: files and lines. The commit count alone said 「1 件」 for a rewrite
+ * of the whole diff and 「3 件」 for three typo fixes (#74).
+ *
+ * @param {Map<string, {files: number, insertions: number, deletions: number}>} stats
+ *   keyed by commit sha: what changed between that commit and the head
+ */
+function growthSince(stats, commit) {
+  const row = stats instanceof Map ? stats.get(commit) : undefined;
+  if (!row) return "";
+  const files = Number(row.files) || 0;
+  const insertions = Number(row.insertions) || 0;
+  const deletions = Number(row.deletions) || 0;
+  if (files === 0 && insertions === 0 && deletions === 0) return "";
+  return `${files} ファイル / +${insertions} -${deletions} 行`;
+}
+
+/**
  * @param {string} body pull request body
  * @param {string[]} prCommits full SHAs of the commits this pull request adds,
  *   newest first (the order `git rev-list base..head` produces)
- * @returns {{ ok: boolean, bypass: boolean, problems: string[], warnings: string[], record: object }}
+ * @returns {{ ok: boolean, bypass: boolean, bypassClaimed: boolean, problems: string[], warnings: string[], record: object }}
  */
-export function checkEvaluationRecord(body, prCommits) {
+export function checkEvaluationRecord(body, prCommits, growth) {
   const raw = typeof body === "string" ? body : "";
   const text = withoutCodeFences(raw);
   const ordered = (Array.isArray(prCommits) ? prCommits : []).filter((sha) => SHA_PATTERN.test(sha));
@@ -74,6 +99,9 @@ export function checkEvaluationRecord(body, prCommits) {
       return {
         ok: false,
         bypass: false,
+        // Claimed, though not granted. The label follows the claim: a body that
+        // tried to skip the evaluation is worth finding either way (#74).
+        bypassClaimed: true,
         problems: [
           `評価なし承認の理由が短すぎます（${bypass.length}文字）。`
             + `利用者の指示内容と理由を ${MIN_BYPASS_REASON} 文字以上で書いてください。`,
@@ -85,6 +113,7 @@ export function checkEvaluationRecord(body, prCommits) {
     return {
       ok: true,
       bypass: true,
+      bypassClaimed: true,
       problems: [],
       warnings: [
         "この PR は独立評価を通していません。",
@@ -119,10 +148,12 @@ export function checkEvaluationRecord(body, prCommits) {
 
   // rev-list is newest first, so anything before the recorded commit was pushed
   // after the evaluation and was therefore not evaluated.
+  const added = evaluatedIndex > 0 ? growthSince(growth, commit) : "";
   if (evaluatedIndex > 0) {
     warnings.push(
-      `評価後に ${evaluatedIndex} 件のコミットが追加されています。`
-        + " 指摘対応だけなら再評価は不要ですが、それ以外の変更を含むなら再評価が必要です（AGENTS.md の 11）。",
+      `評価後に ${evaluatedIndex} 件のコミットが追加されています`
+        + (added ? `（${added}）` : "")
+        + "。 指摘対応だけなら再評価は不要ですが、それ以外の変更を含むなら再評価が必要です（AGENTS.md の 11）。",
     );
   }
 
@@ -136,9 +167,10 @@ export function checkEvaluationRecord(body, prCommits) {
   return {
     ok: problems.length === 0,
     bypass: false,
+    bypassClaimed: false,
     problems,
     warnings,
-    record: { model, effort, commit, commitsAfterEvaluation: Math.max(evaluatedIndex, 0) },
+    record: { model, effort, commit, commitsAfterEvaluation: Math.max(evaluatedIndex, 0), addedAfterEvaluation: added },
   };
 }
 
@@ -158,9 +190,18 @@ export function touchesOwnCheck(changedPaths) {
  * CLI: body on stdin. Arguments:
  *   argv[2] path to a file with one commit SHA per line (newest first)
  *   argv[3] optional path to a file with one changed path per line
+ *   argv[4] optional path to a file of `sha files insertions deletions` rows,
+ *           each counting what the head added on top of that commit
  *
- * The commit list comes through a file rather than argv because a long-lived
- * branch can exceed the OS argument limit.
+ * The lists come through files rather than argv because a long-lived branch can
+ * exceed the OS argument limit.
+ *
+ * Writes `bypass=true|false` to `$GITHUB_OUTPUT` when that is set, which is what
+ * the workflow labels on. It follows the *claim*, not the grant: a body that
+ * tried to skip with a two-word reason fails the check and still gets labelled,
+ * and it is written before the exit code is decided so that stays true. The label
+ * is the whole of the control — a bypassed pull request has to be findable later
+ * without reading every body (#74).
  */
 async function main() {
   const { readFile } = await import("node:fs/promises");
@@ -176,7 +217,22 @@ async function main() {
 
   const commits = await lines(process.argv[2]);
   const changed = await lines(process.argv[3]);
-  const result = checkEvaluationRecord(body, commits);
+  const growth = new Map();
+  for (const row of await lines(process.argv[4])) {
+    const [sha, files, insertions, deletions] = row.split(/\s+/u);
+    if (SHA_PATTERN.test((sha ?? "").toLowerCase())) {
+      growth.set(sha.toLowerCase(), { files, insertions, deletions });
+    }
+  }
+  const result = checkEvaluationRecord(body, commits, growth);
+
+  // For the labelling step. Written before the exit code is decided, so a failing
+  // record still gets labelled if it claimed a bypass.
+  if (process.env.GITHUB_OUTPUT) {
+    const { appendFile } = await import("node:fs/promises");
+    await appendFile(process.env.GITHUB_OUTPUT, `bypass=${result.bypassClaimed ? "true" : "false"}
+`);
+  }
 
   const selfEdits = touchesOwnCheck(changed);
   if (selfEdits.length > 0) {
@@ -195,7 +251,10 @@ async function main() {
   if (result.ok) {
     console.log(`評価記録を確認しました: ${result.record.model} / ${result.record.effort}`);
     console.log(`評価対象コミット: ${result.record.commit}`);
-    console.log(`評価後に追加されたコミット: ${result.record.commitsAfterEvaluation} 件`);
+    console.log(
+      `評価後に追加されたコミット: ${result.record.commitsAfterEvaluation} 件`
+        + (result.record.addedAfterEvaluation ? ` (${result.record.addedAfterEvaluation})` : ""),
+    );
     return;
   }
   for (const problem of result.problems) console.error(`- ${problem}`);
