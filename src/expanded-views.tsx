@@ -104,6 +104,7 @@ import {
   visibleCustomFields,
   weekLabel,
   type CustomFieldDefinition,
+  type DailyLoad,
   type CustomFieldEntity,
   type CustomFieldType,
   type Member,
@@ -331,6 +332,126 @@ const MEMBER_ORDERS = {
   score: { label: "スコアの高い順" },
 } as const;
 type MemberOrder = keyof typeof MEMBER_ORDERS;
+
+/** A candidate for one of the assignment forms, with the figures already measured. */
+export type MemberCandidate = {
+  member: Member;
+  /** Peak load over the form's range. What that means is the caller's to state in `hint`. */
+  peak: number;
+  days: DailyLoad[];
+  /** Disambiguated, because two namesakes made three labels identical once (#123). */
+  label: string;
+  /** Lowercased haystack for the search box — `memberSearchText`, normally. */
+  search: string;
+};
+
+/**
+ * Who to assign, searched for rather than scrolled through.
+ *
+ * Both assignment forms picked their member from a native `<select>`: no way to type
+ * a name, which at a few hundred members is the whole interaction, and no way to see
+ * anyone's load without opening the list (#199 for the add form, #219 for the edit
+ * one). It is one component because the two would otherwise have to be kept in step
+ * by hand, and they already disagreed about what their percentages meant.
+ *
+ * Native radios inside the rows, so arrow keys, Home/End and the reading order come
+ * from the platform rather than from ARIA authoring, and the row is the label — the
+ * whole box is the target, which is what #190 was about.
+ *
+ * What the numbers mean is deliberately not decided here. The caller measures them
+ * and names them in `hint`: the add form shows the load over its own dates, the edit
+ * form shows what the load would become if its form were saved.
+ */
+export function MemberPicker({
+  legend,
+  hint,
+  name,
+  searchLabel,
+  placeholder = "名前・職種・スキルで検索",
+  candidates,
+  limit,
+  value,
+  onChange,
+  query,
+  onQueryChange,
+  disabled = false,
+  chosenRef,
+}: {
+  legend: string;
+  hint: string;
+  /** The radio group's name. Distinct per form, so two of these can never share a value. */
+  name: string;
+  searchLabel: string;
+  placeholder?: string;
+  candidates: MemberCandidate[];
+  /** Rows drawn at once. Hundreds of members must not become hundreds of rows. */
+  limit: number;
+  value: string;
+  onChange: (memberId: string) => void;
+  query: string;
+  onQueryChange: (query: string) => void;
+  disabled?: boolean;
+  chosenRef?: React.Ref<HTMLLabelElement>;
+}) {
+  // Most room first, which is the order the member screen already ships with. Sorted
+  // here rather than by each caller, so the two forms cannot drift apart on it.
+  const sorted = [...candidates].sort((a, b) => a.peak - b.peak || a.label.localeCompare(b.label, "ja"));
+  const needle = query.trim().toLocaleLowerCase();
+  const matched = needle ? sorted.filter((candidate) => candidate.search.includes(needle)) : sorted;
+  const capped = matched.slice(0, limit);
+  /*
+   * The chosen row survives both the search and the cap. Hiding what the form is
+   * about to submit is worse than showing one row that does not match: with every
+   * visible radio unchecked, a submit button reads as 「nothing is selected」.
+   */
+  const chosen = value ? sorted.find((candidate) => candidate.member.id === value) : undefined;
+  const rows = !chosen || capped.some((candidate) => candidate.member.id === value)
+    ? capped
+    : [chosen, ...capped.slice(0, limit - 1)];
+
+  return (
+    <fieldset className="member-picker">
+      {/* The range and what is being measured over it, so every row's number has a
+          stated meaning and the group announces it once rather than per row. */}
+      <legend>{legend}<small> · {hint}</small></legend>
+      <div className="member-picker-head">
+        <label className="inline-search">
+          <Search size={15} />
+          <input value={query} onChange={(event) => onQueryChange(event.target.value)} placeholder={placeholder} aria-label={searchLabel} disabled={disabled} />
+        </label>
+        {/* Said out loud rather than truncating in silence: at a few hundred members
+            a list of twelve reads as the whole list. */}
+        <span className="member-picker-count">{matched.length > rows.length ? `該当${matched.length}名中 ${rows.length}名` : `該当${matched.length}名`}</span>
+      </div>
+      <div className="member-picker-list">
+        {rows.map(({ member, peak, days, label }) => (
+          <label
+            className={"member-picker-item" + (value === member.id ? " chosen" : "")}
+            key={member.id}
+            ref={value === member.id ? chosenRef : null}
+          >
+            <input type="radio" name={name} value={member.id} checked={value === member.id} disabled={disabled} onChange={() => onChange(member.id)} />
+            <span className={"avatar " + member.avatarTone}>{member.initials}</span>
+            <span className="member-picker-copy"><strong>{label}</strong><small>{member.role} · {member.department}</small></span>
+            <span className={"member-picker-load" + (peak > member.capacity ? " over" : "")}>{peak}% / {member.capacity}%</span>
+            {/* One cell per weekday in the range, filled to that day's share of the
+                ceiling. Decoration — the numbers beside it are what the row says out
+                loud — so past about 60 weekdays a cell is under 5px and the rail is a
+                texture rather than a reading, and the peak carries it. */}
+            <span className="member-picker-rail" aria-hidden="true">
+              {days.map((day) => <i
+                key={day.date}
+                className={day.load > member.capacity ? "over" : ""}
+                style={{ "--fill": (member.capacity > 0 ? Math.min(100, Math.round((day.load / member.capacity) * 100)) : day.load > 0 ? 100 : 0) + "%" } as React.CSSProperties}
+              />)}
+            </span>
+          </label>
+        ))}
+        {rows.length === 0 && <p className="member-picker-empty">条件に合うメンバーがいません。</p>}
+      </div>
+    </fieldset>
+  );
+}
 
 /**
  * The filters that are actually narrowing the list, each one removable, plus a

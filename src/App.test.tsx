@@ -4834,6 +4834,18 @@ describe("moving a department", () => {
  * What these hold is the behaviour, not the geometry: the widths are in the PR.
  */
 describe("the board narrows by more than one thing", () => {
+  /*
+   * On a fixed clock. Both describes read figures the demo data only produces in one
+   * week — 鈴木健太 is over his ceiling in 8/17週 and not in 8/24週 — so without this they
+   * pass for six days and fail on the seventh. They did: written on 2026-08-23, red on
+   * the 24th, for nothing that had changed in the code.
+   */
+  const onWednesday = () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date("2026-08-19T09:00:00+09:00"));
+    return userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+  };
+  afterEach(() => { vi.useRealTimers(); });
   const openBoard = async (user: ReturnType<typeof userEvent.setup>) => {
     await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^アサインボード( |$)/u }));
   };
@@ -4844,7 +4856,7 @@ describe("the board narrows by more than one thing", () => {
   const chips = () => [...document.querySelectorAll(".filter-chip")].map((el) => el.textContent ?? "");
 
   it("narrows the member axis by department, and says so in a chip", async () => {
-    const user = userEvent.setup();
+    const user = onWednesday();
     render(<App />);
     await openBoard(user);
     const everyone = rowNames();
@@ -4869,7 +4881,7 @@ describe("the board narrows by more than one thing", () => {
   });
 
   it("leaves only the rows carrying their own warning", async () => {
-    const user = userEvent.setup();
+    const user = onWednesday();
     render(<App />);
     await openBoard(user);
     const everyone = rowNames();
@@ -4891,7 +4903,7 @@ describe("the board narrows by more than one thing", () => {
    * it actually filters, and the name follows the axis.
    */
   it("names the warning after the axis, and drops the condition that has no meaning there", async () => {
-    const user = userEvent.setup();
+    const user = onWednesday();
     render(<App />);
     await openBoard(user);
     await openFilters(user);
@@ -4919,7 +4931,7 @@ describe("the board narrows by more than one thing", () => {
   });
 
   it("hands back every condition from the empty state", async () => {
-    const user = userEvent.setup();
+    const user = onWednesday();
     render(<App />);
     await openBoard(user);
     const everyone = rowNames();
@@ -4951,6 +4963,18 @@ describe("the board narrows by more than one thing", () => {
  * following the form's own dates, and the count telling you the list is capped.
  */
 describe("choosing who to assign", () => {
+  /*
+   * On a fixed clock. Both describes read figures the demo data only produces in one
+   * week — 鈴木健太 is over his ceiling in 8/17週 and not in 8/24週 — so without this they
+   * pass for six days and fail on the seventh. They did: written on 2026-08-23, red on
+   * the 24th, for nothing that had changed in the code.
+   */
+  const onWednesday = () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date("2026-08-19T09:00:00+09:00"));
+    return userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+  };
+  afterEach(() => { vi.useRealTimers(); });
   const openForm = async (user: ReturnType<typeof userEvent.setup>) => {
     await user.click(screen.getByRole("button", { name: /アサインを追加/u }));
   };
@@ -4961,7 +4985,7 @@ describe("choosing who to assign", () => {
     ?.querySelector(".member-picker-load")!.textContent ?? null;
 
   it("narrows the candidates by name and by what they do", async () => {
-    const user = userEvent.setup();
+    const user = onWednesday();
     render(<App />);
     await openForm(user);
     const everyone = names();
@@ -4997,7 +5021,7 @@ describe("choosing who to assign", () => {
    * have booked someone — the same shape of mistake as #187, from the other end.
    */
   it("keeps the chosen candidate in the list even when the search excludes them", async () => {
-    const user = userEvent.setup();
+    const user = onWednesday();
     render(<App />);
     await openForm(user);
     const chosen = document.querySelector(".member-picker-item.chosen strong")!.textContent!;
@@ -5011,7 +5035,7 @@ describe("choosing who to assign", () => {
   });
 
   it("moves every figure when the dates move", async () => {
-    const user = userEvent.setup();
+    const user = onWednesday();
     render(<App />);
     await openForm(user);
     const before = loadFor("鈴木 健太");
@@ -5033,7 +5057,7 @@ describe("choosing who to assign", () => {
   });
 
   it("orders by room and says how many it is not showing", async () => {
-    const user = userEvent.setup();
+    const user = onWednesday();
     const adapter = sharedAdapter();
     // Twenty members, so the 12-row cap is doing something.
     adapter.initialState = {
@@ -5064,5 +5088,120 @@ describe("choosing who to assign", () => {
     expect(peaks).toEqual([...peaks].sort((a, b) => a - b));
     // The one nobody can take is not in the visible twelve.
     expect(names()).not.toContain("鈴木 健太");
+  });
+});
+
+/**
+ * The edit form asks a different question from the add form. 「How loaded is this
+ * person」 is the wrong one here: the assignment being edited is already in the
+ * workspace, so that reading counts it against whoever holds it, and the number means
+ * something different for them than for everyone else in the list (#219).
+ *
+ * So each row is 「what the board would show if this form were saved onto you」. Two
+ * wrong implementations are both excluded below:
+ *
+ *  - measuring the plain workspace, which leaves every other candidate short by this
+ *    assignment's allocation;
+ *  - adding the allocation to the plain workspace, which counts it twice for the
+ *    holder — 鈴木健太 at 190% while nothing has changed.
+ */
+describe("swapping who holds an assignment", () => {
+  const onWednesday = () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date("2026-08-19T09:00:00+09:00"));
+    return userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+  };
+  afterEach(() => { vi.useRealTimers(); });
+
+  /** 鈴木健太's 決済基盤 assignment: 8/17 to 9/18 at 70%, and he holds another beside it. */
+  const held = initialWorkspace.assignments.find((item) => item.id === "a5")!;
+  const loadFor = (name: string) => [...document.querySelectorAll(".member-picker-item")]
+    .find((row) => row.querySelector("strong")!.textContent!.startsWith(name))
+    ?.querySelector(".member-picker-load")!.textContent ?? null;
+
+  const openHeldAssignment = async (user: ReturnType<typeof userEvent.setup>) => {
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^アサインボード( |$)/u }));
+    const bar = screen.getByRole("button", { name: /決済基盤アップデートのアサイン詳細（鈴木 健太/u });
+    await user.click(bar);
+    expect(document.querySelector(".drawer-kicker")!.textContent).toBe("ASSIGNMENT DETAIL");
+  };
+
+  it("counts this assignment once for the person who already has it", async () => {
+    const user = onWednesday();
+    render(<App />);
+    await openHeldAssignment(user);
+
+    const suzuki = initialWorkspace.members.find((member) => member.id === "suzuki")!;
+    const asIs = memberPeakLoad(initialWorkspace, "suzuki", held.startDate, held.endDate);
+    // The board's own figure for him over these dates, and the row says the same: nothing
+    // has been moved, so nothing about him has changed.
+    expect(loadFor("鈴木 健太")).toBe(`${asIs}% / ${suzuki.capacity}%`);
+    // And it is his real load, not that plus this assignment again.
+    expect(asIs).toBeLessThan(asIs + held.allocation);
+    expect(loadFor("鈴木 健太")).not.toBe(`${asIs + held.allocation}% / ${suzuki.capacity}%`);
+  });
+
+  it("shows everyone else what taking it would cost them", async () => {
+    const user = onWednesday();
+    render(<App />);
+    await openHeldAssignment(user);
+
+    // The same workspace with this assignment moved to 岡田, measured by the same
+    // function the board uses. Not a hand-rolled sum: the peak is a maximum over days,
+    // and 岡田 already has something of her own inside these dates.
+    const moved = {
+      ...initialWorkspace,
+      assignments: initialWorkspace.assignments.map((item) => item.id === held.id ? { ...item, personId: "okada" } : item),
+    };
+    const okada = initialWorkspace.members.find((member) => member.id === "okada")!;
+    const after = memberPeakLoad(moved, "okada", held.startDate, held.endDate);
+    const before = memberPeakLoad(initialWorkspace, "okada", held.startDate, held.endDate);
+
+    expect(loadFor("岡田 紗季")).toBe(`${after}% / ${okada.capacity}%`);
+    // The whole point: it is not the plain reading, which is what the add form shows.
+    expect(after).toBeGreaterThan(before);
+    expect(loadFor("岡田 紗季")).not.toBe(`${before}% / ${okada.capacity}%`);
+  });
+
+  it("can be searched, and says what the numbers are measured over", async () => {
+    const user = onWednesday();
+    render(<App />);
+    await openHeldAssignment(user);
+
+    // 「付け替えた場合の」, because that is what makes these numbers different from the
+    // add form's — a reader has to be told which of the two they are looking at.
+    const legend = document.querySelector(".member-picker legend")!.textContent!;
+    expect(legend).toContain("付け替えた場合の稼働");
+    expect(legend).toContain("8月17日");
+    expect(legend).toContain("9月18日");
+
+    const search = screen.getByLabelText("付け替え先のメンバーを検索");
+    await user.type(search, "岡田");
+    const names = [...document.querySelectorAll(".member-picker-item strong")].map((el) => el.textContent);
+    expect(names).toContain("岡田 紗季");
+    // The holder stays, whatever the search says, because it is the checked row.
+    expect(names).toContain("鈴木 健太");
+    expect(names.filter((name) => name !== "鈴木 健太")).toEqual(["岡田 紗季"]);
+  });
+
+  it("saves the swap", async () => {
+    const user = onWednesday();
+    render(<App />);
+    await openHeldAssignment(user);
+
+    // 岡田 is already on this project herself, so counting rather than existence: the
+    // swap has to add a bar to hers, not merely leave one there.
+    const hers = () => screen.queryAllByRole("button", { name: /決済基盤アップデートのアサイン詳細（岡田 紗季/u }).length;
+    const before = hers();
+    expect(before).toBeGreaterThan(0);
+
+    const row = [...document.querySelectorAll(".member-picker-item")]
+      .find((item) => item.querySelector("strong")!.textContent!.startsWith("岡田 紗季"))!;
+    await user.click(row.querySelector("input") as HTMLElement);
+    await user.click(screen.getByRole("button", { name: "変更を仮置き" }));
+
+    // The bar is hers now, and his is gone.
+    expect(screen.queryByRole("button", { name: /決済基盤アップデートのアサイン詳細（鈴木 健太/u })).toBeNull();
+    expect(hers()).toBe(before + 1);
   });
 });
