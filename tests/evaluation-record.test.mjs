@@ -176,3 +176,66 @@ test("does not backtrack catastrophically on a long run of asterisks", () => {
   const ms = Number(process.hrtime.bigint() - started) / 1e6;
   assert.ok(ms < 500, `field() took ${Math.round(ms)}ms on a hostile body`);
 });
+
+/**
+ * #74 decided not to run the evaluator in CI: it would prove the evaluator was
+ * called and not that it read anything, and the failure this repository actually
+ * has is not forgery by an outsider — it is the agent quietly normalising the
+ * bypass. Twenty consecutive bypassed pull requests happened here in one week.
+ *
+ * So the controls are the ones that make that visible: every claimed bypass is
+ * labelled, and what was added after the evaluated commit is reported in files
+ * and lines. Neither proves anything. Both make a pattern findable later.
+ */
+test("the label follows the bypass claim, not the grant", () => {
+  const granted = checkEvaluationRecord(
+    "評価なし承認: モデルが使用上限で起動できず、利用者から評価なしで進める指示を受けている",
+    [A],
+  );
+  assert.equal(granted.ok, true);
+  assert.equal(granted.bypass, true);
+  assert.equal(granted.bypassClaimed, true);
+
+  // Too short to mean anything: refused, and still labelled. A body that tried
+  // to skip the evaluation is the one most worth finding again later.
+  const refused = checkEvaluationRecord("評価なし承認: 急ぎ", [A]);
+  assert.equal(refused.ok, false);
+  assert.equal(refused.bypass, false);
+  assert.equal(refused.bypassClaimed, true);
+
+  // A real record claims nothing.
+  const proper = checkEvaluationRecord(body(), [A]);
+  assert.equal(proper.bypassClaimed, false);
+});
+
+test("says how much was added after the evaluation, in files and lines", () => {
+  // rev-list order: newest first, so [C, B, A] means A was evaluated and two
+  // commits landed on top of it.
+  const C = "c".repeat(40);
+  const growth = new Map([[A, { files: 7, insertions: 210, deletions: 34 }]]);
+  const result = checkEvaluationRecord(body({ commit: A }), [C, B, A], growth);
+  assert.equal(result.ok, true);
+  const warning = result.warnings.join(" ");
+  assert.match(warning, /2 件のコミットが追加されています/u);
+  // The part that matters: a commit count alone said 「1 件」 for a whole-diff
+  // rewrite and 「3 件」 for three typo fixes.
+  assert.match(warning, /7 ファイル \/ \+210 -34 行/u);
+  assert.equal(result.record.addedAfterEvaluation, "7 ファイル / +210 -34 行");
+});
+
+test("leaves the growth note out when there is nothing to say", () => {
+  // Evaluated at the head: nothing was added, so no warning at all.
+  const atHead = checkEvaluationRecord(body({ commit: A }), [A, B], new Map());
+  assert.deepEqual(atHead.warnings, []);
+  assert.equal(atHead.record.addedAfterEvaluation, "");
+
+  // Commits were added but the workflow could not measure them: the count still
+  // reports, without inventing a size.
+  const unmeasured = checkEvaluationRecord(body({ commit: B }), [A, B]);
+  assert.match(unmeasured.warnings.join(" "), /1 件のコミットが追加されています。/u);
+  assert.doesNotMatch(unmeasured.warnings.join(" "), /ファイル/u);
+
+  // A row of zeroes is not a size either.
+  const zeroed = checkEvaluationRecord(body({ commit: B }), [A, B], new Map([[B, { files: 0, insertions: 0, deletions: 0 }]]));
+  assert.doesNotMatch(zeroed.warnings.join(" "), /ファイル/u);
+});
