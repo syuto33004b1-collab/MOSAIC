@@ -71,6 +71,7 @@ import {
   matchScoreMax,
   memberById,
   memberDailyLoads,
+  weekendDatesBetween,
   memberLabel,
   memberLabelParts,
   memberLoad,
@@ -332,6 +333,103 @@ const MEMBER_ORDERS = {
   score: { label: "スコアの高い順" },
 } as const;
 type MemberOrder = keyof typeof MEMBER_ORDERS;
+
+
+/** 'YYYY-MM-DD', which is what the date inputs give and the payload carries. */
+const isIsoDate = (value: string) => /^\d{4}-\d{2}-\d{2}$/u.test(value);
+const isSaturday = (iso: string) => new Date(iso + "T00:00:00Z").getUTCDay() === 6;
+/**
+ * The weekend days of an assignment, ticked one at a time.
+ *
+ * Dates rather than a weekday pattern, because 「every Saturday for three months」
+ * and 「the 22nd」 are different claims and a pattern makes the first one silently
+ * mean thirteen Saturdays. Nothing here raises anyone's ceiling: a ticked Saturday
+ * is load above a week that is still five days long, so it shows up as excess
+ * (#222).
+ *
+ * Shut by default. Most assignments have no weekend work, and this is the second
+ * time a form on this screen has had to earn its height — the list is 26 checkboxes
+ * for a quarter.
+ */
+export function WeekendWorkPicker({
+  startDate,
+  endDate,
+  value,
+  onChange,
+  disabled = false,
+}: {
+  startDate: string;
+  endDate: string;
+  value: string[];
+  onChange: (dates: string[]) => void;
+  disabled?: boolean;
+}) {
+  const { dates, capped } = weekendDatesBetween(startDate, endDate);
+  const chosen = new Set(value);
+  // Only what the form is offering. A date recorded outside the current range is
+  // still stored — the save keeps it and the database prunes it if the range moves
+  // — so the count here is of what is on screen, not of what exists.
+  const offered = dates.filter((date) => chosen.has(date));
+  const months = new Map<string, string[]>();
+  for (const date of dates) {
+    const key = date.slice(0, 7);
+    months.set(key, [...(months.get(key) ?? []), date]);
+  }
+  const toggle = (date: string) => {
+    const next = new Set(chosen);
+    if (next.has(date)) next.delete(date);
+    else next.add(date);
+    onChange([...next].sort());
+  };
+
+  if (dates.length === 0) {
+    return (
+      <p className="weekend-picker-empty">
+        {isIsoDate(startDate) && isIsoDate(endDate) ? "この期間に土日はありません。" : "期間を入れると土日を選べます。"}
+      </p>
+    );
+  }
+
+  return (
+    <details className="weekend-picker">
+      {/* The count is in the summary because it is the answer most of the time:
+          「0日」 says there is nothing to open this for. */}
+      <summary>土日の稼働<small>{offered.length}日</small></summary>
+      <div className="weekend-picker-body">
+        <p className="weekend-picker-note">
+          ここで選んだ日は、平日の稼働上限に<b>上乗せ</b>されます。期間を変えると、範囲から外れた日は外れます。
+        </p>
+        <div className="weekend-picker-actions">
+          <button type="button" className="view-add-button ghost" disabled={disabled} onClick={() => onChange([...new Set([...value, ...dates])].sort())}>
+            すべて選ぶ
+          </button>
+          <button type="button" className="view-add-button ghost" disabled={disabled || offered.length === 0} onClick={() => onChange(value.filter((date) => !dates.includes(date)))}>
+            選択を外す
+          </button>
+        </div>
+        {[...months.entries()].map(([month, days]) => (
+          <div className="weekend-picker-month" key={month}>
+            <small>{Number(month.slice(5, 7))}月</small>
+            <div className="weekend-picker-days">
+              {days.map((date) => (
+                <label className={"weekend-picker-day" + (chosen.has(date) ? " chosen" : "")} key={date}>
+                  <input type="checkbox" checked={chosen.has(date)} disabled={disabled} onChange={() => toggle(date)} />
+                  {Number(date.slice(8, 10))}
+                  <small>{isSaturday(date) ? "土" : "日"}</small>
+                </label>
+              ))}
+            </div>
+          </div>
+        ))}
+        {capped && (
+          <p className="weekend-picker-note">
+            期間が長いため、先頭の{dates.length}日だけを出しています。
+          </p>
+        )}
+      </div>
+    </details>
+  );
+}
 
 /** A candidate for one of the assignment forms, with the figures already measured. */
 export type MemberCandidate = {

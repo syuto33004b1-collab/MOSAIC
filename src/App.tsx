@@ -29,7 +29,7 @@ import {
   X,
   type LucideIcon,
 } from "lucide-react";
-import { ActiveFilters, CustomFieldFacts, CustomFieldInputs, MemberPicker, type MemberCandidate, CsvTransferPanel, FavoriteStar, FieldsView, MemberOrgFields, MembersView, OpportunitiesView, OrgFacts, OrgView, ProjectsView, ProposalView, ReportsView, SkillsView, WorkHistoryEditor, WorkHistoryList } from "./expanded-views";
+import { ActiveFilters, CustomFieldFacts, CustomFieldInputs, MemberPicker, WeekendWorkPicker, type MemberCandidate, CsvTransferPanel, FavoriteStar, FieldsView, MemberOrgFields, MembersView, OpportunitiesView, OrgFacts, OrgView, ProjectsView, ProposalView, ReportsView, SkillsView, WorkHistoryEditor, WorkHistoryList } from "./expanded-views";
 import { AiChat } from "./components/ai-chat/AiChat";
 import type { ChatTransport } from "./lib/ai/chatClient";
 import {
@@ -183,6 +183,8 @@ type AssignmentEditForm = {
   startDate: string;
   endDate: string;
   allocation: string;
+  /** The weekend days this assignment was worked, as 'YYYY-MM-DD' (#222). */
+  weekendWorkDates: string[];
 };
 
 type MemberForm = {
@@ -253,6 +255,12 @@ type ScheduleItem = {
 };
 
 type ScheduleRow = {
+  /**
+   * The weekend days this row was worked, so the board can tell them from the
+   * weekends a range merely spans. Without it a bar crossing a Saturday looks the
+   * same whether anyone was there or not (#222).
+   */
+  weekendWorked: Set<string>;
   id: string;
   initials: string;
   name: string;
@@ -536,7 +544,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
   const [syncStatus, setSyncStatus] = useState<"idle" | "saving" | "refreshing" | "conflict" | "error">("idle");
   const [syncError, setSyncError] = useState("");
   const [syncRetryable, setSyncRetryable] = useState(true);
-  const [form, setForm] = useState({ personId: startingWorkspace.members[0]?.id ?? "", projectId: startingWorkspace.projects[0]?.id ?? "", startDate: getWeekStart(0), endDate: addDays(getWeekStart(0), 4), allocation: "40" });
+  const [form, setForm] = useState({ personId: startingWorkspace.members[0]?.id ?? "", projectId: startingWorkspace.projects[0]?.id ?? "", startDate: getWeekStart(0), endDate: addDays(getWeekStart(0), 4), allocation: "40", weekendWorkDates: [] as string[] });
   const [projectForm, setProjectForm] = useState({ name: "", status: "準備中" as ProjectStatus, endDate: addDays(getWeekStart(0), 90), ownerId: startingWorkspace.members[0]?.id ?? "" });
   const [memberForm, setMemberForm] = useState<MemberForm>(() => emptyMemberForm(startingWorkspace));
   const [memberEditForm, setMemberEditForm] = useState<MemberForm>(() => emptyMemberForm(startingWorkspace));
@@ -549,7 +557,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
   const [editingOpportunityNeedId, setEditingOpportunityNeedId] = useState<string | null>(null);
   const [selectedOpportunityId, setSelectedOpportunityId] = useState(startingWorkspace.opportunities?.[0]?.id ?? "");
   const [selectedOpportunityNeedId, setSelectedOpportunityNeedId] = useState(startingWorkspace.opportunityNeeds?.[0]?.id ?? "");
-  const [assignmentEditForm, setAssignmentEditForm] = useState<AssignmentEditForm>({ personId: "", projectId: "", startDate: "", endDate: "", allocation: "40" });
+  const [assignmentEditForm, setAssignmentEditForm] = useState<AssignmentEditForm>({ personId: "", projectId: "", startDate: "", endDate: "", allocation: "40", weekendWorkDates: [] });
   const [pendingSave, setPendingSave] = useState<{ requestId: string; snapshot: string } | null>(null);
   const [saveOutcomePending, setSaveOutcomePending] = useState(false);
   const [formDirty, setFormDirty] = useState(false);
@@ -874,9 +882,21 @@ export default function Home({ mode = "demo", organizationId, organizationName =
   /** The same week, as a count of weeks from this one, for the screens that take one. */
   const viewWeekOffset = Math.round((Date.parse(weekStart + "T00:00:00Z") - Date.parse(getWeekStart(0) + "T00:00:00Z")) / 604_800_000);
   const currentDailyLoads = workspace.members.flatMap((member) => memberDailyLoads(workspace, member.id, weekStart, weekEnd(weekStart)).map((day) => ({ ...day, capacity: member.capacity })));
+  /*
+   * Five weekdays, still. Weekend work does not raise anyone's ceiling — it is the
+   * excess above it — so the denominator stays where it was and a recorded Saturday
+   * pushes the average past 100% rather than making room for itself (#222).
+   */
   const totalCapacity = workspace.members.reduce((sum, member) => sum + member.capacity, 0) * 5;
   const averageLoad = totalCapacity > 0 ? Math.round(currentDailyLoads.reduce((sum, day) => sum + day.load, 0) / totalCapacity * 100) : 0;
-  const freeDays = (currentDailyLoads.reduce((sum, day) => sum + Math.max(0, day.capacity - day.load), 0) / 100).toFixed(1);
+  /*
+   * Weekdays only, and this is the asymmetry: an unbooked Saturday is not capacity
+   * anyone can spend. Counting it would have added two days a week of imaginary
+   * room the moment the load window reached Sunday.
+   */
+  const freeDays = (currentDailyLoads
+    .filter((day) => !day.weekend)
+    .reduce((sum, day) => sum + Math.max(0, day.capacity - day.load), 0) / 100).toFixed(1);
   const currentOverloads = workspace.members.filter((member) => memberLoad(workspace, member.id, weekStart) > member.capacity);
   const committedOverloads = committedWorkspace.members.filter((member) => memberLoad(committedWorkspace, member.id, weekStart) > member.capacity);
   const overloadMember = currentOverloads[0] ?? committedOverloads.find((member) => memberLoad(workspace, member.id, weekStart) <= member.capacity);
@@ -1002,6 +1022,9 @@ export default function Home({ mode = "demo", organizationId, organizationName =
       alert: load > member.capacity,
       filterKey: member.role,
       assignments,
+      weekendWorked: new Set(workspace.assignments
+        .filter((assignment) => assignment.personId === member.id)
+        .flatMap((assignment) => assignment.weekendWorkDates ?? [])),
     };
   });
 
@@ -1036,6 +1059,9 @@ export default function Home({ mode = "demo", organizationId, organizationName =
       alert: staffed < project.demand,
       filterKey: project.status,
       assignments,
+      weekendWorked: new Set(workspace.assignments
+        .filter((assignment) => assignment.projectId === project.id)
+        .flatMap((assignment) => assignment.weekendWorkDates ?? [])),
     };
   });
 
@@ -1345,6 +1371,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
       startDate: assignment.startDate,
       endDate: assignment.endDate,
       allocation: String(assignment.allocation),
+      weekendWorkDates: [...(assignment.weekendWorkDates ?? [])],
     });
     setMemberPickerQuery("");
     setDrawer("assignment");
@@ -1413,6 +1440,10 @@ export default function Home({ mode = "demo", organizationId, organizationName =
       endDate: form.endDate,
       allocation,
       status: "draft",
+      // Pruned to the range being saved. The database prunes too — that trigger is
+      // the line that holds — but sending a day outside the range would be an
+      // error rather than a silent drop (#222).
+      weekendWorkDates: form.weekendWorkDates.filter((date) => date >= form.startDate && date <= form.endDate),
     };
     setWorkspace((current) => ({ ...current, assignments: [...current.assignments, assignment] }));
     markUnsaved();
@@ -1445,7 +1476,10 @@ export default function Home({ mode = "demo", organizationId, organizationName =
       || selectedAssignment.projectId !== assignmentEditForm.projectId
       || selectedAssignment.startDate !== assignmentEditForm.startDate
       || selectedAssignment.endDate !== assignmentEditForm.endDate
-      || selectedAssignment.allocation !== allocation;
+      || selectedAssignment.allocation !== allocation
+      // Or the weekend days moved, which is a change like any other — without this
+      // the form would answer 「アサインの変更はありません」 and throw the edit away.
+      || [...(selectedAssignment.weekendWorkDates ?? [])].sort().join(",") !== [...assignmentEditForm.weekendWorkDates].sort().join(",");
     if (!changed) {
       closeDrawer();
       setToast("アサインの変更はありません");
@@ -1469,6 +1503,8 @@ export default function Home({ mode = "demo", organizationId, organizationName =
       endDate: assignmentEditForm.endDate,
       allocation,
       status: "draft",
+      weekendWorkDates: assignmentEditForm.weekendWorkDates
+        .filter((date) => date >= assignmentEditForm.startDate && date <= assignmentEditForm.endDate),
     };
     const nextAssignment: Assignment = detachFromNeed ? {
       ...editedAssignment,
@@ -2809,7 +2845,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                           <div className="week-cell" role="gridcell" aria-label={row.name + "のアサイン"}>
                             {/* One line per column, from the range rather than a
                                 hard-coded five (#139). */}
-                            <div className="day-grid" aria-hidden="true">{days.map((day) => <i className={day.weekend ? "weekend" : ""} key={day.iso} />)}</div>
+                            <div className="day-grid" aria-hidden="true">{days.map((day) => <i className={day.weekend ? (row.weekendWorked.has(day.iso) ? "weekend worked" : "weekend") : ""} key={day.iso} />)}</div>
                             {row.assignments.map((assignment) => (
                               <button className={"assignment " + assignment.tone + (assignment.status === "draft" ? " provisional" : "")} style={{ gridColumn: assignment.start + " / span " + assignment.span }} onClick={() => openAssignment(assignment.id)} aria-label={assignment.name + "のアサイン詳細（" + row.name + "・" + assignmentDayRange(days, assignment.start, assignment.span) + "）"} title={assignment.name + " · " + assignment.allocation + "%"} key={assignment.id}>
                                 <span>{assignment.name}</span>{assignment.allocation > 0 && <small>{assignment.allocation}%</small>}
@@ -2928,6 +2964,15 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                   <label>終了日<input required type="date" min={form.startDate} value={form.endDate} onChange={(event) => setForm({ ...form, endDate: event.target.value })} /></label>
                 </div>
                 <label>稼働配分<div className="allocation-input"><input type="range" min="10" max="100" step="10" value={form.allocation} onChange={(event) => setForm({ ...form, allocation: event.target.value })} /><output>{form.allocation}%</output></div></label>
+                {/* Weekend work is opt-in, one date at a time: the range says nothing
+                    about it, and 12 of the 15 assignments in the seed span a weekend
+                    just by lasting more than a week (#222). */}
+                <WeekendWorkPicker
+                  startDate={form.startDate}
+                  endDate={form.endDate}
+                  value={form.weekendWorkDates}
+                  onChange={(weekendWorkDates) => setForm({ ...form, weekendWorkDates })}
+                />
                 <div className="form-note"><Sparkles size={15} /><span>保存前は斜線付きの「仮置き」で表示します。</span></div><button className="drawer-primary" type="submit" disabled={!canAddAssignment}><Check size={16} />この内容で仮置きする</button>
               </form>
             )}
@@ -2960,6 +3005,13 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                   <label>終了日<input required disabled={!canEdit} min={assignmentEditForm.startDate || projectById(workspace, assignmentEditForm.projectId)?.startDate} max={projectById(workspace, assignmentEditForm.projectId)?.endDate} type="date" value={assignmentEditForm.endDate} onChange={(event) => setAssignmentEditForm({ ...assignmentEditForm, endDate: event.target.value })} /></label>
                 </div>
                 <label>稼働配分（%）<input required disabled={!canEdit} min="1" max="100" step="1" type="number" value={assignmentEditForm.allocation} onChange={(event) => setAssignmentEditForm({ ...assignmentEditForm, allocation: event.target.value })} /></label>
+                <WeekendWorkPicker
+                  startDate={assignmentEditForm.startDate}
+                  endDate={assignmentEditForm.endDate}
+                  value={assignmentEditForm.weekendWorkDates}
+                  onChange={(weekendWorkDates) => setAssignmentEditForm({ ...assignmentEditForm, weekendWorkDates })}
+                  disabled={!canEdit}
+                />
                 <div className="form-note"><SlidersHorizontal size={15} /><span>{canEdit ? selectedAssignment.staffingNeedId ? "要員要件を満たさない変更では、元の不足ロールを再オープンします。変更は保存まで元に戻せます。" : "変更と取消は仮置きされ、チームへ保存するまで元に戻せます。" : "このアサインは閲覧のみです。変更権限があるメンバーへ依頼してください。"}</span></div>
                 {canEdit ? (
                   <div className="assignment-edit-actions">
