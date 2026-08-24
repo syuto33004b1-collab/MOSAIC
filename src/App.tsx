@@ -29,7 +29,7 @@ import {
   X,
   type LucideIcon,
 } from "lucide-react";
-import { ActiveFilters, CustomFieldFacts, CustomFieldInputs, CsvTransferPanel, FavoriteStar, FieldsView, MemberOrgFields, MembersView, OpportunitiesView, OrgFacts, OrgView, ProjectsView, ProposalView, ReportsView, SkillsView, WorkHistoryEditor, WorkHistoryList } from "./expanded-views";
+import { ActiveFilters, CustomFieldFacts, CustomFieldInputs, MemberPicker, type MemberCandidate, CsvTransferPanel, FavoriteStar, FieldsView, MemberOrgFields, MembersView, OpportunitiesView, OrgFacts, OrgView, ProjectsView, ProposalView, ReportsView, SkillsView, WorkHistoryEditor, WorkHistoryList } from "./expanded-views";
 import { AiChat } from "./components/ai-chat/AiChat";
 import type { ChatTransport } from "./lib/ai/chatClient";
 import {
@@ -469,7 +469,11 @@ export default function Home({ mode = "demo", organizationId, organizationName =
   const [proposalNeedId, setProposalNeedId] = useState(startingShare?.nav === "proposal" ? startingShare.needId ?? "" : "");
   const [proposalAnonymous, setProposalAnonymous] = useState(startingShare?.nav === "proposal" ? Boolean(startingShare.anonymous) : false);
   const [searchOpen, setSearchOpen] = useState(false);
-  /** The assignment form's candidate search. Cleared each time the form opens (#199). */
+  /**
+   * The candidate search, shared by both assignment forms and cleared whenever either
+   * opens. One piece of state because `drawer` holds one value, so the two are never
+   * on screen together (#199, #219).
+   */
   const [memberPickerQuery, setMemberPickerQuery] = useState("");
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [drawer, setDrawer] = useState<Drawer>(opening.drawer);
@@ -836,7 +840,10 @@ export default function Home({ mode = "demo", organizationId, organizationName =
    */
   const chosenCandidateRef = useRef<HTMLLabelElement | null>(null);
   useEffect(() => {
-    if (drawer !== "add") return;
+    // Both forms, and only one of them is mounted at a time, so one ref is enough.
+    // The edit form needs it more: it opens on whoever holds the assignment, and
+    // that person is wherever their load puts them in the order (#219).
+    if (drawer !== "add" && drawer !== "assignment") return;
     chosenCandidateRef.current?.scrollIntoView({ block: "nearest" });
   }, [drawer]);
 
@@ -910,33 +917,53 @@ export default function Home({ mode = "demo", organizationId, organizationName =
   const roleLabel: Record<OrganizationRole, string> = { owner: "オーナー", admin: "管理者", planner: "プランナー", viewer: "閲覧者" };
   const displayName = identity?.name || "デモユーザー";
   /**
-   * The assignment form's candidates. The figure is the peak over the form's own
-   * dates, not the board's measured week: what decides this is whether the person
-   * has room *for this assignment*, and reading the board's week is how #187 came
-   * to offer a 120% member at 「0%」. Keyed off the form, it cannot drift from the
-   * board again, because it no longer asks the board anything (#199).
+   * The add form's candidates. The figure is the peak over the form's own dates, not
+   * the board's measured week: what decides this is whether the person has room *for
+   * this assignment*, and reading the board's week is how #187 came to offer a 120%
+   * member at 「0%」. Keyed off the form, it cannot drift from the board again, because
+   * it no longer asks the board anything (#199).
    */
-  const memberCandidates = workspace.members
-    .map((member) => ({
-      member,
-      peak: memberPeakLoad(workspace, member.id, form.startDate, form.endDate),
-      days: memberDailyLoads(workspace, member.id, form.startDate, form.endDate),
-    }))
-    // Most room first, which is the order the member screen already ships with.
-    .sort((a, b) => a.peak - b.peak || memberLabel(workspace, a.member).localeCompare(memberLabel(workspace, b.member), "ja"));
-  const memberPickerNeedle = memberPickerQuery.trim().toLocaleLowerCase();
-  const memberMatches = memberPickerNeedle
-    ? memberCandidates.filter(({ member }) => memberSearchText(workspace, member).includes(memberPickerNeedle))
-    : memberCandidates;
+  const addCandidates: MemberCandidate[] = workspace.members.map((member) => ({
+    member,
+    peak: memberPeakLoad(workspace, member.id, form.startDate, form.endDate),
+    days: memberDailyLoads(workspace, member.id, form.startDate, form.endDate),
+    label: memberLabel(workspace, member),
+    search: memberSearchText(workspace, member),
+  }));
   /**
-   * The chosen row survives both the search and the cap: hiding what the form is
-   * about to submit is worse than showing one row that does not match.
+   * The edit form's candidates, and a different question: not 「how loaded is this
+   * person」 but 「how loaded would they be if I saved this form onto them」.
+   *
+   * Which is why the add form's figure cannot be reused here. The assignment being
+   * edited is already in the workspace, so measuring the current holder would count
+   * it — 鈴木健太 reads 120% while 80 of that is the very assignment being moved, and
+   * the number would mean something different for him than for everyone else in the
+   * list (#219).
+   *
+   * So each row is measured against a workspace where this assignment has already
+   * moved to that person, with the form's dates and allocation on it. Same function
+   * every other figure uses, no arithmetic of its own, and the holder's own row comes
+   * out at exactly what the board shows them at.
    */
-  const memberPickerRows = (() => {
-    const shown = memberMatches.slice(0, MEMBER_PICKER_LIMIT);
-    if (!form.personId || shown.some(({ member }) => member.id === form.personId)) return shown;
-    const chosen = memberCandidates.find(({ member }) => member.id === form.personId);
-    return chosen ? [chosen, ...shown.slice(0, MEMBER_PICKER_LIMIT - 1)] : shown;
+  const editCandidates: MemberCandidate[] = (() => {
+    if (!selectedAssignment) return [];
+    const others = workspace.assignments.filter((assignment) => assignment.id !== selectedAssignment.id);
+    const moved = {
+      ...selectedAssignment,
+      startDate: assignmentEditForm.startDate,
+      endDate: assignmentEditForm.endDate,
+      allocation: Number(assignmentEditForm.allocation) || 0,
+    };
+    return workspace.members.map((member) => {
+      const preview = { ...workspace, assignments: [...others, { ...moved, personId: member.id }] };
+      return {
+        member,
+        peak: memberPeakLoad(preview, member.id, moved.startDate, moved.endDate),
+        days: memberDailyLoads(preview, member.id, moved.startDate, moved.endDate),
+        label: memberLabel(workspace, member),
+        search: memberSearchText(workspace, member),
+      };
+    });
   })();
   const canAddAssignment = canEdit && workspace.members.length > 0 && workspace.projects.length > 0;
 
@@ -1319,6 +1346,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
       endDate: assignment.endDate,
       allocation: String(assignment.allocation),
     });
+    setMemberPickerQuery("");
     setDrawer("assignment");
   };
 
@@ -2881,39 +2909,19 @@ export default function Home({ mode = "demo", organizationId, organizationName =
             {drawer === "add" && (
               <form className="assignment-form" onChange={markFormDraftDirty} onSubmit={handleAddAssignment}>
                 <div className="drawer-heading"><span className="drawer-icon cobalt"><Plus size={19} /></span><div><h2>アサインを追加</h2><p>日付と稼働配分を仮置きします。</p></div></div>
-                <fieldset className="member-picker">
-                  {/* The range is in the legend, so the numbers in every row have
-                      a stated meaning and the group announces it once. */}
-                  <legend>メンバー<small> · {shortDate(form.startDate)} — {shortDate(form.endDate)} の稼働 · 空きが多い順</small></legend>
-                  <div className="member-picker-head">
-                    <label className="inline-search"><Search size={15} /><input value={memberPickerQuery} onChange={(event) => setMemberPickerQuery(event.target.value)} placeholder="名前・職種・スキルで検索" aria-label="アサインするメンバーを検索" /></label>
-                    {/* Said out loud rather than truncating in silence: at a few
-                        hundred members a list of 12 reads as the whole list. */}
-                    <span className="member-picker-count">{memberMatches.length > memberPickerRows.length ? `該当${memberMatches.length}名中 ${memberPickerRows.length}名` : `該当${memberMatches.length}名`}</span>
-                  </div>
-                  <div className="member-picker-list">
-                    {memberPickerRows.map(({ member, peak, days }) => (
-                      <label className={"member-picker-item" + (form.personId === member.id ? " chosen" : "")} key={member.id} ref={form.personId === member.id ? chosenCandidateRef : null}>
-                        <input type="radio" name="assignment-member" value={member.id} checked={form.personId === member.id} onChange={() => setForm({ ...form, personId: member.id })} />
-                        <span className={"avatar " + member.avatarTone}>{member.initials}</span>
-                        <span className="member-picker-copy"><strong>{memberLabel(workspace, member)}</strong><small>{member.role} · {member.department}</small></span>
-                        <span className={"member-picker-load" + (peak > member.capacity ? " over" : "")}>{peak}% / {member.capacity}%</span>
-                        {/* One cell per weekday in the range. Decoration: the
-                            numbers beside it are what the row says out loud. Past
-                            about 60 weekdays a cell is under 5px and the rail is a
-                            texture rather than a reading — the peak carries it. */}
-                        <span className="member-picker-rail" aria-hidden="true">
-                          {days.map((day) => <i
-                            key={day.date}
-                            className={day.load > member.capacity ? "over" : ""}
-                            style={{ "--fill": (member.capacity > 0 ? Math.min(100, Math.round((day.load / member.capacity) * 100)) : day.load > 0 ? 100 : 0) + "%" } as CSSProperties}
-                          />)}
-                        </span>
-                      </label>
-                    ))}
-                    {memberPickerRows.length === 0 && <p className="member-picker-empty">条件に合うメンバーがいません。</p>}
-                  </div>
-                </fieldset>
+                <MemberPicker
+                  legend="メンバー"
+                  hint={`${shortDate(form.startDate)} — ${shortDate(form.endDate)} の稼働 · 空きが多い順`}
+                  name="assignment-member"
+                  searchLabel="アサインするメンバーを検索"
+                  candidates={addCandidates}
+                  limit={MEMBER_PICKER_LIMIT}
+                  value={form.personId}
+                  onChange={(personId) => setForm({ ...form, personId })}
+                  query={memberPickerQuery}
+                  onQueryChange={setMemberPickerQuery}
+                  chosenRef={chosenCandidateRef}
+                />
                 <label htmlFor="assignment-project">プロジェクト<select id="assignment-project" aria-label="プロジェクト" value={form.projectId} onChange={(event) => selectAssignmentProject(event.target.value)}>{workspace.projects.map((project) => <option value={project.id} key={project.id}>{project.name}</option>)}</select></label>
                 <div className="form-grid">
                   <label>開始日<input required type="date" value={form.startDate} onChange={(event) => setForm({ ...form, startDate: event.target.value })} /></label>
@@ -2927,7 +2935,25 @@ export default function Home({ mode = "demo", organizationId, organizationName =
             {drawer === "assignment" && selectedAssignment && (
               <form className="assignment-form assignment-edit-form" onChange={markFormDraftDirty} onSubmit={handleEditAssignment}>
                 <div className="drawer-heading"><span className="drawer-icon cobalt"><CalendarDays size={19} /></span><div><h2>アサインの詳細</h2><p>{projectById(workspace, selectedAssignment.projectId)?.name ?? "プロジェクト"} · {(() => { const person = memberById(workspace, selectedAssignment.personId); return person ? memberLabel(workspace, person) : "担当者"; })()}</p></div></div>
-                <label htmlFor="assignment-edit-member">メンバー<select id="assignment-edit-member" aria-label="メンバー" disabled={!canEdit} value={assignmentEditForm.personId} onChange={(event) => setAssignmentEditForm({ ...assignmentEditForm, personId: event.target.value })}>{workspace.members.map((member) => <option value={member.id} key={member.id}>{memberLabel(workspace, member)}</option>)}</select></label>
+                {/* 「付け替えた場合の稼働」, not the plain load: this assignment is already in
+                    the workspace, so a plain reading counts it against whoever holds it and
+                    means something different for them than for everyone else in the list.
+                    The figure here is what the board would show if this form were saved onto
+                    that person, which is the question a swap actually asks (#219). */}
+                <MemberPicker
+                  legend="メンバー"
+                  hint={`${shortDate(assignmentEditForm.startDate)} — ${shortDate(assignmentEditForm.endDate)} · 付け替えた場合の稼働 · 空きが多い順`}
+                  name="assignment-edit-member"
+                  searchLabel="付け替え先のメンバーを検索"
+                  candidates={editCandidates}
+                  limit={MEMBER_PICKER_LIMIT}
+                  value={assignmentEditForm.personId}
+                  onChange={(personId) => setAssignmentEditForm({ ...assignmentEditForm, personId })}
+                  query={memberPickerQuery}
+                  onQueryChange={setMemberPickerQuery}
+                  disabled={!canEdit}
+                  chosenRef={chosenCandidateRef}
+                />
                 <label htmlFor="assignment-edit-project">プロジェクト<select id="assignment-edit-project" aria-label="プロジェクト" disabled={!canEdit} value={assignmentEditForm.projectId} onChange={(event) => setAssignmentEditForm({ ...assignmentEditForm, projectId: event.target.value })}>{workspace.projects.map((project) => <option value={project.id} key={project.id}>{project.name}</option>)}</select></label>
                 <div className="form-grid">
                   <label>開始日<input required disabled={!canEdit} type="date" min={projectById(workspace, assignmentEditForm.projectId)?.startDate} max={projectById(workspace, assignmentEditForm.projectId)?.endDate} value={assignmentEditForm.startDate} onChange={(event) => setAssignmentEditForm({ ...assignmentEditForm, startDate: event.target.value })} /></label>
