@@ -370,6 +370,12 @@ export function WeekendWorkPicker({
   // still stored — the save keeps it and the database prunes it if the range moves
   // — so the count here is of what is on screen, not of what exists.
   const offered = dates.filter((date) => chosen.has(date));
+  /*
+   * Selected days this list cannot show: outside the range, or past the cap. They
+   * still count towards the load, so the summary says how many rather than letting
+   * the form read 「0日」 over work that exists (#222, from the evaluation).
+   */
+  const hidden = value.length - offered.length;
   const months = new Map<string, string[]>();
   for (const date of dates) {
     const key = date.slice(0, 7);
@@ -394,10 +400,10 @@ export function WeekendWorkPicker({
     <details className="weekend-picker">
       {/* The count is in the summary because it is the answer most of the time:
           「0日」 says there is nothing to open this for. */}
-      <summary>土日の稼働<small>{offered.length}日</small></summary>
+      <summary>土日の稼働<small>{offered.length}日{hidden > 0 ? `（表示外 ${hidden}日）` : ""}</small></summary>
       <div className="weekend-picker-body">
         <p className="weekend-picker-note">
-          ここで選んだ日は、平日の稼働上限に<b>上乗せ</b>されます。期間を変えると、範囲から外れた日は外れます。
+          ここで選んだ日は、平日の稼働上限に<b>上乗せ</b>されます。期間を変えて範囲から外れた日は、<b>保存時に外れます</b>。
         </p>
         <div className="weekend-picker-actions">
           <button type="button" className="view-add-button ghost" disabled={disabled} onClick={() => onChange([...new Set([...value, ...dates])].sort())}>
@@ -409,7 +415,9 @@ export function WeekendWorkPicker({
         </div>
         {[...months.entries()].map(([month, days]) => (
           <div className="weekend-picker-month" key={month}>
-            <small>{Number(month.slice(5, 7))}月</small>
+            {/* With the year: the offer can span two of them, and 「8月」 twice over
+                is how you tick the wrong Saturday. */}
+            <small>{month.slice(0, 4)}年{Number(month.slice(5, 7))}月</small>
             <div className="weekend-picker-days">
               {days.map((date) => (
                 <label className={"weekend-picker-day" + (chosen.has(date) ? " chosen" : "")} key={date}>

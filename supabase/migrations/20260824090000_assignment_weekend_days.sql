@@ -37,8 +37,8 @@ Weekend days an assignment was actually worked. Weekday capacity is unchanged by
 these rows; they are the excess above it (#222).
 $comment$;
 
-create index assignment_weekend_days_assignment_idx
-  on app.assignment_weekend_days (organization_id, assignment_id);
+-- No index on (organization_id, assignment_id): that is the primary key's own
+-- prefix, and a second copy of it buys nothing.
 -- Load is read per person over a date span, and the parent is what carries the
 -- person, so this is the index the daily loop actually walks.
 create index assignment_weekend_days_date_idx

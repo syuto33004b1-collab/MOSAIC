@@ -32,6 +32,7 @@ import {
   inferSkillCatalog,
   initialWorkspace,
   memberDailyLoads,
+  overlaps,
   WEEKEND_PICKER_LIMIT,
   weekendDatesBetween,
   weekEnd,
@@ -1235,6 +1236,28 @@ describe("weekend work", () => {
     };
     expect(memberDailyLoads(stale, "m", "2026-08-22", "2026-08-22")[0].load).toBe(0);
     expect(memberPeakLoad(stale, "m", "2026-08-17", "2026-08-23")).toBe(60);
+  });
+
+
+  /**
+   * What else moved when the week's window reached Sunday. `weekEnd` is not only
+   * the load window: `pipelineDemandForWeek` and three drawer lists ask 「does this
+   * overlap the week」 through it, and a thing that touches only the Saturday used
+   * to fall outside. Pinned because the evaluation asked for it (#222).
+   */
+  it("brings what only touches the weekend into the week", () => {
+    const weekendOnly = { startDate: "2026-08-22", endDate: "2026-08-23" };
+    expect(overlaps(weekendOnly.startDate, weekendOnly.endDate, "2026-08-17", weekEnd("2026-08-17"))).toBe(true);
+    // And it is genuinely the change: against the old Friday end it did not.
+    expect(overlaps(weekendOnly.startDate, weekendOnly.endDate, "2026-08-17", "2026-08-21")).toBe(false);
+
+    const pipeline: Pick<WorkspaceState, "opportunities"> = {
+      opportunities: [{
+        id: "o", code: "OP", name: "週末案件", summary: "", stage: "proposal",
+        ownerName: null, tone: "blue", startDate: "2026-08-22", endDate: "2026-08-23", demand: 3,
+      }],
+    };
+    expect(pipelineDemandForWeek(pipeline, "2026-08-17")).toBe(3);
   });
 
   it("does not let a weekend outside the window raise the peak inside it", () => {

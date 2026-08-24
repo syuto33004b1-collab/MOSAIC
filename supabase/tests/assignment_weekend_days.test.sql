@@ -9,7 +9,7 @@ set local search_path = public, extensions, pg_catalog;
 -- because an assignment carries a date range and no working days: 12 of the 15 in
 -- the seed span a weekend simply by lasting more than a week. These rows are how
 -- a weekend becomes a fact rather than a side effect of the range.
-select plan(14);
+select plan(18);
 
 insert into auth.users (id, email, raw_user_meta_data) values
   ('11000000-0000-4000-8000-000000000091', 'weekend-owner@test.local', '{"full_name":"Weekend Owner"}'::jsonb);
@@ -337,7 +337,126 @@ select throws_ok(
   'an explicit null is refused rather than read as either'
 );
 
+/*
+ * A weekend-only change is a change: it has to move the revision, or two people
+ * editing the same assignment would not collide over it. The days live inside the
+ * assignment in the payload, so they are part of the hash the core save reads —
+ * this is the test that says so rather than the comment (from the evaluation).
+ *
+ * In separate statements on purpose. A data-modifying CTE and a read of the same
+ * row in one statement see one snapshot, so the read would answer with the value
+ * from before the write and the test would fail for a reason that is not the code.
+ */
+create temporary table weekend_probe as
+select workspace_revision as revision from app.organizations
+where id = '21000000-0000-4000-8000-000000000091';
+
+select public.save_workspace(
+  '21000000-0000-4000-8000-000000000091',
+  (select revision from weekend_probe),
+  gen_random_uuid(),
+  jsonb_build_object('assignments', jsonb_build_object('upsert', jsonb_build_array(
+    jsonb_build_object(
+      'id', '81000000-0000-4000-8000-000000000091',
+      'personId', '61000000-0000-4000-8000-000000000091',
+      'projectId', '71000000-0000-4000-8000-000000000091',
+      'startDate', '2026-08-17',
+      'endDate', '2026-08-28',
+      'allocation', 70,
+      'status', 'confirmed',
+      'weekendWorkDates', jsonb_build_array('2026-08-22')
+    )
+  ))),
+  repeat('e', 64)
+);
+
+select ok(
+  (select workspace_revision from app.organizations where id = '21000000-0000-4000-8000-000000000091')
+    > (select revision from weekend_probe),
+  'a weekend-only change moves the workspace revision'
+);
+
+-- Stale revision, refused. The weekend days are inside the same payload, so they
+-- get the same optimistic locking as everything else.
+select throws_ok(
+  $$select public.save_workspace(
+      '21000000-0000-4000-8000-000000000091',
+      1,
+      gen_random_uuid(),
+      jsonb_build_object('assignments', jsonb_build_object('upsert', jsonb_build_array(
+        jsonb_build_object(
+          'id', '81000000-0000-4000-8000-000000000091',
+          'personId', '61000000-0000-4000-8000-000000000091',
+          'projectId', '71000000-0000-4000-8000-000000000091',
+          'startDate', '2026-08-17',
+          'endDate', '2026-08-28',
+          'allocation', 70,
+          'status', 'confirmed',
+          'weekendWorkDates', jsonb_build_array('2026-08-23')
+        )
+      ))),
+      repeat('f', 64)
+    )$$,
+  'workspace revision conflict',
+  'a stale revision is refused, weekend days and all'
+);
+
+-- The same request twice is the same save once. Replay has to be idempotent here
+-- too, or a retried request would rewrite the days it already wrote.
+create temporary table weekend_request as select gen_random_uuid() as id;
+
+select public.save_workspace(
+  '21000000-0000-4000-8000-000000000091',
+  (select workspace_revision from app.organizations where id = '21000000-0000-4000-8000-000000000091'),
+  (select id from weekend_request),
+  jsonb_build_object('assignments', jsonb_build_object('upsert', jsonb_build_array(
+    jsonb_build_object(
+      'id', '81000000-0000-4000-8000-000000000091',
+      'personId', '61000000-0000-4000-8000-000000000091',
+      'projectId', '71000000-0000-4000-8000-000000000091',
+      'startDate', '2026-08-17',
+      'endDate', '2026-08-28',
+      'allocation', 70,
+      'status', 'confirmed',
+      'weekendWorkDates', jsonb_build_array('2026-08-22', '2026-08-23')
+    )
+  ))),
+  repeat('1', 64)
+);
+
+select is(
+  (
+    select (public.save_workspace(
+      '21000000-0000-4000-8000-000000000091',
+      (select workspace_revision from app.organizations where id = '21000000-0000-4000-8000-000000000091') - 1,
+      (select id from weekend_request),
+      jsonb_build_object('assignments', jsonb_build_object('upsert', jsonb_build_array(
+        jsonb_build_object(
+          'id', '81000000-0000-4000-8000-000000000091',
+          'personId', '61000000-0000-4000-8000-000000000091',
+          'projectId', '71000000-0000-4000-8000-000000000091',
+          'startDate', '2026-08-17',
+          'endDate', '2026-08-28',
+          'allocation', 70,
+          'status', 'confirmed',
+          'weekendWorkDates', jsonb_build_array('2026-08-22', '2026-08-23')
+        )
+      ))),
+      repeat('1', 64)
+    ) ->> 'replayed')::boolean
+  ),
+  true,
+  'the same request id replays instead of applying twice'
+);
+
 reset role;
+
+select is(
+  (select count(*)::int from app.assignment_weekend_days
+    where assignment_id = '81000000-0000-4000-8000-000000000091'),
+  2,
+  'the replay left the two days exactly as they were'
+);
 
 select * from finish();
 rollback;
