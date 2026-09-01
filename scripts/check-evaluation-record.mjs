@@ -47,15 +47,22 @@ const MIN_BYPASS_REASON = 20;
 const EXEMPT_AUTHORS = new Set(["dependabot[bot]"]);
 
 /**
- * Commit author addresses that count as the bot's own work. Measured on all six
- * open bumps (2026-09-01): every commit is authored by this one address, whose
- * number is Dependabot's GitHub App user id.
+ * The commit identities a waived pull request may carry. Measured on all six open
+ * bumps (2026-09-01): every commit reads
+ * `dependabot[bot] <49699333+…> / committer GitHub <noreply@github.com>`, the
+ * author number being Dependabot's GitHub App user id and the committer being
+ * GitHub itself, because the bot writes through the API.
  *
- * An exact set rather than a pattern. A new bot identity then leaves the record
- * required and names the address it did not recognise, which is a log line to
- * read — not a hole to walk through.
+ * **The committer matters as much as the author.** `git commit --amend` keeps the
+ * author and replaces the committer, so an amended bump would otherwise still
+ * look like the bot's own work while carrying anyone's changes.
+ *
+ * Exact sets rather than patterns. An identity that is not in them leaves the
+ * record required and gets named in the log: a line to read, not a hole to walk
+ * through.
  */
 const EXEMPT_COMMIT_AUTHORS = new Set(["49699333+dependabot[bot]@users.noreply.github.com"]);
+const EXEMPT_COMMITTERS = new Set(["noreply@github.com"]);
 
 /**
  * Removes fenced code blocks so a template or a quoted example inside one is not
@@ -208,37 +215,62 @@ export function isExemptAuthor(login) {
 /**
  * Whether this pull request owes no evaluation record.
  *
- * Both conditions have to hold: the bot opened it, **and** every commit in it is
- * the bot's own. The pull request author alone is not enough — it stays
+ * Two conditions: the bot opened it, **and** every commit in it carries the bot's
+ * author and committer. The pull request author alone is not enough — it stays
  * `dependabot[bot]` after anyone with write access pushes to the branch, and
  * waiving the record for those commits is exactly the quiet normalisation the
- * gate exists to prevent (#74). Pushing a lint fix onto a bump branch is a
- * normal thing to do here, so this is not a hypothetical.
+ * gate exists to prevent (#74). Pushing a lint fix onto a bump branch is a normal
+ * thing to do here, so this is not a hypothetical.
  *
- * Fail closed: an empty list of commit authors waives nothing.
+ * This reads commit metadata, which says who a commit *claims* to be from. It is
+ * not an authentication, and does not try to be: the same pull request can edit
+ * the workflow that feeds this check. What it stops is the record being dropped
+ * by accident or by habit.
+ *
+ * Fail closed. Every commit needs an identity, so an unreadable or short list
+ * waives nothing — including a merge commit from catching the branch up on main,
+ * which is authored by whoever pressed the button (手順14).
  *
  * @param {string} author login of whoever opened the pull request
- * @param {string[]} commitAuthors author address of every commit it adds
+ * @param {string[]} commits full SHAs of the commits this pull request adds
+ * @param {string[]} identities one `sha author committer` row per commit
  * @returns {{ waived: boolean, reason?: string }} `reason` explains a refusal
  *   worth logging, and is absent when the bot is simply not involved
  */
-export function evaluationRecordWaived(author, commitAuthors) {
+export function evaluationRecordWaived(author, commits, identities) {
   if (!isExemptAuthor(author)) return { waived: false };
 
-  const addresses = [...new Set(
-    (Array.isArray(commitAuthors) ? commitAuthors : [])
-      .map((address) => String(address ?? "").trim().toLowerCase())
-      .filter(Boolean),
-  )];
-  if (addresses.length === 0) {
-    return { waived: false, reason: "コミットの作者を特定できませんでした。" };
+  const wanted = new Set((Array.isArray(commits) ? commits : [])
+    .map((sha) => String(sha ?? "").trim().toLowerCase())
+    .filter((sha) => SHA_PATTERN.test(sha)));
+  if (wanted.size === 0) {
+    return { waived: false, reason: "この PR のコミットを特定できませんでした。" };
   }
 
-  const foreign = addresses.filter((address) => !EXEMPT_COMMIT_AUTHORS.has(address));
-  if (foreign.length > 0) {
+  const seen = new Map();
+  const foreign = new Set();
+  for (const row of Array.isArray(identities) ? identities : []) {
+    const [sha, commitAuthor, committer] = String(row ?? "").trim().toLowerCase().split(/\s+/u);
+    if (!SHA_PATTERN.test(sha ?? "")) continue;
+    if (!commitAuthor || !committer) continue;
+    seen.set(sha, true);
+    if (!EXEMPT_COMMIT_AUTHORS.has(commitAuthor)) foreign.add(commitAuthor);
+    if (!EXEMPT_COMMITTERS.has(committer)) foreign.add(committer);
+  }
+
+  // One identity per commit, for the commits this pull request actually adds.
+  const missing = [...wanted].filter((sha) => !seen.has(sha));
+  if (missing.length > 0 || seen.size !== wanted.size) {
     return {
       waived: false,
-      reason: `bot 以外が書いたコミットが含まれています（${foreign.join(", ")}）。`
+      reason: `${wanted.size} 件のコミットのうち ${seen.size} 件しか作者を読めませんでした。`,
+    };
+  }
+
+  if (foreign.size > 0) {
+    return {
+      waived: false,
+      reason: `bot 以外の作者・コミッターが含まれています（${[...foreign].join(", ")}）。`
         + " その差分には評価記録が必要です。",
     };
   }
@@ -264,7 +296,7 @@ export function touchesOwnCheck(changedPaths) {
  *   argv[3] optional path to a file with one changed path per line
  *   argv[4] optional path to a file of `sha files insertions deletions` rows,
  *           each counting what the head added on top of that commit
- *   argv[5] optional path to a file with the author address of every commit
+ *   argv[5] optional path to a file of `sha author committer` rows, one per commit
  *
  * The lists come through files rather than argv because a long-lived branch can
  * exceed the OS argument limit.
@@ -294,7 +326,7 @@ async function main() {
 
   const commits = await lines(process.argv[2]);
   const changed = await lines(process.argv[3]);
-  const commitAuthors = await lines(process.argv[5]);
+  const identities = await lines(process.argv[5]);
   const growth = new Map();
   for (const row of await lines(process.argv[4])) {
     const [sha, files, insertions, deletions] = row.split(/\s+/u);
@@ -325,7 +357,7 @@ async function main() {
   // After the warnings, so a bot bumping an action in ci.yml still says so, and
   // before the exit code, so the record itself is not required (#237).
   const author = process.env.PR_AUTHOR ?? "";
-  const waiver = evaluationRecordWaived(author, commitAuthors);
+  const waiver = evaluationRecordWaived(author, commits, identities);
   if (waiver.waived) {
     console.log(`::notice::${author} の PR なので評価記録は要求しません（#237）。機械的な検証は通す必要があります。`);
     return;

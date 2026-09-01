@@ -324,7 +324,7 @@ test("the CLI reports a claimed bypass to the workflow, so it can be labelled", 
   }
 });
 
-test("exempts only the dependency bot, by its authenticated login", () => {
+test("exempts only the dependency bot's own login", () => {
   assert.equal(isExemptAuthor("dependabot[bot]"), true);
   assert.equal(isExemptAuthor("Dependabot[bot]"), true, "logins are not case sensitive");
   // A person can register none of these, but the set is exact regardless.
@@ -336,7 +336,11 @@ test("exempts only the dependency bot, by its authenticated login", () => {
   assert.equal(isExemptAuthor(undefined), false);
 });
 
-const BOT_COMMIT = "49699333+dependabot[bot]@users.noreply.github.com";
+// Measured on all six open bumps: this author, and GitHub as the committer
+// because the bot writes through the API.
+const BOT_AUTHOR = "49699333+dependabot[bot]@users.noreply.github.com";
+const BOT_COMMITTER = "noreply@github.com";
+const botRow = (sha) => `${sha} ${BOT_AUTHOR} ${BOT_COMMITTER}`;
 
 /**
  * The author of a pull request is whoever opened it, and it stays the bot after
@@ -344,26 +348,57 @@ const BOT_COMMIT = "49699333+dependabot[bot]@users.noreply.github.com";
  * branch is a normal thing to do here, so the waiver has to lapse for it (#237).
  */
 test("the waiver lapses as soon as a commit is not the bot's own", () => {
-  assert.equal(evaluationRecordWaived("dependabot[bot]", [BOT_COMMIT, BOT_COMMIT]).waived, true);
+  const bot = evaluationRecordWaived("dependabot[bot]", [A, B], [botRow(A), botRow(B)]);
+  assert.equal(bot.waived, true, bot.reason);
 
-  const mixed = evaluationRecordWaived("dependabot[bot]", [BOT_COMMIT, "owner@example.com"]);
-  assert.equal(mixed.waived, false);
-  assert.match(mixed.reason, /owner@example\.com/u, "the refusal names the address it saw");
+  const pushed = evaluationRecordWaived(
+    "dependabot[bot]",
+    [A, B],
+    [botRow(A), `${B} owner@example.com owner@example.com`],
+  );
+  assert.equal(pushed.waived, false);
+  assert.match(pushed.reason, /owner@example\.com/u, "the refusal names the identity it saw");
 
-  // Fail closed: no commit authors means nothing is waived.
-  assert.equal(evaluationRecordWaived("dependabot[bot]", []).waived, false);
-  assert.equal(evaluationRecordWaived("dependabot[bot]", undefined).waived, false);
+  // `git commit --amend` keeps the author and replaces the committer. Without the
+  // committer check, anyone's changes would ride in on the bot's author line.
+  const amended = evaluationRecordWaived(
+    "dependabot[bot]",
+    [A],
+    [`${A} ${BOT_AUTHOR} owner@example.com`],
+  );
+  assert.equal(amended.waived, false, "an amended bump is not the bot's own work");
+  assert.match(amended.reason, /owner@example\.com/u);
 
-  // An unrecognised bot identity is a log line to read, not a hole.
-  const other = evaluationRecordWaived("dependabot[bot]", ["dependabot@example.com"]);
+  // An unrecognised identity is a log line to read, not a hole.
+  const other = evaluationRecordWaived("dependabot[bot]", [A], [`${A} dependabot@example.com ${BOT_COMMITTER}`]);
   assert.equal(other.waived, false);
   assert.match(other.reason, /dependabot@example\.com/u);
 
   // Nobody else is waived whatever the commits say, and that is not worth a log
   // line — it is every other pull request.
-  const human = evaluationRecordWaived("syuto33004b1-collab", [BOT_COMMIT]);
+  const human = evaluationRecordWaived("syuto33004b1-collab", [A], [botRow(A)]);
   assert.equal(human.waived, false);
   assert.equal(human.reason, undefined);
+});
+
+test("the waiver needs one readable identity per commit", () => {
+  // Fail closed: nothing to read waives nothing.
+  assert.equal(evaluationRecordWaived("dependabot[bot]", [A], []).waived, false);
+  assert.equal(evaluationRecordWaived("dependabot[bot]", [A], undefined).waived, false);
+  assert.equal(evaluationRecordWaived("dependabot[bot]", [], [botRow(A)]).waived, false);
+
+  // A commit whose row is missing, malformed, or short is not waived by the rows
+  // that did parse.
+  const short = evaluationRecordWaived("dependabot[bot]", [A, B], [botRow(A)]);
+  assert.equal(short.waived, false);
+  assert.match(short.reason, /2 件のコミットのうち 1 件/u);
+
+  const noCommitter = evaluationRecordWaived("dependabot[bot]", [A], [`${A} ${BOT_AUTHOR}`]);
+  assert.equal(noCommitter.waived, false, "a row without a committer is unreadable");
+
+  // Rows for commits this pull request does not add do not fill the gap either.
+  const wrongSha = evaluationRecordWaived("dependabot[bot]", [A], [botRow(B)]);
+  assert.equal(wrongSha.waived, false);
 });
 
 /**
@@ -382,8 +417,10 @@ test("the CLI lets a Dependabot pull request through without a record", async ()
   const dir = await mkdtemp(path.join(tmpdir(), "evalrec-"));
   try {
     await writeFile(path.join(dir, "commits.txt"), `${A}\n`);
-    await writeFile(path.join(dir, "authors.txt"), `${BOT_COMMIT}\n`);
-    await writeFile(path.join(dir, "mixed.txt"), `${BOT_COMMIT}\nowner@example.com\n`);
+    await writeFile(path.join(dir, "authors.txt"), `${botRow(A)}\n`);
+    // The same bump with a commit amended by hand: the author survives, the
+    // committer does not.
+    await writeFile(path.join(dir, "amended.txt"), `${A} ${BOT_AUTHOR} owner@example.com\n`);
     // What Dependabot actually writes: a changelog, and no record anywhere.
     const bumpBody = "Bumps [jsdom](https://github.com/jsdom/jsdom) from 29.0.1 to 30.0.1.\n\nSigned-off-by: dependabot[bot]";
 
@@ -403,11 +440,11 @@ test("the CLI lets a Dependabot pull request through without a record", async ()
     assert.ok(bot.stdout.includes("::notice::"), `no notice in: ${bot.stdout}`);
     assert.ok(bot.stdout.includes("dependabot[bot]"), "the notice names who was exempted");
 
-    // A commit pushed onto the bot's branch by someone else. The pull request
-    // author is still the bot; the record is owed again, and the log says why.
-    const mixed = await run("dependabot[bot]", "mixed.txt");
-    assert.notEqual(mixed.code, 0, "a human commit on a bump branch owes the record");
-    assert.ok(mixed.stdout.includes("owner@example.com"), `no reason in: ${mixed.stdout}`);
+    // A commit amended by hand on the bot's branch. The pull request author is
+    // still the bot; the record is owed again, and the log says why.
+    const amended = await run("dependabot[bot]", "amended.txt");
+    assert.notEqual(amended.code, 0, "an amended commit on a bump branch owes the record");
+    assert.ok(amended.stdout.includes("owner@example.com"), `no reason in: ${amended.stdout}`);
 
     // The same body from anyone else still fails. The exemption is the author's,
     // not the body's.
