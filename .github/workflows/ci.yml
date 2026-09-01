@@ -100,6 +100,11 @@ jobs:
           set -euo pipefail
           git rev-list "$BASE_SHA".."$HEAD_SHA" > "$RUNNER_TEMP/commits.txt"
           git diff --name-only "$BASE_SHA".."$HEAD_SHA" > "$RUNNER_TEMP/changed.txt"
+          # Who wrote each commit, and who committed it. The pull request author
+          # stays the bot after someone pushes to its branch, and `--amend` keeps
+          # the author while replacing the committer, so the waiver needs both
+          # (#237). One row per commit, checked against commits.txt.
+          git log --format='%H %ae %ce' "$BASE_SHA".."$HEAD_SHA" > "$RUNNER_TEMP/authors.txt"
           # How much the head adds on top of each commit, so the check can report
           # what went unevaluated in files and lines rather than in commits: one
           # commit can rewrite the whole diff (#74). One row per commit, and a
@@ -120,10 +125,14 @@ jobs:
           # The body is author-controlled. Pass it through the environment and
           # stdin only; never interpolate it into the shell.
           PR_BODY: ${{ github.event.pull_request.body }}
+          # Who GitHub says opened it. A bot's dependency bump owes no evaluation
+          # record because there was no pre-PR evaluation to record (#237).
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
         run: |
           set -euo pipefail
           printf '%s' "$PR_BODY" | node scripts/check-evaluation-record.mjs \
-            "$RUNNER_TEMP/commits.txt" "$RUNNER_TEMP/changed.txt" "$RUNNER_TEMP/growth.txt"
+            "$RUNNER_TEMP/commits.txt" "$RUNNER_TEMP/changed.txt" "$RUNNER_TEMP/growth.txt" \
+            "$RUNNER_TEMP/authors.txt"
       # The whole of what #74 decided to build: a bypassed pull request has to be
       # findable later without reading every body. `always()` because a bypass
       # whose reason was too short still fails the step above, and that one is the

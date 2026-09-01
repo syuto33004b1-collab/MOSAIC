@@ -32,6 +32,39 @@ const SHA_PATTERN = /^[0-9a-f]{40}$/u;
 const MIN_BYPASS_REASON = 20;
 
 /**
+ * Authors whose pull requests carry no evaluation record, because there was no
+ * pre-PR evaluation to record: the diff is not written by an agent that could
+ * have run one. Requiring the record of them made every dependency bump
+ * permanently unmergeable, since `Evaluation record` is a required check (#237).
+ *
+ * The mechanical gates still apply. Only the record is waived.
+ *
+ * The login comes from the pull request event, not from the body, so it cannot be
+ * claimed by writing a line — but it is the login of whoever *opened* the pull
+ * request and does not change when someone pushes to the branch afterwards. So
+ * the commit authors are checked too; see `evaluationRecordWaived`.
+ */
+const EXEMPT_AUTHORS = new Set(["dependabot[bot]"]);
+
+/**
+ * The commit identities a waived pull request may carry. Measured on all six open
+ * bumps (2026-09-01): every commit reads
+ * `dependabot[bot] <49699333+…> / committer GitHub <noreply@github.com>`, the
+ * author number being Dependabot's GitHub App user id and the committer being
+ * GitHub itself, because the bot writes through the API.
+ *
+ * **The committer matters as much as the author.** `git commit --amend` keeps the
+ * author and replaces the committer, so an amended bump would otherwise still
+ * look like the bot's own work while carrying anyone's changes.
+ *
+ * Exact sets rather than patterns. An identity that is not in them leaves the
+ * record required and gets named in the log: a line to read, not a hole to walk
+ * through.
+ */
+const EXEMPT_COMMIT_AUTHORS = new Set(["49699333+dependabot[bot]@users.noreply.github.com"]);
+const EXEMPT_COMMITTERS = new Set(["noreply@github.com"]);
+
+/**
  * Removes fenced code blocks so a template or a quoted example inside one is not
  * mistaken for the real record. Without this, the `評価なし承認:` example in
  * AGENTS.md would grant a bypass to anyone who pasted it into a body.
@@ -174,6 +207,77 @@ export function checkEvaluationRecord(body, prCommits, growth) {
   };
 }
 
+/** True when this login is the dependency bot's (#237). */
+export function isExemptAuthor(login) {
+  return EXEMPT_AUTHORS.has(String(login ?? "").trim().toLowerCase());
+}
+
+/**
+ * Whether this pull request owes no evaluation record.
+ *
+ * Two conditions: the bot opened it, **and** every commit in it carries the bot's
+ * author and committer. The pull request author alone is not enough — it stays
+ * `dependabot[bot]` after anyone with write access pushes to the branch, and
+ * waiving the record for those commits is exactly the quiet normalisation the
+ * gate exists to prevent (#74). Pushing a lint fix onto a bump branch is a normal
+ * thing to do here, so this is not a hypothetical.
+ *
+ * This reads commit metadata, which says who a commit *claims* to be from. It is
+ * not an authentication, and does not try to be: the same pull request can edit
+ * the workflow that feeds this check. What it stops is the record being dropped
+ * by accident or by habit.
+ *
+ * Fail closed. Every commit needs an identity, so an unreadable or short list
+ * waives nothing — including a merge commit from catching the branch up on main,
+ * which is authored by whoever pressed the button (手順14).
+ *
+ * @param {string} author login of whoever opened the pull request
+ * @param {string[]} commits full SHAs of the commits this pull request adds
+ * @param {string[]} identities one `sha author committer` row per commit
+ * @returns {{ waived: boolean, reason?: string }} `reason` explains a refusal
+ *   worth logging, and is absent when the bot is simply not involved
+ */
+export function evaluationRecordWaived(author, commits, identities) {
+  if (!isExemptAuthor(author)) return { waived: false };
+
+  const wanted = new Set((Array.isArray(commits) ? commits : [])
+    .map((sha) => String(sha ?? "").trim().toLowerCase())
+    .filter((sha) => SHA_PATTERN.test(sha)));
+  if (wanted.size === 0) {
+    return { waived: false, reason: "この PR のコミットを特定できませんでした。" };
+  }
+
+  const seen = new Map();
+  const foreign = new Set();
+  for (const row of Array.isArray(identities) ? identities : []) {
+    const [sha, commitAuthor, committer] = String(row ?? "").trim().toLowerCase().split(/\s+/u);
+    if (!SHA_PATTERN.test(sha ?? "")) continue;
+    if (!commitAuthor || !committer) continue;
+    seen.set(sha, true);
+    if (!EXEMPT_COMMIT_AUTHORS.has(commitAuthor)) foreign.add(commitAuthor);
+    if (!EXEMPT_COMMITTERS.has(committer)) foreign.add(committer);
+  }
+
+  // One identity per commit, for the commits this pull request actually adds.
+  const missing = [...wanted].filter((sha) => !seen.has(sha));
+  if (missing.length > 0 || seen.size !== wanted.size) {
+    return {
+      waived: false,
+      reason: `${wanted.size} 件のコミットのうち ${seen.size} 件しか作者を読めませんでした。`,
+    };
+  }
+
+  if (foreign.size > 0) {
+    return {
+      waived: false,
+      reason: `bot 以外の作者・コミッターが含まれています（${[...foreign].join(", ")}）。`
+        + " その差分には評価記録が必要です。",
+    };
+  }
+
+  return { waived: true };
+}
+
 /** True when the diff touches the check itself, which review should notice. */
 export function touchesOwnCheck(changedPaths) {
   const watched = [
@@ -192,9 +296,14 @@ export function touchesOwnCheck(changedPaths) {
  *   argv[3] optional path to a file with one changed path per line
  *   argv[4] optional path to a file of `sha files insertions deletions` rows,
  *           each counting what the head added on top of that commit
+ *   argv[5] optional path to a file of `sha author committer` rows, one per commit
  *
  * The lists come through files rather than argv because a long-lived branch can
  * exceed the OS argument limit.
+ *
+ * `PR_AUTHOR` is the login of whoever opened the pull request. Together with
+ * argv[5] it decides the waiver (#237), and the check says which way it went in
+ * the log rather than passing silently.
  *
  * Writes `bypass=true|false` to `$GITHUB_OUTPUT` when that is set, which is what
  * the workflow labels on. It follows the *claim*, not the grant: a body that
@@ -217,6 +326,7 @@ async function main() {
 
   const commits = await lines(process.argv[2]);
   const changed = await lines(process.argv[3]);
+  const identities = await lines(process.argv[5]);
   const growth = new Map();
   for (const row of await lines(process.argv[4])) {
     const [sha, files, insertions, deletions] = row.split(/\s+/u);
@@ -243,6 +353,18 @@ async function main() {
   }
 
   for (const warning of result.warnings) console.log(`::warning::${warning}`);
+
+  // After the warnings, so a bot bumping an action in ci.yml still says so, and
+  // before the exit code, so the record itself is not required (#237).
+  const author = process.env.PR_AUTHOR ?? "";
+  const waiver = evaluationRecordWaived(author, commits, identities);
+  if (waiver.waived) {
+    console.log(`::notice::${author} の PR なので評価記録は要求しません（#237）。機械的な検証は通す必要があります。`);
+    return;
+  }
+  if (waiver.reason) {
+    console.log(`::warning::${author} の PR ですが、評価記録の免除は適用しません。${waiver.reason}`);
+  }
 
   if (result.bypass) {
     console.log(`評価なしで承認されています: ${result.record.bypassReason}`);
