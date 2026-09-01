@@ -71,7 +71,13 @@ test("the reserve is a spacer, not padding that a shorthand can drop", async () 
 test("print drops the reserve wherever it drops the launcher", async () => {
   const css = withoutComments(await read());
   const printBlocks = [...css.matchAll(/@media print\s*\{([\s\S]*?)\n\}/gu)].map((m) => m[1]);
-  const hidingLauncher = printBlocks.filter((b) => /\.ai-chat-root\s*\{[^}]*display:\s*none/u.test(b));
+  // Any rule that hides it, including one that hides several things at once: #179 put the
+  // launcher in a group with the rest of the application chrome, and a pattern that only
+  // knew `.ai-chat-root {` read that as nobody hiding it.
+  const hidesLauncher = (block) => [...block.matchAll(/([^{}]+)\{([^{}]*)\}/gu)]
+    .some(([, selectors, declarations]) => selectors.split(",").some((part) => /^\.ai-chat-root$/u.test(part.trim()))
+      && /display:\s*none/u.test(declarations));
+  const hidingLauncher = printBlocks.filter(hidesLauncher);
   assert.ok(hidingLauncher.length >= 1, "expected a print block that hides the launcher");
   for (const block of hidingLauncher) {
     assert.match(

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { checkEvaluationRecord, touchesOwnCheck } from "../scripts/check-evaluation-record.mjs";
+import { checkEvaluationRecord, evaluationRecordWaived, isExemptAuthor, touchesOwnCheck } from "../scripts/check-evaluation-record.mjs";
 
 const A = "a".repeat(40);
 const B = "b".repeat(40);
@@ -175,4 +175,291 @@ test("does not backtrack catastrophically on a long run of asterisks", () => {
   checkEvaluationRecord(hostile, [A]);
   const ms = Number(process.hrtime.bigint() - started) / 1e6;
   assert.ok(ms < 500, `field() took ${Math.round(ms)}ms on a hostile body`);
+});
+
+/**
+ * #74 decided not to run the evaluator in CI: it would prove the evaluator was
+ * called and not that it read anything, and the failure this repository actually
+ * has is not forgery by an outsider — it is the agent quietly normalising the
+ * bypass. Twenty consecutive bypassed pull requests happened here in one week.
+ *
+ * So the controls are the ones that make that visible: every claimed bypass is
+ * labelled, and what was added after the evaluated commit is reported in files
+ * and lines. Neither proves anything. Both make a pattern findable later.
+ */
+test("the label follows the bypass claim, not the grant", () => {
+  const granted = checkEvaluationRecord(
+    "評価なし承認: モデルが使用上限で起動できず、利用者から評価なしで進める指示を受けている",
+    [A],
+  );
+  assert.equal(granted.ok, true);
+  assert.equal(granted.bypass, true);
+  assert.equal(granted.bypassClaimed, true);
+
+  // Too short to mean anything: refused, and still labelled. A body that tried
+  // to skip the evaluation is the one most worth finding again later.
+  const refused = checkEvaluationRecord("評価なし承認: 急ぎ", [A]);
+  assert.equal(refused.ok, false);
+  assert.equal(refused.bypass, false);
+  assert.equal(refused.bypassClaimed, true);
+
+  // A real record claims nothing.
+  const proper = checkEvaluationRecord(body(), [A]);
+  assert.equal(proper.bypassClaimed, false);
+});
+
+test("says how much was added after the evaluation, in files and lines", () => {
+  // rev-list order: newest first, so [C, B, A] means A was evaluated and two
+  // commits landed on top of it.
+  const C = "c".repeat(40);
+  const growth = new Map([[A, { files: 7, insertions: 210, deletions: 34 }]]);
+  const result = checkEvaluationRecord(body({ commit: A }), [C, B, A], growth);
+  assert.equal(result.ok, true);
+  const warning = result.warnings.join(" ");
+  assert.match(warning, /2 件のコミットが追加されています/u);
+  // The part that matters: a commit count alone said 「1 件」 for a whole-diff
+  // rewrite and 「3 件」 for three typo fixes.
+  assert.match(warning, /7 ファイル \/ \+210 -34 行/u);
+  assert.equal(result.record.addedAfterEvaluation, "7 ファイル / +210 -34 行");
+});
+
+test("leaves the growth note out when there is nothing to say", () => {
+  // Evaluated at the head: nothing was added, so no warning at all.
+  const atHead = checkEvaluationRecord(body({ commit: A }), [A, B], new Map());
+  assert.deepEqual(atHead.warnings, []);
+  assert.equal(atHead.record.addedAfterEvaluation, "");
+
+  // Commits were added but the workflow could not measure them: the count still
+  // reports, without inventing a size.
+  const unmeasured = checkEvaluationRecord(body({ commit: B }), [A, B]);
+  assert.match(unmeasured.warnings.join(" "), /1 件のコミットが追加されています。/u);
+  assert.doesNotMatch(unmeasured.warnings.join(" "), /ファイル/u);
+
+  // A row of zeroes is not a size either.
+  const zeroed = checkEvaluationRecord(body({ commit: B }), [A, B], new Map([[B, { files: 0, insertions: 0, deletions: 0 }]]));
+  assert.doesNotMatch(zeroed.warnings.join(" "), /ファイル/u);
+});
+
+/**
+ * Through the CLI, with real files, because the tests above call
+ * `checkEvaluationRecord` directly and never touch the parsing between the
+ * workflow and it. That gap shipped a bug: the growth rows were split on
+ * `/s+/` — the letter `s`, not whitespace — so the file was read, matched
+ * nothing, and every pull request silently reported no size at all while the
+ * unit tests stayed green. The evaluation on this PR caught it (#74).
+ */
+test("the CLI reads the workflow's own files, growth rows included", async () => {
+  const { mkdtemp, writeFile, rm } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { execFile } = await import("node:child_process");
+  const path = await import("node:path");
+  const { fileURLToPath } = await import("node:url");
+
+  const script = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "scripts", "check-evaluation-record.mjs");
+  const dir = await mkdtemp(path.join(tmpdir(), "evalrec-"));
+  try {
+    // rev-list order: newest first. B is the head, A was evaluated.
+    await writeFile(path.join(dir, "commits.txt"), `${B}\n${A}\n`);
+    await writeFile(path.join(dir, "changed.txt"), "src/App.tsx\n");
+    // Exactly the shape the workflow writes: `sha files insertions deletions`.
+    await writeFile(path.join(dir, "growth.txt"), `${B} 0 0 0\n${A} 7 210 34\n`);
+
+    const run = () => new Promise((resolve) => {
+      const child = execFile(process.execPath, [script, path.join(dir, "commits.txt"), path.join(dir, "changed.txt"), path.join(dir, "growth.txt")], (error, stdout, stderr) => {
+        resolve({ code: error?.code ?? 0, stdout, stderr });
+      });
+      child.stdin.end(body({ commit: A }));
+    });
+
+    const { code, stdout } = await run();
+    assert.equal(code, 0, stdout);
+    // The warning the workflow surfaces, with the size in it rather than a bare count.
+    assert.match(stdout, /評価後に 1 件のコミットが追加されています（7 ファイル \/ \+210 -34 行）/u);
+    assert.match(stdout, /評価対象コミット: a{40}/u);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("the CLI reports a claimed bypass to the workflow, so it can be labelled", async () => {
+  const { mkdtemp, writeFile, readFile, rm } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { execFile } = await import("node:child_process");
+  const path = await import("node:path");
+  const { fileURLToPath } = await import("node:url");
+
+  const script = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "scripts", "check-evaluation-record.mjs");
+  const dir = await mkdtemp(path.join(tmpdir(), "evalrec-"));
+  try {
+    await writeFile(path.join(dir, "commits.txt"), `${A}\n`);
+    const outputPath = path.join(dir, "output.txt");
+    await writeFile(outputPath, "");
+
+    const run = (prBody) => new Promise((resolve) => {
+      const child = execFile(process.execPath, [script, path.join(dir, "commits.txt")], {
+        env: { ...process.env, GITHUB_OUTPUT: outputPath },
+      }, (error, stdout, stderr) => resolve({ code: error?.code ?? 0, stdout, stderr }));
+      child.stdin.end(prBody);
+    });
+
+    // Granted, and reported.
+    const granted = await run("評価なし承認: モデルが使用上限で起動できず、利用者から評価なしで進める指示を受けている");
+    assert.equal(granted.code, 0, granted.stderr);
+    assert.match(await readFile(outputPath, "utf8"), /bypass=true/u);
+
+    // Refused for a two-word reason — and still reported, which is what the label
+    // is for. Written before the exit code, so the failure does not lose it.
+    await writeFile(outputPath, "");
+    const refused = await run("評価なし承認: 急ぎ");
+    assert.notEqual(refused.code, 0);
+    assert.match(await readFile(outputPath, "utf8"), /bypass=true/u);
+
+    // A real record claims nothing.
+    await writeFile(outputPath, "");
+    const proper = await run(body({ commit: A }));
+    assert.equal(proper.code, 0, proper.stderr);
+    assert.match(await readFile(outputPath, "utf8"), /bypass=false/u);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("exempts only the dependency bot's own login", () => {
+  assert.equal(isExemptAuthor("dependabot[bot]"), true);
+  assert.equal(isExemptAuthor("Dependabot[bot]"), true, "logins are not case sensitive");
+  // A person can register none of these, but the set is exact regardless.
+  assert.equal(isExemptAuthor("dependabot"), false);
+  assert.equal(isExemptAuthor("not-dependabot[bot]"), false);
+  assert.equal(isExemptAuthor("dependabot[bot]x"), false);
+  assert.equal(isExemptAuthor("renovate[bot]"), false);
+  assert.equal(isExemptAuthor(""), false);
+  assert.equal(isExemptAuthor(undefined), false);
+});
+
+// Measured on all six open bumps: this author, and GitHub as the committer
+// because the bot writes through the API.
+const BOT_AUTHOR = "49699333+dependabot[bot]@users.noreply.github.com";
+const BOT_COMMITTER = "noreply@github.com";
+const botRow = (sha) => `${sha} ${BOT_AUTHOR} ${BOT_COMMITTER}`;
+
+/**
+ * The author of a pull request is whoever opened it, and it stays the bot after
+ * anyone with write access pushes to the branch. Pushing a lint fix onto a bump
+ * branch is a normal thing to do here, so the waiver has to lapse for it (#237).
+ */
+test("the waiver lapses as soon as a commit is not the bot's own", () => {
+  const bot = evaluationRecordWaived("dependabot[bot]", [A, B], [botRow(A), botRow(B)]);
+  assert.equal(bot.waived, true, bot.reason);
+
+  const pushed = evaluationRecordWaived(
+    "dependabot[bot]",
+    [A, B],
+    [botRow(A), `${B} owner@example.com owner@example.com`],
+  );
+  assert.equal(pushed.waived, false);
+  assert.match(pushed.reason, /owner@example\.com/u, "the refusal names the identity it saw");
+
+  // `git commit --amend` keeps the author and replaces the committer. Without the
+  // committer check, anyone's changes would ride in on the bot's author line.
+  const amended = evaluationRecordWaived(
+    "dependabot[bot]",
+    [A],
+    [`${A} ${BOT_AUTHOR} owner@example.com`],
+  );
+  assert.equal(amended.waived, false, "an amended bump is not the bot's own work");
+  assert.match(amended.reason, /owner@example\.com/u);
+
+  // An unrecognised identity is a log line to read, not a hole.
+  const other = evaluationRecordWaived("dependabot[bot]", [A], [`${A} dependabot@example.com ${BOT_COMMITTER}`]);
+  assert.equal(other.waived, false);
+  assert.match(other.reason, /dependabot@example\.com/u);
+
+  // Nobody else is waived whatever the commits say, and that is not worth a log
+  // line — it is every other pull request.
+  const human = evaluationRecordWaived("syuto33004b1-collab", [A], [botRow(A)]);
+  assert.equal(human.waived, false);
+  assert.equal(human.reason, undefined);
+});
+
+test("the waiver needs one readable identity per commit", () => {
+  // Fail closed: nothing to read waives nothing.
+  assert.equal(evaluationRecordWaived("dependabot[bot]", [A], []).waived, false);
+  assert.equal(evaluationRecordWaived("dependabot[bot]", [A], undefined).waived, false);
+  assert.equal(evaluationRecordWaived("dependabot[bot]", [], [botRow(A)]).waived, false);
+
+  // A commit whose row is missing, malformed, or short is not waived by the rows
+  // that did parse.
+  const short = evaluationRecordWaived("dependabot[bot]", [A, B], [botRow(A)]);
+  assert.equal(short.waived, false);
+  assert.match(short.reason, /2 件のコミットのうち 1 件/u);
+
+  const noCommitter = evaluationRecordWaived("dependabot[bot]", [A], [`${A} ${BOT_AUTHOR}`]);
+  assert.equal(noCommitter.waived, false, "a row without a committer is unreadable");
+
+  // Rows for commits this pull request does not add do not fill the gap either.
+  const wrongSha = evaluationRecordWaived("dependabot[bot]", [A], [botRow(B)]);
+  assert.equal(wrongSha.waived, false);
+});
+
+/**
+ * Through the CLI, because the exemption lives in the wiring between the
+ * workflow and the check — the same gap that shipped the `/s+/` bug above. A
+ * unit test on `isExemptAuthor` alone would pass with `PR_AUTHOR` never read.
+ */
+test("the CLI lets a Dependabot pull request through without a record", async () => {
+  const { mkdtemp, writeFile, rm } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { execFile } = await import("node:child_process");
+  const path = await import("node:path");
+  const { fileURLToPath } = await import("node:url");
+
+  const script = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "scripts", "check-evaluation-record.mjs");
+  const dir = await mkdtemp(path.join(tmpdir(), "evalrec-"));
+  try {
+    await writeFile(path.join(dir, "commits.txt"), `${A}\n`);
+    await writeFile(path.join(dir, "authors.txt"), `${botRow(A)}\n`);
+    // The same bump with a commit amended by hand: the author survives, the
+    // committer does not.
+    await writeFile(path.join(dir, "amended.txt"), `${A} ${BOT_AUTHOR} owner@example.com\n`);
+    // What Dependabot actually writes: a changelog, and no record anywhere.
+    const bumpBody = "Bumps [jsdom](https://github.com/jsdom/jsdom) from 29.0.1 to 30.0.1.\n\nSigned-off-by: dependabot[bot]";
+
+    const run = (author, authorsFile = "authors.txt") => new Promise((resolve) => {
+      const argv = [script, path.join(dir, "commits.txt"), path.join(dir, "changed.txt"), path.join(dir, "growth.txt")];
+      if (authorsFile) argv.push(path.join(dir, authorsFile));
+      const child = execFile(process.execPath, argv, {
+        env: { ...process.env, PR_AUTHOR: author, GITHUB_OUTPUT: "" },
+      }, (error, stdout, stderr) => resolve({ code: error?.code ?? 0, stdout, stderr }));
+      child.stdin.end(bumpBody);
+    });
+    await writeFile(path.join(dir, "changed.txt"), "package-lock.json\n");
+    await writeFile(path.join(dir, "growth.txt"), `${A} 0 0 0\n`);
+
+    const bot = await run("dependabot[bot]");
+    assert.equal(bot.code, 0, bot.stderr);
+    assert.ok(bot.stdout.includes("::notice::"), `no notice in: ${bot.stdout}`);
+    assert.ok(bot.stdout.includes("dependabot[bot]"), "the notice names who was exempted");
+
+    // A commit amended by hand on the bot's branch. The pull request author is
+    // still the bot; the record is owed again, and the log says why.
+    const amended = await run("dependabot[bot]", "amended.txt");
+    assert.notEqual(amended.code, 0, "an amended commit on a bump branch owes the record");
+    assert.ok(amended.stdout.includes("owner@example.com"), `no reason in: ${amended.stdout}`);
+
+    // The same body from anyone else still fails. The exemption is the author's,
+    // not the body's.
+    const human = await run("syuto33004b1-collab");
+    assert.notEqual(human.code, 0, "a human owes the record");
+    assert.ok(human.stderr.includes("評価者"), human.stderr);
+
+    // No PR_AUTHOR at all — a workflow that forgot to pass it must not exempt.
+    const missing = await run("");
+    assert.notEqual(missing.code, 0, "an unknown author owes the record");
+
+    // No authors file at all — the same, for a workflow that forgot argv[5].
+    const noAuthors = await run("dependabot[bot]", "");
+    assert.notEqual(noAuthors.code, 0, "unknown commit authors waive nothing");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });

@@ -9,6 +9,28 @@ updates:
       timezone: Asia/Tokyo
     open-pull-requests-limit: 5
     versioning-strategy: increase-if-necessary
+    # Majors with no combination of packages that installs. Measured 2026-09-01
+    # (#239); each entry says what has to change before it comes out. Only the
+    # blocked major is named, so the next one is offered and judged on its own.
+    #
+    # This silences security updates for these versions too, not just version
+    # updates — a fix released only in the ignored major would not be offered.
+    # Accepted because the major cannot be installed here at all, and the alert
+    # still arrives. Nothing announces that upstream has caught up, so #240
+    # holds the commands to re-check.
+    ignore:
+      # `npm ci` cannot resolve: typescript-eslint 8.69.0, the newest there is,
+      # still peers `typescript >=4.8.4 <6.1.0`. Remove when it accepts 7.
+      - dependency-name: typescript
+        versions: ["7.x"]
+      # eslint-plugin-jsx-a11y 6.10.2 and eslint-plugin-react 7.37.5, both the
+      # newest there are, still cap at eslint 9. `@eslint/js` alone would leave
+      # two copies in the lockfile and an unsatisfied peer. Remove when both
+      # plugins accept eslint 10.
+      - dependency-name: "@eslint/js"
+        versions: ["10.x"]
+      - dependency-name: eslint
+        versions: ["10.x"]
     groups:
       production-minor-patch:
         dependency-type: production

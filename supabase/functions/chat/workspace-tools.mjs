@@ -1539,7 +1539,7 @@ function overloadImpact(state, assignment) {
   const member = state.members.find((candidate) => candidate.id === assignment.personId);
   if (!member) return null;
   const peak = memberPeakLoad(state, member.id, assignment.startDate, assignment.endDate);
-  return peak > Number(member.capacity) ? `${member.name}さんの最大稼働が${peak}%となり、上限${Number(member.capacity)}%を超えます。` : null;
+  return peak > Number(member.capacity) ? `${member.name}さんの最大稼働が${peak}%となり、稼働上限${Number(member.capacity)}%を超えます。` : null;
 }
 
 function actionLabels(toolName) {

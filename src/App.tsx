@@ -29,7 +29,7 @@ import {
   X,
   type LucideIcon,
 } from "lucide-react";
-import { CustomFieldFacts, CustomFieldInputs, CsvTransferPanel, FavoriteStar, FieldsView, MemberOrgFields, MembersView, OpportunitiesView, OrgFacts, OrgView, ProjectsView, ProposalView, ReportsView, SkillsView, WorkHistoryEditor, WorkHistoryList } from "./expanded-views";
+import { ActiveFilters, CustomFieldFacts, CustomFieldInputs, MemberPicker, WeekendWorkPicker, type MemberCandidate, CsvTransferPanel, FavoriteStar, FieldsView, MemberOrgFields, MembersView, OpportunitiesView, OrgFacts, OrgView, ProjectsView, ProposalView, ReportsView, SkillsView, WorkHistoryEditor, WorkHistoryList } from "./expanded-views";
 import { AiChat } from "./components/ai-chat/AiChat";
 import type { ChatTransport } from "./lib/ai/chatClient";
 import {
@@ -37,12 +37,18 @@ import {
   addDays,
   addOrgUnit,
   addProfileRequests,
-  addSearchScene,
   addSavedReport,
+  addSearchScene,
   addSkillCatalogEntry,
   archiveOrgUnit,
   assignmentSpan,
+  boardBasisWeek,
   boardRange,
+  boardRangeDistance,
+  boardRangeName,
+  ownerCandidates,
+  ownerLabel,
+  ownerMember,
   type BoardUnit,
   cancelProfileRequest,
   canConvertOpportunity,
@@ -51,8 +57,8 @@ import {
   createProjectCode,
   formatDate,
   formatSkillInput,
-  getIsoWeekNumber,
-  getWeekStartForDate,
+  memberLabel,
+  weekLabel,
   currentLocalDate,
   getWeekStart,
   hydrateWorkspaceSkills,
@@ -64,11 +70,13 @@ import {
   memberLoad,
   memberMatchesNeed,
   memberOrgMemberships,
+  membersInOrgSubtree,
   memberPeakLoad,
   matchMembers,
   memberSearchText,
   memberSkillLevels,
   moveOrgUnit,
+  orgUnitPath,
   needSkillRequirements,
   normalizeCustomValues,
   normalizeWorkHistory,
@@ -175,6 +183,8 @@ type AssignmentEditForm = {
   startDate: string;
   endDate: string;
   allocation: string;
+  /** The weekend days this assignment was worked, as 'YYYY-MM-DD' (#222). */
+  weekendWorkDates: string[];
 };
 
 type MemberForm = {
@@ -245,6 +255,12 @@ type ScheduleItem = {
 };
 
 type ScheduleRow = {
+  /**
+   * The weekend days this row was worked, so the board can tell them from the
+   * weekends a range merely spans. Without it a bar crossing a Saturday looks the
+   * same whether anyone was there or not (#222).
+   */
+  weekendWorked: Set<string>;
   id: string;
   initials: string;
   name: string;
@@ -255,6 +271,13 @@ type ScheduleRow = {
   filterKey: string;
   assignments: ScheduleItem[];
 };
+
+/** Rows the assignment form draws at once. Hundreds of members must not become
+    hundreds of rows, and the count beside the search says what was left out. */
+const MEMBER_PICKER_LIMIT = 12;
+
+/** 「8月17日」, or a dash while a date input is empty. The year is on the inputs below it. */
+const shortDate = (iso: string) => /^\d{4}-\d{2}-\d{2}$/u.test(iso) ? formatDate(iso).replace(/^\d{4}年/u, "") : "—";
 
 const navItems = [
   { id: "board", label: "アサインボード", icon: LayoutDashboard },
@@ -431,11 +454,19 @@ export default function Home({ mode = "demo", organizationId, organizationName =
    * The board's span. Only the board's — everything else on the page stays
    * week-scoped, because the sidebar's utilisation card and the attention panel
    * carry the word 「週」 in their labels (#119) and a month behind a week's label
-   * is the defect #115 was about. `currentWeekStart` below is the week containing
+   * is the defect #115 was about. `weekStart` below is the week containing
    * this range's start, which in week mode is the range itself.
    */
   const [boardUnit, setBoardUnit] = useState<BoardUnit>("week");
   const [filter, setFilter] = useState("すべて");
+  /**
+   * The board's other conditions. They live behind a trigger rather than on the
+   * toolbar because the toolbar had 74px of room left at a 1425px viewport — the
+   * board is 758px of it — and three more controls want about 410px (#198).
+   */
+  const [boardFiltersOpen, setBoardFiltersOpen] = useState(false);
+  const [boardOrgFilter, setBoardOrgFilter] = useState("");
+  const [alertOnly, setAlertOnly] = useState(false);
   const [query, setQuery] = useState("");
   const [memberQuery, setMemberQuery] = useState(startingShare?.nav === "members" ? startingShare.q ?? "" : "");
   const [projectQuery, setProjectQuery] = useState(startingShare?.nav === "projects" ? startingShare.q ?? "" : "");
@@ -446,6 +477,12 @@ export default function Home({ mode = "demo", organizationId, organizationName =
   const [proposalNeedId, setProposalNeedId] = useState(startingShare?.nav === "proposal" ? startingShare.needId ?? "" : "");
   const [proposalAnonymous, setProposalAnonymous] = useState(startingShare?.nav === "proposal" ? Boolean(startingShare.anonymous) : false);
   const [searchOpen, setSearchOpen] = useState(false);
+  /**
+   * The candidate search, shared by both assignment forms and cleared whenever either
+   * opens. One piece of state because `drawer` holds one value, so the two are never
+   * on screen together (#199, #219).
+   */
+  const [memberPickerQuery, setMemberPickerQuery] = useState("");
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [drawer, setDrawer] = useState<Drawer>(opening.drawer);
   const [selectedProjectId, setSelectedProjectId] = useState(opening.projectId ?? startingWorkspace.projects[0]?.id ?? "");
@@ -453,6 +490,53 @@ export default function Home({ mode = "demo", organizationId, organizationName =
   const [selectedAssignmentId, setSelectedAssignmentId] = useState("");
   const [selectedNeedId, setSelectedNeedId] = useState(startingWorkspace.needs[0]?.id ?? "");
   const [toast, setToast] = useState(opening.toast ?? "");
+  /**
+   * The org move that can still be put back, offered in the row it belongs to.
+   *
+   * #113 put this in the toast, which stood for eight seconds and sat at the end of the
+   * document — measured, a keyboard reached it past every remaining row and the change
+   * bar, if it reached it at all. In the row it is one Tab from the select that did the
+   * move, and it can wait: it stays until the next move replaces it, or until it stops
+   * being a move that can be put back (#173).
+   *
+   * Both parents are here, and `orgMoveOffer` is where they are checked. Without them the
+   * offer only knew that the unit still existed, and an undo needs more than that: the
+   * place it came from has to still be there to go back into, and nothing can have moved
+   * the unit somewhere else in the meantime.
+   */
+  const [lastOrgMove, setLastOrgMove] = useState<null | { unitId: string; name: string; parentId: string | null; previousParentId: string | null }>(null);
+  /**
+   * How far up the change bar reaches, so the toast can sit above it.
+   *
+   * A number in the stylesheet cannot do this: the bar's height comes from its tallest
+   * child, and a larger user font grows the two-line text block inside it. Measured — at
+   * 88.8px the 92px offset the first version used no longer cleared it, which the
+   * evaluation on #113 predicted. `bottom` is measured from the viewport's bottom, so this
+   * is what the bar occupies plus a gap (#113).
+   */
+  const [changeBarReach, setChangeBarReach] = useState(0);
+  const observeChangeBar = useCallback((node: HTMLDivElement | null) => {
+    if (!node) {
+      setChangeBarReach(0);
+      return;
+    }
+    // Its own offset plus its own height, not its rectangle: the bar animates in with a
+    // transform, and a rectangle read mid-animation is 12px low — measured, it left the
+    // toast touching the bar instead of clear of it on the first appearance.
+    const measure = () => setChangeBarReach(parseFloat(getComputedStyle(node).bottom || "0") + node.offsetHeight + 12);
+    measure();
+    // ResizeObserver catches the bar growing — a larger user font, a longer message. jsdom
+    // has neither it nor layout, so the guard keeps the tests on the stylesheet's fallback.
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
+    observer?.observe(node);
+    window.addEventListener("resize", measure);
+    changeBarCleanup.current = () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", measure);
+    };
+  }, []);
+  const changeBarCleanup = useRef<(() => void) | null>(null);
+  useEffect(() => () => changeBarCleanup.current?.(), []);
   const [unsavedChanges, setUnsavedChanges] = useState(0);
   const [hydrated, setHydrated] = useState(mode === "shared");
   const [revision, setRevision] = useState(shared?.initialRevision ?? 0);
@@ -460,7 +544,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
   const [syncStatus, setSyncStatus] = useState<"idle" | "saving" | "refreshing" | "conflict" | "error">("idle");
   const [syncError, setSyncError] = useState("");
   const [syncRetryable, setSyncRetryable] = useState(true);
-  const [form, setForm] = useState({ personId: startingWorkspace.members[0]?.id ?? "", projectId: startingWorkspace.projects[0]?.id ?? "", startDate: getWeekStart(0), endDate: addDays(getWeekStart(0), 4), allocation: "40" });
+  const [form, setForm] = useState({ personId: startingWorkspace.members[0]?.id ?? "", projectId: startingWorkspace.projects[0]?.id ?? "", startDate: getWeekStart(0), endDate: addDays(getWeekStart(0), 4), allocation: "40", weekendWorkDates: [] as string[] });
   const [projectForm, setProjectForm] = useState({ name: "", status: "準備中" as ProjectStatus, endDate: addDays(getWeekStart(0), 90), ownerId: startingWorkspace.members[0]?.id ?? "" });
   const [memberForm, setMemberForm] = useState<MemberForm>(() => emptyMemberForm(startingWorkspace));
   const [memberEditForm, setMemberEditForm] = useState<MemberForm>(() => emptyMemberForm(startingWorkspace));
@@ -473,7 +557,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
   const [editingOpportunityNeedId, setEditingOpportunityNeedId] = useState<string | null>(null);
   const [selectedOpportunityId, setSelectedOpportunityId] = useState(startingWorkspace.opportunities?.[0]?.id ?? "");
   const [selectedOpportunityNeedId, setSelectedOpportunityNeedId] = useState(startingWorkspace.opportunityNeeds?.[0]?.id ?? "");
-  const [assignmentEditForm, setAssignmentEditForm] = useState<AssignmentEditForm>({ personId: "", projectId: "", startDate: "", endDate: "", allocation: "40" });
+  const [assignmentEditForm, setAssignmentEditForm] = useState<AssignmentEditForm>({ personId: "", projectId: "", startDate: "", endDate: "", allocation: "40", weekendWorkDates: [] });
   const [pendingSave, setPendingSave] = useState<{ requestId: string; snapshot: string } | null>(null);
   const [saveOutcomePending, setSaveOutcomePending] = useState(false);
   const [formDirty, setFormDirty] = useState(false);
@@ -737,6 +821,14 @@ export default function Home({ mode = "demo", organizationId, organizationName =
    * レポート is open.
    */
   const activeNavItemRef = useRef<HTMLButtonElement | null>(null);
+  /**
+   * The 要調整 panel, so the count above the board can take you to it.
+   *
+   * The count used to open one item — the overload if there was one, otherwise the first
+   * unfilled role — while saying 「3件」. At 375px the panel is 1780px down a page 812px
+   * tall, so that button is the only way in, and it reached one of the three (#197).
+   */
+  const attentionPanelRef = useRef<HTMLElement | null>(null);
   useEffect(() => {
     const bringIntoView = () => {
       if (!window.matchMedia("(max-width: 620px)").matches) return;
@@ -747,42 +839,76 @@ export default function Home({ mode = "demo", organizationId, organizationName =
     return () => window.removeEventListener("resize", bringIntoView);
   }, [activeNav]);
 
+  /**
+   * The chosen candidate, brought into view when the form opens. The list is
+   * ordered by room rather than by selection, so opening the form from a member's
+   * own row could leave that member below the fold with every visible radio
+   * unchecked — which reads as 「nothing is selected」 above a submit button that
+   * would have booked them (#199).
+   */
+  const chosenCandidateRef = useRef<HTMLLabelElement | null>(null);
+  useEffect(() => {
+    // Both forms, and only one of them is mounted at a time, so one ref is enough.
+    // The edit form needs it more: it opens on whoever holds the assignment, and
+    // that person is wherever their load puts them in the order (#219).
+    if (drawer !== "add" && drawer !== "assignment") return;
+    chosenCandidateRef.current?.scrollIntoView({ block: "nearest" });
+  }, [drawer]);
+
   const range = useMemo(() => boardRange(boardUnit, weekOffset), [boardUnit, weekOffset]);
   const days = range.days;
   /**
-   * The week everything week-scoped works from — the drawers' 「この週」, the
-   * attention panel, and the week offset the other screens receive.
+   * The one week everything week-scoped works from: the attention panel, the
+   * drawers, the labels that name it, and the offset the other screens receive.
    *
    * Derived from the range, not from `weekOffset` directly. The offset counts
    * whatever unit the board is showing, so `getWeekStart(weekOffset)` read a month
    * of paging as that many *weeks*: one page into September put these figures on
-   * the week after next. In week mode this is the same value it always was.
+   * the week after next.
+   *
+   * Which week inside the range is `boardBasisWeek`: today’s, when today is in
+   * view. It used to be the range’s opening week unconditionally, which in month
+   * mode meant looking at this month and reading a week already gone (#187).
+   *
+   * One binding, not two. There used to be a `weekStart` alias beside it,
+   * and an evaluator reading #146 took the pair for two different weeks and read
+   * a label/value mismatch into the assignment form. There was none — they were
+   * the same value — but a name that invites that reading is worth deleting: with
+   * one binding, "the label names the week the value measures" is syntax rather
+   * than a claim.
    */
-  const weekStart = getWeekStartForDate(range.start);
+  const weekStart = boardBasisWeek(range);
   const visibleProposalIds = retainedMemberIds(proposalMemberIds, workspace.members.map((member) => member.id));
-  // The week the range opens in. Identical to `range.start` in week mode; in month
-  // mode it is the month's first week, so everything keyed off it stays a week and
-  // keeps saying so.
-  const currentWeekStart = weekStart;
   /** The same week, as a count of weeks from this one, for the screens that take one. */
   const viewWeekOffset = Math.round((Date.parse(weekStart + "T00:00:00Z") - Date.parse(getWeekStart(0) + "T00:00:00Z")) / 604_800_000);
-  const currentDailyLoads = workspace.members.flatMap((member) => memberDailyLoads(workspace, member.id, currentWeekStart, weekEnd(currentWeekStart)).map((day) => ({ ...day, capacity: member.capacity })));
+  const currentDailyLoads = workspace.members.flatMap((member) => memberDailyLoads(workspace, member.id, weekStart, weekEnd(weekStart)).map((day) => ({ ...day, capacity: member.capacity })));
+  /*
+   * Five weekdays, still. Weekend work does not raise anyone's ceiling — it is the
+   * excess above it — so the denominator stays where it was and a recorded Saturday
+   * pushes the average past 100% rather than making room for itself (#222).
+   */
   const totalCapacity = workspace.members.reduce((sum, member) => sum + member.capacity, 0) * 5;
   const averageLoad = totalCapacity > 0 ? Math.round(currentDailyLoads.reduce((sum, day) => sum + day.load, 0) / totalCapacity * 100) : 0;
-  const freeDays = (currentDailyLoads.reduce((sum, day) => sum + Math.max(0, day.capacity - day.load), 0) / 100).toFixed(1);
-  const currentOverloads = workspace.members.filter((member) => memberLoad(workspace, member.id, currentWeekStart) > member.capacity);
-  const committedOverloads = committedWorkspace.members.filter((member) => memberLoad(committedWorkspace, member.id, currentWeekStart) > member.capacity);
-  const overloadMember = currentOverloads[0] ?? committedOverloads.find((member) => memberLoad(workspace, member.id, currentWeekStart) <= member.capacity);
-  const overloadPlanned = Boolean(overloadMember && committedOverloads.some((member) => member.id === overloadMember.id) && memberLoad(workspace, overloadMember.id, currentWeekStart) <= overloadMember.capacity);
+  /*
+   * Weekdays only, and this is the asymmetry: an unbooked Saturday is not capacity
+   * anyone can spend. Counting it would have added two days a week of imaginary
+   * room the moment the load window reached Sunday.
+   */
+  const freeDays = (currentDailyLoads
+    .filter((day) => !day.weekend)
+    .reduce((sum, day) => sum + Math.max(0, day.capacity - day.load), 0) / 100).toFixed(1);
+  const currentOverloads = workspace.members.filter((member) => memberLoad(workspace, member.id, weekStart) > member.capacity);
+  const committedOverloads = committedWorkspace.members.filter((member) => memberLoad(committedWorkspace, member.id, weekStart) > member.capacity);
+  const overloadMember = currentOverloads[0] ?? committedOverloads.find((member) => memberLoad(workspace, member.id, weekStart) <= member.capacity);
+  const overloadPlanned = Boolean(overloadMember && committedOverloads.some((member) => member.id === overloadMember.id) && memberLoad(workspace, overloadMember.id, weekStart) <= overloadMember.capacity);
   const overloadDates = overloadMember ? (() => {
-    const current = memberDailyLoads(workspace, overloadMember.id, currentWeekStart, weekEnd(currentWeekStart)).filter((day) => day.load > overloadMember.capacity).map((day) => day.date);
-    return current.length > 0 ? current : memberDailyLoads(committedWorkspace, overloadMember.id, currentWeekStart, weekEnd(currentWeekStart)).filter((day) => day.load > overloadMember.capacity).map((day) => day.date);
+    const current = memberDailyLoads(workspace, overloadMember.id, weekStart, weekEnd(weekStart)).filter((day) => day.load > overloadMember.capacity).map((day) => day.date);
+    return current.length > 0 ? current : memberDailyLoads(committedWorkspace, overloadMember.id, weekStart, weekEnd(weekStart)).filter((day) => day.load > overloadMember.capacity).map((day) => day.date);
   })() : [];
   const overloadAssignments = overloadMember ? workspace.assignments
     .filter((assignment) => assignment.personId === overloadMember.id && overloadDates.some((date) => assignment.startDate <= date && assignment.endDate >= date))
     .sort((a, b) => a.allocation - b.allocation) : [];
   const activeNeeds = workspace.needs.filter((need) => need.status !== "filled");
-  const displayNeed = activeNeeds[0];
   const selectedNeed = workspace.needs.find((need) => need.id === selectedNeedId);
   const candidateMatches = selectedNeed ? matchMembers(workspace, searchSceneFromNeed(selectedNeed)).slice(0, 5) : [];
   const adjustmentCount = currentOverloads.length + (overloadPlanned ? 1 : 0) + activeNeeds.length;
@@ -810,6 +936,55 @@ export default function Home({ mode = "demo", organizationId, organizationName =
   const accountActionLocked = operationLocked || saveOutcomePending || aiActionBusy;
   const roleLabel: Record<OrganizationRole, string> = { owner: "オーナー", admin: "管理者", planner: "プランナー", viewer: "閲覧者" };
   const displayName = identity?.name || "デモユーザー";
+  /**
+   * The add form's candidates. The figure is the peak over the form's own dates, not
+   * the board's measured week: what decides this is whether the person has room *for
+   * this assignment*, and reading the board's week is how #187 came to offer a 120%
+   * member at 「0%」. Keyed off the form, it cannot drift from the board again, because
+   * it no longer asks the board anything (#199).
+   */
+  const addCandidates: MemberCandidate[] = workspace.members.map((member) => ({
+    member,
+    peak: memberPeakLoad(workspace, member.id, form.startDate, form.endDate),
+    days: memberDailyLoads(workspace, member.id, form.startDate, form.endDate),
+    label: memberLabel(workspace, member),
+    search: memberSearchText(workspace, member),
+  }));
+  /**
+   * The edit form's candidates, and a different question: not 「how loaded is this
+   * person」 but 「how loaded would they be if I saved this form onto them」.
+   *
+   * Which is why the add form's figure cannot be reused here. The assignment being
+   * edited is already in the workspace, so measuring the current holder would count
+   * it — 鈴木健太 reads 120% while 80 of that is the very assignment being moved, and
+   * the number would mean something different for him than for everyone else in the
+   * list (#219).
+   *
+   * So each row is measured against a workspace where this assignment has already
+   * moved to that person, with the form's dates and allocation on it. Same function
+   * every other figure uses, no arithmetic of its own, and the holder's own row comes
+   * out at exactly what the board shows them at.
+   */
+  const editCandidates: MemberCandidate[] = (() => {
+    if (!selectedAssignment) return [];
+    const others = workspace.assignments.filter((assignment) => assignment.id !== selectedAssignment.id);
+    const moved = {
+      ...selectedAssignment,
+      startDate: assignmentEditForm.startDate,
+      endDate: assignmentEditForm.endDate,
+      allocation: Number(assignmentEditForm.allocation) || 0,
+    };
+    return workspace.members.map((member) => {
+      const preview = { ...workspace, assignments: [...others, { ...moved, personId: member.id }] };
+      return {
+        member,
+        peak: memberPeakLoad(preview, member.id, moved.startDate, moved.endDate),
+        days: memberDailyLoads(preview, member.id, moved.startDate, moved.endDate),
+        label: memberLabel(workspace, member),
+        search: memberSearchText(workspace, member),
+      };
+    });
+  })();
   const canAddAssignment = canEdit && workspace.members.length > 0 && workspace.projects.length > 0;
 
   const memberRows: ScheduleRow[] = workspace.members.map((member) => {
@@ -837,13 +1012,19 @@ export default function Home({ mode = "demo", organizationId, organizationName =
     return {
       id: member.id,
       initials: member.initials,
-      name: member.name,
+      // Labelled, not raw: this name reaches the row heading, the week cell's
+      // accessible name and every bar's, and two namesakes made all three identical
+      // (#123).
+      name: memberLabel(workspace, member),
       role: member.role + " · " + member.department,
       avatarTone: member.avatarTone,
       tagLabel: load + "%",
       alert: load > member.capacity,
       filterKey: member.role,
       assignments,
+      weekendWorked: new Set(workspace.assignments
+        .filter((assignment) => assignment.personId === member.id)
+        .flatMap((assignment) => assignment.weekendWorkDates ?? [])),
     };
   });
 
@@ -864,7 +1045,10 @@ export default function Home({ mode = "demo", organizationId, organizationName =
         projectId: project.id,
       }];
     });
-    const staffed = projectMembersOnDays(workspace, project.id, range.days);
+    // Working days, not every column. The board draws the weekend now, but nothing
+    // in the model says anyone works it, so a weekend-only assignment draws its bar
+    // and staffs nothing — which is the same answer this gave before (#207).
+    const staffed = projectMembersOnDays(workspace, project.id, range.days.filter((day) => !day.weekend));
     return {
       id: project.id,
       initials: project.code.slice(0, 2),
@@ -875,9 +1059,20 @@ export default function Home({ mode = "demo", organizationId, organizationName =
       alert: staffed < project.demand,
       filterKey: project.status,
       assignments,
+      weekendWorked: new Set(workspace.assignments
+        .filter((assignment) => assignment.projectId === project.id)
+        .flatMap((assignment) => assignment.weekendWorkDates ?? [])),
     };
   });
 
+  /**
+   * The board's org filter, as ids. Members only: `Project` carries no unit, so
+   * on the project axis there is nothing to compare and the control is not
+   * offered — the condition is skipped rather than matching nothing (#198).
+   */
+  const boardOrgMemberIds = viewMode === "members" && boardOrgFilter
+    ? new Set(membersInOrgSubtree(workspace, boardOrgFilter, "any").map((member) => member.id))
+    : null;
   const rows = (viewMode === "members" ? memberRows : projectRows).filter((row) => {
     const entity = viewMode === "members" ? memberById(workspace, row.id) : projectById(workspace, row.id);
     const extraSearch = entity && "skills" in entity
@@ -887,8 +1082,33 @@ export default function Home({ mode = "demo", organizationId, organizationName =
         : "";
     const queryMatch = (row.name + " " + row.role + " " + row.assignments.map((item) => item.name).join(" ") + " " + extraSearch).toLowerCase().includes(query.toLowerCase());
     const filterMatch = filter === "すべて" || row.filterKey === filter;
-    return queryMatch && filterMatch;
+    const orgMatch = !boardOrgMemberIds || boardOrgMemberIds.has(row.id);
+    // `alert` is the row's own warning: over capacity somewhere in view for a
+    // member, short of its demand for a project. Deliberately not the pulse
+    // strip's 要調整 count, which also counts unfilled roles — so the label says
+    // 上限超過 / 要員不足 rather than borrowing that word for a different set.
+    const alertMatch = !alertOnly || Boolean(row.alert);
+    const favoriteMatch = !favoritesOnly || isFavorited(favorites, viewMode === "members" ? "member" : "project", row.id);
+    return queryMatch && filterMatch && orgMatch && alertMatch && favoriteMatch;
   });
+
+  const boardOrgUnits = workspace.orgUnits ?? [];
+  const alertOnlyLabel = viewMode === "members" ? "上限超過のみ" : "要員不足のみ";
+  const boardFilterAxisLabel = viewMode === "members" ? "職種" : "状態";
+  const clearBoardFilters = () => {
+    setQuery("");
+    setFilter("すべて");
+    setBoardOrgFilter("");
+    setAlertOnly(false);
+    setFavoritesOnly(false);
+  };
+  const appliedBoardFilters = [
+    ...(query.trim() ? [{ key: "query", label: "検索", value: query.trim(), onClear: () => setQuery("") }] : []),
+    ...(filter !== "すべて" ? [{ key: "axis", label: boardFilterAxisLabel, value: filter, onClear: () => setFilter("すべて") }] : []),
+    ...(boardOrgMemberIds ? [{ key: "org", label: "部門", value: orgUnitPath(boardOrgUnits, boardOrgFilter).join(" / "), onClear: () => setBoardOrgFilter("") }] : []),
+    ...(alertOnly ? [{ key: "alert", label: alertOnlyLabel.replace("のみ", ""), value: "のみ", onClear: () => setAlertOnly(false) }] : []),
+    ...(favoritesOnly ? [{ key: "favorites", label: "お気に入り", value: "のみ", onClear: () => setFavoritesOnly(false) }] : []),
+  ];
 
   /**
    * One place for the words that describe the range, because #115 was a label and
@@ -897,19 +1117,31 @@ export default function Home({ mode = "demo", organizationId, organizationName =
    * a month starts on its first weekday, which in August 2026 is the 3rd.
    */
   const unitWord = range.unit === "week" ? "週" : "月";
-  /** The Monday the week-scoped figures cover, for the labels that name it. */
-  const measuredWeek = { month: Number(currentWeekStart.slice(5, 7)), date: Number(currentWeekStart.slice(8, 10)) };
+  /** The week the week-scoped figures cover, for the labels that name it. */
+  const measuredWeekLabel = weekLabel(weekStart);
   const rangeEndDay = days[days.length - 1];
   // The end's year only when it differs: a week can straddle New Year, and
   // 「2026年 12月28日 — 1月1日」 leaves the reader to guess which January.
   const rangeLabel = days[0].month + "月" + days[0].date + "日 — "
     + (rangeEndDay.year === days[0].year ? "" : rangeEndDay.year + "年 ")
     + rangeEndDay.month + "月" + rangeEndDay.date + "日";
+  /**
+   * 「 · 2週後」 or 「 · 1か月前」, and empty for the one on screen now. Counted in the unit the
+   * board is showing, so paging by months does not read as weeks (#194).
+   */
+  const rangeDistance = boardRangeDistance(range);
+  const rangeDistanceLabel = rangeDistance === 0
+    ? ""
+    : ` · ${Math.abs(rangeDistance)}${range.unit === "week" ? "週" : "か月"}${rangeDistance > 0 ? "後" : "前"}`;
   const todayIso = currentLocalDate();
 
   const changeView = (mode: "members" | "projects") => {
     setViewMode(mode);
     setFilter("すべて");
+    // Both axis-specific: 職種 and 状態 share one piece of state, and 部門 has no
+    // meaning on the project axis. 上限超過/要員不足 and お気に入り apply to both, so
+    // they stay (#198).
+    setBoardOrgFilter("");
   };
 
   const markUnsaved = () => {
@@ -1006,11 +1238,44 @@ export default function Home({ mode = "demo", organizationId, organizationName =
     }
   };
 
+  /**
+   * Into the proposal screen with a requirement already set as its subject.
+   *
+   * #140 gave the screen a subject picker and left the entry points for later, so the
+   * only way to a subject was to walk into the screen and pick it there. `subjectId` is
+   * the namespaced form the picker uses — `need:` for a confirmed project's unfilled
+   * role, `plan:` for a pre-award requirement (#140 separated them because the two
+   * tables can hand out the same raw id).
+   *
+   * `proposalMemberIds` is deliberately left alone: changing the subject is not
+   * starting over, and the screen already labels a card that does not match the new
+   * requirement, which is worth reading.
+   */
+  const openProposalFor = (subjectId: string) => {
+    setProposalNeedId(subjectId);
+    setActiveNav("proposal");
+    closeDrawer();
+  };
+
   const addMemberToProposal = (memberId: string) => {
     setProposalMemberIds((current) => retainedMemberIds([...current, memberId], workspace.members.map((member) => member.id)));
     setActiveNav("proposal");
     closeDrawer();
     setToast("提案ビューに追加しました");
+  };
+
+  /**
+   * Take the reader to the 要調整 list.
+   *
+   * Focus as well as scroll: at 1281px and up the panel is already beside the board, so
+   * scrolling alone would look like the button did nothing, and a keyboard would still be
+   * up at the summary. The panel carries `tabIndex={-1}` for this (#197).
+   */
+  const showAttentionPanel = () => {
+    const panel = attentionPanelRef.current;
+    if (!panel) return;
+    panel.scrollIntoView({ block: "nearest" });
+    panel.focus();
   };
 
   const openStaffingNeed = (needId: string) => {
@@ -1050,7 +1315,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
       name: project.name,
       summary: project.summary,
       status: project.status,
-      ownerId: project.ownerPersonId ?? workspace.members.find((member) => member.name === project.ownerName)?.id ?? workspace.members[0]?.id ?? "",
+      ownerId: ownerMember(workspace, project)?.id ?? "",
       startDate: project.startDate,
       endDate: project.endDate,
       nextMilestone: project.nextMilestone,
@@ -1106,7 +1371,9 @@ export default function Home({ mode = "demo", organizationId, organizationName =
       startDate: assignment.startDate,
       endDate: assignment.endDate,
       allocation: String(assignment.allocation),
+      weekendWorkDates: [...(assignment.weekendWorkDates ?? [])],
     });
+    setMemberPickerQuery("");
     setDrawer("assignment");
   };
 
@@ -1114,7 +1381,13 @@ export default function Home({ mode = "demo", organizationId, organizationName =
     if (!canEdit) return;
     setForm((current) => {
       const resolvedProject = projectById(workspace, projectId ?? current.projectId) ?? workspace.projects[0];
-      const visibleWeekStart = days[0].iso;
+      // Today's week when the board is showing it, otherwise the first day of what
+      // it is showing. `days[0].iso` alone seeded a new assignment into the month's
+      // first week — 8月3日 while today was 8月19日 — and the candidate figures are
+      // measured over these dates now, so a stale default range is a stale set of
+      // figures. The same reading `weekStart` already uses for the board (#199).
+      const today = currentLocalDate();
+      const visibleWeekStart = today >= range.start && today <= range.end ? weekStart : days[0].iso;
       const startDate = resolvedProject && visibleWeekStart >= resolvedProject.startDate && visibleWeekStart <= resolvedProject.endDate ? visibleWeekStart : resolvedProject?.startDate ?? visibleWeekStart;
       const suggestedEndDate = addDays(startDate, 4);
       return {
@@ -1125,6 +1398,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
         endDate: resolvedProject && suggestedEndDate > resolvedProject.endDate ? resolvedProject.endDate : suggestedEndDate,
       };
     });
+    setMemberPickerQuery("");
     setDrawer("add");
   };
 
@@ -1166,6 +1440,10 @@ export default function Home({ mode = "demo", organizationId, organizationName =
       endDate: form.endDate,
       allocation,
       status: "draft",
+      // Pruned to the range being saved. The database prunes too — that trigger is
+      // the line that holds — but sending a day outside the range would be an
+      // error rather than a silent drop (#222).
+      weekendWorkDates: form.weekendWorkDates.filter((date) => date >= form.startDate && date <= form.endDate),
     };
     setWorkspace((current) => ({ ...current, assignments: [...current.assignments, assignment] }));
     markUnsaved();
@@ -1198,7 +1476,10 @@ export default function Home({ mode = "demo", organizationId, organizationName =
       || selectedAssignment.projectId !== assignmentEditForm.projectId
       || selectedAssignment.startDate !== assignmentEditForm.startDate
       || selectedAssignment.endDate !== assignmentEditForm.endDate
-      || selectedAssignment.allocation !== allocation;
+      || selectedAssignment.allocation !== allocation
+      // Or the weekend days moved, which is a change like any other — without this
+      // the form would answer 「アサインの変更はありません」 and throw the edit away.
+      || [...(selectedAssignment.weekendWorkDates ?? [])].sort().join(",") !== [...assignmentEditForm.weekendWorkDates].sort().join(",");
     if (!changed) {
       closeDrawer();
       setToast("アサインの変更はありません");
@@ -1222,6 +1503,8 @@ export default function Home({ mode = "demo", organizationId, organizationName =
       endDate: assignmentEditForm.endDate,
       allocation,
       status: "draft",
+      weekendWorkDates: assignmentEditForm.weekendWorkDates
+        .filter((date) => date >= assignmentEditForm.startDate && date <= assignmentEditForm.endDate),
     };
     const nextAssignment: Assignment = detachFromNeed ? {
       ...editedAssignment,
@@ -1275,7 +1558,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
     if (!canEdit || !overloadMember || overloadAssignments.length === 0) return;
     const allocations = new Map(workspace.assignments.filter((assignment) => assignment.personId === overloadMember.id).map((assignment) => [assignment.id, assignment.allocation]));
     const reductions = new Map<string, number>();
-    for (const day of memberDailyLoads(workspace, overloadMember.id, currentWeekStart, weekEnd(currentWeekStart))) {
+    for (const day of memberDailyLoads(workspace, overloadMember.id, weekStart, weekEnd(weekStart))) {
       const activeAssignments = workspace.assignments
         .filter((assignment) => assignment.personId === overloadMember.id && assignment.startDate <= day.date && assignment.endDate >= day.date)
         .sort((a, b) => (allocations.get(a.id) ?? 0) - (allocations.get(b.id) ?? 0));
@@ -1348,6 +1631,9 @@ export default function Home({ mode = "demo", organizationId, organizationName =
 
   const undoChanges = () => {
     if (operationLocked) return;
+    // The row's undo is about one move inside the pending set; dropping the whole set
+    // leaves nothing for it to put back (#173).
+    setLastOrgMove(null);
     setWorkspace(cloneState(committedWorkspace));
     setPendingSave(null);
     updateSaveOutcomePending(false);
@@ -1392,6 +1678,9 @@ export default function Home({ mode = "demo", organizationId, organizationName =
       updateSaveOutcomePending(false);
       setUnsavedChanges(0);
       unsavedRef.current = 0;
+      // Once it is committed, 「put this move back」 would be a new change rather than an
+      // undo, and the row should stop offering it (#173).
+      setLastOrgMove(null);
       clearFormDraft();
       setSyncStatus("idle");
     } catch (error) {
@@ -1593,7 +1882,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
     });
     const nextWorkspace: WorkspaceState = {
       ...memberState,
-      projects: memberState.projects.map((project) => project.ownerPersonId === updatedMember.id || (!project.ownerPersonId && project.ownerName === selectedMember.name) ? {
+      projects: memberState.projects.map((project) => ownerMember(workspace, project)?.id === selectedMember.id ? {
         ...project,
         ownerPersonId: updatedMember.id,
         ownerName: updatedMember.name,
@@ -1617,7 +1906,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
 
   const archiveMember = () => {
     if (!canManageMembers || !selectedMember) return;
-    const ownedProjects = workspace.projects.filter((project) => project.ownerPersonId === selectedMember.id || (!project.ownerPersonId && project.ownerName === selectedMember.name));
+    const ownedProjects = workspace.projects.filter((project) => ownerCandidates(workspace, project).some((member) => member.id === selectedMember.id));
     if (ownedProjects.length > 0) {
       setToast(`責任者になっている案件（${ownedProjects[0].name}）を別メンバーへ変更してからアーカイブしてください`);
       return;
@@ -2082,16 +2371,79 @@ export default function Home({ mode = "demo", organizationId, organizationName =
     setToast("部門を追加しました");
   };
 
-  const handleMoveOrgUnit = (id: string, parentId: string | null) => {
+  /**
+   * 「部門の所属を更新しました」 did not say which department or where to, so a select
+   * touched by accident left nothing on screen to read. And the only way back was the
+   * change bar's 「元に戻す」, which returns the whole workspace to its last committed
+   * state — every other pending edit with it. This names the move and offers to put back
+   * just this one (#113).
+   */
+  const moveOrgUnitTo = (id: string, parentId: string | null, verb: "移しました" | "戻しました", undoable: boolean) => {
     if (!canManageMembers) throw new Error("組織階層を変更する権限がありません");
-    const orgUnits = moveOrgUnit(workspace.orgUnits ?? [], id, parentId);
-    setWorkspace((current) => ({ ...current, orgUnits }));
+    const units = workspace.orgUnits ?? [];
+    const before = units.find((unit) => unit.id === id)?.parentId ?? null;
+    // Validate against what this render can see, so an impossible move reaches the caller
+    // as an error rather than the state updater.
+    moveOrgUnit(units, id, parentId);
+    // Then move the list the reducer actually holds. The undo runs up to eight seconds
+    // later, and a list captured here would be older than that: putting it back would
+    // take any department moved in between with it — the evaluation on #113 found this
+    // by ordering the edits the other way round from the test.
+    setWorkspace((current) => {
+      const live = current.orgUnits ?? [];
+      if (!live.some((unit) => unit.id === id)) return current;
+      try {
+        return { ...current, orgUnits: moveOrgUnit(live, id, parentId) };
+      } catch {
+        // The tree changed under the move — a refresh archived the parent, or another
+        // move would make this one a cycle. Leaving it alone is silent, and the row's
+        // select re-renders from the truth; throwing here would come out of a state
+        // update instead.
+        return current;
+      }
+    });
     markUnsaved();
-    setToast("部門の所属を更新しました");
+    const moved = units.find((unit) => unit.id === id)?.name ?? "部門";
+    const to = parentId ? units.find((unit) => unit.id === parentId)?.name ?? "部門" : "最上位";
+    setToast(`${moved}を${to}へ${verb}`);
+    // Undoing is itself a move and does not offer another: putting it back again is the
+    // select, still in the row. The row's label says 「この移動を」 because the change bar's
+    // own 「元に戻す」 can be on screen at the same time meaning something else — it returns
+    // the whole workspace to its last committed state, and two controls with one name
+    // pointing at different operations is what #88 and #124 ruled out.
+    setLastOrgMove(undoable ? { unitId: id, name: moved, parentId, previousParentId: before } : null);
   };
+
+  /**
+   * The move the row can still offer to put back, or null.
+   *
+   * Existing is not enough for either end of it. The evaluation on #173 walked one of
+   * these: move a department out of an emptied parent, delete that parent — now allowed,
+   * since the move is what emptied it — and the offer was still there, pointing at an id
+   * that has gone. `moveOrgUnit` validates the parent and throws, and unlike the select
+   * beside it the button had nothing to catch that. And on the other end, the unit has to
+   * still be where this move left it: a refresh in shared mode, or an organization or mode
+   * switch without a remount, can move it out from under a stale offer, which would then
+   * write an old parent over the new one. Both are one question — is this still the move
+   * that happened — so both are asked here rather than in the places that could cause it.
+   */
+  const orgMoveOffer = (() => {
+    if (!lastOrgMove) return null;
+    const units = workspace.orgUnits ?? [];
+    const unit = units.find((item) => item.id === lastOrgMove.unitId);
+    if (!unit || (unit.parentId ?? null) !== lastOrgMove.parentId) return null;
+    if (lastOrgMove.previousParentId && !units.some((item) => item.id === lastOrgMove.previousParentId)) return null;
+    return lastOrgMove;
+  })();
+
+  const handleMoveOrgUnit = (id: string, parentId: string | null) => moveOrgUnitTo(id, parentId, "移しました", true);
 
   const handleArchiveOrgUnit = (id: string) => {
     if (!canManageMembers) throw new Error("組織階層を変更する権限がありません");
+    // Deleting either end of the last move takes the offer with it, and `orgMoveOffer` is
+    // where that is decided — the unit being gone and the parent it came from being gone
+    // are the same question, and asking it here as well would be a second answer to keep
+    // in step (#173).
     setWorkspace((current) => archiveOrgUnit(current, id));
     markUnsaved();
     setToast("部門を削除しました");
@@ -2297,12 +2649,12 @@ export default function Home({ mode = "demo", organizationId, organizationName =
               「平均稼働率」 rather than 「チーム稼働率」: the board's pulse strip
               shows this same variable under that name, and one value with two
               names is what #82 is about.
-              Named from `currentWeekStart`, the week the figure is actually
+              Named from `weekStart`, the week the figure is actually
               measured over, and not from the board's first column. Those are the
               same thing while the board shows a week; once it can show a month,
               the first column is the 1st and the week began in the month before —
               which is #115 again, from the other end (#139). */}
-          <div className="month-card-label"><span>{measuredWeek.month}/{measuredWeek.date}週の平均稼働率</span><strong>{averageLoad}%</strong></div>
+          <div className="month-card-label"><span>{measuredWeekLabel}の平均稼働率</span><strong>{averageLoad}%</strong></div>
           <div className="month-track"><span style={{ width: Math.min(100, averageLoad) + "%" }} /></div>
           <p>{totalCapacity === 0 ? "稼働上限が未設定です。" : averageLoad > 100 ? `稼働上限を ${averageLoad - 100}% 超えています。` : `稼働上限まであと ${100 - averageLoad}%。`}{mode === "shared" ? "変更は組織内で共有されます。" : "サンプルデータはこの端末だけに保存されます。"}</p>
         </div>
@@ -2315,9 +2667,21 @@ export default function Home({ mode = "demo", organizationId, organizationName =
       <section className="workspace" id="board" inert={drawer ? true : undefined}>
         <header className="topbar">
           <div>
-            <p className="eyebrow">{page.eyebrow} <span>/</span> {activeNav === "board" ? (range.unit === "week" ? "WEEK " + getIsoWeekNumber(days[0].iso) : "MONTH " + days[0].month) : "MOSAIC"}</p>
+            {/* 「8月 第3週」, not 「WEEK 34」: an ISO week number is year-wide and says nothing
+                about where in the month you are, which is the question (#194). */}
+            <p className="eyebrow">{page.eyebrow} <span>/</span> {activeNav === "board" ? boardRangeName(range) : "MOSAIC"}</p>
             <h1>{page.title}</h1>
-            <p className="date-range">{activeNav === "board" ? days[0].year + "年 " + rangeLabel : page.description}</p>
+            {/* Then how far from today, and then what the figures count.
+                The distance is empty at zero: 「今週」 is the word #146 retired from these
+                screens, and today is a weekend two days in seven, where the week on screen
+                does not contain it at all (#194).
+                「稼働は平日で集計」 always, not only in month mode: the columns include
+                Saturday and Sunday now, and every figure on the screen is still measured
+                over weekdays — the daily loads skip them and the denominator is 稼働上限 × 5.
+                While the weekends were missing from the board, saying 「平日のみ」 described
+                the columns; now it has to describe the arithmetic instead (#207).
+                Distance first because it changes as you page; the note is constant. */}
+            <p className="date-range">{activeNav === "board" ? days[0].year + "年 " + rangeLabel + rangeDistanceLabel + " · 稼働は平日で集計" : page.description}</p>
           </div>
           <div className="topbar-actions">
             {activeNav === "board" && (searchOpen ? (
@@ -2328,7 +2692,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
               {notificationsOpen && (
                 <div className="notification-popover">
                   <div className="popover-head"><strong>通知</strong><button aria-label="通知を閉じる" onClick={() => setNotificationsOpen(false)}><X size={15} /></button></div>
-                  {(currentOverloads.length > 0 || overloadPlanned) && overloadMember && <button onClick={() => { setDrawer("overload"); setNotificationsOpen(false); }}><span className={"notice-icon " + (overloadPlanned ? "planned" : "danger")}><AlertTriangle size={14} /></span><span><strong>{overloadPlanned ? "上限超過は解消予定" : "上限超過を検知"}</strong><small>{overloadMember.name}さん · 今週</small></span></button>}
+                  {(currentOverloads.length > 0 || overloadPlanned) && overloadMember && <button onClick={() => { setDrawer("overload"); setNotificationsOpen(false); }}><span className={"notice-icon " + (overloadPlanned ? "planned" : "danger")}><AlertTriangle size={14} /></span><span><strong>{overloadPlanned ? "上限超過は解消予定" : "上限超過を検知"}</strong><small>{overloadMember.name}さん · {measuredWeekLabel}</small></span></button>}
                   {activeNeeds.map((need) => <button onClick={() => openStaffingNeed(need.id)} key={need.id}><span className={"notice-icon " + (need.status === "planned" ? "planned" : "info")}><UserRoundPlus size={14} /></span><span><strong>{need.status === "planned" ? `${need.role}は解消予定` : `${need.role}担当が未定`}</strong><small>{projectById(workspace, need.projectId)?.name} · {formatDate(need.startDate)}</small></span></button>)}
                 </div>
               )}
@@ -2362,10 +2726,12 @@ export default function Home({ mode = "demo", organizationId, organizationName =
               <div className="pulse-heading"><span className="live-dot" /><div><small>TEAM PULSE</small><strong>チームの稼働サマリー</strong></div></div>
               <div className="pulse-metric"><strong>{averageLoad}<small>%</small></strong><span>平均稼働率</span></div>
               <div className="pulse-rule" />
-              <div className="pulse-metric"><strong>{freeDays}<small>人日</small></strong><span>今週の空き</span></div>
+              <div className="pulse-metric"><strong>{freeDays}<small>人日</small></strong><span>{measuredWeekLabel}の空き</span></div>
               <div className="pulse-rule" />
-              <button className="pulse-metric warning" onClick={() => { if (currentOverloads.length > 0 || overloadPlanned) setDrawer("overload"); else if (displayNeed) openStaffingNeed(displayNeed.id); }}><strong>{adjustmentCount}<small>件</small></strong><span>要調整</span><ArrowRight size={14} /></button>
-              <div className="pulse-mini-bars" aria-hidden="true">{[72, 84, 91, 78, 64].map((height, index) => <i key={index} style={{ height: height + "%" }} />)}</div>
+              {/* To the list, not into one of its items: a count is a summary, and 「3件」 that
+                  opens one thing is one label over two operations (#88, #124, #197). The
+                  panel’s own cards are the way into each. */}
+              <button className="pulse-metric warning" onClick={showAttentionPanel}><strong>{adjustmentCount}<small>件</small></strong><span>要調整</span><ArrowRight size={14} /></button>
             </section>
 
             <div className="board-layout">
@@ -2392,10 +2758,19 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                     <button className={viewMode === "projects" ? "selected" : ""} aria-pressed={viewMode === "projects"} onClick={() => changeView("projects")}><BriefcaseBusiness size={13} />プロジェクト別</button>
                   </div>
                   <div className="toolbar-actions">
-                    <label className="filter-select"><SlidersHorizontal size={13} /><select aria-label={viewMode === "members" ? "職種で絞り込み" : "状態で絞り込み"} value={filter} onChange={(event) => setFilter(event.target.value)}>
-                      <option value="すべて">{viewMode === "members" ? "すべての職種" : "すべての状態"}</option>
-                      {(viewMode === "members" ? Array.from(new Set(workspace.members.map((member) => member.role))) : ["進行中", "要注意", "準備中", "完了間近", "完了"]).map((option) => <option key={option}>{option}</option>)}
-                    </select></label>
+                    {/* One trigger instead of the 職種 select that used to sit
+                        here: the toolbar had 74px of spare width and the
+                        conditions want about 410px (#198). The count is on the
+                        button so a filtered board says so even while shut. */}
+                    <button
+                      className={"filter-trigger" + (appliedBoardFilters.length > 0 ? " active" : "")}
+                      aria-expanded={boardFiltersOpen}
+                      aria-controls="board-filter-panel"
+                      onClick={() => setBoardFiltersOpen((open) => !open)}
+                    >
+                      <SlidersHorizontal size={13} />絞り込み
+                      {appliedBoardFilters.length > 0 && <span className="filter-count">{appliedBoardFilters.length}</span>}
+                    </button>
                     {/* The unit changes what the arrows step by, so it sits with
                         them rather than in the axis group above. Offset resets on
                         the way: 3 weeks out is not 3 months out. */}
@@ -2409,25 +2784,68 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                   </div>
                 </div>
 
+                {/* In flow below the toolbar, and state rather than `<details>`:
+                    `.toolbar-actions` becomes `overflow-x: auto` at 620px, which
+                    computes overflow-y to auto as well, so a panel positioned
+                    inside it would be clipped by a 31px row. Open, it pushes the
+                    grid down — the same as the members screen's scene
+                    disclosure. Shut, it costs nothing (#198). */}
+                {boardFiltersOpen && (
+                  <div className="board-filter-panel" id="board-filter-panel">
+                    <label className="view-filter"><span className="filter-label">{boardFilterAxisLabel}</span><select aria-label={boardFilterAxisLabel + "で絞り込み"} value={filter} onChange={(event) => setFilter(event.target.value)}>
+                      <option value="すべて">すべて</option>
+                      {(viewMode === "members" ? Array.from(new Set(workspace.members.map((member) => member.role))) : ["進行中", "要注意", "準備中", "完了間近", "完了"]).map((option) => <option key={option}>{option}</option>)}
+                    </select></label>
+                    {/* Members only: a project carries no unit, so there would be
+                        nothing to compare it against. */}
+                    {viewMode === "members" && boardOrgUnits.length > 0 && (
+                      <label className="view-filter"><span className="filter-label">部門</span><select aria-label="部門で絞り込み" value={boardOrgFilter} onChange={(event) => setBoardOrgFilter(event.target.value)}>
+                        <option value="">すべて</option>
+                        {boardOrgUnits.map((unit) => <option value={unit.id} key={unit.id}>{orgUnitPath(boardOrgUnits, unit.id).join(" / ")}</option>)}
+                      </select></label>
+                    )}
+                    <label className="view-toggle"><input type="checkbox" checked={alertOnly} onChange={(event) => setAlertOnly(event.target.checked)} />{alertOnlyLabel}</label>
+                    <label className="view-toggle"><input type="checkbox" checked={favoritesOnly} onChange={(event) => setFavoritesOnly(event.target.checked)} />お気に入りのみ</label>
+                    <button className="view-add-button ghost" onClick={() => setBoardFiltersOpen(false)}>閉じる</button>
+                  </div>
+                )}
+
+                <ActiveFilters
+                  applied={appliedBoardFilters}
+                  result={rows.length + (viewMode === "members" ? "名" : "件")}
+                  onClearAll={clearBoardFilters}
+                />
+
                 <div className="schedule-scroller">
-                  <div className="schedule-table" role="grid" aria-label={(viewMode === "members" ? "メンバー別の" : "プロジェクト別の") + unitWord + "間アサイン"}>
+                  <div className="schedule-table" role="grid" aria-label={(viewMode === "members" ? "メンバー別の" : "プロジェクト別の") + unitWord + "間アサイン（稼働は平日で集計）"}>
                     <div className="schedule-head" role="row">
                       <div className="people-label" role="columnheader">{viewMode === "members" ? "メンバー" : "プロジェクト"} <span>{rows.length}</span></div>
                       {/* Today by date, not by position: it is the first column
                           only in the current week, and somewhere in the middle of
                           the current month. */}
-                      {days.map((day) => <div className={"day-label " + (day.iso === todayIso ? "today" : "")} role="columnheader" key={day.iso}><span>{day.day}</span><strong>{day.date}</strong></div>)}
+                      {days.map((day) => <div className={"day-label" + (day.weekend ? " weekend" : "") + (day.iso === todayIso ? " today" : "")} role="columnheader" key={day.iso}><span>{day.day}</span><strong>{day.date}</strong></div>)}
                     </div>
                     <div className="schedule-body">
                       {rows.length > 0 ? rows.map((row) => (
                         <div className="schedule-row" role="row" key={row.id}>
+                          {/* A button inside the row header, not the header itself: the cell
+                              carries `role="rowheader"` and a `<button>` would take that
+                              away. The same shape the member list uses for its name cell
+                              (`.member-name-cell`), and the same style.
+                              The load chip stays outside it — a status, not part of the name.
+                              Whichever axis the board is showing, the row header opens what
+                              that row is: `row.id` is a member's in メンバー別 and a
+                              project's in プロジェクト別 (#195). */}
                           <div className="person-cell" role="rowheader">
-                            <span className={"avatar " + row.avatarTone}>{row.initials}</span><span className="person-copy"><strong>{row.name}</strong><small>{row.role}</small></span><span className={"load " + (row.alert ? "over" : "")}>{row.tagLabel}</span>
+                            <button className="person-open" onClick={() => viewMode === "members" ? openMember(row.id) : openProject(row.id)}>
+                              <span className={"avatar " + row.avatarTone}>{row.initials}</span><span className="person-copy"><strong>{row.name}</strong><small>{row.role}</small></span>
+                            </button>
+                            <span className={"load " + (row.alert ? "over" : "")}>{row.tagLabel}</span>
                           </div>
                           <div className="week-cell" role="gridcell" aria-label={row.name + "のアサイン"}>
                             {/* One line per column, from the range rather than a
                                 hard-coded five (#139). */}
-                            <div className="day-grid" aria-hidden="true">{days.map((day) => <i key={day.iso} />)}</div>
+                            <div className="day-grid" aria-hidden="true">{days.map((day) => <i className={day.weekend ? (row.weekendWorked.has(day.iso) ? "weekend worked" : "weekend") : ""} key={day.iso} />)}</div>
                             {row.assignments.map((assignment) => (
                               <button className={"assignment " + assignment.tone + (assignment.status === "draft" ? " provisional" : "")} style={{ gridColumn: assignment.start + " / span " + assignment.span }} onClick={() => openAssignment(assignment.id)} aria-label={assignment.name + "のアサイン詳細（" + row.name + "・" + assignmentDayRange(days, assignment.start, assignment.span) + "）"} title={assignment.name + " · " + assignment.allocation + "%"} key={assignment.id}>
                                 <span>{assignment.name}</span>{assignment.allocation > 0 && <small>{assignment.allocation}%</small>}
@@ -2435,18 +2853,18 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                             ))}
                           </div>
                         </div>
-                      )) : <div className="empty-state"><Search size={22} /><strong>条件に合う項目がありません</strong><p>検索語または絞り込み条件を見直してください。</p><button onClick={() => { setQuery(""); setFilter("すべて"); }}>条件をクリア</button></div>}
+                      )) : <div className="empty-state"><Search size={22} /><strong>条件に合う項目がありません</strong><p>検索語または絞り込み条件を見直してください。</p><button onClick={clearBoardFilters}>条件をクリア</button></div>}
                     </div>
                   </div>
                 </div>
               </section>
 
-              <aside className="attention-panel">
-                <div className="attention-title"><div><small>NEEDS ATTENTION</small><h2>要調整</h2></div><span>{adjustmentCount}</span></div>
+              <aside className="attention-panel" ref={attentionPanelRef} tabIndex={-1} aria-labelledby="attention-heading">
+                <div className="attention-title"><div><small>NEEDS ATTENTION</small><h2 id="attention-heading">要調整</h2></div><span>{adjustmentCount}</span></div>
                 {(currentOverloads.length > 0 || overloadPlanned) && overloadMember && (
                   <button className={"alert-card urgent " + (overloadPlanned ? "planned" : "")} onClick={() => setDrawer("overload")}>
-                    <div className="alert-top"><span>{overloadPlanned ? <CheckCircle2 size={11} /> : <AlertTriangle size={11} />} {overloadPlanned ? "解消予定" : "上限超過"}</span><small>{memberLoad(workspace, overloadMember.id, currentWeekStart)}%</small></div>
-                    <h3>{overloadMember.name}さんの超過は{overloadPlanned ? "解消予定" : "要調整"}</h3><p>{overloadPlanned ? "変更を保存すると警告が解消されます。" : "今週の稼働配分が稼働上限を超えています。"}</p>
+                    <div className="alert-top"><span>{overloadPlanned ? <CheckCircle2 size={11} /> : <AlertTriangle size={11} />} {overloadPlanned ? "解消予定" : "上限超過"}</span><small>{memberLoad(workspace, overloadMember.id, weekStart)}%</small></div>
+                    <h3>{overloadMember.name}さんの超過は{overloadPlanned ? "解消予定" : "要調整"}</h3><p>{overloadPlanned ? "変更を保存すると警告が解消されます。" : `${measuredWeekLabel}の稼働配分が稼働上限を超えています。`}</p>
                     <div className="alert-people"><span className={"avatar " + overloadMember.avatarTone}>{overloadMember.initials}</span><span>{overloadPlanned || !canEdit ? "内容を確認" : "調整する"} <ArrowRight size={13} /></span></div>
                   </button>
                 )}
@@ -2468,7 +2886,17 @@ export default function Home({ mode = "demo", organizationId, organizationName =
         {activeNav === "opportunities" && <OpportunitiesView state={workspace} onOpen={openOpportunity} />}
         {activeNav === "members" && <MembersView state={workspace} weekOffset={viewWeekOffset} onOpen={openMember} onAssign={openAssignmentFor} onAddScene={handleAddSearchScene} onDeleteScene={handleDeleteSearchScene} canEdit={canEdit} canManageScenes={canManageMembers && featureEnabled("searchScenes")} query={memberQuery} onQueryChange={setMemberQuery} favorites={favorites} favoritesOnly={favoritesOnly} onFavoritesOnlyChange={setFavoritesOnly} onToggleFavorite={(memberId) => void toggleFavoriteTarget("member", memberId)} onAddToProposal={addMemberToProposal} onCopyQuery={() => void copyShareLink({ nav: "members", q: memberQuery }, "検索リンクをコピーしました")} />}
         {activeNav === "proposal" && <ProposalView state={workspace} weekOffset={viewWeekOffset} selectedIds={visibleProposalIds} anonymous={proposalAnonymous} favorites={favorites} needId={proposalNeedId || undefined} onNeedIdChange={setProposalNeedId} onSelectedIdsChange={setProposalMemberIds} onAnonymousChange={setProposalAnonymous} onOpenMember={openMember} onToggleFavorite={(memberId) => void toggleFavoriteTarget("member", memberId)} />}
-        {activeNav === "org" && <OrgView state={workspace} onAddUnit={handleAddOrgUnit} onMoveUnit={handleMoveOrgUnit} onArchiveUnit={handleArchiveOrgUnit} canManage={canManageMembers} />}
+        {activeNav === "org" && <OrgView
+          state={workspace}
+          onAddUnit={handleAddOrgUnit}
+          onMoveUnit={handleMoveOrgUnit}
+          onArchiveUnit={handleArchiveOrgUnit}
+          canManage={canManageMembers}
+          lastMove={orgMoveOffer}
+          onUndoMove={orgMoveOffer
+            ? () => moveOrgUnitTo(orgMoveOffer.unitId, orgMoveOffer.previousParentId, "戻しました", false)
+            : undefined}
+        />}
         {activeNav === "skills" && <SkillsView state={hydrateWorkspaceSkills(workspace)} onAddCatalogEntry={handleAddCatalogEntry} onOpenMember={openMember} onResolveNeed={openStaffingNeed} canEdit={canEdit} />}
         {activeNav === "fields" && (
           <>
@@ -2480,7 +2908,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
       </section>
 
       {unsavedChanges > 0 && (
-        <div className="change-bar" role="status" inert={drawer ? true : undefined}>
+        <div className="change-bar" ref={observeChangeBar} role="status" inert={drawer ? true : undefined}>
           <span className="change-count">{unsavedChanges}</span><span><strong>{unsavedChanges}件の変更があります</strong><small>保存するまで確定データには反映されません</small></span>
           <button className="undo-button" disabled={operationLocked || saveOutcomePending} onClick={undoChanges}><Undo2 size={14} />元に戻す</button><button className="save-button" disabled={operationLocked} onClick={() => void saveChanges()}><Save size={14} />{syncStatus === "saving" ? "保存中…" : syncStatus === "refreshing" ? "確認中…" : mode === "shared" ? "チームへ保存" : "デモへ保存"}</button>
         </div>
@@ -2488,7 +2916,28 @@ export default function Home({ mode = "demo", organizationId, organizationName =
 
       {drawer && (
         <div className="overlay">
-          <button className="overlay-backdrop" aria-label="詳細パネルを閉じる" onClick={closeDrawer} />
+          {/* A div, not a button. As a `<button>` it carried the same accessible name
+              as the ✕ inside the panel, so a screen reader listing buttons saw
+              「詳細パネルを閉じる」 twice, and the second one was outside the focus cycle
+              the trap above maintains. Measured: 72 focusable elements, two with that
+              name, this one at document position 63 with `tabIndex: 0`, and Shift+Tab
+              from the ✕ landing on `.drawer-danger` rather than here (#122).
+
+              That measurement covers one route, not every route — a screen reader's
+              button list and the pointer could both still reach it. What it shows is
+              that it was advertised as a focusable control while being excluded from
+              the panel's own focus order: a duplicate name for an operation that
+              already had one.
+
+              The keyboard already has two ways out — Escape, measured, and the ✕ — so
+              dropping this from the accessible tree removes a phantom rather than a
+              route. `aria-hidden` needs the focusability gone first: on a focusable
+              element it is a violation in its own right.
+
+              No eslint-disable needed: `click-events-have-key-events` and
+              `no-static-element-interactions` both skip an `aria-hidden` element, and
+              a directive here reports as unused. */}
+          <div className="overlay-backdrop" aria-hidden="true" onClick={closeDrawer} />
           <section className="drawer" ref={drawerRef} role="dialog" aria-modal="true" aria-label="詳細パネル" tabIndex={-1}>
             <div className="drawer-handle" />
             <div className="drawer-top"><span className="drawer-kicker">{drawer === "add" ? "NEW ASSIGNMENT" : drawer === "assignment" ? "ASSIGNMENT DETAIL" : drawer === "newProject" ? "NEW PROJECT" : drawer === "newMember" ? "NEW MEMBER" : drawer === "editProject" ? "EDIT PROJECT" : drawer === "editMember" ? "EDIT MEMBER" : drawer === "needForm" ? (editingNeedId ? "EDIT STAFFING NEED" : "NEW STAFFING NEED") : drawer === "opportunity" ? "OPPORTUNITY DETAIL" : drawer === "newOpportunity" ? "NEW OPPORTUNITY" : drawer === "editOpportunity" ? "EDIT OPPORTUNITY" : drawer === "opportunityNeedForm" ? (editingOpportunityNeedId ? "EDIT STAFFING PLAN" : "NEW STAFFING PLAN") : drawer === "project" ? "PROJECT DETAIL" : drawer === "member" ? "MEMBER PROFILE" : "RESOLUTION GUIDE"}</span><button className="close-button" aria-label="詳細パネルを閉じる" onClick={closeDrawer}><X size={18} /></button></div>
@@ -2496,27 +2945,73 @@ export default function Home({ mode = "demo", organizationId, organizationName =
             {drawer === "add" && (
               <form className="assignment-form" onChange={markFormDraftDirty} onSubmit={handleAddAssignment}>
                 <div className="drawer-heading"><span className="drawer-icon cobalt"><Plus size={19} /></span><div><h2>アサインを追加</h2><p>日付と稼働配分を仮置きします。</p></div></div>
-                <label htmlFor="assignment-member">メンバー<select id="assignment-member" aria-label="メンバー" value={form.personId} onChange={(event) => setForm({ ...form, personId: event.target.value })}>{workspace.members.map((member) => <option value={member.id} key={member.id}>{member.name} · この週 {memberLoad(workspace, member.id, weekStart)}%</option>)}</select></label>
+                <MemberPicker
+                  legend="メンバー"
+                  hint={`${shortDate(form.startDate)} — ${shortDate(form.endDate)} の稼働 · 空きが多い順`}
+                  name="assignment-member"
+                  searchLabel="アサインするメンバーを検索"
+                  candidates={addCandidates}
+                  limit={MEMBER_PICKER_LIMIT}
+                  value={form.personId}
+                  onChange={(personId) => setForm({ ...form, personId })}
+                  query={memberPickerQuery}
+                  onQueryChange={setMemberPickerQuery}
+                  chosenRef={chosenCandidateRef}
+                />
                 <label htmlFor="assignment-project">プロジェクト<select id="assignment-project" aria-label="プロジェクト" value={form.projectId} onChange={(event) => selectAssignmentProject(event.target.value)}>{workspace.projects.map((project) => <option value={project.id} key={project.id}>{project.name}</option>)}</select></label>
                 <div className="form-grid">
                   <label>開始日<input required type="date" value={form.startDate} onChange={(event) => setForm({ ...form, startDate: event.target.value })} /></label>
                   <label>終了日<input required type="date" min={form.startDate} value={form.endDate} onChange={(event) => setForm({ ...form, endDate: event.target.value })} /></label>
                 </div>
                 <label>稼働配分<div className="allocation-input"><input type="range" min="10" max="100" step="10" value={form.allocation} onChange={(event) => setForm({ ...form, allocation: event.target.value })} /><output>{form.allocation}%</output></div></label>
+                {/* Weekend work is opt-in, one date at a time: the range says nothing
+                    about it, and 12 of the 15 assignments in the seed span a weekend
+                    just by lasting more than a week (#222). */}
+                <WeekendWorkPicker
+                  startDate={form.startDate}
+                  endDate={form.endDate}
+                  value={form.weekendWorkDates}
+                  onChange={(weekendWorkDates) => setForm({ ...form, weekendWorkDates })}
+                />
                 <div className="form-note"><Sparkles size={15} /><span>保存前は斜線付きの「仮置き」で表示します。</span></div><button className="drawer-primary" type="submit" disabled={!canAddAssignment}><Check size={16} />この内容で仮置きする</button>
               </form>
             )}
 
             {drawer === "assignment" && selectedAssignment && (
               <form className="assignment-form assignment-edit-form" onChange={markFormDraftDirty} onSubmit={handleEditAssignment}>
-                <div className="drawer-heading"><span className="drawer-icon cobalt"><CalendarDays size={19} /></span><div><h2>アサインの詳細</h2><p>{projectById(workspace, selectedAssignment.projectId)?.name ?? "プロジェクト"} · {memberById(workspace, selectedAssignment.personId)?.name ?? "担当者"}</p></div></div>
-                <label htmlFor="assignment-edit-member">メンバー<select id="assignment-edit-member" aria-label="メンバー" disabled={!canEdit} value={assignmentEditForm.personId} onChange={(event) => setAssignmentEditForm({ ...assignmentEditForm, personId: event.target.value })}>{workspace.members.map((member) => <option value={member.id} key={member.id}>{member.name}</option>)}</select></label>
+                <div className="drawer-heading"><span className="drawer-icon cobalt"><CalendarDays size={19} /></span><div><h2>アサインの詳細</h2><p>{projectById(workspace, selectedAssignment.projectId)?.name ?? "プロジェクト"} · {(() => { const person = memberById(workspace, selectedAssignment.personId); return person ? memberLabel(workspace, person) : "担当者"; })()}</p></div></div>
+                {/* 「付け替えた場合の稼働」, not the plain load: this assignment is already in
+                    the workspace, so a plain reading counts it against whoever holds it and
+                    means something different for them than for everyone else in the list.
+                    The figure here is what the board would show if this form were saved onto
+                    that person, which is the question a swap actually asks (#219). */}
+                <MemberPicker
+                  legend="メンバー"
+                  hint={`${shortDate(assignmentEditForm.startDate)} — ${shortDate(assignmentEditForm.endDate)} · 付け替えた場合の稼働 · 空きが多い順`}
+                  name="assignment-edit-member"
+                  searchLabel="付け替え先のメンバーを検索"
+                  candidates={editCandidates}
+                  limit={MEMBER_PICKER_LIMIT}
+                  value={assignmentEditForm.personId}
+                  onChange={(personId) => setAssignmentEditForm({ ...assignmentEditForm, personId })}
+                  query={memberPickerQuery}
+                  onQueryChange={setMemberPickerQuery}
+                  disabled={!canEdit}
+                  chosenRef={chosenCandidateRef}
+                />
                 <label htmlFor="assignment-edit-project">プロジェクト<select id="assignment-edit-project" aria-label="プロジェクト" disabled={!canEdit} value={assignmentEditForm.projectId} onChange={(event) => setAssignmentEditForm({ ...assignmentEditForm, projectId: event.target.value })}>{workspace.projects.map((project) => <option value={project.id} key={project.id}>{project.name}</option>)}</select></label>
                 <div className="form-grid">
                   <label>開始日<input required disabled={!canEdit} type="date" min={projectById(workspace, assignmentEditForm.projectId)?.startDate} max={projectById(workspace, assignmentEditForm.projectId)?.endDate} value={assignmentEditForm.startDate} onChange={(event) => setAssignmentEditForm({ ...assignmentEditForm, startDate: event.target.value })} /></label>
                   <label>終了日<input required disabled={!canEdit} min={assignmentEditForm.startDate || projectById(workspace, assignmentEditForm.projectId)?.startDate} max={projectById(workspace, assignmentEditForm.projectId)?.endDate} type="date" value={assignmentEditForm.endDate} onChange={(event) => setAssignmentEditForm({ ...assignmentEditForm, endDate: event.target.value })} /></label>
                 </div>
                 <label>稼働配分（%）<input required disabled={!canEdit} min="1" max="100" step="1" type="number" value={assignmentEditForm.allocation} onChange={(event) => setAssignmentEditForm({ ...assignmentEditForm, allocation: event.target.value })} /></label>
+                <WeekendWorkPicker
+                  startDate={assignmentEditForm.startDate}
+                  endDate={assignmentEditForm.endDate}
+                  value={assignmentEditForm.weekendWorkDates}
+                  onChange={(weekendWorkDates) => setAssignmentEditForm({ ...assignmentEditForm, weekendWorkDates })}
+                  disabled={!canEdit}
+                />
                 <div className="form-note"><SlidersHorizontal size={15} /><span>{canEdit ? selectedAssignment.staffingNeedId ? "要員要件を満たさない変更では、元の不足ロールを再オープンします。変更は保存まで元に戻せます。" : "変更と取消は仮置きされ、チームへ保存するまで元に戻せます。" : "このアサインは閲覧のみです。変更権限があるメンバーへ依頼してください。"}</span></div>
                 {canEdit ? (
                   <div className="assignment-edit-actions">
@@ -2530,8 +3025,8 @@ export default function Home({ mode = "demo", organizationId, organizationName =
             {drawer === "overload" && overloadMember && (
               <div className="drawer-content">
                 <div className="drawer-heading"><span className={"drawer-icon " + (overloadPlanned ? "mint" : "coral")}>{overloadPlanned ? <CheckCircle2 size={19} /> : <AlertTriangle size={19} />}</span><div><h2>{overloadPlanned ? "解消予定を確認" : "上限超過を調整"}</h2><p>{overloadMember.name}さん · {overloadMember.role}</p></div></div>
-                <div className={"capacity-card " + (overloadPlanned ? "resolved" : "")}><div><span>今週の稼働</span><strong>{memberLoad(workspace, overloadMember.id, currentWeekStart)}% / 稼働上限{overloadMember.capacity}%</strong></div><div className="capacity-meter"><span style={{ width: Math.min(100, memberLoad(workspace, overloadMember.id, currentWeekStart) / overloadMember.capacity * 100) + "%" }} /><i>{overloadMember.capacity}%</i></div><p>{overloadPlanned ? "保存すると超過警告が解消されます。" : `稼働上限を${Math.max(0, memberLoad(workspace, overloadMember.id, currentWeekStart) - overloadMember.capacity)}%超えています。`}</p></div>
-                <div className="drawer-section-title"><span>現在の配分</span><small>合計 {memberLoad(workspace, overloadMember.id, currentWeekStart)}%</small></div>
+                <div className={"capacity-card " + (overloadPlanned ? "resolved" : "")}><div><span>{measuredWeekLabel}の稼働</span><strong>{memberLoad(workspace, overloadMember.id, weekStart)}% / 稼働上限{overloadMember.capacity}%</strong></div><div className="capacity-meter"><span style={{ width: Math.min(100, memberLoad(workspace, overloadMember.id, weekStart) / overloadMember.capacity * 100) + "%" }} /><i>{overloadMember.capacity}%</i></div><p>{overloadPlanned ? "保存すると超過警告が解消されます。" : `稼働上限を${Math.max(0, memberLoad(workspace, overloadMember.id, weekStart) - overloadMember.capacity)}%超えています。`}</p></div>
+                <div className="drawer-section-title"><span>現在の配分</span><small>合計 {memberLoad(workspace, overloadMember.id, weekStart)}%</small></div>
                 <div className="allocation-list">{overloadAssignments.map((assignment) => <div key={assignment.id}><span className={"project-dot " + (projectById(workspace, assignment.projectId)?.tone || "blue")} /><span><strong>{projectById(workspace, assignment.projectId)?.name}</strong><small>{formatDate(assignment.startDate)} — {formatDate(assignment.endDate)}</small></span><b>{assignment.allocation}%</b></div>)}</div>
                 {!overloadPlanned && canEdit && overloadAssignments.length > 0 ? <><div className="suggestion-card"><span><Sparkles size={15} /></span><div><strong>おすすめの調整</strong><p>超過している各営業日の案件配分を順に減らし、すべての日を稼働上限内へ収めます。</p></div></div><button className="drawer-primary" onClick={resolveOverload}><CheckCircle2 size={16} />推奨配分へ調整</button></> : <button className="drawer-primary" onClick={closeDrawer}><Check size={16} />閉じる</button>}
               </div>
@@ -2545,11 +3040,15 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                   <div className="planned-candidate"><CheckCircle2 size={20} /><span><strong>{memberById(workspace, selectedNeed.draftPersonId || "")?.name ?? "担当者"}{selectedNeed.status === "planned" ? "さんを仮置き済み" : "さんで充足済み"}</strong><small>稼働配分 {selectedNeed.allocation}% · {formatDate(selectedNeed.startDate)} — {formatDate(selectedNeed.endDate)}</small></span></div>
                 ) : (
                   <>
-                    <div className="candidate-label"><span>条件に合うメンバー</span><small>必須条件を満たす候補をスコア順に最大5名</small></div>
-                    {candidateMatches.length > 0 ? <div className="candidate-list">{candidateMatches.map((match) => <article key={match.member.id}><span className={"avatar " + match.member.avatarTone}>{match.member.initials}</span><span><strong>{match.member.name}</strong><small>{match.member.role} · 要件期間の最小空き {match.availablePercent}% · 適合 {match.score}点</small><em><Check size={10} />{match.matchedMust.length > 0 ? `${match.matchedMust.join("・")}に適合` : `${selectedNeed.role}に適合`}</em></span>{canEdit ? <button onClick={() => placeCandidate(match.member.id, selectedNeed)}>仮置き</button> : <span className="read-only-label">閲覧のみ</span>}</article>)}</div> : <div className="candidate-empty"><UsersRound size={18} /><span><strong>条件を満たす候補がいません</strong><small>メンバーのスキルまたは要件期間の配分を見直してください。</small></span></div>}
+                    <div className="candidate-label"><span>条件に合うメンバー</span><small>必須条件を満たす候補を、要件期間の最小空きが多い順に最大5名</small></div>
+                    {candidateMatches.length > 0 ? <div className="candidate-list">{candidateMatches.map((match) => <article key={match.member.id}><span className={"avatar " + match.member.avatarTone}>{match.member.initials}</span><span><strong>{memberLabel(workspace, match.member)}</strong><small>{match.member.role} · 要件期間の最小空き {match.availablePercent}%</small><em><Check size={10} />{match.matchedMust.length > 0 ? `${match.matchedMust.join("・")}に適合` : `${selectedNeed.role}に適合`}</em></span>{canEdit ? <button onClick={() => placeCandidate(match.member.id, selectedNeed)}>仮置き</button> : <span className="read-only-label">閲覧のみ</span>}</article>)}</div> : <div className="candidate-empty"><UsersRound size={18} /><span><strong>条件を満たす候補がいません</strong><small>メンバーのスキルまたは要件期間の配分を見直してください。</small></span></div>}
                   </>
                 )}
                 <p className="drawer-footnote">候補は対象週の稼働と登録スキルに基づく参考情報です。</p>
+                {/* Not behind `canEdit`: the proposal screen only lines candidates up and
+                    copies a link, which a viewer may do. 「仮置き」 and 「要員要件を編集」
+                    below stay behind it because they change the workspace (#149). */}
+                <button className="drawer-secondary" onClick={() => openProposalFor(`need:${selectedNeed.id}`)}>この要件で提案を開く</button>
                 {canEdit && <div className="entity-action-row"><button className="drawer-secondary" onClick={() => openNeedEditor(selectedNeed)}>要員要件を編集</button><button className="drawer-danger" onClick={cancelNeed}><Trash2 size={15} />要員要件を取消</button></div>}
               </div>
             )}
@@ -2557,13 +3056,13 @@ export default function Home({ mode = "demo", organizationId, organizationName =
             {drawer === "project" && selectedProject && (
               <div className="drawer-content">
                 <div className="drawer-heading"><span className={"project-code drawer-code " + selectedProject.tone}>{selectedProject.code}</span><div><h2>{selectedProject.name}</h2><p>{selectedProject.summary}</p></div></div>
-                <div className="detail-facts"><div><span>状態</span><strong>{selectedProject.status}</strong></div><div><span>進捗</span><strong>{selectedProject.progress}%</strong></div><div><span>責任者</span><strong>{selectedProject.ownerName ?? "未設定"}</strong></div><div><span>完了予定</span><strong>{formatDate(selectedProject.endDate).replace(/^\d{4}年/, "")}</strong></div></div>
+                <div className="detail-facts"><div><span>状態</span><strong>{selectedProject.status}</strong></div><div><span>進捗</span><strong>{selectedProject.progress}%</strong></div><div><span>責任者</span><strong>{ownerLabel(workspace, selectedProject) ?? "未設定"}</strong></div><div><span>完了予定</span><strong>{formatDate(selectedProject.endDate).replace(/^\d{4}年/, "")}</strong></div></div>
                 <CustomFieldFacts fields={visibleCustomFields(workspace.customFields, "project", "detail")} values={selectedProject.customValues} />
                 {(workspace.opportunities ?? []).some((opportunity) => opportunity.convertedProjectId === selectedProject.id) && (
                   <button className="drawer-secondary" onClick={() => openOpportunity((workspace.opportunities ?? []).find((opportunity) => opportunity.convertedProjectId === selectedProject.id)!.id)}>元の受注前案件を開く</button>
                 )}
                 <div className="drawer-section-title"><span>4週間の充足</span><small>{selectedProject.demand === 0 ? "必要人数 未設定" : `必要 ${selectedProject.demand}名`}</small></div>
-                <div className="detail-capacity-rail">{[0, 1, 2, 3].map((offset) => { const count = projectMembers(workspace, selectedProject.id, addDays(currentWeekStart, offset * 7)); return <div key={offset}><i><b className={selectedProject.demand > 0 && count < selectedProject.demand ? "short" : ""} style={{ width: (selectedProject.demand === 0 ? 100 : Math.min(100, count / selectedProject.demand * 100)) + "%" }} /></i><span>{offset === 0 ? "今週" : offset + 1 + "週後"}</span><strong>{selectedProject.demand === 0 ? "未設定" : `${count}/${selectedProject.demand}`}</strong></div>; })}</div>
+                <div className="detail-capacity-rail">{[0, 1, 2, 3].map((offset) => { const count = projectMembers(workspace, selectedProject.id, addDays(weekStart, offset * 7)); return <div key={offset}><i><b className={selectedProject.demand > 0 && count < selectedProject.demand ? "short" : ""} style={{ width: (selectedProject.demand === 0 ? 100 : Math.min(100, count / selectedProject.demand * 100)) + "%" }} /></i><span>{offset === 0 ? measuredWeekLabel : offset + 1 + "週後"}</span><strong>{selectedProject.demand === 0 ? "未設定" : `${count}/${selectedProject.demand}`}</strong></div>; })}</div>
                 <div className="drawer-section-title"><span>担当メンバー</span><small>{projectMembers(workspace, selectedProject.id, weekStart)}名</small></div>
                 <div className="detail-member-list">{workspace.assignments.filter((assignment) => assignment.projectId === selectedProject.id && overlaps(assignment.startDate, assignment.endDate, weekStart, weekEnd(weekStart))).map((assignment) => { const member = memberById(workspace, assignment.personId); return <button onClick={() => member && openMember(member.id)} key={assignment.id}><span className={"avatar " + member?.avatarTone}>{member?.initials}</span><span><strong>{member?.name}</strong><small>{member?.role}</small></span><b>{assignment.allocation}%</b></button>; })}</div>
                 <div className="drawer-section-title"><span>要員要件</span><small>{selectedProjectNeeds.length}件</small></div>
@@ -2582,8 +3081,8 @@ export default function Home({ mode = "demo", organizationId, organizationName =
               <div className="drawer-content">
                 <div className="profile-hero">
                   <span className={"avatar profile-avatar " + selectedMember.avatarTone}>{selectedMember.initials}</span>
-                  <div><h2>{selectedMember.name}</h2><p>{selectedMember.role} · {selectedMember.department}</p><small>{selectedMember.location}</small></div>
-                  <FavoriteStar name={selectedMember.name} pressed={isFavorited(favorites, "member", selectedMember.id)} onToggle={() => void toggleFavoriteTarget("member", selectedMember.id)} />
+                  <div><h2>{memberLabel(workspace, selectedMember)}</h2><p>{selectedMember.role} · {selectedMember.department}</p><small>{selectedMember.location}</small></div>
+                  <FavoriteStar name={memberLabel(workspace, selectedMember)} pressed={isFavorited(favorites, "member", selectedMember.id)} onToggle={() => void toggleFavoriteTarget("member", selectedMember.id)} />
                   <strong>{memberLoad(workspace, selectedMember.id, weekStart)}%</strong>
                 </div>
                 <div className="profile-skills">{memberSkillLevels(selectedMember).map((level) => <span key={level.name}>{level.name}<small>{level.proficiency}</small></span>)}</div>
@@ -2592,7 +3091,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                 <div className="drawer-section-title"><span>業務経歴</span><small>{(selectedMember.workHistory ?? []).length}件</small></div>
                 <WorkHistoryList entries={selectedMember.workHistory} />
                 <div className="drawer-section-title"><span>4週間の稼働</span><small>稼働上限 {selectedMember.capacity}%</small></div>
-                <div className="profile-capacity">{[0, 1, 2, 3].map((offset) => { const load = memberLoad(workspace, selectedMember.id, addDays(weekStart, offset * 7)); const ratio = selectedMember.capacity > 0 ? load / selectedMember.capacity * 100 : load > 0 ? 100 : 0; return <div key={offset}><span>{offset === 0 ? "今週" : offset + 1 + "週後"}</span><i><b className={load > selectedMember.capacity ? "over" : ""} style={{ width: Math.min(100, ratio) + "%" }} /></i><strong>{load}% / {selectedMember.capacity}%</strong></div>; })}</div>
+                <div className="profile-capacity">{[0, 1, 2, 3].map((offset) => { const load = memberLoad(workspace, selectedMember.id, addDays(weekStart, offset * 7)); const ratio = selectedMember.capacity > 0 ? load / selectedMember.capacity * 100 : load > 0 ? 100 : 0; return <div key={offset}><span>{offset === 0 ? measuredWeekLabel : offset + 1 + "週後"}</span><i><b className={load > selectedMember.capacity ? "over" : ""} style={{ width: Math.min(100, ratio) + "%" }} /></i><strong>{load}% / {selectedMember.capacity}%</strong></div>; })}</div>
                 <div className="drawer-section-title"><span>現在のアサイン</span><small>{workspace.assignments.filter((assignment) => assignment.personId === selectedMember.id && overlaps(assignment.startDate, assignment.endDate, weekStart, weekEnd(weekStart))).length}件</small></div>
                 <div className="allocation-list">{workspace.assignments.filter((assignment) => assignment.personId === selectedMember.id && overlaps(assignment.startDate, assignment.endDate, weekStart, weekEnd(weekStart))).map((assignment) => <div key={assignment.id}><span className={"project-dot " + (projectById(workspace, assignment.projectId)?.tone || "plum")} /><span><strong>{assignment.label || projectById(workspace, assignment.projectId)?.name || "プロジェクト未登録"}</strong><small>{formatDate(assignment.startDate)} — {formatDate(assignment.endDate)}</small></span><b>{assignment.allocation}%</b></div>)}</div>
                 <div className="entity-action-row">
@@ -2633,7 +3132,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                 <div className="drawer-heading"><span className="drawer-icon cobalt"><BriefcaseBusiness size={19} /></span><div><h2>プロジェクトを編集</h2><p>{selectedProject.code} · 期間変更時は範囲外の配員も整合します。</p></div></div>
                 <label>プロジェクト名<input required value={projectEditForm.name} onChange={(event) => setProjectEditForm({ ...projectEditForm, name: event.target.value })} /></label>
                 <label>概要<textarea value={projectEditForm.summary} onChange={(event) => setProjectEditForm({ ...projectEditForm, summary: event.target.value })} rows={3} /></label>
-                <div className="form-grid"><label htmlFor="project-edit-status">状態<select id="project-edit-status" aria-label="状態" value={projectEditForm.status} onChange={(event) => setProjectEditForm({ ...projectEditForm, status: event.target.value as ProjectStatus })}>{["準備中", "進行中", "要注意", "完了間近", "完了"].map((status) => <option key={status}>{status}</option>)}</select></label><label htmlFor="project-edit-owner">責任者<select id="project-edit-owner" aria-label="責任者" required value={projectEditForm.ownerId} onChange={(event) => setProjectEditForm({ ...projectEditForm, ownerId: event.target.value })}>{workspace.members.map((member) => <option value={member.id} key={member.id}>{member.name}</option>)}</select></label></div>
+                <div className="form-grid"><label htmlFor="project-edit-status">状態<select id="project-edit-status" aria-label="状態" value={projectEditForm.status} onChange={(event) => setProjectEditForm({ ...projectEditForm, status: event.target.value as ProjectStatus })}>{["準備中", "進行中", "要注意", "完了間近", "完了"].map((status) => <option key={status}>{status}</option>)}</select></label><label htmlFor="project-edit-owner">責任者<select id="project-edit-owner" aria-label="責任者" required value={projectEditForm.ownerId} onChange={(event) => setProjectEditForm({ ...projectEditForm, ownerId: event.target.value })}>{!projectEditForm.ownerId && <option value="">責任者を選ぶ</option>}{workspace.members.map((member) => <option value={member.id} key={member.id}>{memberLabel(workspace, member)}</option>)}</select></label></div>
                 <div className="form-grid"><label>開始日<input required type="date" value={projectEditForm.startDate} onChange={(event) => setProjectEditForm({ ...projectEditForm, startDate: event.target.value })} /></label><label>終了日<input required type="date" min={projectEditForm.startDate} value={projectEditForm.endDate} onChange={(event) => setProjectEditForm({ ...projectEditForm, endDate: event.target.value })} /></label></div>
                 <label>次のマイルストーン<input value={projectEditForm.nextMilestone} onChange={(event) => setProjectEditForm({ ...projectEditForm, nextMilestone: event.target.value })} /></label>
                 <label>マイルストーン日<input type="date" min={projectEditForm.startDate} max={projectEditForm.endDate} value={projectEditForm.nextMilestoneDate} onChange={(event) => setProjectEditForm({ ...projectEditForm, nextMilestoneDate: event.target.value })} /></label>
@@ -2662,7 +3161,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                 <div className="detail-facts">
                   <div><span>段階</span><strong>{OPPORTUNITY_STAGE_LABELS[selectedOpportunity.stage]}</strong></div>
                   <div><span>想定人数</span><strong>{selectedOpportunity.demand}名</strong></div>
-                  <div><span>責任者</span><strong>{selectedOpportunity.ownerName ?? "未設定"}</strong></div>
+                  <div><span>責任者</span><strong>{ownerLabel(workspace, selectedOpportunity) ?? "未設定"}</strong></div>
                   <div><span>想定期間</span><strong>{formatDate(selectedOpportunity.startDate).replace(/^\d{4}年/, "")} — {formatDate(selectedOpportunity.endDate).replace(/^\d{4}年/, "")}</strong></div>
                 </div>
                 {selectedOpportunity.convertedProjectId && projectById(workspace, selectedOpportunity.convertedProjectId) && (
@@ -2689,7 +3188,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                           <article key={member.id}>
                             <span className={"avatar " + member.avatarTone}>{member.initials}</span>
                             <span>
-                              <strong>{member.name}</strong>
+                              <strong>{memberLabel(workspace, member)}</strong>
                               <small>{member.role} · 要件期間の最小空き {member.capacity - memberPeakLoad(workspace, member.id, selectedOpportunityNeed.startDate, selectedOpportunityNeed.endDate)}%</small>
                               <em><Check size={10} />{selectedOpportunityNeed.skills.length > 0 ? `${member.skills.filter((skill) => selectedOpportunityNeed.skills.some((neededSkill) => neededSkill.toLocaleLowerCase() === skill.toLocaleLowerCase())).join("・")}に適合` : `${selectedOpportunityNeed.role}に適合`}</em>
                             </span>
@@ -2698,6 +3197,10 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                         ))}
                       </div>
                     ) : <div className="candidate-empty"><UsersRound size={18} /><span><strong>条件を満たす候補がいません</strong><small>メンバーのスキルまたは想定期間の配分を見直してください。</small></span></div>}
+                    {/* Same words as the guide's, because it does the same thing. 「候補を見る」
+                        on the rows above stays inside this panel; this one leaves for the
+                        proposal screen with the selected plan as its subject (#149). */}
+                    <button className="drawer-secondary" onClick={() => openProposalFor(`plan:${selectedOpportunityNeed.id}`)}>この要件で提案を開く</button>
                   </>
                 )}
                 {canEdit && isActiveOpportunity(selectedOpportunity) && <button className="drawer-primary" onClick={() => openOpportunityNeedEditor()}><UserRoundPlus size={16} />要員計画を追加</button>}
@@ -2721,7 +3224,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                 <label>概要<textarea value={opportunityForm.summary} onChange={(event) => setOpportunityForm({ ...opportunityForm, summary: event.target.value })} rows={3} /></label>
                 <div className="form-grid">
                   <label htmlFor="opportunity-new-stage">段階<select id="opportunity-new-stage" aria-label="段階" value={opportunityForm.stage} onChange={(event) => setOpportunityForm({ ...opportunityForm, stage: event.target.value as OpportunityStage })}>{(["inquiry", "proposal", "negotiation"] as const).map((stage) => <option value={stage} key={stage}>{OPPORTUNITY_STAGE_LABELS[stage]}</option>)}</select></label>
-                  <label htmlFor="opportunity-new-owner">責任者<select id="opportunity-new-owner" aria-label="責任者" required value={opportunityForm.ownerId} onChange={(event) => setOpportunityForm({ ...opportunityForm, ownerId: event.target.value })}>{workspace.members.map((member) => <option value={member.id} key={member.id}>{member.name}</option>)}</select></label>
+                  <label htmlFor="opportunity-new-owner">責任者<select id="opportunity-new-owner" aria-label="責任者" required value={opportunityForm.ownerId} onChange={(event) => setOpportunityForm({ ...opportunityForm, ownerId: event.target.value })}>{workspace.members.map((member) => <option value={member.id} key={member.id}>{memberLabel(workspace, member)}</option>)}</select></label>
                 </div>
                 <div className="form-grid"><label>開始日<input required type="date" value={opportunityForm.startDate} onChange={(event) => setOpportunityForm({ ...opportunityForm, startDate: event.target.value })} /></label><label>終了日<input required type="date" min={opportunityForm.startDate} value={opportunityForm.endDate} onChange={(event) => setOpportunityForm({ ...opportunityForm, endDate: event.target.value })} /></label></div>
                 <label>必要人数<input required type="number" min="0" max="10000" value={opportunityForm.demand} onChange={(event) => setOpportunityForm({ ...opportunityForm, demand: event.target.value })} /></label>
@@ -2736,7 +3239,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                 <label>概要<textarea value={opportunityEditForm.summary} onChange={(event) => setOpportunityEditForm({ ...opportunityEditForm, summary: event.target.value })} rows={3} /></label>
                 <div className="form-grid">
                   <label htmlFor="opportunity-edit-stage">段階<select id="opportunity-edit-stage" aria-label="段階" value={opportunityEditForm.stage} onChange={(event) => setOpportunityEditForm({ ...opportunityEditForm, stage: event.target.value as OpportunityStage })}>{(["inquiry", "proposal", "negotiation"] as const).map((stage) => <option value={stage} key={stage}>{OPPORTUNITY_STAGE_LABELS[stage]}</option>)}</select></label>
-                  <label htmlFor="opportunity-edit-owner">責任者<select id="opportunity-edit-owner" aria-label="責任者" required value={opportunityEditForm.ownerId} onChange={(event) => setOpportunityEditForm({ ...opportunityEditForm, ownerId: event.target.value })}>{workspace.members.map((member) => <option value={member.id} key={member.id}>{member.name}</option>)}</select></label>
+                  <label htmlFor="opportunity-edit-owner">責任者<select id="opportunity-edit-owner" aria-label="責任者" required value={opportunityEditForm.ownerId} onChange={(event) => setOpportunityEditForm({ ...opportunityEditForm, ownerId: event.target.value })}>{workspace.members.map((member) => <option value={member.id} key={member.id}>{memberLabel(workspace, member)}</option>)}</select></label>
                 </div>
                 <div className="form-grid"><label>開始日<input required type="date" value={opportunityEditForm.startDate} onChange={(event) => setOpportunityEditForm({ ...opportunityEditForm, startDate: event.target.value })} /></label><label>終了日<input required type="date" min={opportunityEditForm.startDate} value={opportunityEditForm.endDate} onChange={(event) => setOpportunityEditForm({ ...opportunityEditForm, endDate: event.target.value })} /></label></div>
                 <label>必要人数<input required type="number" min="0" max="10000" value={opportunityEditForm.demand} onChange={(event) => setOpportunityEditForm({ ...opportunityEditForm, demand: event.target.value })} /></label>
@@ -2761,7 +3264,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                 <div className="drawer-heading"><span className="drawer-icon cobalt"><BriefcaseBusiness size={19} /></span><div><h2>プロジェクトを追加</h2><p>一覧へ追加し、後から配員を設定します。</p></div></div>
                 <label>プロジェクト名<input required value={projectForm.name} onChange={(event) => setProjectForm({ ...projectForm, name: event.target.value })} placeholder="例：顧客ポータル刷新" /></label>
                 <label htmlFor="project-new-status">状態<select id="project-new-status" aria-label="状態" value={projectForm.status} onChange={(event) => setProjectForm({ ...projectForm, status: event.target.value as ProjectStatus })}>{["準備中", "進行中", "要注意", "完了間近"].map((status) => <option key={status}>{status}</option>)}</select></label>
-                <label htmlFor="project-new-owner">責任者<select id="project-new-owner" aria-label="責任者" value={projectForm.ownerId} onChange={(event) => setProjectForm({ ...projectForm, ownerId: event.target.value })}>{workspace.members.map((member) => <option value={member.id} key={member.id}>{member.name}</option>)}</select></label>
+                <label htmlFor="project-new-owner">責任者<select id="project-new-owner" aria-label="責任者" value={projectForm.ownerId} onChange={(event) => setProjectForm({ ...projectForm, ownerId: event.target.value })}>{workspace.members.map((member) => <option value={member.id} key={member.id}>{memberLabel(workspace, member)}</option>)}</select></label>
                 <label>完了予定<input required type="date" min={days[0].iso} value={projectForm.endDate} onChange={(event) => setProjectForm({ ...projectForm, endDate: event.target.value })} /></label>
                 <button className="drawer-primary" type="submit" disabled={!canEdit}><Check size={16} />プロジェクトを追加</button>
               </form>
@@ -2806,7 +3309,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
         elevated={unsavedChanges > 0}
         unavailableReason={mode === "demo" ? "AIチャットは、共有モードでログインすると利用できます。" : undefined}
       />
-      <div className={"toast " + (toast ? "show" : "")} role="status" aria-live="polite"><Check size={14} />{toast}</div>
+      <div className={"toast " + (toast ? "show" : "")} style={changeBarReach > 0 ? { "--toast-lift": `${changeBarReach}px` } as CSSProperties : undefined} role="status" aria-live="polite"><Check size={14} />{toast}</div>
       {!hydrated && <span className="sr-only">保存データを読み込み中</span>}
     </main>
   );

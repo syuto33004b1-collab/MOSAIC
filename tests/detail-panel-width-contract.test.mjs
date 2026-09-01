@@ -112,15 +112,60 @@ test("the two columns key off the panel, and the mobile sheet opts out", async (
     + "the type would let the query resolve against an ancestor instead (#137)");
 });
 
+/**
+ * The panel's capacity rail. Its figure sat in a 31px track — the width of
+ * 「40% / 100%」 at the 7px this rail used to be set in, before the 12px floor.
+ * Measured in the rail's own font, bold 12px Manrope: 68px for 「40% / 100%」,
+ * 74px for 「100% / 100%」, 75px for a three-digit ceiling. So 「120% / 100%」 drew
+ * as 31x49 — three wrapped lines — beside a 359px bar, at every panel width,
+ * which is why widening the panel in #196 did not help.
+ *
+ * Two things to hold, and neither is visible from the declaration alone:
+ *
+ * 1. Room for the widest figure. 76px is the floor the measurements above give;
+ *    the rule ships 80px.
+ * 2. A *fixed* track. Each row is its own grid, so `auto` would size each row's
+ *    number to its own content and give the four bars four different lengths —
+ *    and comparing their lengths down the column is what a rail is for.
+ *
+ * `.proposal-weeks` carries the same figure in 72px because it is not set in
+ * Manrope. The number does not transfer between them; this checks only this one.
+ */
+test("the capacity rail's figure has room for its widest reading", async () => {
+  const css = withoutComments(await read());
+  const rule = css.match(/\.profile-capacity > div \{([^}]*)\}/u);
+  assert.ok(rule, "expected the .profile-capacity row rule");
+  const columns = rule[1].match(/grid-template-columns:\s*([^;]+)/u);
+  assert.ok(columns, ".profile-capacity > div declares no grid-template-columns");
+  // Split on top-level whitespace, so `minmax(0, 1fr)` stays one track.
+  const parts = [];
+  let depth = 0;
+  let current = "";
+  for (const character of columns[1].trim()) {
+    if (character === "(") depth += 1;
+    if (character === ")") depth -= 1;
+    if (depth === 0 && /\s/u.test(character)) { if (current) parts.push(current); current = ""; continue; }
+    current += character;
+  }
+  if (current) parts.push(current);
+  const track = parts.at(-1);
+  const px = /^(\d+(?:\.\d+)?)px$/u.exec(track ?? "");
+  assert.ok(px, `the figure's track is 「${track}」; it has to be a fixed px width, or the four `
+    + "bars in a rail get four different lengths and stop being comparable (#210)");
+  assert.ok(Number(px[1]) >= 76, `the figure's track is ${px[1]}px. 「100% / 100%」 measures 74px in `
+    + "bold 12px Manrope and a three-digit ceiling 75px, so under 76 it wraps (#210)");
+});
+
 test("the threshold is pinned, and every rule in the block is .drawer-prefixed", async () => {
   const css = withoutComments(await read());
   const block = containerBlock(css);
   assert.ok(block, "expected an @container block for the panel");
   // Exactly 600, not a range: the number is load-bearing at both ends. It puts the
-  // switch at a 650px panel, so two columns from about a 1250px viewport at 52vw
-  // with each column near 300px; and it leaves the 620px sheet's content box 18px
-  // short, which is the only thing keeping that sheet in one column besides the
-  // `container: none` above.
+  // switch at a 650px panel — two columns from about a 1045px viewport at #196's 62vw,
+  // where it was about 1250px at #137's 52vw, and the columns measured 289px at 1060px
+  // against 300px at 1250px, which is the same design point reached sooner. And it leaves
+  // the 620px sheet's content box 18px short, which is the only thing keeping that sheet
+  // in one column besides the `container: none` above.
   assert.equal(block.width, 600,
     `the block starts at ${block.width}px. 600 is measured — moving it changes both which viewports `
     + "get two columns and how much clearance the mobile sheet has (#137)");

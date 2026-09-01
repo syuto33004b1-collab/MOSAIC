@@ -73,7 +73,9 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .primary-button { height: 40px; padding: 0 16px; border-color: var(--cobalt); border-radius: 11px; background: var(--cobalt); color: #fff; font-size: var(--text-min); font-weight: 700; box-shadow: 0 8px 18px rgba(86,104,232,.2); }
 .primary-button span { margin-right: 5px; font-size: var(--text-lg); font-weight: 400; }
 
-.pulse-strip { min-height: 82px; margin-bottom: 18px; padding: 14px 18px; border: 1px solid #dfe4ed; border-radius: 17px; background: var(--paper); box-shadow: 0 6px 22px rgba(36,48,78,.04); display: flex; flex-wrap: wrap; align-items: center; gap: 25px; overflow: hidden; }
+/* No min-height, like `.member-ribbon` above it: the theme layer decides the box, and it
+   decides it from the content (#136, #193). */
+.pulse-strip { margin-bottom: 18px; padding: 14px 18px; border: 1px solid #dfe4ed; border-radius: 17px; background: var(--paper); box-shadow: 0 6px 22px rgba(36,48,78,.04); display: flex; flex-wrap: wrap; align-items: center; gap: 25px; overflow: hidden; }
 .pulse-heading { min-width: 185px; display: flex; align-items: center; gap: 11px; }
 .live-dot { width: 10px; height: 10px; border: 3px solid #dfe4ff; border-radius: 50%; background: var(--cobalt); box-shadow: 0 0 0 5px #f1f3ff; }
 .pulse-heading small, .pulse-heading strong { display: block; }
@@ -85,9 +87,6 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .pulse-metric > span { color: #8991a2; font-size: 9px; }
 .pulse-metric.warning strong { color: var(--coral); }
 .pulse-rule { width: 1px; height: 34px; background: var(--line); }
-.pulse-mini-bars { align-self: stretch; margin-left: auto; padding: 8px 0 3px; display: flex; align-items: flex-end; gap: 4px; }
-.pulse-mini-bars i { display: block; width: 6px; min-height: 8px; border-radius: 5px 5px 2px 2px; background: #cfd5f8; }
-.pulse-mini-bars i:nth-child(3) { background: var(--cobalt); }
 
 .board-layout { display: grid; grid-template-columns: minmax(690px, 1fr) 268px; gap: 18px; align-items: start; }
 .schedule-card, .attention-panel { border: 1px solid #dfe4ed; border-radius: 17px; background: var(--paper); box-shadow: 0 6px 22px rgba(36,48,78,.04); }
@@ -97,7 +96,12 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .view-tabs button { height: 30px; padding: 0 13px; border-color: transparent; border-radius: 8px; background: transparent; color: #858da0; font-size: 9px; font-weight: 700; }
 .view-tabs button.selected { background: #fff; color: var(--ink); box-shadow: 0 2px 7px rgba(42,52,77,.09); }
 .toolbar-actions { display: flex; gap: 6px; }
-.toolbar-actions button { min-width: 52px; height: 31px; padding: 0 10px; border-radius: 8px; color: #747d90; font-size: 8px; }
+/* This row scrolls sideways rather than shrinking — that is what the
+   `overflow-x` at 620px is for. Without these two, flex shrank the buttons to
+   their 52px min-width and wrapped the labels instead: 「絞り込み」 came out on
+   three clipped lines at 375px, and 「今日」 on two before that (#198). */
+.toolbar-actions > * { flex: none; }
+.toolbar-actions button { min-width: 52px; height: 31px; padding: 0 10px; border-radius: 8px; color: #747d90; font-size: 8px; white-space: nowrap; }
 .toolbar-actions .arrow-button { min-width: 30px; padding: 0; font-family: var(--font-data); font-size: 17px; }
 .schedule-head { min-height: 46px; display: grid; grid-template-columns: var(--schedule-label-col) var(--schedule-day-tracks); border-bottom: 1px solid var(--line); background: #fafbfc; }
 /* Sticky, both of these. A month is 21 columns and the grid scrolls sideways —
@@ -122,7 +126,9 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .day-label.today strong { color: var(--cobalt); }
 .schedule-row { min-height: 78px; display: grid; grid-template-columns: var(--schedule-label-col) minmax(0, 1fr); border-bottom: 1px solid var(--line); }
 .schedule-row:last-child { border-bottom: 0; }
-.person-cell { position: sticky; z-index: 2; left: 0; min-width: 0; padding: 14px 15px 14px 18px; background: var(--paper); display: flex; align-items: center; gap: 10px; }
+/* 10px, not 14px: the row's height is its content now, so the padding is the whole of what
+   is spare. 8px was measured too — 4px a row, against a legible gutter (#192). */
+.person-cell { position: sticky; z-index: 2; left: 0; min-width: 0; padding: 10px 15px 10px 18px; background: var(--paper); display: flex; align-items: center; gap: 10px; }
 /* The row's hover tint has to reach the sticky cell too, or the cell stays pale
    while the rest of the row lights up. */
 .schedule-row:hover .person-cell { background: #fafbfe; }
@@ -131,6 +137,22 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 /* One rule per AvatarTone in src/domain.ts. A tone with no rule here renders
    with no background at all, which reads as a meaningful difference. */
 .avatar.lavender { background: var(--lavender); }.avatar.peach { background: var(--peach); }.avatar.sky { background: var(--sky); }.avatar.mint { background: var(--mint); }.avatar.sand { background: var(--sand); }.avatar.rose { background: var(--rose); }
+/* The row header's own control, styled like `.member-name-cell` because it is the same
+   thing on a different screen: the avatar and the name, opening what the row is (#195). */
+.person-open {
+  min-width: 0;
+  flex: 1;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-align: left;
+  color: inherit;
+  font: inherit;
+}
 .person-copy { min-width: 0; flex: 1; }
 /* These wrap rather than ellipsis (#87). Truncating them put the only copy of a
    value behind a hover, and the board's row header is not clickable, so there was
@@ -152,12 +174,23 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
    goes from 8+5=13px to 5px, while the gap between two days stays 5+5=10px.
    Every bar is now inset 5px from its own day boundary; before, the first and
    last were 13px in from the cell edge and so did not line up at all. */
-.week-cell { position: relative; padding: 14px 0; display: grid; grid-template-columns: var(--schedule-day-tracks); grid-auto-rows: 23px; gap: 4px 0; overflow: hidden; }
+.week-cell { position: relative; padding: 10px 0; display: grid; grid-template-columns: var(--schedule-day-tracks); grid-auto-rows: 23px; gap: 4px 0; overflow: hidden; }
 /* The same day tracks as the header and the cell. This was `repeat(5, 1fr)`
    over the cell's padding box, which agreed with the header by coincidence —
    that is why the boundary lines looked right while the bars did not. */
 .day-grid { position: absolute; inset: 0; display: grid; grid-template-columns: var(--schedule-day-tracks); pointer-events: none; }
 .day-grid i { border-left: 1px solid #edf0f5; }
+/* Saturday and Sunday, drawn but not counted. The figures on this screen are all
+   measured over weekdays, so a weekend column is background rather than a day
+   with room in it — the tint is what stops a bar crossing one from reading as
+   five days of work in a row (#207). */
+.day-label.weekend { background: var(--paper-deep); color: #9aa2b2; }
+.day-label.weekend strong { color: #8a93a5; }
+.day-grid i.weekend { background: var(--paper-deep); }
+/* A weekend that was actually worked. Without this a bar crossing a Saturday looks
+   the same whether anyone was there or not, which is the one thing the tint exists
+   to tell apart (#222). */
+.day-grid i.weekend.worked { background: var(--paper-pure); box-shadow: inset 0 -3px 0 var(--sage); }
 .assignment { z-index: 1; min-width: 0; margin: 0 4px; padding: 6px 9px; border-radius: 7px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #4351aa; font-size: 8px; font-weight: 700; line-height: 1.4; }
 .assignment.blue { background: #e6e9ff; }.assignment.mint { background: #dcf2ea; color: #317463; }.assignment.orange { background: #ffeadf; color: #a75e3f; }
 
@@ -184,7 +217,7 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .all-alerts span { color: var(--cobalt); font-size: 12px; }
 
 @media (max-width: 1280px) { .board-layout { grid-template-columns: minmax(0, 1fr); }.attention-panel { display: grid; grid-template-columns: auto 1fr 1fr; gap: 10px; }.attention-title { align-self: start; margin: 0 8px 0 0; }.all-alerts { display: none; } }
-@media (max-width: 820px) { .app-shell { grid-template-columns: 74px minmax(0,1fr); }.sidebar { padding-inline: 13px; }.brand { padding-inline: 10px; }.brand > span:last-child { display: none; }.nav-item { justify-content: center; padding: 0; font-size: 0; }.nav-icon { font-size: 18px; }.nav-count, .month-card, .profile-row > span:not(.avatar), .profile-row button { display: none; }.profile-row { justify-content: center; }.workspace { padding: 24px 18px; }.pulse-mini-bars { display: none; }.board-layout { overflow-x: auto; }.schedule-card { min-width: 720px; } }
+@media (max-width: 820px) { .app-shell { grid-template-columns: 74px minmax(0,1fr); }.sidebar { padding-inline: 13px; }.brand { padding-inline: 10px; }.brand > span:last-child { display: none; }.nav-item { justify-content: center; padding: 0; font-size: 0; }.nav-icon { font-size: 18px; }.nav-count, .month-card, .profile-row > span:not(.avatar), .profile-row button { display: none; }.profile-row { justify-content: center; }.workspace { padding: 24px 18px; }.board-layout { overflow-x: auto; }.schedule-card { min-width: 720px; } }
 @media (max-width: 620px) { .topbar { flex-direction: column; }.topbar-actions { width: 100%; }.primary-button { margin-left: auto; }.pulse-strip { gap: 16px; }.pulse-heading { width: 100%; }.pulse-rule { display: none; }.attention-panel { display: block; }.alert-card { margin-bottom: 10px; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; animation: none !important; } }
 
@@ -332,25 +365,39 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   transition: border-color .2s ease, background .2s ease;
 }
 .toolbar-actions > button:hover { border-color: #cdd4e0; background: #fafbfc; }
-.filter-select {
-  height: 31px;
-  padding: 0 8px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: #fff;
+/* The trigger takes the shape `.toolbar-actions button` already gives 今日 and
+   the arrows, so it only needs to say when it is doing something. */
+.filter-trigger.active { border-color: #b9c2ea; background: #f4f6fd; color: var(--cobalt); }
+/* Sized like `.nav-count`, the count pill the sidebar already uses: the token
+   rather than a literal, so it is not a hole in the 12px floor. */
+.filter-count {
+  min-width: 18px;
+  padding: 0 4px;
+  border-radius: 99px;
+  background: var(--cobalt);
+  color: #fff;
+  text-align: center;
+  font-family: var(--font-data);
+  font-size: var(--text-min);
+  line-height: 18px;
+}
+/* Its own row under the toolbar rather than a layer over it: `.toolbar-actions`
+   turns into a 31px `overflow-x: auto` strip at 620px, and anything positioned
+   inside that is clipped (#198). */
+.board-filter-panel {
+  padding: 10px 15px 10px 18px;
+  border-bottom: 1px solid var(--line);
+  background: #fafbfc;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 5px;
-  color: #747d90;
+  gap: 8px;
 }
-.filter-select select {
-  max-width: 126px;
-  border: 0;
-  background: transparent;
-  color: inherit;
-  font-size: 9px;
-  cursor: pointer;
-}
+/* `.toolbar-chips` is written for the wrapping toolbars on the member and
+   project screens, where it is a 100%-wide flex item. Here it is a block, so it
+   brings its own gutters — matched to the toolbar's, so the chips line up under
+   the controls that set them. */
+.schedule-card > .toolbar-chips { margin: 0; padding: 8px 15px 8px 18px; border-bottom: 1px solid var(--line); }
 .people-label { font-size: 9px; }
 .day-label { font-size: 9px; }
 .day-label strong { font-size: 12px; }
@@ -379,6 +426,26 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   opacity: .72;
   font-family: var(--font-data);
   font-size: 7px;
+}
+/* A bar narrow enough that the percentage would take the name's place drops the
+   percentage instead.
+   Measured at 1440px in month mode, where a column is 34px: a two-day bar is 58px wide,
+   38px of it inside the padding, and the badge plus its gap is 31.8px of that — leaving
+   the project name 3.3px of the 102px it wants. Nothing was legible, ellipsis included.
+   The name is the only thing on the bar that says which project it is; the percentage is
+   also in the bar's `title`, in the drawer behind it, and the row's own total is in the
+   `.load` chip to the left. So the name wins the space.
+   100px, because with the badge a three-day bar (92px) still leaves the name 40px — four
+   or five Japanese characters. Without it: 1 day 4px, 2 days 38px, 3 days 72px, and from
+   four days up both fit. A week-mode column is 72px, where the shortest bar is around
+   200px, so nothing there changes.
+   A container query rather than a media query: the thing that is too narrow is the bar,
+   not the viewport. `.section-view` and `.drawer` already do this for their two-column
+   layouts. The bar's own padding cannot be touched from in here — `@container` styles the
+   container's descendants, not the container — and dropping the badge is enough (#188). */
+.assignment { container-type: inline-size; }
+@container (max-width: 100px) {
+  .assignment small { display: none; }
 }
 .assignment:hover {
   filter: saturate(1.08);
@@ -519,8 +586,12 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   z-index: 1;
   /* 410px was the width at every viewport, so on a 1440px screen the panel used
      28% of it while its own content overflowed by 268px and the other 1030px sat
-     behind a dim backdrop doing nothing (#137). */
-  width: min(100%, clamp(410px, 52vw, 760px));
+     behind a dim backdrop doing nothing (#137).
+     62vw and 1000px rather than #137's 52vw and 760px. The shape is its: a floor, a term
+     that follows the viewport, a cap so an ultra-wide screen does not get an ultra-wide
+     panel. What moved is how much of the screen a detail is allowed — 748.8px of 1440
+     becomes 892.8px, and 1920px stops being capped at 40% of itself (#196). */
+  width: min(100%, clamp(410px, 62vw, 1000px));
   /* The panel's own width is what decides whether its blocks can sit side by
      side, not the viewport's — the two differ by a sidebar and two paddings. See
      the @container rule after `.drawer-footnote`.
@@ -553,8 +624,17 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   letter-spacing: .17em;
 }
 .close-button {
-  width: 33px;
-  height: 33px;
+  /* 44px, like every other tap target here (`.icon-button`, `.primary-button`, the drawer's
+     own buttons, `.nav-item` at narrow). It was 33px, which clears WCAG 2.5.8's 24px and
+     misses 2.5.5's 44px — and #122 left one way to close a panel, so this is the whole of
+     it. `min-*` rather than a fixed box, matching those others: the floor holds and a
+     larger icon or user font can still grow it (#182). */
+  min-width: 44px;
+  min-height: 44px;
+  /* Because the floor is a floor: content that grows on one axis only would make this an
+     ellipse, the theme having made it a circle (#170). Nothing grows it today — the icon
+     is 18px and there is no text — which is exactly when it is cheap to say (#182). */
+  aspect-ratio: 1;
   border: 1px solid var(--line);
   border-radius: 10px;
   background: #fff;
@@ -603,6 +683,93 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 }
 .assignment-form select:focus { border-color: #91a0ff; box-shadow: 0 0 0 3px rgba(86, 104, 232, .1); }
 .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 11px; }
+/* The weekend days of an assignment. Shut by default: most assignments have none,
+   and a quarter's worth is 26 checkboxes (#222). */
+.weekend-picker { margin: 0 0 17px; }
+.weekend-picker > summary {
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #626c7f;
+  font-size: var(--text-min);
+  font-weight: 700;
+  cursor: pointer;
+}
+.weekend-picker > summary small { color: var(--muted-readable); font-family: var(--font-data); font-weight: 700; }
+.weekend-picker-body { padding: 10px 0 0; display: grid; gap: 10px; }
+.weekend-picker-note { margin: 0; color: var(--muted-readable); font-size: var(--text-min); line-height: 1.6; }
+.weekend-picker-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.weekend-picker-month { display: grid; gap: 6px; }
+.weekend-picker-month > small { color: var(--muted-readable); font-size: var(--text-min); font-weight: 700; }
+.weekend-picker-days { display: flex; flex-wrap: wrap; gap: 6px; }
+/* 44px, because these are the smallest things on the screen anyone taps, and a
+   row of them at 24px is the shape #190 was about. */
+.weekend-picker-day {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--paper-pure);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--font-data);
+  font-size: var(--text-min);
+  font-weight: 700;
+  cursor: pointer;
+}
+.weekend-picker-day.chosen { border-color: var(--cobalt); background: var(--cobalt-soft); color: var(--cobalt); }
+.weekend-picker-day small { color: var(--muted-readable); font-family: var(--font-body); font-weight: 700; }
+.weekend-picker-day.chosen small { color: var(--cobalt); }
+.weekend-picker-day input { accent-color: var(--cobalt); }
+.weekend-picker-empty { margin: 0 0 17px; color: var(--muted-readable); font-size: var(--text-min); }
+/* The assignment form's candidate list. Shaped on `.proposal-picker`, which
+   solves the same problem one screen over — a searchable list of members with a
+   row you press. Native radios inside the rows, so arrow keys, Home/End and the
+   reading order come from the platform instead of from ARIA (#199). */
+.member-picker { min-width: 0; margin: 0 0 17px; padding: 0; border: 0; }
+.member-picker legend { padding: 0; color: #626c7f; font-size: var(--text-min); font-weight: 700; }
+.member-picker legend small { color: var(--muted-readable); font-size: var(--text-min); font-weight: 600; }
+.member-picker-head { margin: 7px 0; display: flex; align-items: center; gap: 8px; }
+/* `min-width: 0` because the count beside it must not be the thing that shrinks:
+   it is the sentence that says the list is not all of them. */
+.member-picker-head .inline-search { flex: 1 1 auto; min-width: 0; }
+.member-picker-count { color: var(--muted-readable); font-size: var(--text-min); font-weight: 700; white-space: nowrap; }
+/* Scrolls at about five rows. The drawer scrolls too, and a list that pushes the
+   dates and the allocation slider off the bottom hides the fields this figure is
+   measured over. */
+.member-picker-list { max-height: 296px; overflow-y: auto; display: grid; gap: 6px; padding: 1px; }
+.member-picker-item {
+  min-height: 44px;
+  padding: 7px 9px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--paper-pure);
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 4px 8px;
+  cursor: pointer;
+}
+.member-picker-item.chosen { border-color: var(--cobalt); background: var(--cobalt-soft); }
+.member-picker-item input { accent-color: var(--cobalt); }
+.member-picker-copy { min-width: 0; display: grid; }
+.member-picker-copy strong { font-size: var(--text-min); }
+.member-picker-copy small { color: var(--muted-readable); font-size: var(--text-min); }
+.member-picker-load { font-family: var(--font-data); font-size: var(--text-min); font-weight: 700; white-space: nowrap; }
+.member-picker-load.over { color: var(--coral-deep); }
+/* One column per weekday, so the rail always fits its row rather than scrolling.
+   `grid-column: 1 / -1` puts it on a second line under the copy — it is the last
+   child, so nothing gets pushed past it (#189 was the other way round). */
+.member-picker-rail { grid-column: 1 / -1; height: 10px; display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 1px; }
+/* Filled to the day's share of the ceiling, not merely coloured when busy: a day
+   at 10% and a day at 100% were the same block of green, which is the one thing
+   the rail exists to tell apart. */
+.member-picker-rail i { border-radius: 2px; background: linear-gradient(to top, var(--sage) var(--fill, 0%), var(--paper-deep) var(--fill, 0%)); }
+.member-picker-rail i.over { background: var(--coral); }
+.member-picker-empty { margin: 0; padding: 10px 2px; color: var(--muted-readable); font-size: var(--text-min); }
 .allocation-input {
   min-height: 48px;
   margin-top: 7px;
@@ -821,23 +988,6 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
      left column, and a right border there would draw a rule into empty space. */
   .drawer .detail-member-list button:nth-child(odd):not(:last-child) { border-right: 1px solid var(--line); }
 }
-.report-hero {
-  margin-bottom: 20px;
-  padding: 18px;
-  border-radius: 14px;
-  background: #172033;
-  color: #fff;
-}
-.report-hero span { color: #aab3c6; font-size: 8px; }
-.report-hero strong { margin-top: 5px; display: block; font-family: var(--font-data); font-size: 35px; letter-spacing: -.05em; }
-.report-hero p { margin: 4px 0 0; color: #929db2; font-size: 8px; }
-.report-bars { margin-bottom: 18px; display: flex; flex-direction: column; gap: 11px; }
-.report-bars > div { display: grid; grid-template-columns: 70px 1fr 34px; align-items: center; gap: 8px; }
-.report-bars span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 8px; }
-.report-bars i { height: 6px; border-radius: 999px; background: #edf0f4; overflow: hidden; }
-.report-bars b { display: block; height: 100%; border-radius: inherit; background: #8492ee; }
-.report-bars b.over { background: #eb776d; }
-.report-bars > div > strong { color: #626c7e; font-family: var(--font-data); font-size: 8px; text-align: right; }
 
 .toast {
   position: fixed;
@@ -862,6 +1012,47 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 }
 .toast svg { color: #a9e1d0; }
 .toast.show { opacity: 1; transform: translate(-50%, 0); }
+/* The way back from a move, in the row that moved. #113 had it in the toast; #173 moved it
+   here, where a keyboard reaches it in one Tab from the select.
+
+   Its own class rather than `.undo-button`. That one is described in two places — the
+   colours in `.undo-button` and the box in `.change-bar button` — and only the colours
+   would reach a button outside the bar, leaving this one styled half by the bar's rules
+   and half by nothing. */
+.org-undo-move {
+  /* `flex`, not `inline-flex`: inline put it beside the select, which widened the 親部門
+     column to hold both — measured, the table went 693 → 839px at 375px for a control that
+     belongs under the thing it undoes. Block-level drops it onto its own line and the
+     column keeps its width. 32px to match the select above it (#173). */
+  width: max-content;
+  min-height: 32px;
+  margin-top: 6px;
+  padding: 4px 9px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--paper-pure);
+  color: var(--ink);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--text-min);
+  font-weight: 700;
+  white-space: nowrap;
+}
+.org-undo-move:hover { background: var(--paper-deep); }
+/* Out of the change bar's way while that bar is up. Both are fixed to the bottom and they
+   were overlapping: measured at 375px, the toast covered 「デモへ保存」 and
+   `elementFromPoint` on the button returned the toast — so the save could not be pressed
+   at all. It is true of every one of the app's forty-odd messages; #113 found it while the
+   toast still held a button, and it outlived that (#173).
+
+   `--toast-lift` is how far up the bar actually reaches, measured in `App.tsx` and kept
+   current by a ResizeObserver. A number here cannot do it: the bar's height comes from its
+   tallest child, and a larger user font grows the two-line text block inside — at 88.8px
+   the 92px this used to say stopped clearing it. The fallback is that 92px, for the frame
+   before the first measurement. */
+.app-shell:has(.change-bar) .toast { bottom: var(--toast-lift, 92px); }
 
 /* `backwards`, never `both` or `forwards`. An animation of `opacity` or
    `transform` that is still filling makes its element a stacking context, and
@@ -927,11 +1118,35 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   .topbar-actions { padding-top: 0; }
   .search-box { position: absolute; z-index: 12; left: 0; right: 0; top: 0; width: auto; }
   .pulse-strip { padding: 15px; }
-  .pulse-metric > span { display: none; }
+  /* Stacked, not hidden. The labels used to be `display: none` here, which left 「69%」
+     「14.5人日」 「3件」 standing on their own with nothing saying what any of them was.
+     Measured at 375px, in a 347px strip: side by side with their labels the three metrics
+     want 380px and wrap; stacked they want 202px and stay on one line. Same words, one row,
+     about 14px more height — the arrangement was the thing to change, not the wording
+     (「平均稼働率」→「稼働率」 would be one thing under two names, and 「8/17週の空き」 cannot
+     lose the week) (#189).
+     A grid, not a stacked flex box and not a wrapped one. Measured all three at 375px:
+     `flex-direction: column` sized each metric to its widest child (60.8 / 79.7 / 36px,
+     one row) but put the 要調整 metric's arrow on a third line of its own, 34px taller than
+     its neighbours; `flex-wrap` kept the arrow beside the number but still sized each metric
+     to its items laid side by side (98.8 / 156.2 / 93.5 = 348.5px in a 347px strip), so all
+     three wrapped onto rows of their own and the strip stood 237.7px tall. A grid takes the
+     wider of its two rows: the number and its arrow above, the label across both columns
+     below. */
+  .pulse-metric {
+    display: grid;
+    grid-template-columns: auto auto;
+    justify-content: start;
+    column-gap: 6px;
+    row-gap: 2px;
+  }
+  .pulse-metric > span { grid-column: 1 / -1; }
+  /* Placed, not auto-placed: the label claims a whole row, so auto-placement put the arrow
+     on a third row below it. */
+  .pulse-metric > svg { grid-area: 1 / 2; }
   .pulse-metric strong { font-size: 21px; }
   .schedule-toolbar { align-items: flex-start; flex-direction: column; }
   .toolbar-actions { width: 100%; overflow-x: auto; padding-bottom: 2px; }
-  .filter-select { flex: 1; min-width: 138px; }
   .attention-panel { display: block; }
   .change-bar {
     left: 88px;
@@ -940,8 +1155,16 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
     min-width: 0;
     transform: none;
   }
-  .change-bar > span:nth-child(2), .undo-button { display: none; }
+  /* 「N件の変更があります」 goes; the undo stays, on purpose. `.undo-button` used to be in
+     this group and never applied — `.change-bar button` outranks it and a media query adds
+     no specificity — so the reasoning is in #172 rather than here. */
+  .change-bar > span:nth-child(2) { display: none; }
   .save-button { flex: 1; }
+  /* `left: 50%` with no `right` leaves the toast half the viewport to grow into — 187.5px
+     at 375px — so a message with a button beside it wrapped to four lines and stood 86.8px
+     tall. Pinned to both edges it is one line again (#113). */
+  .toast { left: 14px; right: 14px; max-width: none; transform: translateY(12px); }
+  .toast.show { transform: none; }
   .overlay { padding: 0; align-items: flex-end; }
   .drawer {
     /* Not a container here. This sheet is full-bleed and a different shape, and
@@ -1092,23 +1315,6 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .ribbon-stat.warning strong { color: #c77b48; }
 .ribbon-stat.good strong { color: #3f8b73; }
 .ribbon-divider { width: 1px; height: 34px; background: var(--line); }
-.portfolio-weave {
-  min-width: 150px;
-  margin-left: auto;
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 5px 8px;
-}
-.portfolio-weave i {
-  width: 100%;
-  height: 5px;
-  border-radius: 99px;
-  background: #edf0f5;
-  overflow: hidden;
-}
-.portfolio-weave b { display: block; height: 100%; border-radius: inherit; background: #aab4f3; }
-.portfolio-weave i:nth-child(3n) b { background: #90d1bc; }
-.portfolio-weave i:nth-child(4n) b { background: #edb28f; }
 .capacity-legend {
   margin-left: auto;
   display: flex;
@@ -1150,6 +1356,10 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
      1064px row, and flex wraps before it shrinks, so those 3px cost the add
      button its place on the first line. Shrinkable as well, for narrow widths. */
   flex: 0 1 200px;
+  /* The pill is a `<label>` now, so the whole 40px of it focuses the field rather than the
+     18.2px the input itself occupied — measured, a click 3px inside the top edge landed on
+     the wrapper and did nothing. The text cursor says the whole pill is the field (#190). */
+  cursor: text;
   min-width: 150px;
   height: 34px;
   padding: 0 10px;
@@ -1204,8 +1414,7 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .filter-label { font-size: var(--text-min); font-weight: 700; white-space: nowrap; }
 /* Two containers, not one: 「8件を表示」 answers what is in the list, 「並び順: …」
    answers how it is ordered. They were the same class. */
-.toolbar-result,
-.toolbar-status { margin-left: 4px; color: #929aaa; font-size: 8px; }
+.toolbar-result { margin-left: 4px; color: #929aaa; font-size: 8px; }
 /* Everything that *does* something, pushed to the far end. The row held filters,
    a status line and two buttons in one flow, so 「このシーンを削除」 sat between two
    selects and read like one of them (#138). Position is the whole distinction; no
@@ -1294,7 +1503,12 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
    block further down. Setting this one alone made the 620px rows 211px tall,
    because the width came out of the name and skills cells rather than out of the
    table. */
-.member-row-actions { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
+/* `nowrap`, paired with `.member-table`'s floor and meaningless without it. The floor
+   makes the table wider than its wrapper at every width, so refusing to wrap here buys
+   row height at the price of sideways scroll: rows 92 → 67 at 1425px, 83 → 67 at 605px.
+   Take the floor away and this does the opposite — the squeeze moves onto the name and
+   skills cells and the rows grow, which is the measurement #136 stopped at (#132). */
+.member-row-actions { display: flex; flex-wrap: nowrap; gap: 6px; justify-content: flex-end; }
 .quick-assign.quiet { color: #687285; }
 .proposal-layout {
   display: grid;
@@ -1393,6 +1607,10 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   font-size: var(--text-min);
   font-weight: 700;
 }
+/* Off screen entirely: twelve cards carrying the same line is noise on a display
+   where the ribbon is two inches above it, and useful only once the pages are
+   separate objects (#185). */
+.proposal-card-provenance { display: none; }
 .proposal-weeks { display: grid; gap: 7px; }
 .proposal-weeks > div { display: grid; grid-template-columns: 52px minmax(0, 1fr) 72px; gap: 8px; align-items: center; font-size: var(--text-min); }
 .proposal-weeks i { height: 8px; border-radius: 99px; background: #eef1f6; overflow: hidden; }
@@ -1445,6 +1663,53 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
      Content-driven widths cannot starve a column; the wrapper scrolls instead. */
   table-layout: auto;
 }
+/* 968, not the 960px the two tables share, and declared here rather than further
+   down: the `@media (min-width: 1360px)` block below raises this same property to
+   1120px, and both selectors weigh the same, so a copy placed after that block
+   would win at every width and undo #136's floor. Measured — it did, and the table
+   came back 1064px at 1440px.
+
+   Why 968 at all: `.col-week` is `nowrap` and its header names the week now (#146),
+   so its min-content went 88px → 95.9px, up to its own declared 96px. At the shared
+   floor those 8px came out of the columns that can be squeezed. Only this table has a
+   week column, so only this table pays; the project table keeps 960.
+
+   `max-content`, and the same at every width. The floor's job is to let the columns
+   have the widths they declare; a number cannot say that, because the column count
+   changes at runtime — a user can put any number of custom fields in the list view.
+
+   Measured with the DEMO's two list fields at 605px, nine columns declaring 1086px plus
+   cell padding. Any numeric floor below that starves all of them: the name column got
+   111.8px of its declared 190 and 「QA Engineer · 品質保証」 wrapped to three lines,
+   making the name cell the tallest thing in the row at 84.9px.
+
+     968 (was)   page 1838   rows 111-130   3/9 visible   393px sideways
+     1120        page 1447   rows  67- 94   4/9           545px
+     1160        page 1433   rows  67- 94   4/9           585px
+     max-content page 1433   rows  67- 94   4/9           585px
+
+   1160 was the knee for nine columns — and only for nine. With five list fields instead
+   of two, twelve columns at 1425px, a 1160px floor left the name column 80px and the
+   rows 243-372px, for a page of 3291. That is the same defect, and it was there before
+   this floor moved: at the old 968 the same twelve columns measured identically. Asking
+   for `max-content` instead: page 1270, rows 67-94, 9 of 9 rows visible.
+
+   It does not run away. The text cells cap and ellipsis — `.col-custom` is
+   `max-width: 150px` — so `max-content` is bounded by the declarations. With a 72-char
+   unbreakable value in all 45 custom cells the columns grew 88px → 174px and the scroll
+   356px → 786px, while the page stayed 1270 and the rows stayed 67-94.
+
+   #136 kept this trade above 1360px because 「the trade does not scale down」, and that
+   was measured — but measured with the floor left at 960 below the breakpoint, where the
+   two nowraps below do make narrow rows taller. It is the pair that pays off. #142
+   removed the other half of #136's cost by pinning the name column at every width, so
+   the extra sideways scroll no longer costs the row's identity.
+
+   The trade with the DEMO's two fields: 1425px page 1215 → 1200 for 56 → 116px sideways,
+   605px 1838 → 1433 for 393 → 585px, 375px 2018 → 1613 for 623 → 815px. Vertical has to
+   be read to the end; sideways can be moved to the column you want, with the name still
+   there (#132). */
+.member-table { min-width: max-content; }
 /* The member table asks for more than the wrapper gives it: nine columns, and a
    1440px viewport leaves 1066px. Left to squeeze, the auto layout takes the
    width out of whichever cell can wrap — the two row-action buttons onto a
@@ -1462,24 +1727,9 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
    stress the actions stayed 48px and the ring 54px, and only the name and the
    chips grew, which is the growth #87 asked for.
 
-   The breakpoint is here because the trade does not scale down. The wrapper runs
-   about the viewport less 374px, so this floor costs 56px of sideways scroll at
-   1440px and 130px at 1360px, and would cost about 530px at 620px. Below 1360 the
-   table squeezes and the rows stay tall — which is where they already were, and
-   the lever there is the number of columns, not this (#132). */
-@media (min-width: 1360px) {
-  .member-table { min-width: 1120px; }
-  /* Paired with the floor above, and only here. Now that the table may be wider
-     than its wrapper, asking these two cells not to wrap buys row height at the
-     price of sideways scroll. Measured at 1440x900: rows 92px -> 67px across the
-     nine member rows, for 56px of sideways scroll; at 1360px, the narrow end of
-     this block, the same rows for 130px. Do not lift either of these out of this
-     block without the floor — see the note at `.member-row-actions`. While the
-     table is scrolled sideways the name and the actions scroll away together,
-     which is #142. */
-  .member-row-actions { flex-wrap: nowrap; }
-  .capacity-limit { white-space: nowrap; }
-}
+/* The other half of the pair — see `.member-row-actions` for why both belong with the
+   floor above rather than behind a breakpoint. */
+.capacity-limit { white-space: nowrap; }
 /* Widths key off identity, not position, so adding a column cannot shift them.
    These are hints under `auto` layout — the browser still grows a column whose
    content needs it, which is why the text cells cap and ellipsis below. */
@@ -1597,8 +1847,17 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
    wrapper refused to shrink below its text and spilled over the next column —
    16 measured text-on-text overlaps on the project table. */
 .row-name-copy { min-width: 0; flex: 1; display: grid; }
-.project-name-cell strong,
-.member-name-cell strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.project-name-cell strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* #163: the member's name may carry a tag that tells it from a namesake's —
+   「（大阪）」 or 「（#4f2a）」 — and the tag is at the end, which is exactly what an
+   ellipsis eats. Measured at 375px, where this cell is 122px: 「佐伯 優斗（#4f2a）」 wants
+   104.7px and fits, but 「中村 美咲（#nakamura）」 wants 134.3px and lost its tail, so two
+   namesakes read alike again. Two boxes rather than one: the name shrinks and ellipsises,
+   the tag does not shrink at all. The name is the part a reader can still recover from
+   the row's subtitle and its detail panel; the tag is the part that is only in the tag. */
+.member-name-cell strong { display: flex; align-items: baseline; overflow: hidden; }
+.member-name-cell strong .row-name-main { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.member-name-cell strong .row-name-tag { flex: none; white-space: nowrap; }
 .status-pill {
   width: max-content;
   padding: 5px 7px;
@@ -1659,7 +1918,26 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .csv-view h2 { margin: 0 0 6px; font-size: var(--text-lg); }
 .csv-lead { margin: 0 0 12px; color: var(--muted-readable); font-size: var(--text-min); }
 .csv-toolbar, .csv-presets, .csv-import { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
+/* The preset name field had no styling at all — measured, a 21px browser default beside a
+   40px button, padding 1px 2px and a 13.3px font while every other input on the screen is
+   40px at 12px. It reads from the same tokens as the search pill and the filters, which is
+   what it should have looked like all along (#190). */
+.csv-presets > input {
+  min-height: 40px;
+  padding: 0 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 3px;
+  background: var(--paper-pure);
+  color: var(--ink);
+  font-size: var(--text-sm);
+}
 .csv-columns { display: flex; flex-wrap: wrap; gap: 8px 12px; margin-bottom: 12px; }
+/* 24px is WCAG 2.5.8's minimum, and these tick boxes were 21.6px — measured on the 項目定義
+   screen, eleven of them. The 36 / 40 / 44px tiers above this are deliberate (a finger gets
+   44px at 620px and below); what was not deliberate is a target under the floor (#190). */
+.csv-columns .field-flag,
+.org-flag-set .field-flag,
+.profile-request-submit > label { min-height: 24px; }
 .csv-preset { display: inline-flex; align-items: center; border: 1px solid #dce2eb; border-radius: 999px; overflow: hidden; }
 .csv-preset button { height: 32px; padding: 0 10px; border: 0; background: #f7f8ff; color: #5663b2; cursor: pointer; font-size: var(--text-min); font-weight: 700; }
 .csv-preset button + button { border-left: 1px solid #dce2eb; background: #fff; color: #687285; }
@@ -1692,6 +1970,13 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   position: relative;
   display: grid;
   place-items: center;
+  /* `strong` below is a grid item with `z-index: 1`, and z-index applies to grid
+     items even when they are `position: static`. Without a stacking context here it
+     climbs into the nearest one and paints at 1 there — which tied with the sticky
+     name column and won on tree order, drawing the percentage across the name
+     (#142, measured at 620px). The ring only ever needs its text above its own
+     `::before`, so containing it is the whole fix. */
+  isolation: isolate;
 }
 .load-ring::before { content: ""; position: absolute; inset: 4px; border-radius: 50%; background: #fff; }
 .load-ring strong { z-index: 1; color: #5f6980; font-family: var(--font-data); font-size: 7px; }
@@ -1761,39 +2046,83 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   display: grid;
   grid-template-columns: 34px 1fr;
 }
-.horizon-y-labels {
+/* #133: the ticks and the bars used to be siblings that each computed their own
+   height — the labels a 188px flex column with `space-between` over 163px, the bars
+   the `bar` row of a 188px grid less three label rows, which came to 103.4px. So the
+   label reading 100% sat at 48.9px while the line for 100% was drawn at 17.6px, and a
+   reader pairing them read a different value. Measured before: labels at
+   0 / 48.9 / 97.9 / 146.8, lines at 0 / 17.6 / 51.7.
+
+   The rows live here now and both halves borrow them: the ticks take the `bar` row as
+   their box, the grid takes all four as a subgrid. The 188px and the 25px reserve moved
+   up from `.horizon-grid` unchanged — they are what makes `minmax(0, 1fr)` resolve, and
+   without a definite height here the bar row collapses to 0 (measured).
+
+   The sideways scroll lives here rather than on `.horizon-grid`, and that placement is
+   the whole reason this works. A scroll container establishes an independent formatting
+   context, which makes `grid-template-rows: subgrid` compute to `none` — so a scrolling
+   `.horizon-grid` could not borrow these rows in a conforming browser, and the ticks
+   would drift back to their own scale. Chrome 148 happens to honour it either way,
+   measured; the structure does not rely on that. */
+.horizon-plot {
+  grid-column: 1 / -1;
   height: 188px;
   padding-bottom: 25px;
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: 34px 1fr;
+  grid-template-rows: [bar] minmax(0, 1fr) [rate] auto [pipeline] auto [week] auto;
+  overflow-x: auto;
+}
+/* Sticky, because the scroll moved to the plot and the ticks have to stay where the
+   reader left them — the same job `.people-label` does on the board. Opaque, because
+   the bars pass underneath. */
+.horizon-y-labels {
+  grid-row: bar;
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  /* The token the card itself takes, so the two match in either layer. Nothing in the
+     theme layer gives this element a background, so declaring it here is enough. */
+  background: var(--paper-pure);
   color: #a1a8b6;
   font-family: var(--font-data);
   font-size: 6px;
 }
+/* Each tick at its own share of the bar's track, the same fraction the line for that
+   value uses: (120−v)/120. Named rather than positional, so reordering the labels
+   cannot move every tick.
+   The interior ticks are centred on their line, which is the pairing #133 was about.
+   The two at the ends turn inward instead: centred, half of 「120%」 sat above the plot
+   and `overflow-y: hidden` cut it — measured, 8.1px of a 16.2px line box. So the ceiling
+   label hangs from its line and the baseline label sits on it, which is what a chart's
+   end ticks normally do and is where they were before this change. */
+.horizon-y-labels span { position: absolute; right: 0; transform: translateY(-50%); }
+.horizon-y-labels .t120 { top: 0; transform: none; }
+.horizon-y-labels .t100 { top: calc(100% / 6); }
+.horizon-y-labels .t60 { top: 50%; }
+.horizon-y-labels .t0 { top: 100%; transform: translateY(-100%); }
 /* 行はここで定義して、各週は subgrid でそれを借りる。週ごとに行を持たせると、
    受注前の数値（.pipeline-chip）がある週だけ4行になり、バーの軌道が 123px と
    103px に分かれた。同じ 69% と 68% が 71px と 59px で描かれるので、
    バーの高さが値を表さなくなる。親の行なら 12週すべてで同じ高さになる */
 .horizon-grid {
   position: relative;
-  height: 188px;
-  padding: 0 8px 25px;
+  grid-row: 1 / -1;
+  padding: 0 8px;
   display: grid;
   grid-template-columns: repeat(12, minmax(42px, 1fr));
-  grid-template-rows: [bar] minmax(0, 1fr) [rate] auto [pipeline] auto [week] auto;
+  grid-template-rows: subgrid;
   align-items: end;
   /* 列だけ。行に 8px を入れると3本の隙間で 24px をラベル側に取られ、
      バーの軌道がそのぶん短くなる。行間はラベル自身の margin-top が持つ */
   column-gap: 8px;
-  overflow-x: auto;
 }
 /* 17% と 50% は (120-100)/120 と (120-60)/120 で、バーの軌道に対する割合。
    グリッドの行を指定しないと 188px の枠に対する割合になり、線がバーの目盛りを
    表さなくなる（100% の線が 32px、バーの 100% は 17px という状態だった）。
    `.horizon-grid` は position: relative なので、行を指定すればその行が包含ブロック */
 .horizon-guide { position: absolute; grid-row: bar; grid-column: 1 / -1; left: 0; right: 0; height: 1px; background: #edf0f4; }
-.horizon-guide.g120 { top: 0; }.horizon-guide.g100 { top: 17%; border-top: 1px dashed #d9dee8; background: transparent; }.horizon-guide.g60 { top: 50%; }
+.horizon-guide.g120 { top: 0; }.horizon-guide.g100 { top: calc(100% / 6); border-top: 1px dashed #d9dee8; background: transparent; }.horizon-guide.g60 { top: 50%; }
 /* バーに固定の高さを持たせると、文字を上げるたびに枠から溢れる。12px 化で
    必要な高さが 168 → 170px になり、`.horizon-grid` は 188px 固定で
    overflow-y: hidden なので週ラベル9件が枠外に出た。ラベル3行を先に取って
@@ -1942,7 +2271,21 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .profile-hero > strong { color: #5665c2; font-family: var(--font-data); font-size: 20px; }
 .profile-skills { margin-bottom: 22px; display: flex; flex-wrap: wrap; gap: 5px; }
 .profile-capacity { margin-bottom: 22px; display: flex; flex-direction: column; gap: 9px; }
-.profile-capacity > div { display: grid; grid-template-columns: 42px 1fr 31px; align-items: center; gap: 8px; }
+/* 52px, not 42: the first label names its week now rather than saying 「今週」
+   (#146), and the longest that gets is 「12/28週」 at 41.1px — 0.9px of headroom
+   in the old track. Same number as `.proposal-weeks`, which holds the same
+   labels. The bar loses 10px of about 250. */
+/* 80px for the figure, not 31: 31px was the width of 「40% / 100%」 at the 7px this
+   rail used to be set in, and the 12px floor left the number in a fraction of the
+   room it needs — 「120% / 100%」 came out 31x49, three wrapped lines beside a 359px
+   bar. Measured in this rail's own font, bold 12px Manrope: 68px for
+   「40% / 100%」, 74px for 「100% / 100%」, 75px for a three-digit ceiling, so 80px
+   clears the widest of them. `.proposal-weeks` gets the same figure into 72px
+   because it is not set in Manrope — the number is not transferable.
+   Fixed rather than `auto` because each row is its own grid, so content-sized
+   numbers would give the four bars four different lengths, and comparing their
+   lengths down the column is what the rail is for (#210). */
+.profile-capacity > div { display: grid; grid-template-columns: 52px minmax(0, 1fr) 80px; align-items: center; gap: 8px; }
 .profile-capacity span { color: #848d9e; font-size: 7px; }
 .profile-capacity i { height: 6px; border-radius: 99px; background: #edf0f4; overflow: hidden; }
 .profile-capacity b { display: block; height: 100%; border-radius: inherit; background: #8391e7; }
@@ -1952,7 +2295,7 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 @media (max-width: 1120px) {
   .portfolio-ribbon, .member-ribbon { gap: 16px; }
   .ribbon-lead { min-width: 215px; }
-  .portfolio-weave, .capacity-legend { display: none; }
+  .capacity-legend { display: none; }
 }
 @media (max-width: 820px) {
   .workspace-mode { justify-content: center; margin-inline: 0; }
@@ -2335,8 +2678,9 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .sync-banner button,
 .production-audit-detail summary { min-height: 36px; }
 .assignment { min-height: 36px; }
-.week-cell { grid-auto-rows: minmax(36px, auto); }
-.schedule-row { min-height: 104px; }
+/* `align-content: start`, or the one bar in a single-assignment row grows to fill the cell:
+   measured, 36px of bar drawn 75px tall, a day's work looking like three days' (#192). */
+.week-cell { grid-auto-rows: minmax(36px, auto); align-content: start; }
 .project-name-cell,
 .member-name-cell,
 .exception-list button,
@@ -2350,7 +2694,6 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .pulse-metric > span,
 .view-tabs button,
 .toolbar-actions button,
-.filter-select select,
 .people-label,
 .day-label,
 .person-copy small,
@@ -2394,10 +2737,6 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .candidate-list em,
 .candidate-list button,
 .drawer-footnote,
-.report-hero span,
-.report-hero p,
-.report-bars span,
-.report-bars > div > strong,
 .toast,
 .read-only-label,
 .candidate-empty small,
@@ -2414,7 +2753,6 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .inline-search input,
 .view-filter select,
 .toolbar-result,
-.toolbar-status,
 .view-add-button,
 .portfolio-table th,
 .member-table th,
@@ -2491,13 +2829,11 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .role-brief > span,
 .candidate-list small,
 .drawer-footnote,
-.report-hero p,
 .candidate-empty small,
 .sync-banner small,
 .attention-clear p,
 .planned-candidate small,
 .toolbar-result,
-.toolbar-status,
 .project-name-cell small,
 .member-name-cell small,
 .milestone-cell small,
@@ -2610,7 +2946,6 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   .production-audit-detail summary { min-height: 44px; }
   .assignment { min-height: 44px; }
   .week-cell { grid-auto-rows: minmax(44px, auto); }
-  .schedule-row { min-height: 120px; }
   .inline-search,
   .view-filter,
   .view-add-button { min-height: 44px; }
@@ -3028,9 +3363,16 @@ h1 {
 
 .pulse-strip {
   position: relative;
-  min-height: 108px;
-  margin-bottom: 24px;
-  padding: 21px 24px;
+  /* #136's decision about the list screens' ribbons, applied to the board's strip, which it
+     missed. Measured at 1425px: this box was 108px against their 69.2px while holding
+     *shorter* content — 37.8px of metric against their 45.2px stat — because `min-height:
+     108px` and 21px of padding put 28px of nothing inside it and 8px more below.
+     No min-height, and the same 12px 24px and 16px the ribbons use. The result is about
+     61.8px, 7px under theirs: their stat stacks its label under the number where a metric
+     keeps it alongside, so the content differs. Matching the pixels was never the point —
+     both boxes now follow their content (#193). */
+  margin-bottom: 16px;
+  padding: 12px 24px;
   overflow: hidden;
   border: 0;
   border-radius: 4px;
@@ -3063,8 +3405,6 @@ h1 {
 .pulse-metric > span { color: #cbb9b0; }
 .pulse-metric.warning strong { color: #f49b7f; }
 .pulse-rule { background: rgba(255, 255, 255, .17); }
-.pulse-mini-bars i { background: rgba(255, 255, 255, .2); }
-.pulse-mini-bars i:nth-child(3) { background: var(--coral); }
 
 .board-layout { gap: 24px; }
 .schedule-card,
@@ -3209,8 +3549,6 @@ h1 {
 .ribbon-stat.warning strong { color: #f49b7f; }
 .ribbon-stat.good strong { color: #bcdaca; }
 .ribbon-divider { background: rgba(255, 255, 255, .17); }
-.portfolio-weave i { background: rgba(255, 255, 255, .14); }
-.portfolio-weave b { background: var(--coral); }
 .capacity-legend { color: #d3c4bd; }
 
 .view-toolbar {
@@ -3235,8 +3573,7 @@ h1 {
   color: var(--ink);
 }
 .view-add-button.ghost:hover { border-color: var(--ink); background: var(--paper-deep); }
-.toolbar-result,
-.toolbar-status { color: var(--muted); }
+.toolbar-result { color: var(--muted); }
 .toolbar-chips-lead { color: var(--muted); }
 /* The chips take the theme's tokens rather than the cool blues of the layer
    above, which would read as a different component (#138). Square corners to
@@ -3258,6 +3595,57 @@ h1 {
 .member-table td { border-bottom-color: var(--line); }
 .portfolio-table tbody tr:hover,
 .member-table tbody tr:hover { background: #fcf6f3; }
+/* #142: the member table is wider than its wrapper at every width — 56px over at
+   1440, 130px at 1360, 393px at 620, 623px at 375 — and while it is scrolled the
+   name column and the actions column slide away together, so the buttons on screen
+   belong to a row you can no longer read. #136 made the gap worse at the wide end
+   by giving the table a 1120px floor to buy row height; the narrow end has been
+   like this all along.
+
+   Sticky works here with `border-collapse: collapse` — measured at 1360, where the
+   name column stayed at 362.6px across a 130px scroll instead of sliding to
+   232.6px. No need for `separate`, so #75's column widths are untouched.
+
+   The favourite column is deliberately NOT sticky. Sticking it would tie the name
+   column's `left` to the favourite column's rendered width (44px declared plus 12px
+   of cell padding), and a padding change would open a seam. With the name column at
+   `left: 0` the star simply scrolls under it, and the coupling does not exist. The
+   defect is not being able to tell whose row it is, which the name fixes.
+
+   Declared here rather than beside the column widths: `.member-table th` takes
+   `background: var(--canvas)` a few lines up, and a sticky cell needs an opaque
+   background or the scrolling content shows through. A copy placed earlier would
+   lose on source order — #146 hit exactly that with `min-width` and undid #136's
+   floor for a while. */
+.member-table th.col-name,
+.member-table th.col-actions { position: sticky; z-index: 2; background: var(--canvas); }
+.member-table tbody td:nth-child(2),
+.member-table td.member-row-actions { position: sticky; z-index: 1; background: var(--paper-pure); }
+/* `:nth-child(2)` rather than a class: only the actions cell carries one, and every
+   column that appears at runtime — the score column for a picked search scene, one
+   per custom field in the list view — is inserted from the third onwards. */
+.member-table th.col-name,
+.member-table tbody td:nth-child(2) { left: 0; box-shadow: 4px 0 8px -6px rgba(36, 24, 20, .32); }
+.member-table th.col-actions,
+.member-table td.member-row-actions { right: 0; box-shadow: -4px 0 8px -6px rgba(36, 24, 20, .32); }
+/* Always on, not toggled by scroll position: the table is wider than the wrapper at
+   every width above, so "there is more this way" is always true and the shadow needs
+   no JavaScript to know it. */
+
+/* The row's hover tint has to reach the sticky cells, or they stay pale while the
+   rest of the row lights up — the same thing `.schedule-row:hover .person-cell`
+   fixes on the board. */
+.member-table tbody tr:hover td:nth-child(2),
+.member-table tbody tr:hover td.member-row-actions { background: #fcf6f3; }
+
+/* Below this the sticky pair costs more than it buys. Measured windows between the
+   two sticky edges: 638px at 1360, 355px at 620, and 125px at 375 — at which point
+   the columns in between cannot be read at all. The name stays stuck at every width,
+   because "which row is this" is needed at every width; the actions let go. */
+@media (max-width: 620px) {
+  .member-table th.col-actions,
+  .member-table td.member-row-actions { position: static; box-shadow: none; }
+}
 .project-code {
   border-radius: 3px;
   background: var(--coral-soft);
@@ -3304,7 +3692,12 @@ h1 {
 .range-tabs button { border-radius: 2px; color: var(--muted); }
 .range-tabs button.selected { background: var(--paper-pure); color: var(--ink); box-shadow: none; }
 .horizon-card { padding: 22px; }
-.horizon-grid { overflow-y: hidden; }
+/* On the plot, not on the grid. A single non-`visible` overflow value makes the other
+   compute to `auto`, so `overflow-y: hidden` here turned `.horizon-grid` into a scroll
+   container — and a scroll container cannot borrow rows, which is what #133's fix needs
+   it to do. Measured: with this on the grid, its computed `overflow-x` was `auto` and it
+   kept its own sideways scrollbar. The plot is the scroller, so clipping belongs there. */
+.horizon-plot { overflow-y: hidden; }
 .horizon-guide { background: var(--line); }
 .horizon-guide.g100 { border-top-color: var(--line-strong); }
 .horizon-bar { border-radius: 3px 3px 0 0; background: var(--paper-deep); }
@@ -3366,7 +3759,12 @@ h1 {
 .drawer-icon.cobalt,
 .drawer-icon.coral,
 .drawer-icon.mint { border-radius: 50%; background: var(--coral-soft); color: var(--coral-deep); }
-.drawer-close { border-color: var(--line); border-radius: 50%; color: var(--ink); }
+/* The theme meant this for a panel's close button and named a class that does not exist,
+   so it never applied: the button kept the base layer's 10px corners and #687285 while the
+   drawer icons beside it were circles. Renamed to the class the buttons actually have —
+   the drawer's and the production operations panel's, which is the same control in a
+   screen DEMO cannot reach (#170). */
+.close-button { border-color: var(--line); border-radius: 50%; color: var(--ink); }
 .assignment-form > label > input,
 .assignment-form > label > select,
 .assignment-form .form-grid input,
@@ -3767,7 +4165,7 @@ h1 {
 
 .ai-chat-heading small {
   color: var(--coral-deep);
-  font: 800 8px/1.2 var(--font-data);
+  font: 800 var(--text-min)/1.2 var(--font-data);
   letter-spacing: .16em;
 }
 
@@ -3788,7 +4186,7 @@ h1 {
   background: transparent;
   color: var(--muted-readable-dark);
   cursor: pointer;
-  font-size: 9px;
+  font-size: var(--text-min);
   font-weight: 700;
   white-space: nowrap;
 }
@@ -3840,7 +4238,7 @@ h1 {
 .ai-chat-intro strong,
 .ai-chat-intro p { margin: 0; }
 .ai-chat-intro strong { color: var(--ink); font-size: var(--text-sm); font-weight: 600; }
-.ai-chat-intro p { margin-top: 5px; color: var(--muted); font-size: 11px; line-height: 1.7; }
+.ai-chat-intro p { margin-top: 5px; color: var(--muted); font-size: var(--text-min); line-height: 1.7; }
 
 .ai-chat-context-note {
   margin: -3px 0 0;
@@ -3849,7 +4247,7 @@ h1 {
   border-radius: 3px;
   background: var(--canvas);
   color: var(--muted-readable-dark);
-  font-size: 10px;
+  font-size: var(--text-min);
   line-height: 1.65;
 }
 
@@ -3863,8 +4261,8 @@ h1 {
 
 .ai-chat-unavailable strong,
 .ai-chat-unavailable p { margin: 0; }
-.ai-chat-unavailable strong { font-size: 11px; }
-.ai-chat-unavailable p { margin-top: 4px; font-size: 10px; line-height: 1.65; }
+.ai-chat-unavailable strong { font-size: var(--text-min); }
+.ai-chat-unavailable p { margin-top: 4px; font-size: var(--text-min); line-height: 1.65; }
 
 .ai-chat-message {
   max-width: 88%;
@@ -3875,7 +4273,7 @@ h1 {
   display: block;
   margin-bottom: 5px;
   color: var(--muted);
-  font: 800 8px/1.2 var(--font-data);
+  font: 800 var(--text-min)/1.2 var(--font-data);
   letter-spacing: .1em;
 }
 
@@ -3956,7 +4354,7 @@ h1 {
 .ai-chat-proposal-header small {
   margin: 1px 0 4px;
   color: var(--coral-deep);
-  font: 800 8px/1.2 var(--font-data);
+  font: 800 var(--text-min)/1.2 var(--font-data);
   letter-spacing: .13em;
 }
 
@@ -3974,7 +4372,7 @@ h1 {
 .ai-chat-proposal-summary {
   margin: 12px 0 0 !important;
   color: var(--text);
-  font-size: 11px !important;
+  font-size: var(--text-min) !important;
   line-height: 1.7 !important;
 }
 
@@ -3997,7 +4395,7 @@ h1 {
 
 .ai-chat-proposal-details dt {
   color: var(--muted);
-  font-size: 9px;
+  font-size: var(--text-min);
   font-weight: 700;
   line-height: 1.5;
 }
@@ -4006,7 +4404,7 @@ h1 {
   min-width: 0;
   margin: 0;
   color: var(--ink);
-  font-size: 10px;
+  font-size: var(--text-min);
   font-weight: 650;
   line-height: 1.5;
   overflow-wrap: anywhere;
@@ -4026,7 +4424,7 @@ h1 {
 
 .ai-chat-proposal-impacts strong {
   color: var(--ink);
-  font-size: 9px;
+  font-size: var(--text-min);
   font-weight: 750;
 }
 
@@ -4034,14 +4432,14 @@ h1 {
   margin: 5px 0 0;
   padding-left: 16px;
   color: var(--muted-readable-dark);
-  font-size: 9px;
+  font-size: var(--text-min);
   line-height: 1.65;
 }
 
 .ai-chat-proposal-meta {
   margin: 10px 0 0 !important;
   color: var(--coral-deep);
-  font-size: 9px !important;
+  font-size: var(--text-min);
   font-weight: 750;
   line-height: 1.45 !important;
   display: flex;
@@ -4051,14 +4449,14 @@ h1 {
 
 .ai-chat-proposal-meta span {
   color: var(--muted);
-  font: 700 8px/1.45 var(--font-data);
+  font: 700 var(--text-min)/1.45 var(--font-data);
   text-align: right;
 }
 
 .ai-chat-proposal-disclosure {
   margin: 7px 0 0 !important;
   color: var(--muted-readable-dark);
-  font-size: 9px !important;
+  font-size: var(--text-min);
   line-height: 1.6 !important;
 }
 
@@ -4068,7 +4466,7 @@ h1 {
   border-left: 3px solid var(--coral-deep);
   background: #fff2ed;
   color: #8c3522;
-  font-size: 9px !important;
+  font-size: var(--text-min);
   line-height: 1.6 !important;
 }
 
@@ -4084,7 +4482,7 @@ h1 {
   padding: 8px 10px;
   border-radius: 3px;
   cursor: pointer;
-  font: 750 10px/1.4 var(--font-body), "Yu Gothic UI", sans-serif;
+  font: 750 var(--text-min)/1.4 var(--font-body), "Yu Gothic UI", sans-serif;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -4122,7 +4520,7 @@ h1 {
   border-left: 3px solid var(--line-strong);
   background: var(--canvas);
   color: var(--muted-readable-dark);
-  font-size: 10px;
+  font-size: var(--text-min);
   line-height: 1.6;
   display: flex;
   align-items: flex-start;
@@ -4152,7 +4550,7 @@ h1 {
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  font-size: 11px;
+  font-size: var(--text-min);
 }
 
 .ai-chat-thinking svg,
@@ -4165,7 +4563,7 @@ h1 {
   border-left: 3px solid var(--coral-deep);
   background: #fff3ef;
   color: #8c3522;
-  font-size: 10px;
+  font-size: var(--text-min);
   line-height: 1.65;
 }
 
@@ -4221,7 +4619,7 @@ h1 {
 .ai-chat-composer > p {
   margin: 7px 1px 0;
   color: var(--muted);
-  font: 700 8px/1.4 var(--font-data);
+  font: 700 var(--text-min)/1.4 var(--font-data);
   letter-spacing: .02em;
 }
 
@@ -4262,7 +4660,7 @@ h1 {
   .ai-chat-header { padding-inline: 12px; gap: 8px; }
   .ai-chat-header-icon { width: 32px; height: 32px; flex-basis: 32px; }
   .ai-chat-heading h2 { font-size: var(--text-lg); }
-  .ai-chat-clear { min-height: 40px; padding-inline: 5px; font-size: 8px; }
+  .ai-chat-clear { min-height: 40px; padding-inline: 5px; }
   .ai-chat-close { width: 40px; height: 40px; flex-basis: 40px; }
   .ai-chat-log { padding: 16px 14px 20px; }
   .ai-chat-proposal { padding: 13px 12px; }
@@ -4327,6 +4725,14 @@ h1 {
 .skill-catalog-form input,
 .skill-catalog-form select {
   height: 36px;
+  /* Without this the control keeps its own intrinsic floor and hangs out of its
+     cell. A select's is its widest option: 親部門 lists full org paths, so it
+     measured 200px and drew 32px past the card's right edge from a 152px cell
+     (form scrollWidth 378 against clientWidth 345). An input's is its default
+     20-character size, 159px, which spilled 7px into the gap. The closed select
+     clips its value instead, which is what every other select here does — the
+     popup still shows the whole path (#212). */
+  min-width: 0;
   padding: 0 10px;
   border: 1px solid var(--line);
   border-radius: 9px;
@@ -4347,6 +4753,27 @@ h1 {
   box-shadow: 0 6px 22px rgba(36,48,78,.04);
 }
 .skill-map-table { width: 100%; border-collapse: collapse; }
+/* #114: the same floor #132 gave the member list, for the same reason. `table-layout:
+   auto` gave the org table's first column 88.2px of 551 at 390px — the 親部門 and 操作
+   columns took theirs first — and a 5-level row became 859.8px tall, name over 10 lines
+   and breadcrumb over 42, one row taller than the viewport. Content-derived rather than
+   a number: the depth and the column count both change at runtime. Measured at 390 with
+   that hierarchy: first column 88.2 → 625, page 3952 → 1500, deep rows 536/681.7/859.8 →
+   50.4/50.4/59.
+
+   Three tables share this class. On the seeded data at 390 the tallest row goes 212.3 →
+   50.4 (org), 295.7 → 50.4 (skill map) and 166.2 → 50.4 (field catalog), and the pages
+   2191 → 1220, 5643 → 2637 and 3808 → 3342. What it costs is sideways scroll inside
+   `.skill-map-wrap` — 159 → 333, 98 → 415 and 0 → 449 — and two of the three were
+   already scrolling. No page-level sideways scroll appears at either width, and at 1425
+   on the seeded data all three tables still fit their wrapper exactly, so the floor asks
+   for nothing it does not need.
+
+   A long unbreakable value does not make it expensive: with a 72-character one in an org
+   unit's name the first column measured 569.6px with the floor and 569.6px without it —
+   the value cannot wrap, so the column has to pay for it either way. The floor's own
+   share was 88px of scroll, against rows of 50.4px instead of 79.8px. */
+.skill-map-table { min-width: max-content; }
 /* 7px は行高から逆算した値。名前セル（strong + small の2段）が行の高さを決めていて、
    12px 化で 58px → 60px になる。padding を 11 → 7 で 50px。th と td の両方に効く。
    スキルマップは32行あるのでここが一番効く（実測 −295px） */
@@ -4355,10 +4782,15 @@ h1 {
 .skill-map-table th { color: var(--muted-readable); font-size: var(--text-min); font-weight: 800; letter-spacing: .08em; }
 .skill-map-table .category-row { background: #f7f9fc; }
 .skill-map-table .gap-row td { background: #fff6f4; }
-.skill-tree-name { display: grid; gap: 3px; }
-.skill-tree-name.depth-1 { padding-left: 16px; }
-.skill-tree-name.depth-2 { padding-left: 32px; }
-.skill-tree-name.depth-3 { padding-left: 48px; }
+/* One step per level, from the depth the row carries. Three `depth-N` classes used to
+   spell the scale out, which put a ceiling in the CSS: the org table clamped depth with
+   `Math.min(3, depth)`, so levels 3, 4 and 5 all sat at 371.4px, and the skill tree did
+   not clamp, so a level-4 row fell through to no rule at all and drew flush left —
+   323.4px, the same place as a root row. A ceiling saturates, a missing rule resets;
+   neither is a depth. `calc()` keeps stepping (measured 0/16/32/48/64/80) and cannot run
+   out of levels. Deep rows widen the column and the table scrolls, which is the floor
+   above doing its job (#114). */
+.skill-tree-name { display: grid; gap: 3px; padding-left: calc(var(--depth, 0) * 16px); }
 .skill-tree-name strong { font-size: 12px; }
 .skill-tree-name small { color: var(--muted-readable); font-size: var(--text-min); }
 .proficiency-rail { display: grid; grid-template-columns: repeat(5, 22px); gap: 4px; }
@@ -4379,7 +4811,9 @@ h1 {
 .proficiency-rail i.filled.level-4 { background: #b7c2f5; color: #2d3d7a; }
 .proficiency-rail i.filled.level-5 { background: #91a0ff; color: #172033; }
 .skill-departments { color: var(--muted-readable); font-size: var(--text-min); }
-.skill-need-link { border: 0; background: none; color: var(--cobalt); cursor: pointer; font: inherit; font-weight: 700; }
+/* 24px, from 23.6: WCAG 2.5.8's floor, and a button in a sentence is the one shape that
+   cannot borrow height from a box around it (#190). */
+.skill-need-link { min-height: 24px; border: 0; background: none; color: var(--cobalt); cursor: pointer; font: inherit; font-weight: 700; }
 .skill-gap { color: var(--coral-deep); font-family: var(--font-data); }
 .skill-ok { color: var(--sage); font-size: var(--text-min); font-weight: 700; }
 .member-skills span small,
@@ -4396,9 +4830,47 @@ h1 {
    the widest cell's intrinsic width, and a <th> max-width does not bound that.
    A long unbreakable value pushed this column to 613px and squeezed 4週間の
    キャパシティ down to 39px. */
+/* #148's answer, folded into the toolbar rather than given its own bar: closed it is one
+   summary line, so the row it sits in keeps the height it had. */
+/* Closed it is a summary that sits beside whatever else fits on the row — measured,
+   `flex: 1 0 100%` there cost 24.2px of toolbar height for nothing. Open it takes the
+   whole row, so the checkboxes and the note are not squeezed into shrink-to-fit. */
+.proposal-export { flex: none; }
+.proposal-export[open] { flex: 1 0 100%; }
+.proposal-export summary {
+  width: max-content;
+  padding: 5px 9px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink);
+  font-size: var(--text-min);
+  font-weight: 700;
+}
+.proposal-export[open] summary { margin-bottom: 10px; }
+.proposal-export-columns {
+  margin: 0 0 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+}
+.proposal-export-columns legend { padding: 0 4px; color: var(--muted-readable); font-size: var(--text-min); font-weight: 700; }
+.proposal-export-columns label { display: flex; align-items: center; gap: 6px; color: var(--ink); font-size: var(--text-min); font-weight: 600; }
+.proposal-export-note { margin: 0 0 10px; color: var(--muted-readable); font-size: var(--text-min); line-height: var(--leading); }
+.proposal-export .view-add-button { width: max-content; }
 .custom-field-cell { display: block; max-width: 150px; overflow: hidden; color: #5d6678; font-size: var(--text-min); text-overflow: ellipsis; white-space: nowrap; }
 .custom-field-facts { margin-top: 12px; }
-.custom-field-inputs,
+/* The custom-field inputs used to share this grid, from inside a wrapper div that broke
+   the drawer form's `.assignment-form > label` chain — so their labels were inline and
+   their inputs stayed at the browser's default 177px against every other control's
+   683.8px, measured at 1440px. They are Fragments now and take the form's own spacing
+   (#164). */
 .work-history-editor { display: grid; gap: 10px; }
 .work-history-list { display: grid; gap: 10px; }
 .work-history-list article {
@@ -4450,6 +4922,12 @@ h1 {
 .field-catalog-form input,
 .field-catalog-form select {
   height: 36px;
+  /* An input's intrinsic floor is its default 20-character size, 159px, which
+     the cell no longer reaches once the query above sheds a column. In the last
+     column that goes straight out of the card: the memo field measured 159px in
+     a 136.5px cell and crossed the card's border by 6px, with the form itself
+     7px wider than its box. Same reason as the catalog forms' own rule (#214). */
+  min-width: 0;
   padding: 0 10px;
   border: 1px solid var(--line-strong);
   border-radius: 3px;
@@ -4546,10 +5024,6 @@ h1 {
   .pipeline-board { grid-template-columns: 1fr; }
 }
 
-@media print {
-  .ai-chat-root { display: none !important; }
-  .app-shell > .workspace::after { display: none; }
-}
 .role-permission-card { margin: 0 0 12px; }
 .role-permission-note { margin: 0 0 10px; color: var(--muted-readable); font-size: var(--text-min); font-weight: 600; }
 /* minmax, not fixed: 180 + 200 + 10px gap came to 390px inside a ~330px
@@ -4557,20 +5031,10 @@ h1 {
    380px span, so their checkboxes hung 56px outside the card. */
 .role-permission-form { grid-template-columns: minmax(0, 180px) minmax(0, 200px); }
 
-/* The four named tracks need 400px of track plus 30px of gap plus the card's
-   own padding. Below that the flexible one collapses to 0 and its input
-   overflows a zero-width cell, and dropping the column count is the only way a
-   grid can shed columns.
-   Keyed off the container, not the viewport: these forms sit at different
-   depths — the report one is nested inside a card — so the same viewport width
-   leaves them different amounts of room. A 620px media query left the report
-   form at `120px 0px 147px 120px` while the others still fitted. */
+/* What the forms' reflow queries measure. The queries themselves are further
+   down, below every form's own track list — see the comment there. */
 .section-view,
 .balance-card { container-type: inline-size; }
-@container (max-width: 470px) {
-  .field-catalog-form { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }
-  .role-permission-form { grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); }
-}
 .role-permission-features,
 .role-permission-fields {
   grid-column: 1 / -1;
@@ -4587,6 +5051,48 @@ h1 {
 
 .profile-request-card { margin: 0 0 12px; }
 .profile-request-form { grid-template-columns: minmax(0, 1fr) 160px minmax(0, 1.2fr); }
+
+/* The four named tracks need 400px of track plus 30px of gap plus the card's
+   own padding. Below that the flexible one collapses to 0 and its input
+   overflows a zero-width cell, and dropping the column count is the only way a
+   grid can shed columns.
+   Keyed off the container, not the viewport: these forms sit at different
+   depths — the report one is nested inside a card — so the same viewport width
+   leaves them different amounts of room. A 620px media query left the report
+   form at `120px 0px 147px 120px` while the others still fitted.
+   These blocks sit below every variant's own track list on purpose. `@container`
+   adds no specificity, so each rule in here carries one class — exactly what
+   `.profile-request-form` carries — and source order is the only thing that
+   makes the query win. Declared above it, as they were, the query never reached
+   that form: at a 347px container it stayed on `46.8px 160px 56.2px` and its
+   依頼内容 select drew 114px out of a 47px cell, across the memo field beside it,
+   while the other two forms on the same screen reflowed correctly (#214). */
+@container (max-width: 470px) {
+  .field-catalog-form { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }
+  .role-permission-form { grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); }
+}
+
+/* The same shedding, with each form's own number. .skill-catalog-form holds
+   120px for 種類 plus 179px of add-button plus 30px of gap, so the two flexible
+   tracks split whatever is left of the container less 363px — which reaches 0 at
+   a 347px container, where the 名前 input then drew 159px wide across the two
+   cells beside it and elementFromPoint on it returned the 種類 select.
+   660px and 420px are the widths where each form's 親分類 / 親部門 track falls
+   under the 124px a closed select needs to show 「なし（最上位）」: 84px of text
+   at bold 12px, 22px of padding and border, ~18px of arrow. Below that the
+   select shows a clipped value, so the columns are worth more than the row.
+   Two thresholds rather than one because the track counts differ — putting the
+   org form on 660px would break a 169/169/107 single row that still fits (#212). */
+@container (max-width: 660px) {
+  .skills-view .skill-catalog-form { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
+  /* Otherwise the button lands in a 140px track and 「分類またはスキルを追加」
+     wraps to two lines. .field-catalog-form carries the same pair outright. */
+  .skills-view .skill-catalog-form .view-add-button { grid-column: 1 / -1; justify-self: start; }
+}
+@container (max-width: 420px) {
+  .org-view .org-catalog-form { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
+  .org-view .org-catalog-form .view-add-button { grid-column: 1 / -1; justify-self: start; }
+}
 .profile-request-members {
   grid-column: 1 / -1;
   margin: 0;
@@ -4610,7 +5116,115 @@ h1 {
 .profile-request-submit { display: grid; gap: 10px; }
 .field-surfaces { color: #6d7689; font-size: var(--text-min); font-weight: 700; }
 
+/* Paper.
+   =====
+   #179 asked for the proposal on paper — the file it already writes puts the candidate cards
+   back into spreadsheet columns, and a proposal is read as cards. The browser's print dialogue
+   is also its PDF writer, so this block is the whole feature: the screen's own markup, with
+   the screen taken off it.
+
+   This block was two identical blocks, both saying the same two lines, 64 rules apart. One.
+
+   What cannot be checked from here: where the pages actually break, the `@page` margin, whether
+   backgrounds print, and the browser's own header and footer. Approximated by putting these
+   rules on screen at A4's printable width — `mediaText = "all"` over the real cascade, viewport
+   688px, which is 210mm less two 14mm margins; the matching height is 1017px, not that it can
+   be enforced here — and measured there. The remainder is one look at a real print preview,
+   which is #179's own conclusion about what a machine here can do. */
 @media print {
-  .ai-chat-root { display: none !important; }
+  /* A margin, not a paper size. `size: A4` would put A4 pages on whatever is in the tray, and
+     the reader's paper is the reader's business — the layout is fluid and takes either
+     (the evaluation on #179 asked why a proposal screen was choosing paper for every screen). */
+  @page { margin: 14mm; }
+
+  /* Never, on any screen: layers that float over the page rather than belong to it. The change
+     bar prints across a candidate, and the launcher's reserved space prints as a blank strip. */
+  .ai-chat-root,
+  .change-bar,
+  .toast,
+  .overlay,
+  .notification-popover { display: none !important; }
   .app-shell > .workspace::after { display: none; }
+
+  /* The application around the proposal, and only around the proposal. Scoped, because printing
+     is not a proposal-only act: another screen's print keeps its own sidebar, and an open panel
+     stays printable there — which the first version of this took away everywhere (#179). */
+  .app-shell:has(.proposal-view) .sidebar,
+  .app-shell:has(.proposal-view) .topbar,
+  .app-shell:has(.proposal-view) .drawer { display: none !important; }
+  /* The sidebar's column goes with it, or every page carries a 258px indent. */
+  .app-shell:has(.proposal-view) { display: block; min-height: 0; }
+  .app-shell:has(.proposal-view) .workspace { padding: 0; }
+  .proposal-view { animation: none; }
+
+  /* The proposal itself.
+     The ribbon stays: it already says what this is for — the requirement, its dates, the
+     allocation, how many candidates, and whether names are shown — so paper needs no header of
+     its own, and no print-only element in the DOM to hold one. Everything that is a control
+     goes: the toolbar with the pickers and the two buttons that started this, the candidate
+     picker down the left, and the per-card 「外す」 / 「詳細を開く」 / favourite star. */
+  .proposal-view .view-toolbar,
+  .proposal-picker,
+  .proposal-remove,
+  .proposal-open,
+  .proposal-card .favorite-star { display: none !important; }
+  .proposal-layout { display: block; }
+  /* A card broken across a page break is two half-candidates. */
+  .proposal-card { break-inside: avoid; box-shadow: none; }
+
+  /* Ink, not screen.
+     Chrome prints with 「Background graphics」 off unless the reader turns it on, and the
+     ribbon is a dark block with near-white text on it — measured on paper that is the header
+     of the handout disappearing, subject and dates and all. So the header is redrawn as ink on
+     white rather than forced to print its background, which is also the cheaper page. The
+     decorative circle goes; it is a screen flourish and half of it is off the edge anyway. */
+  .proposal-view .member-ribbon {
+    border: 1px solid #b9bfcc;
+    border-radius: 4px;
+    background: #fff;
+    color: #1b2437;
+    box-shadow: none;
+  }
+  .proposal-view .member-ribbon::after { display: none; }
+  .proposal-view .ribbon-lead strong,
+  .proposal-view .ribbon-stat strong { color: #1b2437; }
+  .proposal-view .ribbon-lead small,
+  .proposal-view .ribbon-stat span { color: #4a5468; }
+  .proposal-view .ribbon-icon,
+  .proposal-view .ribbon-icon.mint { border: 1px solid #b9bfcc; background: #fff; color: #1b2437; }
+  /* Same reason, one level down: an avatar is a coloured disc with initials on it, and the
+     disc is a background. The initials carry it; the border keeps it a disc. */
+  .proposal-card .avatar { border: 1px solid #b9bfcc; }
+  /* The bars are backgrounds too. Each one has its figure printed beside it, so nothing is
+     lost when they do not print — but an outline on the fill keeps the shape of the
+     comparison, which is the reason the bars are there. */
+  .proposal-weeks i { border: 1px solid #b9bfcc; }
+  .proposal-weeks i b { outline: 1px solid #4a5468; }
+
+  /* Which fields, from the same tick boxes the file uses (#179). `data-print` on the card list
+     carries the chosen column names; a column nobody chose takes its part of the card with it.
+     The names are the labels the checkboxes show, and `tests/proposal-print-contract.test.mjs`
+     keeps this list and `proposalCsvColumns` in step. 候補 is not among them — it is the card's
+     own heading, and a page of proposals with no candidates on it is not a proposal. */
+  .proposal-cards:not([data-print~="職種"]) .proposal-card-role,
+  .proposal-cards:not([data-print~="勤務地"]) .proposal-card-location,
+  .proposal-cards:not([data-print~="スキル"]) .member-skills,
+  .proposal-cards:not([data-print~="要件期間の最小空き"]) .proposal-match,
+  .proposal-cards:not([data-print~="4週間の稼働率"]) .proposal-weeks,
+  /* Skill data, so it goes with the skills rather than with the percentage it sits beside. */
+  .proposal-cards:not([data-print~="スキル"]) .proposal-match-skills { display: none; }
+  /* On paper it is the only thing on a later page that says whose proposal this is.
+     Small and grey: it is provenance, not a heading, and the candidate's name is
+     what should still be read first. */
+  .proposal-card-provenance {
+    display: block;
+    margin: 0 0 6px;
+    color: #4a5468;
+    font-size: var(--text-min);
+    font-weight: 700;
+  }
+  /* Not one of the columns at all, and 「職種」 was carrying it onto the page: the department is
+     internal, the file has never had a column for it, and the tick boxes are the whole of what
+     the sender chose (#179, from the evaluation). */
+  .proposal-card-department { display: none; }
 }

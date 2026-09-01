@@ -4,7 +4,7 @@ import axe from "axe-core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import App, { type SharedWorkspaceAdapter } from "./App";
 import { DEMO_FAVORITES_KEY } from "./collaboration";
-import { addDays, boardRange, getWeekDays, getWeekStart, initialWorkspace, memberDailyLoads, type WorkspaceState } from "./domain";
+import { addDays, boardRange, getWeekDays, getWeekStart, initialWorkspace, memberDailyLoads, memberLoad, memberPeakLoad, type WorkspaceState } from "./domain";
 import type { ChatTransport } from "./lib/ai/chatClient";
 
 function sharedAdapter(): SharedWorkspaceAdapter {
@@ -21,6 +21,18 @@ afterEach(() => {
   window.history.replaceState({}, "", "/");
   window.localStorage.removeItem(DEMO_FAVORITES_KEY);
 });
+
+/**
+ * The member row whose name reads exactly `label`. #163 split the name cell into the name
+ * and the tag that distinguishes it, so a namesake's label spans two elements and
+ * `getByText` cannot match the whole of it; `textContent` still joins them.
+ */
+function memberRowButton(label: string) {
+  const heading = [...document.querySelectorAll(".member-table .row-name-copy strong")]
+    .find((element) => element.textContent === label);
+  expect(heading, `no member row reads 「${label}」`).toBeDefined();
+  return heading!.closest("button")!;
+}
 
 function linkedStaffingWorkspace(): WorkspaceState {
   const member = initialWorkspace.members[0];
@@ -243,7 +255,9 @@ describe("role-aware workspace", () => {
     expect(screen.getByRole("button", { name: "アサインを追加" })).toBeEnabled();
     await user.click(screen.getByRole("button", { name: "アサインを追加" }));
     dialog = within(screen.getByRole("dialog", { name: "詳細パネル" }));
-    expect(dialog.getByLabelText("メンバー")).not.toHaveValue("");
+    // A candidate is chosen on arrival. It was a `<select>` with a non-empty
+    // value; it is a radio group now, so the same guarantee is a checked row (#199).
+    expect(dialog.getAllByRole("radio", { checked: true })).toHaveLength(1);
     expect(dialog.getByLabelText("プロジェクト")).not.toHaveValue("");
     await user.click(dialog.getByRole("button", { name: "この内容で仮置きする" }));
     expect(document.querySelectorAll(".assignment.provisional")).toHaveLength(1);
@@ -705,6 +719,10 @@ describe("role-aware workspace", () => {
     await user.click(screen.getByText("Atlas リニューアル").closest("button")!);
     await user.click(screen.getByRole("button", { name: "案件情報を編集" }));
     const dialog = within(screen.getByRole("dialog", { name: "詳細パネル" }));
+    // This fixture keeps two members and a project whose 「林 葵」 is neither of them, so
+    // the form cannot say who the owner is and asks. #123 made that refusal explicit.
+    expect((dialog.getByLabelText("責任者") as HTMLSelectElement).value).toBe("");
+    await user.selectOptions(dialog.getByLabelText("責任者"), initialWorkspace.members[0].id);
     await user.clear(dialog.getByLabelText("開始日"));
     await user.type(dialog.getByLabelText("開始日"), addDays(getWeekStart(0), 1));
     await user.click(dialog.getByRole("button", { name: "変更を仮置き" }));
@@ -1136,7 +1154,12 @@ describe("role-aware workspace", () => {
     const sceneSelect = screen.getByLabelText("シーンを選ぶ");
     await user.selectOptions(sceneSelect, within(sceneSelect).getByRole("option", { name: "フロントエンド候補" }));
     expect(screen.getAllByRole("button", { name: /中村 美咲/ }).some((button) => button.classList.contains("member-name-cell"))).toBe(true);
-    expect(screen.getByText("60点")).toBeInTheDocument();
+    // 60/60: the ceiling, not 100, because this scene names one 「あると良い」 skill —
+    // 20 for it plus 40 for the availability. The candidate is at the top of the scale
+    // and the cell now says so (#150).
+    expect(screen.getByText("60/60点")).toBeInTheDocument();
+    expect(document.querySelector(".viz-caption#member-score-key")!.textContent).toContain("満点となる 60 点");
+    expect(document.querySelector(".member-table")).toHaveAttribute("aria-describedby", "member-score-key");
     expect(screen.queryAllByRole("button", { name: /佐伯 優斗/ }).find((button) => button.classList.contains("member-name-cell"))).toBeUndefined();
 
     await user.type(screen.getByPlaceholderText("フロントエンド候補"), "React実務者");
@@ -1637,13 +1660,16 @@ describe("one word per quantity", () => {
     const table = screen.getByRole("table");
     const headers = [...table.querySelectorAll("thead th")].map((th) => th.textContent ?? "");
 
-    expect(headers).toContain("今週の稼働");
+    // #146 named the week instead of claiming the current one: this column follows
+    // the board's paging, so 「今週」 was wrong as soon as the board moved.
+    const weekHeader = headers.find((text) => /^\d+\/\d+週の稼働$/u.test(text));
+    expect(weekHeader, `no week-scoped header among ${headers.join(" | ")}`).toBeDefined();
     expect(headers).toContain("4週間の稼働");
-    expect(headers).not.toContain("今週");
+    expect(headers.filter((text) => text.includes("今週"))).toEqual([]);
     expect(headers).not.toContain("4週間のキャパシティ");
 
     // And the cell under that header really is the load, not the 空き.
-    const cell = table.querySelectorAll("tbody tr")[0].children[headers.indexOf("今週の稼働")];
+    const cell = table.querySelectorAll("tbody tr")[0].children[headers.indexOf(weekHeader!)];
     expect(cell.querySelector(".load-ring strong")!.textContent).toBe("30%");
     expect(cell.textContent).toContain("稼働上限 50%");
   });
@@ -1821,7 +1847,7 @@ describe("one name per control on the board", () => {
 
     // Switching the axis relabels the grid and the row header, not the tabs.
     await user.click(within(axis).getByRole("button", { name: "プロジェクト別" }));
-    expect(screen.getByRole("grid", { name: "プロジェクト別の週間アサイン" })).toBeInTheDocument();
+    expect(screen.getByRole("grid", { name: "プロジェクト別の週間アサイン（稼働は平日で集計）" })).toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: "プロジェクト別" })).toHaveLength(1);
   });
 
@@ -1924,7 +1950,7 @@ describe("a key for what colour and position encode", () => {
     expect(rail.querySelectorAll("i")).toHaveLength(4);
 
     // And the one number under the rail says which week it is.
-    expect(document.querySelector(".staffed-label")!.textContent).toMatch(/^(今週 \d+\/\d+名|必要人数未設定)$/u);
+    expect(document.querySelector(".staffed-label")!.textContent).toMatch(/^(\d+\/\d+週 \d+\/\d+名|必要人数未設定)$/u);
   });
 
   it("puts every proficiency level into the rail's accessible name", async () => {
@@ -1946,7 +1972,7 @@ describe("a key for what colour and position encode", () => {
     await goTo(user, /^プロジェクト 登録 \d+件$/u);
 
     const projectCaption = document.querySelector(".viz-caption")!;
-    expect(projectCaption.textContent).toContain("今週から4週間の充足率");
+    expect(projectCaption.textContent).toMatch(/\d+\/\d+週から4週間の充足率/u);
     // Adjacency is for the eye; the table points at it for everyone else.
     expect(document.querySelector(".portfolio-table")).toHaveAttribute("aria-describedby", projectCaption.id);
     expect(projectCaption.id).not.toBe("");
@@ -2386,6 +2412,102 @@ describe("the list says how it is ordered and what is filtering it", () => {
  * follow the range, and everything that stays week-scoped has to keep saying
  * 「週」.
  */
+/**
+ * The count above the board says how many things need adjusting; pressing it used to open
+ * one of them — the overload if there was one, otherwise the first unfilled role — and
+ * leave the rest unreachable from there. Measured at 375px, the panel that lists all of
+ * them sits 1780px down a page 812px tall, so that button is the only way in (#197).
+ */
+/**
+ * The row header on the board opens what the row is.
+ *
+ * It was a `<div>` with nothing on it, so the only way to a person's detail from the board
+ * was to leave for the メンバー screen and find them again. The cell keeps its
+ * `role="rowheader"` — a `<button>` in its place would take that away — and holds a button
+ * shaped like the member list's own name cell (#195).
+ */
+describe("the board's row header opens the row", () => {
+  const openBoardScreen = async (user: ReturnType<typeof userEvent.setup>) => {
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^アサインボード( |$)/u }));
+  };
+
+  it("opens the member from a member row, and the project from a project row", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await openBoardScreen(user);
+
+    const header = document.querySelector(".schedule-row .person-cell") as HTMLElement;
+    expect(header.getAttribute("role")).toBe("rowheader");
+    const open = header.querySelector(".person-open") as HTMLElement;
+    expect(open.tagName).toBe("BUTTON");
+    const name = open.querySelector("strong")!.textContent!;
+
+    await user.click(open);
+    expect(document.querySelector(".drawer-kicker")!.textContent).toBe("MEMBER PROFILE");
+    expect(document.querySelector(".drawer")!.textContent).toContain(name);
+    await user.click(document.querySelector(".drawer .close-button") as HTMLElement);
+
+    // The other axis: the same header, a project behind it.
+    await user.click(within(screen.getByRole("group", { name: "表示軸" })).getByRole("button", { name: /プロジェクト別/u }));
+    const projectRow = document.querySelector(".schedule-row .person-open") as HTMLElement;
+    const projectName = projectRow.querySelector("strong")!.textContent!;
+    await user.click(projectRow);
+    expect(document.querySelector(".drawer-kicker")!.textContent).toBe("PROJECT DETAIL");
+    expect(document.querySelector(".drawer")!.textContent).toContain(projectName);
+  });
+
+  /** The load chip is a status, not part of what you press to open the row. */
+  it("leaves the load chip outside the control", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await openBoardScreen(user);
+
+    const header = document.querySelector(".schedule-row .person-cell") as HTMLElement;
+    const open = header.querySelector(".person-open") as HTMLElement;
+    const load = header.querySelector(".load") as HTMLElement;
+    expect(load).not.toBeNull();
+    expect(open.contains(load)).toBe(false);
+    // And it is one control per row, not two.
+    expect(header.querySelectorAll("button")).toHaveLength(1);
+  });
+});
+describe("the 要調整 count takes you to the list", () => {
+  // The summary button, by its own shape: 「3件要調整」. The overload card in the panel also
+  // has 要調整 in its long accessible name, so the anchor matters.
+  const countButton = () => screen.getByRole("button", { name: /^\d+件要調整$/u });
+
+  it("goes to the panel instead of opening one of the items", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^アサインボード( |$)/u }));
+
+    const panel = document.querySelector(".attention-panel") as HTMLElement;
+    // More than one thing to adjust, or this test would pass on a screen with one.
+    expect(panel.querySelectorAll(".alert-card").length).toBeGreaterThan(1);
+    expect(countButton().textContent).toContain(String(panel.querySelectorAll(".alert-card").length));
+
+    await user.click(countButton());
+    // No drawer: the list is the destination, and its cards are the way into each item.
+    expect(document.querySelector(".drawer")).toBeNull();
+    expect(panel).toHaveFocus();
+    expect(panel.scrollIntoView).toHaveBeenCalled();
+  });
+
+  /** And each card still opens its own item, so nothing lost a way in. */
+  it("keeps each card as the way into its own item", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^アサインボード( |$)/u }));
+    const cards = [...document.querySelectorAll(".attention-panel .alert-card")] as HTMLElement[];
+
+    await user.click(cards[0]);
+    expect(document.querySelector(".drawer")).not.toBeNull();
+    await user.click(document.querySelector(".drawer .close-button") as HTMLElement);
+
+    await user.click(cards[1]);
+    expect(document.querySelector(".drawer")).not.toBeNull();
+  });
+});
 describe("the board can show a month", () => {
   const openBoard = async () => {
     const user = userEvent.setup();
@@ -2398,20 +2520,23 @@ describe("the board can show a month", () => {
     await user.click(within(group).getByRole("button", { name: "月" }));
   };
 
-  it("draws one column per weekday of the month, and one grid line each", async () => {
+  it("draws one column per day of the month, and one grid line each", async () => {
     const user = await openBoard();
-    expect(columns()).toHaveLength(5);
+    // Monday to Sunday. It was five, and a month drawn without its weekends was not a
+    // calendar — the 1st and 2nd of August were simply absent (#207).
+    expect(columns()).toHaveLength(7);
 
     await showMonth(user);
     const monthColumns = columns();
-    // 20 to 23 weekdays, depending on the month; never five.
-    expect(monthColumns.length).toBeGreaterThanOrEqual(20);
-    expect(monthColumns.length).toBeLessThanOrEqual(23);
+    // 28 to 31, depending on the month; never seven.
+    expect(monthColumns.length).toBeGreaterThanOrEqual(28);
+    expect(monthColumns.length).toBeLessThanOrEqual(31);
     // The backdrop lines are per column too — they were a hard-coded five.
     expect(document.querySelectorAll(".schedule-row .day-grid i").length / document.querySelectorAll(".schedule-row").length)
       .toBe(monthColumns.length);
-    // No weekend gets a column.
-    expect(monthColumns.some((label) => label?.startsWith("土") || label?.startsWith("日"))).toBe(false);
+    // Every weekend of the month is a column, and marked as one.
+    expect(monthColumns.filter((label) => label?.startsWith("土") || label?.startsWith("日")).length)
+      .toBeGreaterThanOrEqual(8);
   });
 
   /**
@@ -2445,9 +2570,12 @@ describe("the board can show a month", () => {
     const bar = document.querySelector("button.assignment") as HTMLElement;
     expect(bar, "the fixture assignment should be on the board").toBeTruthy();
     // The header's own idea of where those dates sit.
-    const dates = columns().map((text) => (text ?? "").replace(/^[月火水木金]/u, ""));
+    const dates = columns().map((text) => (text ?? "").replace(/^[月火水木金土日]/u, ""));
     const startColumn = dates.indexOf(String(Number(from.slice(8, 10)))) + 1;
     const endColumn = dates.indexOf(String(Number(to.slice(8, 10)))) + 1;
+    // Column N is day N: the day list skips nothing, so 「position in the list」 and
+    // 「date of the month」 coincide. The two code paths are still separate — the header
+    // builds one and `assignmentSpan` the other — which is what this compares (#207).
     expect(startColumn).toBe(8);
     expect(bar.style.gridColumn).toBe(`${startColumn} / span ${endColumn - startColumn + 1}`);
   });
@@ -2470,14 +2598,14 @@ describe("the board can show a month", () => {
       render(<App />);
       const marked = () => [...document.querySelectorAll(".day-label.today strong")].map((el) => el.textContent);
 
-      expect(columns()).toEqual(["月17", "火18", "水19", "木20", "金21"]);
+      expect(columns()).toEqual(["月17", "火18", "水19", "木20", "金21", "土22", "日23"]);
       expect(marked()).toEqual(["19"]);
 
       await showMonth(user);
-      expect(columns()[0]).toBe("月3");
+      expect(columns()[0]).toBe("土1");
       expect(marked()).toEqual(["19"]);
-      // Thirteenth column, not the first.
-      expect(columns().indexOf("水19")).toBe(12);
+      // Nineteenth column, not the first. Day N is column N now (#207).
+      expect(columns().indexOf("水19")).toBe(18);
     } finally {
       vi.useRealTimers();
     }
@@ -2492,7 +2620,7 @@ describe("the board can show a month", () => {
     vi.setSystemTime(new Date("2026-12-30T09:00:00+09:00"));
     try {
       render(<App />);
-      expect(document.querySelector(".date-range")!.textContent).toBe("2026年 12月28日 — 2027年 1月1日");
+      expect(document.querySelector(".date-range")!.textContent).toBe("2026年 12月28日 — 2027年 1月3日 · 稼働は平日で集計");
     } finally {
       vi.useRealTimers();
     }
@@ -2500,14 +2628,16 @@ describe("the board can show a month", () => {
 
   it("names the range it is showing, in the words of the unit", async () => {
     const user = await openBoard();
-    expect(screen.getByRole("grid", { name: "メンバー別の週間アサイン" })).toBeInTheDocument();
+    expect(screen.getByRole("grid", { name: "メンバー別の週間アサイン（稼働は平日で集計）" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "次の週" })).toBeInTheDocument();
 
     await showMonth(user);
-    expect(screen.getByRole("grid", { name: "メンバー別の月間アサイン" })).toBeInTheDocument();
+    expect(screen.getByRole("grid", { name: "メンバー別の月間アサイン（稼働は平日で集計）" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "次の月" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "次の週" })).not.toBeInTheDocument();
-    expect(document.querySelector(".eyebrow")!.textContent).toMatch(/MONTH \d+/u);
+    // 「2026年 8月」, where the week reads 「8月 第3週」. It was 「MONTH 8」 and 「WEEK 34」 — an
+    // ISO week number, which is year-wide and says nothing about the month (#194).
+    expect(document.querySelector(".eyebrow")!.textContent).toMatch(/\d{4}年 \d+月$/u);
   });
 
   /**
@@ -2515,9 +2645,10 @@ describe("the board can show a month", () => {
    * the week it names has to be the week it measured — which in month mode can
    * begin in the month before the board's first column.
    *
-   * September 2026 opens on a Tuesday, so its first column is 9/1 and the week it
-   * belongs to began on 8/31. Naming the figure from `days[0]` would say 「9/1週」.
-   * August was no test at all: it opens on Monday 8/3, where both readings agree.
+   * The month holding today measures today's week (#187), so the month-before case is
+   * reached by paging: October 2026 opens on a Thursday, its first column is 10/1, and the
+   * week that column belongs to began on 9/28. Naming the figure from `days[0]` would say
+   * 「10/1週」. September, where today is, is the other half of the pair.
    */
   it("keeps the week-scoped figure labelled with the week it measures", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
@@ -2530,7 +2661,13 @@ describe("the board can show a month", () => {
 
       await showMonth(user);
       expect(columns()[0]).toBe("火1");
-      expect(label()).toBe("8/31週の平均稼働率");
+      // Today is in this month, so the figure is the week today is in — not the week the
+      // month happens to open in, which is what it used to read (#187).
+      expect(label()).toBe("9/14週の平均稼働率");
+
+      await user.click(screen.getByRole("button", { name: "次の月" }));
+      expect(columns()[0]).toBe("木1");
+      expect(label()).toBe("9/28週の平均稼働率");
     } finally {
       vi.useRealTimers();
     }
@@ -2549,7 +2686,7 @@ describe("the board can show a month", () => {
       const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
       render(<App />);
       await showMonth(user);
-      expect(document.querySelector(".month-card-label span")!.textContent).toBe("8/31週の平均稼働率");
+      expect(document.querySelector(".month-card-label span")!.textContent).toBe("9/14週の平均稼働率");
 
       await user.click(screen.getByRole("button", { name: "次の月" }));
       expect(columns()[0]).toBe("木1");
@@ -2624,6 +2761,38 @@ describe("a proposal answers something", () => {
   });
 
   /**
+   * The ribbon is one element in normal flow, so a printed proposal that runs past
+   * one page had nothing on its later pages saying whose proposal it was — four
+   * candidates does it, at 267px a card in 1017px of printable height. Every card
+   * carries the line now (#185).
+   *
+   * Whether it prints is the stylesheet's half, in
+   * `tests/proposal-print-contract.test.mjs`. This is the content: the subject and
+   * the display mode, on every card, including the one thing a reader holding only
+   * page two could not otherwise know — that names are being withheld.
+   */
+  it("puts the proposal's own name on every candidate for the printed page", async () => {
+    const user = await openProposal();
+    const picker = screen.getByLabelText("提案先を選ぶ") as HTMLSelectElement;
+    const subject = [...picker.options].find((option) => option.value !== "")!;
+    await user.selectOptions(picker, subject.value);
+
+    const group = [...document.querySelectorAll(".proposal-picker-group")]
+      .find((element) => element.querySelector("small")?.textContent === "メンバー")!;
+    for (const item of [...group.querySelectorAll(".proposal-picker-item")].slice(0, 2)) {
+      await user.click(item as HTMLElement);
+    }
+    const provenance = () => [...document.querySelectorAll(".proposal-card-provenance")].map((el) => el.textContent);
+    expect(provenance()).toHaveLength(document.querySelectorAll(".proposal-card").length);
+    expect(provenance().length).toBeGreaterThan(1);
+    expect(new Set(provenance()).size).toBe(1);
+    expect(provenance()[0]).toBe(`${subject.textContent} · 氏名あり`);
+
+    await user.click(screen.getByLabelText("氏名・勤務地を隠す"));
+    expect(provenance()[0]).toBe(`${subject.textContent} · 氏名なし`);
+  });
+
+  /**
    * Ordering, actually asserted. A first version clicked the top candidate and
    * accepted either 「適合」 or 「適合していません」 on the card, which is true of any
    * order at all.
@@ -2647,9 +2816,12 @@ describe("a proposal answers something", () => {
     const items = rest.querySelectorAll(".proposal-picker-item");
     await user.click(items[items.length - 1] as HTMLElement);
 
+    // The availability, not a score: for a subject built from a requirement every
+    // skill is 「必須」, so `matchScore` reduced to `round(空き% × 0.4)` and the cards no
+    // longer print it (#150). The order it produced is the order of this number.
     const scoreOf = (card: Element) => {
       const text = card.querySelector(".proposal-match")!.textContent ?? "";
-      const found = /適合 (\d+)点/u.exec(text);
+      const found = /要件期間の最小空き (\d+)%/u.exec(text);
       // No match at all is the bottom of the order, not a missing value.
       return found ? Number(found[1]) : -1;
     };
@@ -2657,7 +2829,9 @@ describe("a proposal answers something", () => {
     expect(cards).toHaveLength(2);
     expect(scoreOf(cards[0])).toBeGreaterThanOrEqual(scoreOf(cards[1]));
     // And the leader is a real match, not merely first.
-    expect(cards[0].querySelector(".proposal-match")!.textContent).toMatch(/適合 \d+点 · 要件期間の最小空き \d+%/u);
+    expect(cards[0].querySelector(".proposal-match")!.textContent).toMatch(/^要件期間の最小空き \d+%/u);
+    // And the number it replaced is gone from the card rather than moved.
+    expect(cards[0].querySelector(".proposal-match")!.textContent).not.toMatch(/適合|点/u);
   });
 
   /**
@@ -2681,7 +2855,7 @@ describe("a proposal answers something", () => {
     }
 
     const scores = [...document.querySelectorAll(".proposal-card .proposal-match")].map((element) => {
-      const found = /適合 (\d+)点/u.exec(element.textContent ?? "");
+      const found = /要件期間の最小空き (\d+)%/u.exec(element.textContent ?? "");
       return found ? Number(found[1]) : -1;
     });
     expect(scores.length).toBeGreaterThan(4);
@@ -2864,5 +3038,2170 @@ describe("a proposal answers something", () => {
     // The fit survives the anonymising, which is the point of showing it: a
     // reader can weigh the candidate without being told who they are.
     expect(cards).toMatch(/適合 \d+点|この要件には適合していません/u);
+  });
+});
+
+/**
+ * #146: eleven labels said 「今週」 while the value came from whatever week the
+ * board is paged to. Paging moved the number and left the word behind, and #139
+ * made it worse — in month mode these figures cover the month's *first* week,
+ * which can be several weeks from today.
+ *
+ * The word is now reserved for a figure computed from `getWeekStart(0)`, which is
+ * the reports screen and nothing else. Every other week-scoped figure names its
+ * week, the shape #119 already gave the sidebar.
+ */
+/**
+ * #194: the board named its position 「WEEK 34」 — an ISO week number, year-wide, and no
+ * answer to 「what week of the month is this」. And after three clicks of ▶ nothing said how
+ * far out you were.
+ *
+ * On a fixed clock, because both labels are literals about a date. Wednesday 2026-08-19 is in
+ * August's third Monday-week, so 第3週 and 8/17 are different statements and the week label
+ * cannot pass by coincidence.
+ */
+describe("the board says where it is", () => {
+  const onWednesday = () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date("2026-08-19T09:00:00+09:00"));
+    return userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+  };
+  afterEach(() => { vi.useRealTimers(); });
+
+  const eyebrow = () => document.querySelector(".eyebrow")!.textContent!.replace(/\s+/gu, " ").trim();
+  const dateRange = () => document.querySelector(".date-range")!.textContent!;
+
+  it("names the week by its place in the month, and the month by its year", async () => {
+    const user = onWednesday();
+    render(<App />);
+    expect(eyebrow()).toBe("RESOURCE PLANNING / 8月 第3週");
+
+    await user.click(within(screen.getByRole("group", { name: "表示する期間" })).getByRole("button", { name: "月" }));
+    expect(eyebrow()).toBe("RESOURCE PLANNING / 2026年 8月");
+  });
+
+  it("says how far it has been paged, in the unit it is paging by", async () => {
+    const user = onWednesday();
+    render(<App />);
+    // Nothing at zero. 「今週」 is the word #146 retired from these screens, and today is a
+    // weekend two days in seven, where the week on screen holds no column for it.
+    expect(dateRange()).toBe("2026年 8月17日 — 8月23日 · 稼働は平日で集計");
+
+    await user.click(screen.getByRole("button", { name: "次の週" }));
+    expect(dateRange()).toBe("2026年 8月24日 — 8月30日 · 1週後 · 稼働は平日で集計");
+    await user.click(screen.getByRole("button", { name: "次の週" }));
+    expect(dateRange()).toBe("2026年 8月31日 — 9月6日 · 2週後 · 稼働は平日で集計");
+    expect(eyebrow()).toBe("RESOURCE PLANNING / 8月 第5週");
+
+    await user.click(screen.getByRole("button", { name: "今日" }));
+    expect(dateRange()).toBe("2026年 8月17日 — 8月23日 · 稼働は平日で集計");
+
+    await user.click(screen.getByRole("button", { name: "前の週" }));
+    expect(dateRange()).toBe("2026年 8月10日 — 8月16日 · 1週前 · 稼働は平日で集計");
+
+    // Months count in months, not in the weeks they contain, and the distance goes first
+    // because it is the part that changes (#194). The weekday note is constant now that
+    // the weekends have columns — it describes the arithmetic, not the columns (#207).
+    await user.click(screen.getByRole("button", { name: "今日" }));
+    await user.click(within(screen.getByRole("group", { name: "表示する期間" })).getByRole("button", { name: "月" }));
+    expect(dateRange()).toBe("2026年 8月1日 — 8月31日 · 稼働は平日で集計");
+    await user.click(screen.getByRole("button", { name: "次の月" }));
+    expect(dateRange()).toBe("2026年 9月1日 — 9月30日 · 1か月後 · 稼働は平日で集計");
+  });
+});
+
+/**
+ * #191 was reported as 「add Saturday and Sunday」 and 「the 1st and 2nd of the month are
+ * missing」. Reading the code then: weekends carried no load anywhere in the model, and
+ * `assignmentSpan` mapped assignments onto weekday columns, so ten always-empty columns
+ * were the wrong answer and saying which days were counted was the right one.
+ *
+ * #207 settled the other half. The columns are there now — a month is the 1st to the 31st,
+ * a week is Monday to Sunday, and a bar crossing a weekend is one bar. The figures are
+ * still weekday-only, because an assignment carries a date range and no working days, and
+ * 12 of the 15 in the seed span a weekend simply by lasting more than a week. So the note
+ * stayed and changed what it is about: not 「these columns are missing」 but 「these numbers
+ * count weekdays」, on both modes, since it is now equally true of both.
+ */
+describe("the board says what its figures count", () => {
+  const showMonthMode = async (user: ReturnType<typeof userEvent.setup>) => {
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^アサインボード( |$)/u }));
+    await user.click(within(screen.getByRole("group", { name: "表示する期間" })).getByRole("button", { name: "月" }));
+  };
+
+  it("says so on the range in both modes, because it is true of both", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^アサインボード( |$)/u }));
+    expect(document.querySelector(".date-range")!.textContent).toContain("稼働は平日で集計");
+    // And not the old wording, which described columns that are no longer missing.
+    expect(document.querySelector(".date-range")!.textContent).not.toContain("平日のみ");
+
+    await user.click(within(screen.getByRole("group", { name: "表示する期間" })).getByRole("button", { name: "月" }));
+    expect(document.querySelector(".date-range")!.textContent).toContain("稼働は平日で集計");
+  });
+
+  it("tells a screen reader in both modes, where the tint cannot be seen", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^アサインボード( |$)/u }));
+    expect(screen.getByRole("grid", { name: /週間アサイン（稼働は平日で集計）$/u })).toBeInTheDocument();
+
+    await user.click(within(screen.getByRole("group", { name: "表示する期間" })).getByRole("button", { name: "月" }));
+    expect(screen.getByRole("grid", { name: /月間アサイン（稼働は平日で集計）$/u })).toBeInTheDocument();
+  });
+
+  /**
+   * The columns the note used to be about. They are drawn and marked: `.weekend` is what
+   * tints them, and it is the only thing that separates 「a day with no room in it」 from
+   * 「a day nobody has booked yet」 once a bar runs straight across both.
+   */
+  it("draws the weekend and marks it as a weekend", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await showMonthMode(user);
+    const labels = [...document.querySelectorAll(".day-label")];
+    // Every day of August, weekends included.
+    expect(labels).toHaveLength(31);
+    const days = labels.map((node) => node.querySelector("span")!.textContent);
+    expect(days.filter((day) => day === "土")).toHaveLength(5);
+    expect(days.filter((day) => day === "日")).toHaveLength(5);
+    // 2026-08-01 is a Saturday, so the month opens on one — the day that used to be absent.
+    expect(days[0]).toBe("土");
+    expect(labels[0].classList.contains("weekend")).toBe(true);
+
+    // Marked, and only the weekend is.
+    const marked = labels.filter((node) => node.classList.contains("weekend"));
+    expect(marked).toHaveLength(10);
+    for (const node of marked) {
+      expect(["土", "日"]).toContain(node.querySelector("span")!.textContent);
+    }
+    // The lines behind the bars carry it too, or the tint stops at the header.
+    expect(document.querySelectorAll(".day-grid i.weekend").length % 10).toBe(0);
+    expect(document.querySelectorAll(".day-grid i.weekend").length).toBeGreaterThan(0);
+  });
+});
+describe("a week-scoped figure names the week it measures", () => {
+  afterEach(() => { vi.useRealTimers(); });
+
+  /**
+   * A Wednesday, so the current week (8/17) and the month's first week (8/3) are
+   * different and neither is the other's neighbour. On a date where they coincide
+   * the month-mode assertion below would pass against the bug.
+   */
+  const onWednesday = () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date("2026-08-19T09:00:00+09:00"));
+    return userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+  };
+
+  const pulseLabel = () => {
+    const metric = [...document.querySelectorAll(".pulse-metric")]
+      .find((node) => /の空き$/u.test(node.querySelector("span")?.textContent ?? ""));
+    expect(metric, "the pulse strip should carry a 空き metric").toBeDefined();
+    return metric!.querySelector("span")!.textContent ?? "";
+  };
+
+  it("names the week, and the name follows paging", async () => {
+    const user = onWednesday();
+    render(<App />);
+    expect(pulseLabel()).toBe("8/17週の空き");
+    await user.click(screen.getByRole("button", { name: "次の週" }));
+    expect(pulseLabel()).toBe("8/24週の空き");
+    await user.click(screen.getByRole("button", { name: "前の週" }));
+    await user.click(screen.getByRole("button", { name: "前の週" }));
+    expect(pulseLabel()).toBe("8/10週の空き");
+  });
+
+  /**
+   * The month-mode case, where a label reading 「8月」 would claim a month's figure for a
+   * week's (#115). The month holding today measures today's week now (#187), so 「今週」
+   * would survive that one — and not the paged one below, where the figure is measured over
+   * 8/31–9/4 while the board shows September.
+   */
+  it("month mode names the week inside the month, not the month", async () => {
+    const user = onWednesday();
+    render(<App />);
+    await user.click(within(screen.getByRole("group", { name: "表示する期間" })).getByRole("button", { name: "月" }));
+    // The month is the 1st to the 31st now that the weekends have columns, and the note
+    // is about the arithmetic rather than about missing days (#207).
+    expect(document.querySelector(".date-range")!.textContent).toBe("2026年 8月1日 — 8月31日 · 稼働は平日で集計");
+    expect(pulseLabel()).toBe("8/17週の空き");
+
+    // September 2026 opens on a Tuesday, so the week its first column belongs to began on
+    // 8/31 — in August, which no label naming the month could say.
+    await user.click(screen.getByRole("button", { name: "次の月" }));
+    // 「· 1か月後」 comes with having paged away from today (#194).
+    expect(document.querySelector(".date-range")!.textContent).toBe("2026年 9月1日 — 9月30日 · 1か月後 · 稼働は平日で集計");
+    expect(pulseLabel()).toBe("8/31週の空き");
+  });
+
+  /**
+   * What #187 was actually about, from the reader's end rather than the label's.
+   *
+   * Measured before the fix, on a Wednesday with August in view: switching to month mode
+   * took the average from 69% to 0% and the sidebar from 8/17週 to 8/3週 — a week three
+   * weeks gone, with nothing booked in it. The same week reaches the assignment form, so it
+   * offered 鈴木健太 at 「0%」 while the board behind it drew him at 120%: an empty slot
+   * where there was none.
+   *
+   * 鈴木 by name, because he is the demo's overloaded member and the whole point is that the
+   * form must not disagree with the board about him.
+   *
+   * The form reads its own date inputs now rather than the board's measured week (#199), so
+   * the property is stronger than it was: the figure cannot follow the board into the wrong
+   * week because it no longer asks the board anything. Both halves are checked — the figure
+   * is right, and switching the board's unit does not move it.
+   */
+  it("does not offer a fully booked member as free once the board shows a month", async () => {
+    window.localStorage.removeItem("mosaic-local-workspace-v3");
+    const user = onWednesday();
+    render(<App />);
+
+    const average = () => document.querySelector(".month-card-label strong")!.textContent;
+    const rowFor = (name: string) => [...document.querySelectorAll(".member-picker-item")]
+      .find((row) => row.querySelector("strong")!.textContent === name)!;
+
+    const weekAverage = average();
+    await user.click(within(screen.getByRole("group", { name: "表示する期間" })).getByRole("button", { name: "月" }));
+    // The figures do not move when the unit does: same week, same numbers.
+    expect(average()).toBe(weekAverage);
+    expect(document.querySelector(".month-card-label span")!.textContent).toBe("8/17週の平均稼働率");
+
+    await user.click(screen.getByRole("button", { name: /アサインを追加/u }));
+    // The form opens on this week, Monday to Friday, which is what the legend names.
+    expect(document.querySelector(".member-picker legend")!.textContent).toContain("8月17日 — 8月21日");
+    const suzuki = rowFor("鈴木 健太");
+    const load = suzuki.querySelector(".member-picker-load")!;
+    // 120% in the demo data, and over his 100% ceiling either way — the reading that was
+    // 「0%」 before, which is the one that reads as room to spare.
+    const percent = Number(load.textContent!.match(/^(\d+)%/u)![1]);
+    expect(percent).toBe(memberPeakLoad(initialWorkspace, "suzuki", "2026-08-17", "2026-08-21"));
+    expect(percent).toBeGreaterThan(100);
+    // And it is marked as over, not merely numerically larger.
+    expect(load.classList.contains("over")).toBe(true);
+    expect(memberLoad(initialWorkspace, "suzuki", "2026-08-17")).toBeGreaterThan(100);
+
+    // Back to week mode: the figure the form shows is the same, because it never came
+    // from the board's unit in the first place.
+    await user.click(document.querySelector(".drawer .close-button") as HTMLElement);
+    await user.click(within(screen.getByRole("group", { name: "表示する期間" })).getByRole("button", { name: "週" }));
+    await user.click(screen.getByRole("button", { name: /アサインを追加/u }));
+    expect(rowFor("鈴木 健太").querySelector(".member-picker-load")!.textContent).toBe(load.textContent);
+  });
+
+  /**
+   * The screens that take the board's week — everything but the reports screen —
+   * must not carry the word at all. Asserted on the rendered text rather than on
+   * the sources, so a label assembled at runtime is covered too; the source-level
+   * counterpart is in tests/vocabulary-contract.test.mjs.
+   */
+  it("no screen that follows the board says 今週", async () => {
+    const user = onWednesday();
+    render(<App />);
+    const navigation = within(screen.getByRole("navigation", { name: "メインナビゲーション" }));
+    // The nav names carry a badge count, so each is matched by its leading word.
+    for (const screenName of ["アサインボード", "メンバー", "プロジェクト", "受注前", "提案", "スキルマップ", "組織"]) {
+      await user.click(navigation.getByRole("button", { name: new RegExp(`^${screenName}( |$)`, "u") }));
+      expect(document.body.textContent, `${screenName} should not claim 今週`).not.toContain("今週");
+    }
+    // The reports screen may, and does: its figures come from getWeekStart(0) and
+    // it takes no week from the board. Asserted so the reservation is not vacuous.
+    await user.click(navigation.getByRole("button", { name: "レポート" }));
+    expect(document.body.textContent).toContain("今週");
+  });
+
+  /**
+   * The label and the value have to name the same week, not merely both be named.
+   * An evaluator reading this change took `weekStart` and the `currentWeekStart`
+   * alias beside it for two different weeks and read a mismatch into the assignment
+   * form and this rail. There was none — the alias was an assignment of the other —
+   * but nothing pinned it, so a later edit could introduce the very bug that was
+   * reported. This pins it, in month mode, where the two would diverge if they ever
+   * did: the board shows 8/3–8/31 while these figures cover 8/3–8/7 only.
+   *
+   * The expected values come from `memberLoad` on the week the label names, so this
+   * fails both if the label moves off the value's week and if the value moves off
+   * the label's.
+   */
+  it("month mode pairs each label with the value for that same week", async () => {
+    window.localStorage.removeItem("mosaic-local-workspace-v3");
+    const user = onWednesday();
+    render(<App />);
+    await user.click(within(screen.getByRole("group", { name: "表示する期間" })).getByRole("button", { name: "月" }));
+
+    const mondayFrom = (label: string) => {
+      const m = label.match(/^(\d+)\/(\d+)週/u);
+      expect(m, `expected a week name, got 「${label}」`).not.toBeNull();
+      return `2026-${String(m![1]).padStart(2, "0")}-${String(m![2]).padStart(2, "0")}`;
+    };
+
+    // The assignment form no longer names a week: it names its own range once, in the
+    // legend, and every row is the peak over that range (#199). Same property as before —
+    // a figure and the words for what it measures, paired — with the form's dates as the
+    // thing being named instead of the board's week.
+    await user.click(screen.getByRole("button", { name: /アサインを追加/u }));
+    const legend = document.querySelector(".member-picker legend")!.textContent!;
+    const range = legend.match(/(\d+)月(\d+)日 — (\d+)月(\d+)日/u);
+    expect(range, `expected a range in 「${legend}」`).not.toBeNull();
+    const iso = (month: string, day: string) => `2026-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
+    const from = iso(range![1], range![2]);
+    const to = iso(range![3], range![4]);
+    const candidateRows = [...document.querySelectorAll(".member-picker-item")];
+    expect(candidateRows.length).toBeGreaterThan(0);
+    for (const row of candidateRows) {
+      const name = row.querySelector("strong")!.textContent!;
+      const parsed = row.querySelector(".member-picker-load")!.textContent!.match(/^(\d+)% \/ (\d+)%$/u);
+      expect(parsed, `unexpected load shape for ${name}`).not.toBeNull();
+      const member = initialWorkspace.members.find((item) => name.startsWith(item.name))!;
+      expect(Number(parsed![1]), `${name} over ${from}–${to}`)
+        .toBe(memberPeakLoad(initialWorkspace, member.id, from, to));
+      expect(Number(parsed![2])).toBe(member.capacity);
+    }
+    // 8/17–8/21, this week, with the board a month wide behind it: the range is the form's
+    // own and does not follow the unit. The literal is here so the pairing above cannot be
+    // satisfied by self-consistency alone.
+    expect(from).toBe("2026-08-17");
+    expect(to).toBe("2026-08-21");
+    // `.close-button`, not the role lookup: the backdrop carries the same
+    // accessible name, which is #122. Two matches would fail here for a reason
+    // that has nothing to do with this test.
+    await user.click(document.querySelector(".drawer .close-button") as HTMLElement);
+
+    // The member drawer's rail: label, then 「{n}% / {capacity}%」.
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^メンバー( |$)/u }));
+    await user.click(document.querySelector(".member-table tbody tr .member-name-cell") as HTMLElement);
+    const rail = await waitFor(() => {
+      const node = document.querySelector(".profile-capacity");
+      expect(node).not.toBeNull();
+      return node!;
+    });
+    const name = document.querySelector(".drawer .profile-headline strong, .drawer h2, .drawer h3")?.textContent ?? "";
+    const member = initialWorkspace.members.find((item) => name.includes(item.name));
+    expect(member, `could not identify the member from 「${name}」`).toBeDefined();
+    const rows = [...rail.querySelectorAll(":scope > div")];
+    expect(rows).toHaveLength(4);
+    const monday = mondayFrom(rows[0].querySelector("span")!.textContent!);
+    expect(monday).toBe("2026-08-17");
+    rows.forEach((row, index) => {
+      const load = Number(row.querySelector("strong")!.textContent!.match(/^(\d+)%/u)![1]);
+      expect(load, `rail cell ${index}`).toBe(memberLoad(initialWorkspace, member!.id, addDays(monday, index * 7)));
+    });
+  });
+
+  /**
+   * The two detail panels carry a four-week rail whose first cell was 「今週」 while
+   * the other three are relative to it. Naming the first cell keeps the sequence
+   * readable — 「8/17週 · 2週後 · 3週後 · 4週後」 — and stops the rail claiming a
+   * week it is not on after paging.
+   */
+  it("the detail panel's four-week rail names its first week", async () => {
+    const user = onWednesday();
+    render(<App />);
+    await user.click(screen.getByRole("button", { name: "次の週" }));
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: "メンバー" }));
+    await user.click(document.querySelector(".member-table tbody tr .member-name-cell") as HTMLElement);
+    const rail = await waitFor(() => {
+      const node = document.querySelector(".profile-capacity");
+      expect(node).not.toBeNull();
+      return node!;
+    });
+    const cells = [...rail.querySelectorAll(":scope > div > span")].map((node) => node.textContent);
+    expect(cells).toEqual(["8/24週", "2週後", "3週後", "4週後"]);
+  });
+});
+
+/**
+ * #142 sticks the member table's name and actions columns, and the CSS reaches the
+ * name cell by `td:nth-child(2)` — the `<th>` carries a class but the `<td>` does not.
+ * `tests/sticky-columns-contract.test.mjs` can check the rules; only the render can
+ * check the column.
+ *
+ * The evaluator on that change asked what happens if a leading column is ever dropped
+ * conditionally: the name would become the first column and a different cell would
+ * stick. Today it cannot — the favourite `<td>` is unconditional and only its contents
+ * are guarded by `onToggleFavorite` — and the table gains columns from the third
+ * onwards. Both modes are checked because "the CSS has no mode branch" says nothing
+ * about the markup: shared mode passes different props and could well render a
+ * different first column.
+ */
+describe("the sticky columns' position in the row", () => {
+  const columnsOf = () => {
+    const table = document.querySelector(".member-table") as HTMLTableElement;
+    const headers = [...table.querySelectorAll("thead tr:last-child th")];
+    const cells = [...table.querySelectorAll("tbody tr:first-child td")];
+    return { headers, cells };
+  };
+
+  const openMemberList = async (extra: Partial<Parameters<typeof App>[0]> = {}) => {
+    const user = userEvent.setup();
+    render(<App {...extra} />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^メンバー( |$)/u }));
+    return user;
+  };
+
+  const expectNameIsSecond = () => {
+    const { headers, cells } = columnsOf();
+    expect(headers[0].className).toContain("col-favorite");
+    expect(headers[1].className).toContain("col-name");
+    expect(headers.at(-1)!.className).toContain("col-actions");
+    // And the cells the CSS actually reaches: second from the left, last on the right.
+    expect(cells[1].querySelector(".member-name-cell")).not.toBeNull();
+    expect(cells.at(-1)!.className).toContain("member-row-actions");
+  };
+
+  it("puts the name second and the actions last in demo mode", async () => {
+    await openMemberList();
+    expectNameIsSecond();
+  });
+
+  it("puts them in the same places in shared mode", async () => {
+    await openMemberList({ mode: "shared", organizationName: "Example Inc.",
+      identity: { name: "編集 花子", email: "editor@example.com", role: "admin" }, shared: sharedAdapter() });
+    expect(screen.getByText("SHARED")).toBeInTheDocument();
+    expectNameIsSecond();
+  });
+
+  /**
+   * The columns that appear at runtime have to keep appearing after the second one.
+   * A search scene adds a score column and each custom field in the list view adds
+   * one; if either landed earlier, `td:nth-child(2)` would stick the wrong cell.
+   */
+  it("keeps the name second when a search scene adds its score column", async () => {
+    const user = await openMemberList();
+    const picker = screen.getByLabelText("シーンを選ぶ") as HTMLSelectElement;
+    const scene = [...picker.options].find((option) => option.value);
+    expect(scene, "the demo data should carry a saved search scene").toBeDefined();
+    await user.selectOptions(picker, scene!.value);
+
+    const { headers } = columnsOf();
+    expect(headers.some((th) => th.className.includes("col-score")), "the score column should appear").toBe(true);
+    expect(headers.findIndex((th) => th.className.includes("col-score"))).toBeGreaterThan(1);
+    expectNameIsSecond();
+  });
+});
+
+/**
+ * #122: the panel's backdrop was a `<button>` carrying the same accessible name as
+ * the ✕ inside the panel, so a screen reader listing buttons saw 「詳細パネルを閉じる」
+ * twice — and that one sat outside the focus cycle the trap maintains. Measured with
+ * real key presses at 1440x900: 72 focusable elements, two with that name, the
+ * backdrop at document position 63 with `tabIndex: 0`, and Shift+Tab from the ✕
+ * landing on `.drawer-danger` rather than on it.
+ *
+ * That is one route, not a proof of unreachability — a screen reader's button list
+ * and the pointer could both still get there. The defect is the duplicate name for an
+ * operation that already had one, on an element advertised as focusable while the
+ * panel's own focus order excluded it.
+ *
+ * It is a div now. The keyboard keeps Escape and the ✕; the pointer keeps the
+ * backdrop.
+ */
+describe("one way to name closing the panel", () => {
+  const FOCUSABLE = 'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])';
+
+  const openPanel = async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^メンバー( |$)/u }));
+    await user.click(document.querySelector(".member-table tbody tr .member-name-cell") as HTMLElement);
+    await waitFor(() => expect(document.querySelector(".drawer")).not.toBeNull());
+    return user;
+  };
+
+  it("names the close control once, and the backdrop is not one of them", async () => {
+    await openPanel();
+    // getByRole, not getAllByRole: two matches is the defect, and this is the call
+    // that failed with 「Found multiple elements」 while #146 was being written.
+    const close = screen.getByRole("button", { name: "詳細パネルを閉じる" });
+    expect(document.querySelector(".drawer")!.contains(close)).toBe(true);
+
+    const backdrop = document.querySelector(".overlay-backdrop")!;
+    expect(backdrop.tagName).toBe("DIV");
+    expect(backdrop.getAttribute("aria-hidden")).toBe("true");
+    // Focusability has to go before `aria-hidden` can be correct: aria-hidden on a
+    // focusable element is a violation in its own right.
+    expect([...document.querySelectorAll(FOCUSABLE)]).not.toContain(backdrop);
+    expect(backdrop.hasAttribute("tabindex")).toBe(false);
+  });
+
+  it("still closes from the pointer, from Escape, and from the ✕", async () => {
+    const user = await openPanel();
+    const opener = () => document.querySelector(".member-table tbody tr .member-name-cell") as HTMLElement;
+
+    // The pointer route the div still has to serve.
+    await user.click(document.querySelector(".overlay-backdrop") as HTMLElement);
+    await waitFor(() => expect(document.querySelector(".drawer")).toBeNull());
+
+    // Escape, which is what makes dropping the backdrop from the keyboard path safe.
+    await user.click(opener());
+    await waitFor(() => expect(document.querySelector(".drawer")).not.toBeNull());
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(document.querySelector(".drawer")).toBeNull());
+
+    await user.click(opener());
+    await waitFor(() => expect(document.querySelector(".drawer")).not.toBeNull());
+    await user.click(screen.getByRole("button", { name: "詳細パネルを閉じる" }));
+    await waitFor(() => expect(document.querySelector(".drawer")).toBeNull());
+    // And the scroll lock comes off however it was closed, not only by one route.
+    expect(document.body.style.overflow).toBe("");
+  });
+
+  /**
+   * The panel's own tab order is what the trap works on, so it has to be untouched.
+   * The backdrop sat immediately before it in document order, which is why removing
+   * it shifts the panel's first focusable by exactly one and nothing else.
+   */
+  it("leaves the panel's own tab order alone", async () => {
+    await openPanel();
+    const drawer = document.querySelector(".drawer")!;
+    const all = [...document.querySelectorAll(FOCUSABLE)];
+    const inside = all.filter((element) => drawer.contains(element));
+    expect(inside.length).toBeGreaterThan(1);
+    // Contiguous: the panel's focusables are a single run, so nothing outside it
+    // sits between them for Tab to visit.
+    const positions = inside.map((element) => all.indexOf(element));
+    expect(positions).toEqual(Array.from({ length: positions.length }, (_, index) => positions[0] + index));
+    expect(inside[0]).toBe(screen.getByRole("button", { name: "詳細パネルを閉じる" }));
+  });
+
+  it("adds no serious accessibility violation with the panel open", async () => {
+    await openPanel();
+    const results = await axe.run(document.body, { rules: { "color-contrast": { enabled: false } } });
+    expect(results.violations.filter((violation) => violation.impact === "serious" || violation.impact === "critical")).toEqual([]);
+  });
+});
+
+/**
+ * #149: #140 gave the proposal screen a subject picker and left the entry points for
+ * later, so the only way to a subject was to walk into the screen and pick it. Both
+ * places that already show candidates for a requirement now lead there.
+ *
+ * The words matter as much as the route. 「候補を見る」 exists in two places already and
+ * both keep you where you are — it opens the guide, or reveals candidates lower down the
+ * same panel. The new button leaves for another screen, so it says something else, and
+ * says the same thing in both places because it does the same thing.
+ */
+describe("a way into the proposal screen", () => {
+  const ROUTE = "この要件で提案を開く";
+
+  const subject = () => (screen.getByLabelText("提案先を選ぶ") as HTMLSelectElement);
+  const activeNav = () => document.querySelector(".nav-item.active")?.getAttribute("aria-label");
+
+  const openGuide = async (user: ReturnType<typeof userEvent.setup>) => {
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^アサインボード( |$)/u }));
+    const card = [...document.querySelectorAll("button.alert-card")].find((element) => element.textContent?.includes("未充足"));
+    expect(card, "the demo data should carry an unfilled role").toBeDefined();
+    await user.click(card as HTMLElement);
+    await waitFor(() => expect(document.querySelector(".drawer-kicker")?.textContent).toBe("RESOLUTION GUIDE"));
+    // Which requirement this is, read off the panel: 「{role}の候補」 over
+    // 「{project} · {date}開始」. Returned so a caller can demand that exact subject
+    // rather than any subject with the right prefix.
+    const role = document.querySelector(".drawer h2")!.textContent!.replace(/の候補$/u, "");
+    const project = document.querySelector(".drawer .drawer-heading p")?.textContent ?? "";
+    const found = initialWorkspace.needs.find((need) => need.role === role && need.status !== "filled"
+      && project.includes(initialWorkspace.projects.find((item) => item.id === need.projectId)?.name ?? " "));
+    expect(found, `could not identify the guided requirement from 「${role}」 / 「${project}」`).toBeDefined();
+    return found!;
+  };
+
+  const openPreAwardPlan = async (user: ReturnType<typeof userEvent.setup>) => {
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^受注前( |$)/u }));
+    await user.click(document.querySelector(".pipeline-card, .project-name-cell") as HTMLElement);
+    await waitFor(() => expect(document.querySelector(".drawer .detail-need-list button")).not.toBeNull());
+    const row = document.querySelector(".drawer .detail-need-list button") as HTMLElement;
+    // Same idea as the guide: the opportunity from the heading, the role from the row.
+    const opportunityName = document.querySelector(".drawer h2")!.textContent!;
+    const role = row.querySelector("strong")!.textContent!;
+    await user.click(row);
+    await waitFor(() => expect(document.querySelector(".drawer .candidate-label")).not.toBeNull());
+    const opportunity = (initialWorkspace.opportunities ?? []).find((item) => item.name === opportunityName);
+    expect(opportunity, `no opportunity named 「${opportunityName}」`).toBeDefined();
+    const found = (initialWorkspace.opportunityNeeds ?? [])
+      .find((need) => need.opportunityId === opportunity!.id && need.role === role);
+    expect(found, `no requirement 「${role}」 under 「${opportunityName}」`).toBeDefined();
+    return found!;
+  };
+
+  it("carries an unfilled role from the guide to the proposal screen", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    const guided = await openGuide(user);
+    await user.click(screen.getByRole("button", { name: ROUTE }));
+
+    expect(activeNav()).toBe("提案");
+    expect(document.querySelector(".drawer"), "the panel should close behind you").toBeNull();
+    // The exact id, not the namespace. A `^need:` check passes on any other unfilled
+    // role, which is what the evaluator on this change pointed out.
+    expect(subject().value).toBe(`need:${guided.id}`);
+    expect([...subject().options].find((option) => option.selected)!.textContent)
+      .toContain(initialWorkspace.projects.find((project) => project.id === guided.projectId)!.name);
+  });
+
+  it("carries a pre-award requirement across, under its own namespace", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    const plan = await openPreAwardPlan(user);
+    await user.click(screen.getByRole("button", { name: ROUTE }));
+
+    expect(activeNav()).toBe("提案");
+    expect(document.querySelector(".drawer")).toBeNull();
+    // `plan:`, not `need:` — #140 split the namespaces because the two tables can hand
+    // out the same raw id — and the exact id, so another plan cannot satisfy this.
+    expect(subject().value).toBe(`plan:${plan.id}`);
+    expect(subject().value).toMatch(/^plan:/u);
+  });
+
+  it("says the same thing in both places, and something else than 「候補を見る」", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    await openGuide(user);
+    expect(screen.getAllByRole("button", { name: ROUTE })).toHaveLength(1);
+    await user.click(document.querySelector(".drawer .close-button") as HTMLElement);
+
+    await openPreAwardPlan(user);
+    expect(screen.getAllByRole("button", { name: ROUTE })).toHaveLength(1);
+    // 「候補を見る」 is still on the requirement rows, where it still means 「stay here」.
+    expect(document.querySelector(".drawer .detail-need-list button em")!.textContent).toBe("候補を見る");
+  });
+
+  /**
+   * Changing the subject is not starting over. The screen labels a card that does not
+   * match the new requirement, and that label is worth reading — it says this person is
+   * not a fit for *this* one.
+   */
+  it("keeps the candidates already picked when the subject changes", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^提案( |$)/u }));
+    await user.selectOptions(subject(), [...subject().options].find((option) => option.value)!.value);
+    await user.click(document.querySelector(".proposal-picker-item") as HTMLElement);
+    const before = [...document.querySelectorAll(".proposal-card")].length;
+    expect(before).toBeGreaterThan(0);
+
+    await openPreAwardPlan(user);
+    await user.click(screen.getByRole("button", { name: ROUTE }));
+    expect(document.querySelectorAll(".proposal-card")).toHaveLength(before);
+  });
+
+  /**
+   * Not behind `canEdit`. The proposal screen lines candidates up and copies a link;
+   * neither changes the workspace. 「仮置き」 and 「要員要件を編集」 in the same panel are
+   * behind it, and stay behind it.
+   */
+  it("is offered to a viewer, unlike the actions that change something", async () => {
+    const user = userEvent.setup();
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "閲覧 太郎", email: "viewer@example.com", role: "viewer" }} shared={sharedAdapter()} />);
+    await openGuide(user);
+    expect(screen.getByRole("button", { name: ROUTE })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "要員要件を編集" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "仮置き" })).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * #150: 「適合 n点」 was printed with no denominator, and the denominator is not a
+ * constant. `matchScore` gives 20 per satisfied 「あると良い」 skill up to 60 plus
+ * `round(空き% × 0.4)` up to 40, so a scene naming one such skill tops out at 60 and
+ * one naming none at 40.
+ *
+ * Where a requirement is the subject — the proposal cards and the resolution guide —
+ * `searchSceneFromNeed` forces every skill to 「必須」, because the requirement type has
+ * no field to carry anything else. The score there reduced to `round(空き% × 0.4)`: a
+ * restatement of the number printed beside it. Those two stopped printing it. The
+ * member list, where a saved scene can name 「あると良い」 skills, prints the ceiling.
+ */
+describe("what the fit score is out of", () => {
+  const openScene = async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^メンバー( |$)/u }));
+    const picker = screen.getByLabelText("シーンを選ぶ") as HTMLSelectElement;
+    const scene = [...picker.options].find((option) => option.value);
+    expect(scene, "the demo data should carry a saved scene").toBeDefined();
+    await user.selectOptions(picker, scene!.value);
+    return user;
+  };
+
+  it("prints the ceiling beside the score, and the ceiling is the scene's own", async () => {
+    await openScene();
+    const cells = [...document.querySelectorAll(".match-score")];
+    expect(cells.length).toBeGreaterThan(0);
+    const ceilings = new Set<string>();
+    for (const cell of cells) {
+      const parsed = cell.textContent!.match(/^(\d+)\/(\d+)点空き(\d+)%$/u);
+      expect(parsed, `unexpected score cell: ${cell.textContent}`).not.toBeNull();
+      const [, score, ceiling, available] = parsed!;
+      ceilings.add(ceiling);
+      // The ceiling is 40 plus 20 per nice-to-have, so it is one of four values —
+      // never 100 unless the scene names three of them.
+      expect([40, 60, 80, 100]).toContain(Number(ceiling));
+      expect(Number(score)).toBeLessThanOrEqual(Number(ceiling));
+      // And the score's own arithmetic, so a cell cannot print a ceiling it is not on.
+      // A first version of this compared the value with itself — `ceiling >= 40` always
+      // holds, so the conditional collapsed to `x === x` and asserted nothing. The
+      // evaluator caught it. What matters is that the part not explained by the
+      // availability is a whole number of nice-to-haves, and fits under the ceiling.
+      const fromAvailability = Math.min(40, Math.round(Number(available) * 0.4));
+      const fromSkills = Number(score) - fromAvailability;
+      expect(fromSkills, `${cell.textContent}: score below its own availability half`).toBeGreaterThanOrEqual(0);
+      expect(fromSkills, `${cell.textContent}: more skill points than the ceiling allows`).toBeLessThanOrEqual(Number(ceiling) - 40);
+      expect(fromSkills % 20, `${cell.textContent}: skill points come 20 at a time`).toBe(0);
+    }
+    // One scene, one ceiling: it is a property of the scene, not of the candidate.
+    expect(ceilings.size).toBe(1);
+  });
+
+  it("says what the ceiling means, where the table can point at it", async () => {
+    const user = await openScene();
+    const caption = document.querySelector(".viz-caption#member-score-key");
+    expect(caption, "the score column needs its key (#85's pattern)").not.toBeNull();
+    const ceiling = document.querySelector(".match-score")!.textContent!.match(/\/(\d+)点/u)![1];
+    expect(caption!.textContent).toContain(`満点となる ${ceiling} 点`);
+    // The three things that move the number, and the one that does not.
+    expect(caption!.textContent).toContain("20点");
+    expect(caption!.textContent).toContain("40点");
+    expect(caption!.textContent).toContain("必須スキルは満たしていることが前提");
+    expect(document.querySelector(".member-table")).toHaveAttribute("aria-describedby", "member-score-key");
+
+    // And it is gone with the column, not left behind explaining nothing.
+    await user.selectOptions(screen.getByLabelText("シーンを選ぶ") as HTMLSelectElement, "");
+    expect(document.querySelector(".match-score")).toBeNull();
+    expect(document.querySelector(".viz-caption#member-score-key")).toBeNull();
+    expect(document.querySelector(".member-table")).not.toHaveAttribute("aria-describedby");
+  });
+
+  /**
+   * The two screens that stopped printing it. Both still print the availability the
+   * score was derived from, so nothing a reader could act on has gone.
+   */
+  it("neither requirement-scored screen prints a score any more", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    const navigation = within(screen.getByRole("navigation", { name: "メインナビゲーション" }));
+
+    await user.click(navigation.getByRole("button", { name: /^提案( |$)/u }));
+    const picker = screen.getByLabelText("提案先を選ぶ") as HTMLSelectElement;
+    await user.selectOptions(picker, [...picker.options].find((option) => option.value)!.value);
+    const candidate = document.querySelector(".proposal-picker-item") as HTMLElement;
+    await user.click(candidate);
+    const card = document.querySelector(".proposal-match")!;
+    expect(card.textContent).not.toMatch(/適合 \d+点/u);
+    expect(card.textContent).toMatch(/要件期間の最小空き \d+%|この要件には適合していません/u);
+
+    // The resolution guide, reached from the board's unfilled-role card.
+    await user.click(navigation.getByRole("button", { name: /^アサインボード( |$)/u }));
+    // `.alert-card` is itself the button, so there is nothing to look for inside it.
+    const resolve = [...document.querySelectorAll("button.alert-card")]
+      .find((element) => element.textContent?.includes("未充足")) as HTMLElement;
+    expect(resolve, "the demo data should carry an unfilled role").toBeDefined();
+    await user.click(resolve);
+    const list = await waitFor(() => {
+      const node = document.querySelector(".candidate-list, .candidate-empty");
+      expect(node).not.toBeNull();
+      return node!;
+    });
+    expect(list.textContent).not.toMatch(/適合 \d+点/u);
+    if (list.classList.contains("candidate-list")) {
+      expect(list.textContent).toMatch(/要件期間の最小空き \d+%/u);
+    }
+    // The heading named the order as 「スコア順」, and the score is no longer on screen.
+    // A list cannot say it is sorted by something the reader cannot see (#150).
+    const heading = document.querySelector(".candidate-label")!.textContent ?? "";
+    expect(heading).not.toContain("スコア");
+    expect(heading).toContain("要件期間の最小空き");
+  });
+});
+
+/**
+ * #123: nothing stops two members having the same name, and the screens that pick
+ * people showed them identically. Measured with a second 「林 葵」 given the same role,
+ * the same primary org unit and the same location: the member row, the panel heading,
+ * the assignment form's options and the assignment bar's accessible name were all
+ * indistinguishable, and the board row and proposal picker differed only because seeded
+ * members carry romanised `initials` while a new one gets `makeInitials`.
+ *
+ * These check the rendered screens rather than the label function, which
+ * `src/domain.test.ts` covers: what matters here is that every place a person is chosen
+ * uses it.
+ */
+describe("two members with one name", () => {
+  const twins = (): WorkspaceState => {
+    const [first, second] = initialWorkspace.members;
+    return {
+      ...initialWorkspace,
+      members: [
+        ...initialWorkspace.members,
+        // Same name, same role, same department, same location as `first`: the case with
+        // nothing left to distinguish but the id.
+        { ...first, id: "twin-9c81" },
+        // A second pair, in two different places, so both branches of the label are on
+        // the one screen. `second` is in 東京 in the seed.
+        { ...second, id: "twin-osaka", location: "大阪" },
+      ],
+    };
+  };
+
+  /** Two people, one location: nothing left but the id. */
+  const sharedName = initialWorkspace.members[0].name;
+  /** Two people, two locations: the location tells them apart. */
+  const placedName = initialWorkspace.members[1].name;
+
+  it("distinguishes them in the member list", async () => {
+    const user = userEvent.setup();
+    const adapter = sharedAdapter();
+    adapter.initialState = twins();
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^メンバー( |$)/u }));
+
+    const names = [...document.querySelectorAll(".member-table .row-name-copy strong")].map((el) => el.textContent ?? "");
+    const shared = names.filter((name) => name.startsWith(sharedName));
+    expect(shared, `expected two rows for 「${sharedName}」, got ${names.join(" | ")}`).toHaveLength(2);
+    // Two rows, two different labels — and both still lead with the name.
+    expect(new Set(shared).size).toBe(2);
+    // The seeded members and the twin share a location, so both fall back to the id.
+    for (const name of shared) expect(name).toMatch(new RegExp(`^${sharedName}（#[0-9a-z-]+）$`, "u"));
+
+    // The other pair is in two places, so the location is enough and no id is printed.
+    const placed = names.filter((name) => name.startsWith(placedName));
+    expect(placed, `expected two rows for 「${placedName}」, got ${names.join(" | ")}`).toHaveLength(2);
+    expect(new Set(placed)).toEqual(new Set([`${placedName}（東京）`, `${placedName}（大阪）`]));
+  });
+
+  it("distinguishes them in the board, the assignment form and the proposal picker", async () => {
+    const user = userEvent.setup();
+    const adapter = sharedAdapter();
+    adapter.initialState = twins();
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
+    const navigation = within(screen.getByRole("navigation", { name: "メインナビゲーション" }));
+
+    // The board's row headings, and the accessible name of each row's week cell.
+    const headings = [...document.querySelectorAll(".person-cell .person-copy strong")].map((el) => el.textContent ?? "");
+    const boardShared = headings.filter((name) => name.startsWith(sharedName));
+    expect(boardShared).toHaveLength(2);
+    expect(new Set(boardShared).size).toBe(2);
+    const cellNames = [...document.querySelectorAll('.week-cell[aria-label]')].map((el) => el.getAttribute("aria-label") ?? "")
+      .filter((name) => name.startsWith(sharedName));
+    expect(new Set(cellNames).size).toBe(cellNames.length);
+
+    // The assignment form's member picker. Searched rather than read off the whole list:
+    // it draws 12 rows at a time and this fixture has 11 members, which is close enough
+    // that the cap could become the reason a namesake looks missing (#199).
+    await user.click(screen.getByRole("button", { name: /アサインを追加/u }));
+    await user.type(screen.getByLabelText("アサインするメンバーを検索"), sharedName);
+    const options = [...document.querySelectorAll(".member-picker-item strong")]
+      .map((el) => el.textContent ?? "").filter((text) => text.startsWith(sharedName));
+    expect(options).toHaveLength(2);
+    expect(new Set(options).size).toBe(2);
+    await user.click(document.querySelector(".drawer .close-button") as HTMLElement);
+
+    // The proposal picker.
+    await user.click(navigation.getByRole("button", { name: /^提案( |$)/u }));
+    for (const name of [sharedName, placedName]) {
+      const picker = [...document.querySelectorAll(".proposal-picker-copy strong")].map((el) => el.textContent ?? "")
+        .filter((text) => text.startsWith(name));
+      expect(picker, `the proposal picker should list both 「${name}」`).toHaveLength(2);
+      expect(new Set(picker).size).toBe(2);
+    }
+  });
+
+  /**
+   * The favourite buttons are the one control whose only text is the name — the star
+   * itself carries no words — so two namesakes gave the screen two buttons with the
+   * same accessible name. Found by the evaluation on this issue, not by the tests above.
+   */
+  /**
+   * #163: the tag sits at the end of the label and the name cell ellipsises, so the one
+   * part that distinguishes was the first part cut. Measured at 375px, cell 122px:
+   * 「中村 美咲（#nakamura）」 wanted 134.3px. The name and the tag are separate boxes now —
+   * the name shrinks, the tag does not — and this holds the markup that lets the CSS do
+   * that. The widths are in the PR; jsdom has no layout.
+   */
+  it("keeps the tag in its own box so the name is what gets cut", async () => {
+    const user = userEvent.setup();
+    const adapter = sharedAdapter();
+    adapter.initialState = twins();
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^メンバー( |$)/u }));
+
+    const cells = [...document.querySelectorAll(".member-table .row-name-copy strong")];
+    const tagged = cells.filter((cell) => cell.querySelector(".row-name-tag"));
+    // The two pairs, and nobody else.
+    expect(tagged).toHaveLength(4);
+    for (const cell of tagged) {
+      const main = cell.querySelector(".row-name-main")!;
+      const tag = cell.querySelector(".row-name-tag")!;
+      // The name in one box, the tag in the other, and nothing lost between them.
+      expect(main.textContent).not.toContain("（");
+      expect(tag.textContent).toMatch(/^（.+）$/u);
+      expect(cell.textContent).toBe(main.textContent! + tag.textContent!);
+    }
+
+    // A member nobody shares a name with gets the name box and no tag box, so the
+    // ellipsis still has something to apply to.
+    const plain = cells.filter((cell) => !cell.querySelector(".row-name-tag"));
+    expect(plain.length).toBeGreaterThan(0);
+    for (const cell of plain) {
+      expect(cell.querySelector(".row-name-main")).not.toBeNull();
+      expect(cell.querySelector(".row-name-main")!.textContent).toBe(cell.textContent);
+    }
+  });
+
+  it("distinguishes them in the favourite buttons' accessible names", async () => {
+    const user = userEvent.setup();
+    const adapter = sharedAdapter();
+    adapter.initialState = twins();
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^メンバー( |$)/u }));
+
+    const stars = [...document.querySelectorAll(".member-table button[aria-label]")]
+      .map((el) => el.getAttribute("aria-label") ?? "")
+      .filter((label) => label.includes(sharedName) || label.includes(placedName));
+    expect(stars.length, "expected a favourite button per row for each pair").toBe(4);
+    expect(new Set(stars).size, `two buttons share a name: ${stars.join(" | ")}`).toBe(4);
+  });
+
+  it("leaves every other name untouched", async () => {
+    const user = userEvent.setup();
+    const adapter = sharedAdapter();
+    adapter.initialState = twins();
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^メンバー( |$)/u }));
+
+    // Every member but the twins keeps a bare name: the suffix is for collisions only,
+    // and almost every row is not one.
+    const others = initialWorkspace.members.map((member) => member.name);
+    const names = [...document.querySelectorAll(".member-table .row-name-copy strong")].map((el) => el.textContent ?? "");
+    for (const name of others) {
+      if (name === sharedName || name === placedName) continue;
+      expect(names, `「${name}」 should be printed as-is`).toContain(name);
+    }
+    // Only the pair with nothing else to go on pays the id, and only that pair.
+    expect(names.filter((name) => name.includes("（#"))).toHaveLength(2);
+    expect(names.filter((name) => name.includes("（")).length).toBe(4);
+  });
+});
+
+/**
+ * #123, second finding: a project records its owner as a name. The seeded projects have
+ * `ownerName` and no `ownerPersonId`, and three places turned that name into a person
+ * with `members.find(member => member.name === ownerName)` — which answers with whoever
+ * comes first. 「林 葵」 owns two of the seeded projects, so a second 林 葵 was enough to
+ * hand them to the wrong person.
+ *
+ * These go through the screen because the rename lives in `saveMember`, not in a
+ * function a unit test can reach.
+ */
+describe("renaming one of two people with one name", () => {
+  /**
+   * A second 林 葵 — the name the seed gives two projects, by name and with no id.
+   *
+   * The twin goes first so `members[0]` is one of the two. A fallback to the head of the
+   * list passes a test where the head happens to be a stranger, and the evaluation on
+   * #123 pointed out that mine did.
+   */
+  const namesakeOwners = (): WorkspaceState => {
+    const hayashi = initialWorkspace.members.find((member) => member.name === "林 葵")!;
+    return { ...initialWorkspace, members: [{ ...hayashi, id: "t-hayashi" }, ...initialWorkspace.members] };
+  };
+
+  const rename = async (user: ReturnType<typeof userEvent.setup>, rowLabel: string, to: string) => {
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^メンバー( |$)/u }));
+    await user.click(memberRowButton(rowLabel));
+    await user.click(screen.getByRole("button", { name: "メンバー情報を編集" }));
+    const dialog = within(screen.getByRole("dialog", { name: "詳細パネル" }));
+    await user.clear(dialog.getByLabelText("氏名"));
+    await user.type(dialog.getByLabelText("氏名"), to);
+    await user.click(dialog.getByRole("button", { name: "変更を仮置き" }));
+    await user.click(screen.getByRole("button", { name: "チームへ保存" }));
+  };
+
+  it("leaves the projects that only say the shared name alone", async () => {
+    const user = userEvent.setup();
+    const adapter = sharedAdapter();
+    const save = vi.fn().mockResolvedValue({ revision: 8, savedAt: "2026-08-17T10:00:00Z" });
+    adapter.initialState = namesakeOwners();
+    adapter.save = save;
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
+
+    // The seeded 林 葵 is the one the projects name. The twin is here only to make that
+    // name ambiguous, which is the whole condition under test.
+    await rename(user, "林 葵（#hayashi）", "林 葵子");
+    await waitFor(() => expect(save).toHaveBeenCalledOnce());
+    const saved = save.mock.calls[0][0] as WorkspaceState;
+
+    expect(saved.members.find((member) => member.id === "hayashi")?.name).toBe("林 葵子");
+    expect(saved.members.find((member) => member.id === "t-hayashi")?.name).toBe("林 葵");
+    // 「林 葵」 named two projects and neither said which one. Both keep the name they
+    // had: taking them over would have moved somebody else's projects.
+    const byName = saved.projects.filter((project) => !project.ownerPersonId);
+    expect(byName.filter((project) => project.ownerName === "林 葵").length).toBe(2);
+    expect(byName.some((project) => project.ownerName === "林 葵子")).toBe(false);
+  });
+
+  /**
+   * The edit form used the same name lookup for its initial 責任者, so opening an
+   * ambiguously-owned project pre-selected one of the two namesakes — a form that looks
+   * already-correct, and binds that person on save. It now offers no one in particular;
+   * the dropdown labels both 林 葵, so the person editing picks.
+   */
+  it("does not pre-select either namesake as the owner", async () => {
+    const user = userEvent.setup();
+    const adapter = sharedAdapter();
+    adapter.initialState = namesakeOwners();
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
+
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^プロジェクト( |$)/u }));
+    await user.click(screen.getByText("Atlas リニューアル").closest("button")!);
+    await user.click(screen.getByRole("button", { name: "案件情報を編集" }));
+
+    const select = screen.getByLabelText("責任者") as HTMLSelectElement;
+    // Nobody, not the first of the two and not the head of the member list — which is
+    // itself a 林 葵 in this fixture.
+    expect(select.value).toBe("");
+    expect(["hayashi", "t-hayashi"]).not.toContain(select.value);
+    // Both are on offer, told apart, so the choice can be made.
+    const named = [...select.options].map((option) => option.textContent ?? "").filter((text) => text.startsWith("林 葵"));
+    expect(named).toHaveLength(2);
+    expect(new Set(named).size).toBe(2);
+  });
+
+  /**
+   * The form looking wrong is not the same as the save being safe. Editing a date on an
+   * ambiguously-owned project must not write an owner the person editing never chose.
+   */
+  it("will not save the project until the owner is chosen", async () => {
+    const user = userEvent.setup();
+    const adapter = sharedAdapter();
+    const save = vi.fn().mockResolvedValue({ revision: 8, savedAt: "2026-08-17T10:00:00Z" });
+    adapter.initialState = namesakeOwners();
+    adapter.save = save;
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
+
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^プロジェクト( |$)/u }));
+    await user.click(screen.getByText("Atlas リニューアル").closest("button")!);
+    await user.click(screen.getByRole("button", { name: "案件情報を編集" }));
+    const dialog = within(screen.getByRole("dialog", { name: "詳細パネル" }));
+    await user.clear(dialog.getByLabelText("次のマイルストーン"));
+    await user.type(dialog.getByLabelText("次のマイルストーン"), "受入テスト");
+    await user.click(dialog.getByRole("button", { name: "変更を仮置き" }));
+
+    // The empty `required` select fails constraint validation, so the form never
+    // submits; `handleEditProject` also refuses an owner it cannot resolve, so the
+    // change is held either way.
+    expect(dialog.getByRole("button", { name: "変更を仮置き" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "チームへ保存" })).not.toBeInTheDocument();
+    expect(save).not.toHaveBeenCalled();
+
+    // Choosing settles it, and then the change goes through.
+    await user.selectOptions(dialog.getByLabelText("責任者"), "t-hayashi");
+    await user.click(dialog.getByRole("button", { name: "変更を仮置き" }));
+    await user.click(screen.getByRole("button", { name: "チームへ保存" }));
+    await waitFor(() => expect(save).toHaveBeenCalledOnce());
+    const atlas = (save.mock.calls[0][0] as WorkspaceState).projects.find((project) => project.id === "atlas")!;
+    expect(atlas).toMatchObject({ ownerPersonId: "t-hayashi", nextMilestone: "受入テスト" });
+  });
+
+  /**
+   * The archive guard wants the opposite of the rename: it stops on a project that might
+   * be theirs. Reading 「I cannot tell」 as 「not theirs」 would let a member be archived
+   * out from under a project that names them — the evaluation on #123 called this
+   * fail-open, and it was.
+   */
+  it("refuses to archive a member a project might still name", async () => {
+    const user = userEvent.setup();
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const adapter = sharedAdapter();
+    adapter.initialState = namesakeOwners();
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
+
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^メンバー( |$)/u }));
+    // The twin owns nothing by id. 「林 葵」 on two projects could be either of them.
+    await user.click(memberRowButton("林 葵（#t-hayashi）"));
+    await user.click(screen.getByRole("button", { name: "メンバーをアーカイブ" }));
+
+    expect(confirm).not.toHaveBeenCalled();
+    expect(await screen.findByText(/別メンバーへ変更してからアーカイブ/u)).toBeInTheDocument();
+    confirm.mockRestore();
+  });
+
+  it("still follows the name when it belongs to one person", async () => {
+    const user = userEvent.setup();
+    const adapter = sharedAdapter();
+    const save = vi.fn().mockResolvedValue({ revision: 8, savedAt: "2026-08-17T10:00:00Z" });
+    adapter.initialState = namesakeOwners();
+    adapter.save = save;
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
+
+    // 高橋 直樹 is nobody else's name, and owns モバイル会員証 by name. The denormalised
+    // string still has to follow the rename, or the project shows a name nobody has.
+    await rename(user, "高橋 直樹", "高橋 直");
+    await waitFor(() => expect(save).toHaveBeenCalledOnce());
+    const saved = save.mock.calls[0][0] as WorkspaceState;
+
+    const mobile = saved.projects.find((project) => project.id === "mobile")!;
+    expect(mobile.ownerName).toBe("高橋 直");
+    expect(mobile.ownerPersonId).toBe("takahashi");
+  });
+});
+
+/**
+ * #114: the trees drew depth with one CSS rule per level, so the depth had to be a class
+ * naming one of them. The org table clamped with `Math.min(3, depth)` and put levels 3,
+ * 4 and 5 at one indent (measured: text at 371.4px for all three); the skill tree did not
+ * clamp, and level 4 matched no rule at all and drew flush left, 323.4px — the root's own
+ * position. The row carries its depth now, and the CSS multiplies it.
+ *
+ * The pixels are in the PR; what this holds is that the number reaching the style is the
+ * real depth, at every level.
+ */
+describe("how deep a tree row says it is", () => {
+  /** 開発本部 / プロダクト開発 / … five levels down, under the seeded units. */
+  const deepOrg = (): WorkspaceState => {
+    const chain = [
+      { id: "deep-2", name: "フロントエンド基盤部", parentId: "org-product", sortOrder: 40 },
+      { id: "deep-3", name: "デザインシステム課", parentId: "deep-2", sortOrder: 10 },
+      { id: "deep-4", name: "コンポーネント班", parentId: "deep-3", sortOrder: 10 },
+      { id: "deep-5", name: "アクセシビリティ担当", parentId: "deep-4", sortOrder: 10 },
+    ];
+    return { ...initialWorkspace, orgUnits: [...(initialWorkspace.orgUnits ?? []), ...chain] };
+  };
+
+  const depthOf = (name: string) => {
+    const heading = [...document.querySelectorAll(".skill-tree-name")]
+      .find((span) => span.querySelector("strong")?.textContent === name);
+    expect(heading, `no tree row for 「${name}」`).toBeDefined();
+    return (heading as HTMLElement).style.getPropertyValue("--depth");
+  };
+
+  it("counts past three in the org table", async () => {
+    const user = userEvent.setup();
+    const adapter = sharedAdapter();
+    adapter.initialState = deepOrg();
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: "組織" }));
+
+    expect(depthOf("開発本部")).toBe("0");
+    expect(depthOf("プロダクト開発")).toBe("1");
+    expect(depthOf("フロントエンド基盤部")).toBe("2");
+    expect(depthOf("デザインシステム課")).toBe("3");
+    // The three the clamp used to flatten onto one indent.
+    expect(depthOf("コンポーネント班")).toBe("4");
+    expect(depthOf("アクセシビリティ担当")).toBe("5");
+    // And no row builds a class for its depth any more.
+    expect([...document.querySelectorAll(".skill-tree-name")].filter((span) => /depth-\d/u.test(span.className))).toHaveLength(0);
+  });
+
+  /** Three more levels under フロントエンド, ending in a skill at depth 4. */
+  const deepSkills = (): WorkspaceState => ({
+    ...initialWorkspace,
+    skillCatalog: [...(initialWorkspace.skillCatalog ?? []),
+      { id: "cat-render", name: "描画基盤", kind: "category", parentId: "cat-frontend", sortOrder: 90 },
+      { id: "cat-raster", name: "レンダリング", kind: "category", parentId: "cat-render", sortOrder: 10 },
+      { id: "skill-canvas", name: "Canvas 最適化", kind: "skill", parentId: "cat-raster", sortOrder: 10 }],
+  });
+
+  /**
+   * The level that actually broke. The skill tree never clamped, so `depth-4` matched no
+   * rule and the row drew at 323.4px — where a root row draws.
+   */
+  it("counts past three in the skill tree, where the rule used to run out", async () => {
+    const user = userEvent.setup();
+    const adapter = sharedAdapter();
+    adapter.initialState = deepSkills();
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: "スキルマップ" }));
+
+    expect(depthOf("エンジニアリング")).toBe("0");
+    expect(depthOf("フロントエンド")).toBe("1");
+    expect(depthOf("描画基盤")).toBe("2");
+    expect(depthOf("レンダリング")).toBe("3");
+    expect(depthOf("Canvas 最適化")).toBe("4");
+  });
+
+  it("names the parent of a nested skill category", async () => {
+    const user = userEvent.setup();
+    const adapter = sharedAdapter();
+    adapter.initialState = deepSkills();
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: "スキルマップ" }));
+
+    const row = [...document.querySelectorAll(".skill-tree-name")]
+      .find((span) => span.querySelector("strong")?.textContent === "描画基盤") as HTMLElement;
+    expect(row).toBeDefined();
+    expect(row.style.getPropertyValue("--depth")).toBe("2");
+    // It used to read 「分類」 and nothing else, which left the indent as the only cue to
+    // where a nested category sits — and past three levels the indent stopped moving.
+    // The word stays: without it, the kind would live in the row's background colour,
+    // which a screen reader does not read.
+    expect(row.querySelector("small")?.textContent).toBe("分類 · エンジニアリング / フロントエンド");
+    // A root category has no path to print, so it reads as it always did.
+    const root = [...document.querySelectorAll(".skill-tree-name")]
+      .find((span) => span.querySelector("strong")?.textContent === "エンジニアリング") as HTMLElement;
+    expect(root.querySelector("small")?.textContent).toBe("分類");
+    // A skill still names its category chain, with no kind word — 「React」 is not a 分類.
+    const skill = [...document.querySelectorAll(".skill-tree-name")]
+      .find((span) => span.querySelector("strong")?.textContent === "React") as HTMLElement;
+    expect(skill.querySelector("small")?.textContent).toBe("エンジニアリング / フロントエンド");
+  });
+});
+
+/**
+ * #164: the drawer form dresses its fields with child selectors — `.assignment-form >
+ * label` and `.assignment-form > label > input` — and `CustomFieldInputs` wrapped its
+ * labels in a div, which cut the chain. Measured at 1440px in the project edit form, the
+ * 顧客名 input was 177px on the same line as its label, against 683.8px on its own line
+ * for every other control. The selects looked right because `.assignment-form select` is
+ * written without the `>`, which is what hid it.
+ *
+ * The fix removed the wrapper rather than loosening the selectors, because loosened they
+ * would reach the nested labels of the 兼務 checkbox rows and give each one `display:
+ * block` and a full-width input. So both halves of that are what these hold: a custom
+ * field's label is a direct child of the form, and the 兼務 labels are not.
+ *
+ * They check the outcome, not the CSS text — an earlier version of this asserted that the
+ * rules still used `>`, which fixes the shape of the fix rather than what it has to
+ * achieve, and cannot see a later rule overriding it either. jsdom has no layout, so the
+ * widths are browser measurements, in the PR.
+ */
+describe("custom fields in a drawer form", () => {
+  /** Every custom field type the app has, on the entity that carries them. */
+  const withEveryFieldType = (): WorkspaceState => ({
+    ...initialWorkspace,
+    customFields: [...(initialWorkspace.customFields ?? []),
+      { id: "field-rate", entityType: "member", key: "rate", label: "想定単価", fieldType: "number", showInDetail: true },
+      { id: "field-note", entityType: "member", key: "note", label: "備考", fieldType: "text", showInDetail: true }],
+  });
+
+  const formLabels = () => {
+    const form = document.querySelector(".drawer form")!;
+    return [...form.querySelectorAll(":scope > label")].map((label) => label.textContent ?? "");
+  };
+
+  it("puts the member form's custom fields where the built-in ones are", async () => {
+    const user = userEvent.setup();
+    const adapter = sharedAdapter();
+    adapter.initialState = withEveryFieldType();
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^メンバー( |$)/u }));
+    await user.click(screen.getByRole("button", { name: /メンバーを追加/u }));
+
+    const labels = formLabels();
+    // A built-in field and every custom one, all direct children of the form.
+    for (const name of ["氏名", "雇用形態", "入社日", "英語", "想定単価", "備考"]) {
+      expect(labels.some((text) => text.startsWith(name)), `「${name}」 is not a direct child of the form`).toBe(true);
+    }
+    // And no element stands between the form and them.
+    expect(document.querySelector(".drawer form .custom-field-inputs"),
+      "the wrapper is back, and it takes the form's layout away from these fields").toBeNull();
+
+    // The other half: the 兼務 rows are nested labels on purpose, and the form's rules
+    // must not reach them. If they did, each checkbox would become a full-width control
+    // on its own block — which is what removing the wrapper avoided having to risk.
+    const form = document.querySelector(".drawer form")!;
+    const checkboxes = [...form.querySelectorAll('input[type="checkbox"]')];
+    expect(checkboxes.length, "the 兼務 rows should be on this form").toBeGreaterThan(0);
+    for (const box of checkboxes) {
+      expect(box.closest("label")!.parentElement, "a 兼務 checkbox label is a direct child of the form now")
+        .not.toBe(form);
+    }
+  });
+
+  it("does the same in the project form, where the text input was the visible one", async () => {
+    const user = userEvent.setup();
+    const adapter = sharedAdapter();
+    adapter.initialState = withEveryFieldType();
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^プロジェクト( |$)/u }));
+    await user.click(screen.getByText("Atlas リニューアル").closest("button")!);
+    await user.click(screen.getByRole("button", { name: "案件情報を編集" }));
+
+    const labels = formLabels();
+    for (const name of ["プロジェクト名", "顧客名", "契約形態"]) {
+      expect(labels.some((text) => text.startsWith(name)), `「${name}」 is not a direct child of the form`).toBe(true);
+    }
+    expect(document.querySelector(".drawer form .custom-field-inputs")).toBeNull();
+  });
+});
+
+/**
+ * #113: the org table's 親部門 select takes effect the moment it changes, and the toast
+ * said 「部門の所属を更新しました」 — not which department, not where to. A select touched by
+ * accident left nothing on screen to read. And the only way back was the change bar's
+ * 「元に戻す」, which returns the whole workspace to its last committed state, every other
+ * pending edit with it.
+ *
+ * Measured before: the move stages rather than persisting (localStorage untouched, the
+ * change bar appears), so the Issue's premise that DEMO commits immediately was stale.
+ * What was true is that nothing named the move and nothing could take back just it.
+ */
+/**
+ * #176: 「氏名・勤務地を隠す」 read as a promise. What it actually does, measured: the copied
+ * link is `?nav=proposal&members=saeki&anonymous=1`, so the hiding does reach whoever opens
+ * it — they start with the names hidden — and unticking the box brings them back. Real
+ * member ids are in the URL either way, and the skills and the four-week load show whether
+ * the names are hidden or not.
+ *
+ * So the gap was never that the setting is lost in transit; it is that it cannot be
+ * enforced. The toolbar says both halves now. An earlier version of this said 「リンクに
+ * 残りません」, which was wrong in the other direction.
+ */
+/**
+ * #148 asked whether a proposal should be shareable outside the organisation, and settled
+ * on a file rather than a link. A link cannot be: measured, the copied one is
+ * `?nav=proposal&members=saeki&anonymous=1` — real member ids, and whoever opens it can
+ * untick the hiding. A file carries no ids and has nothing to untick. What it cannot do is
+ * expire, which the panel says where the button is.
+ *
+ * The file's contents are `src/csv.test.ts`; this is the screen that asks for it.
+ */
+describe("writing the proposal out as a file", () => {
+  const openPanel = async (user: ReturnType<typeof userEvent.setup>) => {
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^提案( |$)/u }));
+    await user.click(screen.getByText("書き出す・印刷する"));
+  };
+
+  it("offers the least that is still a proposal, and says the file cannot be recalled", async () => {
+    const user = userEvent.setup();
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={sharedAdapter()} />);
+    await openPanel(user);
+
+    const columns = document.querySelector(".proposal-export-columns")!;
+    const checked = [...columns.querySelectorAll("input")].filter((input) => (input as HTMLInputElement).checked)
+      .map((input) => input.closest("label")!.textContent!.trim());
+    expect(checked).toEqual(["職種"]);
+    // 候補 is not a choice: every file has it, and the legend says so rather than a
+    // checkbox nobody can untick.
+    expect([...columns.querySelectorAll("label")].map((label) => label.textContent!.trim())).not.toContain("候補");
+    expect(columns.querySelector("legend")!.textContent).toContain("候補は必ず入ります");
+    // A file does not expire, so that is said rather than implied.
+    expect(document.querySelector(".proposal-export-note")!.textContent).toContain("取り消せません");
+    // Nothing to write yet.
+    expect(screen.getByRole("button", { name: /候補を選ぶと書き出せます/u })).toBeDisabled();
+  });
+
+  /**
+   * The panel looked the same whether the file was about to carry names or numbers, and
+   * 「2名を書き出す」 does not say which. The control that sends them says it.
+   */
+  it("says on the button whether the names are going out", async () => {
+    const user = userEvent.setup();
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={sharedAdapter()} />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^提案( |$)/u }));
+    await user.click(document.querySelectorAll(".proposal-picker-item")[0]);
+    await user.click(screen.getByText("書き出す・印刷する"));
+    expect(screen.getByRole("button", { name: "実名で1名を書き出す" })).toBeInTheDocument();
+
+    await user.click(screen.getByLabelText("氏名・勤務地を隠す"));
+    expect(screen.getByRole("button", { name: "氏名を隠して1名を書き出す" })).toBeInTheDocument();
+  });
+
+  it("stops offering 勤務地 once the names are hidden", async () => {
+    const user = userEvent.setup();
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={sharedAdapter()} />);
+    await openPanel(user);
+    const offered = () => [...document.querySelectorAll(".proposal-export-columns label")].map((label) => label.textContent!.trim());
+    expect(offered()).toContain("勤務地");
+
+    await user.click(screen.getByLabelText("氏名・勤務地を隠す"));
+    // The other half of what the toggle hides cannot be written out around it.
+    expect(offered()).not.toContain("勤務地");
+  });
+
+  it("writes a file named without an id once somebody is picked", async () => {
+    const user = userEvent.setup();
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={sharedAdapter()} />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^提案( |$)/u }));
+    await user.click(document.querySelectorAll(".proposal-picker-item")[0]);
+    await user.click(screen.getByText("書き出す・印刷する"));
+
+    const created: Blob[] = [];
+    const realCreate = URL.createObjectURL;
+    const realRevoke = URL.revokeObjectURL;
+    URL.createObjectURL = ((blob: Blob) => { created.push(blob); return "blob:proposal"; }) as typeof URL.createObjectURL;
+    URL.revokeObjectURL = (() => {}) as typeof URL.revokeObjectURL;
+    const clicks: string[] = [];
+    const realClick = HTMLAnchorElement.prototype.click;
+    HTMLAnchorElement.prototype.click = function (this: HTMLAnchorElement) { clicks.push(this.download); };
+    try {
+      await user.click(screen.getByRole("button", { name: /実名で1名を書き出す/u }));
+    } finally {
+      URL.createObjectURL = realCreate;
+      URL.revokeObjectURL = realRevoke;
+      HTMLAnchorElement.prototype.click = realClick;
+    }
+    // The name says what it is and nothing about who is in it.
+    expect(clicks).toEqual(["mosaic-proposal.csv"]);
+    expect(created).toHaveLength(1);
+    const text = await created[0].text();
+    for (const member of initialWorkspace.members) {
+      expect(text, `${member.id} reached the file`).not.toContain(member.id);
+    }
+  });
+});
+
+/**
+ * #179's half of the same panel. A spreadsheet is the wrong shape for a proposal — it puts
+ * the candidate cards back into columns — so paper is the other way out, and the browser's
+ * print dialogue is the PDF writer too. What lands on the page is `@media print` over this
+ * screen's own markup, which `tests/proposal-print-contract.test.mjs` holds; what is here is
+ * the part a stylesheet cannot do: the same tick boxes deciding both, and the button saying
+ * which way the names are going.
+ */
+describe("printing the proposal", () => {
+  const openPanel = async (user: ReturnType<typeof userEvent.setup>) => {
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^提案( |$)/u }));
+    await user.click(screen.getByText("書き出す・印刷する"));
+  };
+
+  it("waits for a candidate, and says which way the names are going", async () => {
+    const user = userEvent.setup();
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={sharedAdapter()} />);
+    await openPanel(user);
+    expect(screen.getByRole("button", { name: /候補を選ぶと印刷できます/u })).toBeDisabled();
+
+    await user.click(document.querySelectorAll(".proposal-picker-item")[0]);
+    expect(screen.getByRole("button", { name: "実名で1名を印刷" })).toBeInTheDocument();
+    await user.click(screen.getByLabelText("氏名・勤務地を隠す"));
+    expect(screen.getByRole("button", { name: "氏名を隠して1名を印刷" })).toBeInTheDocument();
+  });
+
+  it("hands the page to the browser, which is also its PDF writer", async () => {
+    const user = userEvent.setup();
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={sharedAdapter()} />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^提案( |$)/u }));
+    await user.click(document.querySelectorAll(".proposal-picker-item")[0]);
+    await user.click(screen.getByText("書き出す・印刷する"));
+
+    const print = vi.fn();
+    const real = window.print;
+    window.print = print;
+    try {
+      await user.click(screen.getByRole("button", { name: "実名で1名を印刷" }));
+    } finally {
+      window.print = real;
+    }
+    expect(print).toHaveBeenCalledOnce();
+  });
+
+  /**
+   * The choice has to reach the stylesheet somehow, and CSS cannot see React state. The card
+   * list carries the ticked column names; the print rules drop the part of the card whose
+   * name is not in there. The contract test keeps this list and the rules in step.
+   */
+  it("tells the stylesheet which fields were chosen", async () => {
+    const user = userEvent.setup();
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={sharedAdapter()} />);
+    await openPanel(user);
+    const cards = () => document.querySelector(".proposal-cards")!.getAttribute("data-print");
+    // The file's own default, because it is one choice for both (#148 kept it minimal).
+    expect(cards()).toBe("職種");
+
+    const box = (name: string) => [...document.querySelectorAll<HTMLInputElement>(".proposal-export-columns input")]
+      .find((input) => input.closest("label")!.textContent!.trim() === name)!;
+    await user.click(box("スキル"));
+    expect(cards()!.split(" ")).toEqual(expect.arrayContaining(["職種", "スキル"]));
+    await user.click(box("職種"));
+    expect(cards()).toBe("スキル");
+    // Nothing ticked prints the candidates alone, which is what the file writes too.
+    await user.click(box("スキル"));
+    expect(cards()).toBe("");
+  });
+
+  /**
+   * The tick boxes are the whole of what the sender chose, so a field cannot ride along with a
+   * chosen one. jsdom does not apply `@media print`, so what is checked here is that the two
+   * that were riding along have their own elements for the print rules to drop — the rules
+   * themselves are in `tests/proposal-print-contract.test.mjs`, and the effect was measured in
+   * Chrome. Both were found by the evaluation on #179.
+   */
+  it("keeps the fields the file has no column for out of the role line", async () => {
+    const user = userEvent.setup();
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={sharedAdapter()} />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^提案( |$)/u }));
+    await user.click(document.querySelectorAll(".proposal-picker-item")[0]);
+
+    const role = document.querySelector(".proposal-card-role")!;
+    const department = role.querySelector(".proposal-card-department")!;
+    expect(department).not.toBeNull();
+    // On screen the line reads as one thing; the department is simply separable.
+    expect(role.textContent).toContain(department.textContent);
+    expect(role.textContent!.replace(department.textContent!, "").trim()).not.toBe("");
+  });
+
+  it("keeps the requirement's matched skills separable from its percentage", async () => {
+    const user = userEvent.setup();
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={sharedAdapter()} />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^提案( |$)/u }));
+    // A subject, so the cards carry a match at all.
+    await user.selectOptions(screen.getByLabelText("提案先を選ぶ"), (screen.getByLabelText("提案先を選ぶ") as HTMLSelectElement).options[1].value);
+    const matched = [...document.querySelectorAll(".proposal-picker-item")];
+    for (const item of matched.slice(0, 3)) await user.click(item);
+
+    const withSkills = [...document.querySelectorAll(".proposal-match")]
+      .find((paragraph) => paragraph.querySelector("em"));
+    expect(withSkills, "one of the top candidates should meet a required skill").toBeDefined();
+    expect(withSkills!.querySelector("em")).toHaveClass("proposal-match-skills");
+    expect(withSkills!.textContent).toContain("要件期間の最小空き");
+  });
+
+  it("keeps the note about paper being as final as the file", async () => {
+    const user = userEvent.setup();
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={sharedAdapter()} />);
+    await openPanel(user);
+    const note = document.querySelector(".proposal-export-note")!.textContent!;
+    expect(note).toContain("印刷した紙");
+    expect(note).toContain("取り消せません");
+    // And the legend covers both, since one set of boxes decides both.
+    expect(document.querySelector(".proposal-export-columns legend")!.textContent).toContain("ファイルと紙");
+  });
+});
+
+describe("what the proposal's hiding promises", () => {
+  it("says the link starts hidden and the reader can undo it", async () => {
+    const user = userEvent.setup();
+    const adapter = sharedAdapter();
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^提案( |$)/u }));
+
+    expect(screen.getByLabelText("氏名・勤務地を隠す")).toBeInTheDocument();
+    const toolbar = document.querySelector(".proposal-view .toolbar-result, .toolbar-result")!;
+    expect(toolbar.textContent).toContain("社内リンクはログインが必要です");
+    // Both halves: where the hiding reaches, and that it can be undone there. Either one
+    // alone reads as a promise — the first that it is safe to send, the second that the
+    // link never carried it.
+    expect(toolbar.textContent).toContain("共有リンクでも最初は隠れます");
+    expect(toolbar.textContent).toContain("開いた人が表示に戻せます");
+    // Both fields, because the checkbox hides both.
+    expect(toolbar.textContent).toContain("氏名・勤務地");
+    expect(toolbar.textContent).not.toContain("リンクに残りません");
+  });
+});
+
+describe("moving a department", () => {
+  const orgWorkspace = () => initialWorkspace;
+
+  const parentSelect = async (user: ReturnType<typeof userEvent.setup>, unit: string) => {
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: "組織" }));
+    return screen.getByLabelText(`${unit}の親部門`) as HTMLSelectElement;
+  };
+
+  /**
+   * The row's undo, by the name a screen reader hears. The visible words are 「この移動を
+   * 元に戻す」 for every row, so the name says which department too — from a list of
+   * buttons there is no row to read it from. Asking for it by department is also how these
+   * tests tell an offer that followed a later move from one that stayed behind.
+   */
+  const undoOffer = (unit: string) => screen.getByRole("button", { name: `この移動を元に戻す（${unit}）` });
+  const noUndoOffer = () => expect(screen.queryByRole("button", { name: /^この移動を元に戻す/u })).not.toBeInTheDocument();
+
+  it("says what moved and where to", async () => {
+    const user = userEvent.setup();
+    const adapter = sharedAdapter();
+    adapter.initialState = orgWorkspace();
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
+
+    const select = await parentSelect(user, "品質保証");
+    await user.selectOptions(select, "org-design-div");
+    expect(await screen.findByText("品質保証をデザイン本部へ移しました")).toBeInTheDocument();
+    expect(undoOffer("品質保証")).toBeInTheDocument();
+    // Written short, because the cell is 208px wide at 375px.
+    expect(undoOffer("品質保証")).toHaveTextContent("この移動を元に戻す");
+    // The change bar's 「元に戻す」 is on screen too and means the whole workspace, so the
+    // two must not answer to one name (#88, #124). This is how the collision was found.
+    expect(screen.getByRole("button", { name: "元に戻す" })).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: /元に戻す/u })).toHaveLength(2);
+  });
+
+  it("names the top level by the word the table uses", async () => {
+    const user = userEvent.setup();
+    const adapter = sharedAdapter();
+    adapter.initialState = orgWorkspace();
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
+
+    const select = await parentSelect(user, "品質保証");
+    await user.selectOptions(select, "");
+    // The row's own subtitle and the select's first option both say 最上位.
+    expect(await screen.findByText("品質保証を最上位へ移しました")).toBeInTheDocument();
+  });
+
+  /**
+   * The undo belongs to the most recent move, and moves before it survive pressing it.
+   *
+   * The evaluation on #113 asked for the opposite ordering — move the target, then move
+   * something else, then undo the target — because the handler captured the department
+   * list at the time of the move and would have written it back over the second one. The
+   * capture is gone (the reducer's own list is moved instead), and that sequence still
+   * cannot be reached from the screen: one move is offered at a time, so a second move
+   * takes the offer from the first. What the screen can do is this — undo the second and
+   * find the first untouched.
+   */
+  it("leaves a department moved after it alone", async () => {
+    const user = userEvent.setup();
+    const adapter = sharedAdapter();
+    adapter.initialState = orgWorkspace();
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
+
+    let select = await parentSelect(user, "品質保証");
+    await user.selectOptions(select, "org-design-div");
+    // Second, and after the toast for the first is already on screen.
+    select = await parentSelect(user, "データ戦略");
+    await user.selectOptions(select, "org-engineering");
+
+    // The undo now belongs to the second move; put that one back.
+    await user.click(undoOffer("データ戦略"));
+    expect(await screen.findByText("データ戦略をコーポレートへ戻しました")).toBeInTheDocument();
+    // And the first move survives it.
+    expect((screen.getByLabelText("品質保証の親部門") as HTMLSelectElement).value).toBe("org-design-div");
+    expect((screen.getByLabelText("データ戦略の親部門") as HTMLSelectElement).value).toBe("org-corporate");
+  });
+
+  it("puts back just that move, and does not offer to undo the undo", async () => {
+    const user = userEvent.setup();
+    const adapter = sharedAdapter();
+    adapter.initialState = orgWorkspace();
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
+
+    // Two edits, so an all-or-nothing revert would take the first one with it.
+    let select = await parentSelect(user, "データ戦略");
+    await user.selectOptions(select, "org-engineering");
+    select = await parentSelect(user, "品質保証");
+    await user.selectOptions(select, "org-design-div");
+
+    await user.click(undoOffer("品質保証"));
+    expect(await screen.findByText("品質保証を開発本部へ戻しました")).toBeInTheDocument();
+    // The select has the focus, rather than the document: the button that had it has just
+    // unmounted, and this is where the next move starts (#173, from the evaluation).
+    expect(screen.getByLabelText("品質保証の親部門")).toHaveFocus();
+    // Back where it was, and the other edit is still there.
+    expect((screen.getByLabelText("品質保証の親部門") as HTMLSelectElement).value).toBe("org-engineering");
+    expect((screen.getByLabelText("データ戦略の親部門") as HTMLSelectElement).value).toBe("org-engineering");
+    // Putting it back again is the select, still in the row.
+    noUndoOffer();
+  });
+
+  /**
+   * The undo is in the row, so it does not race a message: #113 had it in the toast, where
+   * it stood eight seconds and sat at the end of the document. Leaving the screen and
+   * coming back finds it where it was.
+   */
+  it("keeps the offer in its row while other things happen", async () => {
+    const user = userEvent.setup();
+    const adapter = sharedAdapter();
+    adapter.initialState = orgWorkspace();
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
+
+    const select = await parentSelect(user, "品質保証");
+    await user.selectOptions(select, "org-design-div");
+    // In the cell with the select that did it, so a keyboard is one Tab away.
+    const undo = undoOffer("品質保証");
+    expect(undo.closest("td")).toBe(screen.getByLabelText("品質保証の親部門").closest("td"));
+
+    // Something else entirely, including another message.
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^メンバー( |$)/u }));
+    await user.click(screen.getAllByRole("button", { name: /提案へ/u })[0]);
+    expect(await screen.findByText("提案ビューに追加しました")).toBeInTheDocument();
+
+    // Back on the org screen it is still there, in the same row.
+    await parentSelect(user, "品質保証");
+    expect(undoOffer("品質保証").closest("td"))
+      .toBe(screen.getByLabelText("品質保証の親部門").closest("td"));
+  });
+
+  /** One row at a time: the offer belongs to the move that happened last. */
+  it("moves the offer to the row that moved most recently", async () => {
+    const user = userEvent.setup();
+    const adapter = sharedAdapter();
+    adapter.initialState = orgWorkspace();
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
+
+    let select = await parentSelect(user, "品質保証");
+    await user.selectOptions(select, "org-design-div");
+    select = await parentSelect(user, "データ戦略");
+    await user.selectOptions(select, "org-engineering");
+
+    const offers = screen.getAllByRole("button", { name: /^この移動を元に戻す/u });
+    expect(offers).toHaveLength(1);
+    expect(offers[0]).toBe(undoOffer("データ戦略"));
+    expect(offers[0].closest("td")).toBe(screen.getByLabelText("データ戦略の親部門").closest("td"));
+  });
+
+  /**
+   * Once the move is committed, putting it back would be a new change rather than an undo,
+   * so the row stops offering it.
+   */
+  it("stops offering once the change is saved", async () => {
+    const user = userEvent.setup();
+    const adapter = sharedAdapter();
+    const save = vi.fn().mockResolvedValue({ revision: 8, savedAt: "2026-08-17T10:00:00Z" });
+    adapter.initialState = orgWorkspace();
+    adapter.save = save;
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
+
+    const select = await parentSelect(user, "品質保証");
+    await user.selectOptions(select, "org-design-div");
+    expect(undoOffer("品質保証")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "チームへ保存" }));
+    await waitFor(() => expect(save).toHaveBeenCalledOnce());
+    await waitFor(() => noUndoOffer());
+  });
+
+  /**
+   * The move is what empties the department it came from, and an empty department can be
+   * deleted — so the place the offer points back to can be gone while the offer is up. It
+   * cannot go there: `moveOrgUnit` refuses a parent it cannot find, and unlike the select
+   * beside it the button had no error slot to put that in. Found by the evaluation on #173.
+   */
+  it("stops offering when the department it came from is deleted", async () => {
+    const user = userEvent.setup();
+    const adapter = sharedAdapter();
+    // Two units of our own: the shipped ones all have children or members, so none of them
+    // can be deleted at all (#86).
+    const base = orgWorkspace();
+    adapter.initialState = {
+      ...base,
+      orgUnits: [...(base.orgUnits ?? []),
+        { id: "org-temp", name: "臨時室", parentId: null },
+        { id: "org-temp-team", name: "臨時班", parentId: "org-temp" }],
+    };
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
+
+    const select = await parentSelect(user, "臨時班");
+    await user.selectOptions(select, "org-corporate");
+    expect(undoOffer("臨時班")).toBeInTheDocument();
+
+    // 臨時室 is empty now, so it can go.
+    const emptied = screen.getByLabelText("臨時室の親部門").closest("tr") as HTMLElement;
+    await user.click(within(emptied).getByRole("button", { name: "削除" }));
+    expect(await screen.findByText("部門を削除しました")).toBeInTheDocument();
+
+    noUndoOffer();
+    // The move itself stands — this is the offer going, not the move.
+    expect((screen.getByLabelText("臨時班の親部門") as HTMLSelectElement).value).toBe("org-corporate");
+  });
+
+  /**
+   * And it has to still be the move that happened. A refresh in shared mode, or an
+   * organization or mode switch that does not remount, can move the unit out from under an
+   * offer that is still on screen; putting 「back」 then would write an old parent over the
+   * new one. The offer asks whether the unit is still where this move left it, which is the
+   * one question that covers all of those (#173, from the evaluation).
+   */
+  it("stops offering when something else moves the same department", async () => {
+    const user = userEvent.setup();
+    const adapter = sharedAdapter();
+    adapter.initialState = orgWorkspace();
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
+
+    const select = await parentSelect(user, "品質保証");
+    await user.selectOptions(select, "org-design-div");
+    expect(undoOffer("品質保証")).toBeInTheDocument();
+
+    // The same row, moved on somewhere else. Whatever did it, the recorded move is no
+    // longer the state of the tree.
+    await user.selectOptions(screen.getByLabelText("品質保証の親部門"), "org-corporate");
+    expect(await screen.findByText("品質保証をコーポレートへ移しました")).toBeInTheDocument();
+    // What is offered is the move that just happened, and it goes back to デザイン本部 —
+    // where the row was — rather than to 開発本部, where it started.
+    await user.click(undoOffer("品質保証"));
+    expect(await screen.findByText("品質保証をデザイン本部へ戻しました")).toBeInTheDocument();
+  });
+
+  /** And dropping every pending change leaves it nothing to put back. */
+  it("stops offering once every pending change is dropped", async () => {
+    const user = userEvent.setup();
+    const adapter = sharedAdapter();
+    adapter.initialState = orgWorkspace();
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
+
+    const select = await parentSelect(user, "品質保証");
+    await user.selectOptions(select, "org-design-div");
+    await user.click(screen.getByRole("button", { name: "元に戻す" }));
+    noUndoOffer();
+    // And the move itself is back where it started.
+    expect((screen.getByLabelText("品質保証の親部門") as HTMLSelectElement).value).toBe("org-engineering");
+  });
+});
+
+/**
+ * The board could only ever narrow by one thing: 職種 on the member axis, 状態 on
+ * the project axis. The conditions now live behind a trigger, because the
+ * toolbar had 74px of spare width at a 1425px viewport — the board is 758px of
+ * it — and three more controls want about 410px (#198).
+ *
+ * What these hold is the behaviour, not the geometry: the widths are in the PR.
+ */
+describe("the board narrows by more than one thing", () => {
+  /*
+   * On a fixed clock. Both describes read figures the demo data only produces in one
+   * week — 鈴木健太 is over his ceiling in 8/17週 and not in 8/24週 — so without this they
+   * pass for six days and fail on the seventh. They did: written on 2026-08-23, red on
+   * the 24th, for nothing that had changed in the code.
+   */
+  const onWednesday = () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date("2026-08-19T09:00:00+09:00"));
+    return userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+  };
+  afterEach(() => { vi.useRealTimers(); });
+  const openBoard = async (user: ReturnType<typeof userEvent.setup>) => {
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^アサインボード( |$)/u }));
+  };
+  const openFilters = async (user: ReturnType<typeof userEvent.setup>) => {
+    await user.click(screen.getByRole("button", { name: /絞り込み/u }));
+  };
+  const rowNames = () => [...document.querySelectorAll(".schedule-row .person-open strong")].map((el) => el.textContent ?? "");
+  const chips = () => [...document.querySelectorAll(".filter-chip")].map((el) => el.textContent ?? "");
+
+  it("narrows the member axis by department, and says so in a chip", async () => {
+    const user = onWednesday();
+    render(<App />);
+    await openBoard(user);
+    const everyone = rowNames();
+    expect(everyone.length).toBeGreaterThan(2);
+    // Nothing applied: no chip row at all, which is what keeps the idle board
+    // the height it was.
+    expect(document.querySelector(".toolbar-chips")).toBeNull();
+
+    await openFilters(user);
+    await user.selectOptions(screen.getByLabelText("部門で絞り込み"), "org-design");
+    const designers = rowNames();
+    expect(designers.length).toBeGreaterThan(0);
+    expect(designers.length).toBeLessThan(everyone.length);
+    expect(everyone).toEqual(expect.arrayContaining(designers));
+    expect(chips()).toEqual(["部門: デザイン本部 / デザイン"]);
+    expect(document.querySelector(".toolbar-chips-lead")!.textContent).toBe(`絞り込み中 · ${designers.length}名`);
+
+    // The chip is the way back out of that one condition.
+    await user.click(screen.getByRole("button", { name: /部門の絞り込み「デザイン本部 \/ デザイン」を外す/u }));
+    expect(rowNames()).toEqual(everyone);
+    expect(document.querySelector(".toolbar-chips")).toBeNull();
+  });
+
+  it("leaves only the rows carrying their own warning", async () => {
+    const user = onWednesday();
+    render(<App />);
+    await openBoard(user);
+    const everyone = rowNames();
+
+    await openFilters(user);
+    await user.click(screen.getByLabelText("上限超過のみ"));
+    const overloaded = rowNames();
+    expect(overloaded.length).toBeGreaterThan(0);
+    expect(overloaded.length).toBeLessThan(everyone.length);
+    // Every remaining row is one the board itself marks, and every dropped row is not.
+    const marked = [...document.querySelectorAll(".schedule-row")]
+      .map((row) => row.querySelector(".load")!.classList.contains("over"));
+    expect(marked.every(Boolean)).toBe(true);
+  });
+
+  /**
+   * 「要調整」 is the pulse strip's count, which also counts unfilled roles — a
+   * different set from a row's own warning. So the control is named after what
+   * it actually filters, and the name follows the axis.
+   */
+  it("names the warning after the axis, and drops the condition that has no meaning there", async () => {
+    const user = onWednesday();
+    render(<App />);
+    await openBoard(user);
+    await openFilters(user);
+
+    expect(screen.getByLabelText("職種で絞り込み")).toBeInTheDocument();
+    expect(screen.getByLabelText("部門で絞り込み")).toBeInTheDocument();
+    expect(screen.getByLabelText("上限超過のみ")).toBeInTheDocument();
+    expect(screen.queryByLabelText("要員不足のみ")).toBeNull();
+
+    await user.selectOptions(screen.getByLabelText("部門で絞り込み"), "org-design");
+    await user.click(within(screen.getByRole("group", { name: "表示軸" })).getByRole("button", { name: /プロジェクト別/u }));
+
+    expect(screen.getByLabelText("状態で絞り込み")).toBeInTheDocument();
+    expect(screen.getByLabelText("要員不足のみ")).toBeInTheDocument();
+    // A project carries no unit, so there is nothing to compare — and the
+    // member-axis choice does not linger as an invisible condition.
+    expect(screen.queryByLabelText("部門で絞り込み")).toBeNull();
+    expect(chips()).toEqual([]);
+
+    // Coming back does not hand the old department filter back either: switching
+    // axes clears the axis-specific conditions, the same as 職種/状態 already did.
+    await user.click(within(screen.getByRole("group", { name: "表示軸" })).getByRole("button", { name: /メンバー別/u }));
+    expect((screen.getByLabelText("部門で絞り込み") as HTMLSelectElement).value).toBe("");
+    expect(chips()).toEqual([]);
+  });
+
+  it("hands back every condition from the empty state", async () => {
+    const user = onWednesday();
+    render(<App />);
+    await openBoard(user);
+    const everyone = rowNames();
+
+    await openFilters(user);
+    await user.selectOptions(screen.getByLabelText("部門で絞り込み"), "org-design");
+    await user.click(screen.getByLabelText("上限超過のみ"));
+    // Designers who are over capacity: none, which is the state worth testing —
+    // the way out used to reset two of the conditions and leave the rest on.
+    expect(rowNames()).toEqual([]);
+    expect(document.querySelector(".empty-state")).not.toBeNull();
+
+    await user.click(within(document.querySelector(".empty-state") as HTMLElement).getByRole("button", { name: "条件をクリア" }));
+    expect(rowNames()).toEqual(everyone);
+    expect((screen.getByLabelText("部門で絞り込み") as HTMLSelectElement).value).toBe("");
+    expect((screen.getByLabelText("上限超過のみ") as HTMLInputElement).checked).toBe(false);
+    expect(document.querySelector(".toolbar-chips")).toBeNull();
+  });
+});
+
+/**
+ * The assignment form used to pick its member from a native `<select>`. Every
+ * option already carried a name and a percentage, but you could not type a name,
+ * and the percentage was the load in the week *the board* was measuring rather
+ * than over the dates the form was about to book (#199).
+ *
+ * The geometry is in the PR. What these hold is the four things that would each
+ * quietly undo the point: the search, the chosen row surviving it, the figures
+ * following the form's own dates, and the count telling you the list is capped.
+ */
+describe("choosing who to assign", () => {
+  /*
+   * On a fixed clock. Both describes read figures the demo data only produces in one
+   * week — 鈴木健太 is over his ceiling in 8/17週 and not in 8/24週 — so without this they
+   * pass for six days and fail on the seventh. They did: written on 2026-08-23, red on
+   * the 24th, for nothing that had changed in the code.
+   */
+  const onWednesday = () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date("2026-08-19T09:00:00+09:00"));
+    return userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+  };
+  afterEach(() => { vi.useRealTimers(); });
+  const openForm = async (user: ReturnType<typeof userEvent.setup>) => {
+    await user.click(screen.getByRole("button", { name: /アサインを追加/u }));
+  };
+  const rows = () => [...document.querySelectorAll(".member-picker-item")];
+  const names = () => rows().map((row) => row.querySelector("strong")!.textContent ?? "");
+  const loadFor = (name: string) => rows()
+    .find((row) => row.querySelector("strong")!.textContent!.startsWith(name))
+    ?.querySelector(".member-picker-load")!.textContent ?? null;
+
+  it("narrows the candidates by name and by what they do", async () => {
+    const user = onWednesday();
+    render(<App />);
+    await openForm(user);
+    const everyone = names();
+    expect(everyone.length).toBeGreaterThan(3);
+
+    const search = screen.getByLabelText("アサインするメンバーを検索");
+    // The chosen row stays whatever the search says, so what the search returns is the
+    // rest of the list. That pin is the next test's subject.
+    const chosen = document.querySelector(".member-picker-item.chosen strong")!.textContent!;
+    const matched = () => names().filter((name) => name !== chosen);
+    await user.type(search, "鈴木");
+    expect(matched()).toEqual(["鈴木 健太"]);
+
+    // Not just the name: the same field reaches the role, which is how you find
+    // the three QA engineers without knowing any of their names.
+    await user.clear(search);
+    await user.type(search, "QA Engineer");
+    const qa = matched();
+    expect(qa.length).toBeGreaterThan(0);
+    expect(qa.length).toBeLessThan(everyone.length);
+    for (const name of qa) {
+      const member = initialWorkspace.members.find((item) => name.startsWith(item.name))!;
+      expect(member.role).toBe("QA Engineer");
+    }
+
+    await user.clear(search);
+    expect(names()).toEqual(everyone);
+  });
+
+  /**
+   * The row the form is about to submit has to stay on screen. Hiding it behind a
+   * search term leaves every visible radio unchecked above a button that would
+   * have booked someone — the same shape of mistake as #187, from the other end.
+   */
+  it("keeps the chosen candidate in the list even when the search excludes them", async () => {
+    const user = onWednesday();
+    render(<App />);
+    await openForm(user);
+    const chosen = document.querySelector(".member-picker-item.chosen strong")!.textContent!;
+
+    await user.type(screen.getByLabelText("アサインするメンバーを検索"), "鈴木");
+    expect(chosen.startsWith("鈴木")).toBe(false);
+    expect(names()).toContain(chosen);
+    expect(document.querySelectorAll(".member-picker-item.chosen")).toHaveLength(1);
+    // And it is still the checked one, not merely present.
+    expect((document.querySelector(".member-picker-item.chosen input") as HTMLInputElement).checked).toBe(true);
+  });
+
+  it("moves every figure when the dates move", async () => {
+    const user = onWednesday();
+    render(<App />);
+    await openForm(user);
+    const before = loadFor("鈴木 健太");
+    expect(before).toBe("120% / 100%");
+    expect(document.querySelector(".member-picker legend")!.textContent).toContain("8月17日 — 8月21日");
+
+    // A week with nothing booked in it. 鈴木's 120% is two overlapping assignments in
+    // the week the form opens on, and neither reaches December.
+    const dates = document.querySelectorAll(".assignment-form input[type=date]");
+    await user.clear(dates[1] as HTMLElement);
+    await user.type(dates[1] as HTMLElement, "2026-12-25");
+    await user.clear(dates[0] as HTMLElement);
+    await user.type(dates[0] as HTMLElement, "2026-12-21");
+
+    expect(document.querySelector(".member-picker legend")!.textContent).toContain("12月21日 — 12月25日");
+    expect(loadFor("鈴木 健太")).toBe("0% / 100%");
+    // Nobody is over their ceiling in a week nobody is booked in.
+    expect(document.querySelectorAll(".member-picker-load.over")).toHaveLength(0);
+  });
+
+  it("orders by room and says how many it is not showing", async () => {
+    const user = onWednesday();
+    const adapter = sharedAdapter();
+    // Twenty members, so the 12-row cap is doing something.
+    adapter.initialState = {
+      ...initialWorkspace,
+      members: [
+        ...initialWorkspace.members,
+        ...Array.from({ length: 11 }, (unused, index) => ({
+          ...initialWorkspace.members[0],
+          id: `extra-${index}`,
+          name: `予備 ${index}`,
+          initials: "YB",
+        })),
+      ],
+    };
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
+    await openForm(user);
+
+    expect(rows()).toHaveLength(12);
+    expect(document.querySelector(".member-picker-count")!.textContent).toBe("該当20名中 12名");
+
+    // The chosen row is pinned to the front, so it sits outside the ordering: with twenty
+    // members it is not among the twelve with the most room, and it still has to be here.
+    const chosen = document.querySelector(".member-picker-item.chosen strong")!.textContent!;
+    expect(names()[0]).toBe(chosen);
+    // Most room first for the rest, which is what makes a cap of 12 the right 12 to keep.
+    const peaks = rows().slice(1)
+      .map((row) => Number(row.querySelector(".member-picker-load")!.textContent!.match(/^(\d+)%/u)![1]));
+    expect(peaks).toEqual([...peaks].sort((a, b) => a - b));
+    // The one nobody can take is not in the visible twelve.
+    expect(names()).not.toContain("鈴木 健太");
+  });
+});
+
+/**
+ * The edit form asks a different question from the add form. 「How loaded is this
+ * person」 is the wrong one here: the assignment being edited is already in the
+ * workspace, so that reading counts it against whoever holds it, and the number means
+ * something different for them than for everyone else in the list (#219).
+ *
+ * So each row is 「what the board would show if this form were saved onto you」. Two
+ * wrong implementations are both excluded below:
+ *
+ *  - measuring the plain workspace, which leaves every other candidate short by this
+ *    assignment's allocation;
+ *  - adding the allocation to the plain workspace, which counts it twice for the
+ *    holder — 鈴木健太 at 190% while nothing has changed.
+ */
+describe("swapping who holds an assignment", () => {
+  const onWednesday = () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date("2026-08-19T09:00:00+09:00"));
+    return userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+  };
+  afterEach(() => { vi.useRealTimers(); });
+
+  /** 鈴木健太's 決済基盤 assignment: 8/17 to 9/18 at 70%, and he holds another beside it. */
+  const held = initialWorkspace.assignments.find((item) => item.id === "a5")!;
+  const loadFor = (name: string) => [...document.querySelectorAll(".member-picker-item")]
+    .find((row) => row.querySelector("strong")!.textContent!.startsWith(name))
+    ?.querySelector(".member-picker-load")!.textContent ?? null;
+
+  const openHeldAssignment = async (user: ReturnType<typeof userEvent.setup>) => {
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^アサインボード( |$)/u }));
+    const bar = screen.getByRole("button", { name: /決済基盤アップデートのアサイン詳細（鈴木 健太/u });
+    await user.click(bar);
+    expect(document.querySelector(".drawer-kicker")!.textContent).toBe("ASSIGNMENT DETAIL");
+  };
+
+  it("counts this assignment once for the person who already has it", async () => {
+    const user = onWednesday();
+    render(<App />);
+    await openHeldAssignment(user);
+
+    const suzuki = initialWorkspace.members.find((member) => member.id === "suzuki")!;
+    const asIs = memberPeakLoad(initialWorkspace, "suzuki", held.startDate, held.endDate);
+    // The board's own figure for him over these dates, and the row says the same: nothing
+    // has been moved, so nothing about him has changed.
+    expect(loadFor("鈴木 健太")).toBe(`${asIs}% / ${suzuki.capacity}%`);
+    // And it is his real load, not that plus this assignment again.
+    expect(asIs).toBeLessThan(asIs + held.allocation);
+    expect(loadFor("鈴木 健太")).not.toBe(`${asIs + held.allocation}% / ${suzuki.capacity}%`);
+  });
+
+  it("shows everyone else what taking it would cost them", async () => {
+    const user = onWednesday();
+    render(<App />);
+    await openHeldAssignment(user);
+
+    // The same workspace with this assignment moved to 岡田, measured by the same
+    // function the board uses. Not a hand-rolled sum: the peak is a maximum over days,
+    // and 岡田 already has something of her own inside these dates.
+    const moved = {
+      ...initialWorkspace,
+      assignments: initialWorkspace.assignments.map((item) => item.id === held.id ? { ...item, personId: "okada" } : item),
+    };
+    const okada = initialWorkspace.members.find((member) => member.id === "okada")!;
+    const after = memberPeakLoad(moved, "okada", held.startDate, held.endDate);
+    const before = memberPeakLoad(initialWorkspace, "okada", held.startDate, held.endDate);
+
+    expect(loadFor("岡田 紗季")).toBe(`${after}% / ${okada.capacity}%`);
+    // The whole point: it is not the plain reading, which is what the add form shows.
+    expect(after).toBeGreaterThan(before);
+    expect(loadFor("岡田 紗季")).not.toBe(`${before}% / ${okada.capacity}%`);
+  });
+
+  it("can be searched, and says what the numbers are measured over", async () => {
+    const user = onWednesday();
+    render(<App />);
+    await openHeldAssignment(user);
+
+    // 「付け替えた場合の」, because that is what makes these numbers different from the
+    // add form's — a reader has to be told which of the two they are looking at.
+    const legend = document.querySelector(".member-picker legend")!.textContent!;
+    expect(legend).toContain("付け替えた場合の稼働");
+    expect(legend).toContain("8月17日");
+    expect(legend).toContain("9月18日");
+
+    const search = screen.getByLabelText("付け替え先のメンバーを検索");
+    await user.type(search, "岡田");
+    const names = [...document.querySelectorAll(".member-picker-item strong")].map((el) => el.textContent);
+    expect(names).toContain("岡田 紗季");
+    // The holder stays, whatever the search says, because it is the checked row.
+    expect(names).toContain("鈴木 健太");
+    expect(names.filter((name) => name !== "鈴木 健太")).toEqual(["岡田 紗季"]);
+  });
+
+  it("saves the swap", async () => {
+    const user = onWednesday();
+    render(<App />);
+    await openHeldAssignment(user);
+
+    // 岡田 is already on this project herself, so counting rather than existence: the
+    // swap has to add a bar to hers, not merely leave one there.
+    const hers = () => screen.queryAllByRole("button", { name: /決済基盤アップデートのアサイン詳細（岡田 紗季/u }).length;
+    const before = hers();
+    expect(before).toBeGreaterThan(0);
+
+    const row = [...document.querySelectorAll(".member-picker-item")]
+      .find((item) => item.querySelector("strong")!.textContent!.startsWith("岡田 紗季"))!;
+    await user.click(row.querySelector("input") as HTMLElement);
+    await user.click(screen.getByRole("button", { name: "変更を仮置き" }));
+
+    // The bar is hers now, and his is gone.
+    expect(screen.queryByRole("button", { name: /決済基盤アップデートのアサイン詳細（鈴木 健太/u })).toBeNull();
+    expect(hers()).toBe(before + 1);
   });
 });

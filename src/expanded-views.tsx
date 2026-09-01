@@ -14,11 +14,13 @@ import {
   Layers3,
   MailPlus,
   Plus,
+  Printer,
   Search,
   SlidersHorizontal,
   Sparkles,
   Star,
   Trash2,
+  Undo2,
   Upload,
   UserRoundPlus,
   UsersRound,
@@ -31,12 +33,15 @@ import {
   type Favorite,
 } from "./collaboration";
 import {
+  DEFAULT_PROPOSAL_CSV_COLUMNS,
   exportMembersCsv,
   exportProjectsCsv,
+  exportProposalCsv,
   memberCsvColumns,
   parseCsv,
   previewMemberImport,
   projectCsvColumns,
+  proposalCsvColumns,
   readCsvPresets,
   writeCsvPresets,
   type CsvExportPreset,
@@ -49,51 +54,58 @@ import {
   addDays,
   addOrgUnit,
   addSkillCatalogEntry,
+  allowedReportGroupBy,
   archiveOrgUnit,
+  buildSavedReport,
   buildSkillMap,
+  canActAsProfileRequestSubject,
   customValue,
   formatCustomValue,
+  formatDate,
   formatSkillInput,
   formatWorkHistoryPeriod,
   getWeekStart,
   isActiveOpportunity,
   isActiveProfileRequest,
-  canActAsProfileRequestSubject,
+  matchMembers,
+  matchScoreMax,
+  memberById,
   memberDailyLoads,
+  weekendDatesBetween,
+  memberLabel,
+  memberLabelParts,
   memberLoad,
   memberOrgMemberships,
   memberSearchText,
+  membersInOrgSubtree,
   memberSkillLevels,
+  moveOrgUnit,
   OPPORTUNITY_STAGE_LABELS,
   opportunityNeedsFor,
   opportunitySearchText,
-  pipelineDemandForWeek,
-  membersInOrgSubtree,
-  moveOrgUnit,
   orgManagers,
   orgUnitArchiveBlocker,
   orgUnitLoadRows,
   orgUnitPath,
   orgUnitTree,
-  formatDate,
-  matchMembers,
-  memberById,
-  projectById,
-  searchSceneFromNeed,
+  ownerLabel,
   parseSkillInput,
+  PERSON_SCOPES,
+  pipelineDemandForWeek,
   PROFICIENCY_LABELS,
   profileRequestScopeLabel,
   profileRequestStatusLabel,
+  projectById,
   projectMembers,
   projectSearchText,
-  sortedWorkHistory,
-  visibleCustomFields,
-  allowedReportGroupBy,
-  buildSavedReport,
-  PERSON_SCOPES,
   RESTRICTABLE_FEATURES,
   RESTRICTABLE_ROLES,
+  searchSceneFromNeed,
+  sortedWorkHistory,
+  visibleCustomFields,
+  weekLabel,
   type CustomFieldDefinition,
+  type DailyLoad,
   type CustomFieldEntity,
   type CustomFieldType,
   type Member,
@@ -231,6 +243,9 @@ type OrgViewProps = {
   onMoveUnit: (id: string, parentId: string | null) => void;
   onArchiveUnit: (id: string) => void;
   canManage?: boolean;
+  /** The move that can still be put back, if there is one — see `onUndoMove` (#173). */
+  lastMove?: { unitId: string; name: string } | null;
+  onUndoMove?: () => void;
 };
 
 type MemberOrgFieldsProps = {
@@ -319,6 +334,231 @@ const MEMBER_ORDERS = {
 } as const;
 type MemberOrder = keyof typeof MEMBER_ORDERS;
 
+
+/** 'YYYY-MM-DD', which is what the date inputs give and the payload carries. */
+const isIsoDate = (value: string) => /^\d{4}-\d{2}-\d{2}$/u.test(value);
+const isSaturday = (iso: string) => new Date(iso + "T00:00:00Z").getUTCDay() === 6;
+/**
+ * The weekend days of an assignment, ticked one at a time.
+ *
+ * Dates rather than a weekday pattern, because 「every Saturday for three months」
+ * and 「the 22nd」 are different claims and a pattern makes the first one silently
+ * mean thirteen Saturdays. Nothing here raises anyone's ceiling: a ticked Saturday
+ * is load above a week that is still five days long, so it shows up as excess
+ * (#222).
+ *
+ * Shut by default. Most assignments have no weekend work, and this is the second
+ * time a form on this screen has had to earn its height — the list is 26 checkboxes
+ * for a quarter.
+ */
+export function WeekendWorkPicker({
+  startDate,
+  endDate,
+  value,
+  onChange,
+  disabled = false,
+}: {
+  startDate: string;
+  endDate: string;
+  value: string[];
+  onChange: (dates: string[]) => void;
+  disabled?: boolean;
+}) {
+  const { dates, capped } = weekendDatesBetween(startDate, endDate);
+  const chosen = new Set(value);
+  // Only what the form is offering. A date recorded outside the current range is
+  // still stored — the save keeps it and the database prunes it if the range moves
+  // — so the count here is of what is on screen, not of what exists.
+  const offered = dates.filter((date) => chosen.has(date));
+  /*
+   * Selected days this list cannot show: outside the range, or past the cap. They
+   * still count towards the load, so the summary says how many rather than letting
+   * the form read 「0日」 over work that exists (#222, from the evaluation).
+   */
+  const hidden = value.length - offered.length;
+  const months = new Map<string, string[]>();
+  for (const date of dates) {
+    const key = date.slice(0, 7);
+    months.set(key, [...(months.get(key) ?? []), date]);
+  }
+  const toggle = (date: string) => {
+    const next = new Set(chosen);
+    if (next.has(date)) next.delete(date);
+    else next.add(date);
+    onChange([...next].sort());
+  };
+
+  if (dates.length === 0) {
+    return (
+      <p className="weekend-picker-empty">
+        {isIsoDate(startDate) && isIsoDate(endDate) ? "この期間に土日はありません。" : "期間を入れると土日を選べます。"}
+      </p>
+    );
+  }
+
+  return (
+    <details className="weekend-picker">
+      {/* The count is in the summary because it is the answer most of the time:
+          「0日」 says there is nothing to open this for. */}
+      <summary>土日の稼働<small>{offered.length}日{hidden > 0 ? `（表示外 ${hidden}日）` : ""}</small></summary>
+      <div className="weekend-picker-body">
+        <p className="weekend-picker-note">
+          ここで選んだ日は、平日の稼働上限に<b>上乗せ</b>されます。期間を変えて範囲から外れた日は、<b>保存時に外れます</b>。
+        </p>
+        <div className="weekend-picker-actions">
+          <button type="button" className="view-add-button ghost" disabled={disabled} onClick={() => onChange([...new Set([...value, ...dates])].sort())}>
+            すべて選ぶ
+          </button>
+          <button type="button" className="view-add-button ghost" disabled={disabled || offered.length === 0} onClick={() => onChange(value.filter((date) => !dates.includes(date)))}>
+            選択を外す
+          </button>
+        </div>
+        {[...months.entries()].map(([month, days]) => (
+          <div className="weekend-picker-month" key={month}>
+            {/* With the year: the offer can span two of them, and 「8月」 twice over
+                is how you tick the wrong Saturday. */}
+            <small>{month.slice(0, 4)}年{Number(month.slice(5, 7))}月</small>
+            <div className="weekend-picker-days">
+              {days.map((date) => (
+                <label className={"weekend-picker-day" + (chosen.has(date) ? " chosen" : "")} key={date}>
+                  <input type="checkbox" checked={chosen.has(date)} disabled={disabled} onChange={() => toggle(date)} />
+                  {Number(date.slice(8, 10))}
+                  <small>{isSaturday(date) ? "土" : "日"}</small>
+                </label>
+              ))}
+            </div>
+          </div>
+        ))}
+        {capped && (
+          <p className="weekend-picker-note">
+            期間が長いため、先頭の{dates.length}日だけを出しています。
+          </p>
+        )}
+      </div>
+    </details>
+  );
+}
+
+/** A candidate for one of the assignment forms, with the figures already measured. */
+export type MemberCandidate = {
+  member: Member;
+  /** Peak load over the form's range. What that means is the caller's to state in `hint`. */
+  peak: number;
+  days: DailyLoad[];
+  /** Disambiguated, because two namesakes made three labels identical once (#123). */
+  label: string;
+  /** Lowercased haystack for the search box — `memberSearchText`, normally. */
+  search: string;
+};
+
+/**
+ * Who to assign, searched for rather than scrolled through.
+ *
+ * Both assignment forms picked their member from a native `<select>`: no way to type
+ * a name, which at a few hundred members is the whole interaction, and no way to see
+ * anyone's load without opening the list (#199 for the add form, #219 for the edit
+ * one). It is one component because the two would otherwise have to be kept in step
+ * by hand, and they already disagreed about what their percentages meant.
+ *
+ * Native radios inside the rows, so arrow keys, Home/End and the reading order come
+ * from the platform rather than from ARIA authoring, and the row is the label — the
+ * whole box is the target, which is what #190 was about.
+ *
+ * What the numbers mean is deliberately not decided here. The caller measures them
+ * and names them in `hint`: the add form shows the load over its own dates, the edit
+ * form shows what the load would become if its form were saved.
+ */
+export function MemberPicker({
+  legend,
+  hint,
+  name,
+  searchLabel,
+  placeholder = "名前・職種・スキルで検索",
+  candidates,
+  limit,
+  value,
+  onChange,
+  query,
+  onQueryChange,
+  disabled = false,
+  chosenRef,
+}: {
+  legend: string;
+  hint: string;
+  /** The radio group's name. Distinct per form, so two of these can never share a value. */
+  name: string;
+  searchLabel: string;
+  placeholder?: string;
+  candidates: MemberCandidate[];
+  /** Rows drawn at once. Hundreds of members must not become hundreds of rows. */
+  limit: number;
+  value: string;
+  onChange: (memberId: string) => void;
+  query: string;
+  onQueryChange: (query: string) => void;
+  disabled?: boolean;
+  chosenRef?: React.Ref<HTMLLabelElement>;
+}) {
+  // Most room first, which is the order the member screen already ships with. Sorted
+  // here rather than by each caller, so the two forms cannot drift apart on it.
+  const sorted = [...candidates].sort((a, b) => a.peak - b.peak || a.label.localeCompare(b.label, "ja"));
+  const needle = query.trim().toLocaleLowerCase();
+  const matched = needle ? sorted.filter((candidate) => candidate.search.includes(needle)) : sorted;
+  const capped = matched.slice(0, limit);
+  /*
+   * The chosen row survives both the search and the cap. Hiding what the form is
+   * about to submit is worse than showing one row that does not match: with every
+   * visible radio unchecked, a submit button reads as 「nothing is selected」.
+   */
+  const chosen = value ? sorted.find((candidate) => candidate.member.id === value) : undefined;
+  const rows = !chosen || capped.some((candidate) => candidate.member.id === value)
+    ? capped
+    : [chosen, ...capped.slice(0, limit - 1)];
+
+  return (
+    <fieldset className="member-picker">
+      {/* The range and what is being measured over it, so every row's number has a
+          stated meaning and the group announces it once rather than per row. */}
+      <legend>{legend}<small> · {hint}</small></legend>
+      <div className="member-picker-head">
+        <label className="inline-search">
+          <Search size={15} />
+          <input value={query} onChange={(event) => onQueryChange(event.target.value)} placeholder={placeholder} aria-label={searchLabel} disabled={disabled} />
+        </label>
+        {/* Said out loud rather than truncating in silence: at a few hundred members
+            a list of twelve reads as the whole list. */}
+        <span className="member-picker-count">{matched.length > rows.length ? `該当${matched.length}名中 ${rows.length}名` : `該当${matched.length}名`}</span>
+      </div>
+      <div className="member-picker-list">
+        {rows.map(({ member, peak, days, label }) => (
+          <label
+            className={"member-picker-item" + (value === member.id ? " chosen" : "")}
+            key={member.id}
+            ref={value === member.id ? chosenRef : null}
+          >
+            <input type="radio" name={name} value={member.id} checked={value === member.id} disabled={disabled} onChange={() => onChange(member.id)} />
+            <span className={"avatar " + member.avatarTone}>{member.initials}</span>
+            <span className="member-picker-copy"><strong>{label}</strong><small>{member.role} · {member.department}</small></span>
+            <span className={"member-picker-load" + (peak > member.capacity ? " over" : "")}>{peak}% / {member.capacity}%</span>
+            {/* One cell per weekday in the range, filled to that day's share of the
+                ceiling. Decoration — the numbers beside it are what the row says out
+                loud — so past about 60 weekdays a cell is under 5px and the rail is a
+                texture rather than a reading, and the peak carries it. */}
+            <span className="member-picker-rail" aria-hidden="true">
+              {days.map((day) => <i
+                key={day.date}
+                className={day.load > member.capacity ? "over" : ""}
+                style={{ "--fill": (member.capacity > 0 ? Math.min(100, Math.round((day.load / member.capacity) * 100)) : day.load > 0 ? 100 : 0) + "%" } as React.CSSProperties}
+              />)}
+            </span>
+          </label>
+        ))}
+        {rows.length === 0 && <p className="member-picker-empty">条件に合うメンバーがいません。</p>}
+      </div>
+    </fieldset>
+  );
+}
+
 /**
  * The filters that are actually narrowing the list, each one removable, plus a
  * way out of all of them.
@@ -378,6 +618,8 @@ export function ProjectsView({
   const [status, setStatus] = useState("すべて");
   const [order, setOrder] = useState<ProjectOrder>("registered");
   const weekStart = getWeekStart(weekOffset);
+  // Named, not 「今週」: these screens follow the board's paging (#146).
+  const weekName = weekLabel(weekStart);
   const searchValue = query ?? localQuery;
   // Trimmed, for the reason at MembersView: the chip and the filter have to agree
   // on what counts as searching (#138).
@@ -411,7 +653,6 @@ export function ProjectsView({
         <div className="ribbon-stat risk"><strong>{portfolioRisks}</strong><span>要注意</span></div>
         <div className="ribbon-divider" />
         <div className="ribbon-stat warning"><strong>{openNeeds}</strong><span>未充足ロール</span></div>
-        <div className="portfolio-weave" aria-hidden="true">{[64, 82, 71, 92, 76, 55, 88, 69].map((value, index) => <i key={index}><b style={{ width: value + "%" }} /></i>)}</div>
       </div>
 
       {/* Two jobs, told apart by position: everything that narrows the list on the
@@ -419,7 +660,7 @@ export function ProjectsView({
           undifferentiated flow, so on the member screen 「このシーンを削除」 sat
           between two selects and read like one of them. */}
       <div className="view-toolbar">
-        <div className="inline-search"><Search size={15} /><input value={searchValue} onChange={(event) => setSearchValue(event.target.value)} placeholder="案件名・責任者を検索" aria-label="案件を検索" /></div>
+        <label className="inline-search"><Search size={15} /><input value={searchValue} onChange={(event) => setSearchValue(event.target.value)} placeholder="案件名・責任者を検索" aria-label="案件を検索" /></label>
         <label className="view-filter"><span className="filter-label">状態</span><select value={status} onChange={(event) => setStatus(event.target.value)} aria-label="状態で絞り込み">
           {["すべて", "進行中", "要注意", "準備中", "完了間近", "完了", "欠員あり"].map((option) => <option key={option}>{option}</option>)}
         </select></label>
@@ -447,7 +688,7 @@ export function ProjectsView({
           accessible name and the reading of the bars goes here, once, rather
           than per row. `aria-describedby` rather than adjacency alone: jumping
           straight to the table would otherwise miss this (#85). */}
-      <p className="viz-caption" id="portfolio-rail-key">「4週間の充足」は、今週から4週間の充足率を示します。バーの長さが充足率で、必要人数に届かない週は橙色、必要人数が未設定の週は空になります。</p>
+      <p className="viz-caption" id="portfolio-rail-key">「4週間の充足」は、{weekName}から4週間の充足率を示します。バーの長さが充足率で、必要人数に届かない週は橙色、必要人数が未設定の週は空になります。</p>
 
       <div className="portfolio-table-wrap">
         <table className="portfolio-table" aria-describedby="portfolio-rail-key">
@@ -481,11 +722,11 @@ export function ProjectsView({
                     <div className="four-week-rail" role="img" aria-label={project.name + "の4週間の充足人数：" + weeks.map((count, index) => weekStaffingLabel(index, count, project.demand)).join("、")}>
                       {weeks.map((count, index) => <i key={index} title={weekStaffingLabel(index, count, project.demand)}><b className={project.demand > 0 && count < project.demand ? "short" : ""} style={{ width: (project.demand === 0 ? 0 : Math.min(100, count / project.demand * 100)) + "%" }} /></i>)}
                     </div>
-                    <span className="staffed-label">{project.demand === 0 ? "必要人数未設定" : `今週 ${currentMembers}/${project.demand}名`}</span>
+                    <span className="staffed-label">{project.demand === 0 ? "必要人数未設定" : `${weekName} ${currentMembers}/${project.demand}名`}</span>
                   </td>
                   <td><div className="progress-cell"><span><b style={{ width: project.progress + "%" }} /></span><strong>{project.progress}%</strong></div></td>
                   <td><span className="milestone-cell"><strong>{project.nextMilestone}</strong><small>{formatMonthDay(project.nextMilestoneDate)}</small></span></td>
-                  <td><span className="owner-cell"><i>{project.ownerInitials}</i><span>{project.ownerName}</span></span></td>
+                  <td><span className="owner-cell"><i>{project.ownerInitials}</i><span>{ownerLabel(state, project)}</span></span></td>
                   <td><button className="row-open" aria-label={project.name + "の詳細を見る"} onClick={() => onOpen(project.id)}><ChevronRight size={16} /></button></td>
                 </tr>
               );
@@ -543,7 +784,7 @@ export function OpportunitiesView({ state, onOpen }: OpportunitiesViewProps) {
       </div>
 
       <div className="view-toolbar">
-        <div className="inline-search"><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="案件名・スキルを検索" aria-label="受注前案件を検索" /></div>
+        <label className="inline-search"><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="案件名・スキルを検索" aria-label="受注前案件を検索" /></label>
         <label className="view-filter"><span className="filter-label">段階</span><select value={stage} onChange={(event) => setStage(event.target.value)} aria-label="段階で絞り込み">
           {["進行中", "引き合い", "提案", "商談", "受注", "失注", "すべて"].map((option) => <option key={option}>{option}</option>)}
         </select></label>
@@ -561,7 +802,7 @@ export function OpportunitiesView({ state, onOpen }: OpportunitiesViewProps) {
                   <span className={"project-code " + opportunity.tone}>{opportunity.code}</span>
                   <strong>{opportunity.name}</strong>
                   <small>{opportunity.summary}</small>
-                  <em>{opportunity.demand}名 · {opportunityNeedsFor(state, opportunity.id).length}ロール · {opportunity.ownerName ?? "責任者未設定"}</em>
+                  <em>{opportunity.demand}名 · {opportunityNeedsFor(state, opportunity.id).length}ロール · {ownerLabel(state, opportunity) ?? "責任者未設定"}</em>
                 </button>
               ))}
               {items.length === 0 && <p className="pipeline-empty">案件はありません</p>}
@@ -588,7 +829,7 @@ export function OpportunitiesView({ state, onOpen }: OpportunitiesViewProps) {
                   <td><span className={"status-pill " + opportunityStageClass[opportunity.stage]}><i />{OPPORTUNITY_STAGE_LABELS[opportunity.stage]}</span></td>
                   <td>{formatMonthDay(opportunity.startDate)} — {formatMonthDay(opportunity.endDate)}</td>
                   <td>{opportunity.demand}名</td>
-                  <td><span className="owner-cell"><i>{opportunity.ownerInitials}</i><span>{opportunity.ownerName}</span></span></td>
+                  <td><span className="owner-cell"><i>{opportunity.ownerInitials}</i><span>{ownerLabel(state, opportunity)}</span></span></td>
                   <td><button className="row-open" aria-label={opportunity.name + "の詳細を見る"} onClick={() => onOpen(opportunity.id)}><ChevronRight size={16} /></button></td>
                 </tr>
               ))}
@@ -635,11 +876,15 @@ export function MembersView({
   const [order, setOrder] = useState<MemberOrder>("score");
   const [error, setError] = useState("");
   const weekStart = getWeekStart(weekOffset);
+  // Named, not 「今週」: these screens follow the board's paging (#146).
+  const weekName = weekLabel(weekStart);
   const roles = ["すべて", ...Array.from(new Set(state.members.map((member) => member.role)))];
   const orgUnits = orgUnitTree(state.orgUnits);
   const scenes = state.searchScenes ?? [];
   const selectedScene = scenes.find((scene) => scene.id === sceneId);
   const scoreById = new Map((selectedScene ? matchMembers(state, selectedScene) : []).map((match) => [match.member.id, match]));
+  // Not 100: the ceiling moves with how many 「あると良い」 skills the scene names (#150).
+  const scoreCeiling = selectedScene ? matchScoreMax(selectedScene) : 0;
   const searchValue = query ?? localQuery;
   // Trimmed, so a box holding only spaces filters nothing rather than matching
   // literal whitespace and emptying the list with no chip to explain it — the
@@ -737,7 +982,7 @@ export function MembersView({
       </div>
 
       <div className="view-toolbar">
-        <div className="inline-search"><Search size={15} /><input value={searchValue} onChange={(event) => setSearchValue(event.target.value)} placeholder="名前・スキル・経歴を検索" aria-label="メンバーを検索" /></div>
+        <label className="inline-search"><Search size={15} /><input value={searchValue} onChange={(event) => setSearchValue(event.target.value)} placeholder="名前・スキル・経歴を検索" aria-label="メンバーを検索" /></label>
         <label className="view-filter"><span className="filter-label">職種</span><select value={role} onChange={(event) => setRole(event.target.value)} aria-label="職種で絞り込み">{roles.map((option) => <option key={option}>{option}</option>)}</select></label>
         {orgUnits.length > 0 && (
           <label className="view-filter"><span className="filter-label">部門</span><select value={orgFilter} onChange={(event) => setOrgFilter(event.target.value)} aria-label="部門で絞り込み">
@@ -803,9 +1048,22 @@ export function MembersView({
         </details>
       )}
 
+      {/* Only while a scene is picked, because the score column only exists then. The
+          numbers are the ones `matchScore` actually applies: 20 per satisfied 「あると良い」
+          skill up to 60, and `round(空き% × 0.4)` up to 40. 「必須」 skills are absent on
+          purpose — `matchMember` drops a candidate that misses one, so they gate
+          inclusion rather than earn points (#150).
+          `aria-describedby` rather than adjacency alone, the same as the portfolio and
+          skill rails: jumping straight to the table would otherwise miss it (#85). */}
+      {selectedScene && (
+        <p className="viz-caption" id="member-score-key">
+          スコアは、このシーンで満点となる {scoreCeiling} 点のうち何点かです。あると良いスキル1つで20点（最大60点）、要件期間の最小空きを0.4倍して四捨五入した点（最大40点）。必須スキルは満たしていることが前提なので、点数には入りません。
+        </p>
+      )}
+
       <div className="member-table-wrap">
-        <table className="member-table">
-          <thead><tr><th className="col-favorite"><span className="sr-only">お気に入り</span></th><th className="col-name">メンバー</th><th className="col-skills">スキル</th>{selectedScene && <th className="col-score">スコア</th>}{listFields.map((field) => <th key={field.id} className="col-custom">{field.label}</th>)}<th className="col-week">今週の稼働</th><th className="col-rail">4週間の稼働</th><th className="col-next">次に稼働率60%以下</th><th className="col-actions"><span className="sr-only">操作</span></th></tr></thead>
+        <table className="member-table" aria-describedby={selectedScene ? "member-score-key" : undefined}>
+          <thead><tr><th className="col-favorite"><span className="sr-only">お気に入り</span></th><th className="col-name">メンバー</th><th className="col-skills">スキル</th>{selectedScene && <th className="col-score">スコア</th>}{listFields.map((field) => <th key={field.id} className="col-custom">{field.label}</th>)}<th className="col-week">{weekName}の稼働</th><th className="col-rail">4週間の稼働</th><th className="col-next">次に稼働率60%以下</th><th className="col-actions"><span className="sr-only">操作</span></th></tr></thead>
           <tbody>
             {filtered.map((member) => {
               const load = memberLoad(state, member.id, weekStart);
@@ -813,16 +1071,19 @@ export function MembersView({
               const nextOpen = member.capacity > 0 ? weeklyLoads.findIndex((value) => value <= member.capacity * .6) : -1;
               const loadRatio = member.capacity > 0 ? load / member.capacity * 100 : load > 0 ? 100 : 0;
               const match = scoreById.get(member.id);
+              // The name and the tag that tells it from a namesake's, sized separately by
+              // the cell: the name shrinks, the tag does not (#163).
+              const label = memberLabelParts(state, member);
               return (
                 <tr key={member.id}>
-                  <td>{onToggleFavorite ? <FavoriteStar name={member.name} pressed={isFavorited(favorites, "member", member.id)} onToggle={() => onToggleFavorite(member.id)} /> : null}</td>
-                  <td><button className="member-name-cell" onClick={() => onOpen(member.id)}><span className={"avatar " + member.avatarTone}>{member.initials}</span><span className="row-name-copy"><strong>{member.name}</strong><small>{member.role} · {member.department}{memberOrgMemberships(state, member.id).some((item) => !item.isPrimary) ? " · 兼務あり" : ""}</small></span></button></td>
+                  <td>{onToggleFavorite ? <FavoriteStar name={memberLabel(state, member)} pressed={isFavorited(favorites, "member", member.id)} onToggle={() => onToggleFavorite(member.id)} /> : null}</td>
+                  <td><button className="member-name-cell" onClick={() => onOpen(member.id)}><span className={"avatar " + member.avatarTone}>{member.initials}</span><span className="row-name-copy"><strong><span className="row-name-main">{label.name}</span>{label.tag && <span className="row-name-tag">{label.tag}</span>}</strong><small>{member.role} · {member.department}{memberOrgMemberships(state, member.id).some((item) => !item.isPrimary) ? " · 兼務あり" : ""}</small></span></button></td>
                   <td><div className="member-skills">{memberSkillLevels(member).slice(0, 3).map((level) => <span key={level.name}>{level.name}<small>{level.proficiency}</small></span>)}</div></td>
-                  {selectedScene && <td><span className="match-score">{match?.score ?? 0}点<small>空き{match?.availablePercent ?? 0}%</small></span></td>}
+                  {selectedScene && <td><span className="match-score">{match?.score ?? 0}/{scoreCeiling}点<small>空き{match?.availablePercent ?? 0}%</small></span></td>}
                   {listFields.map((field) => <td key={field.id}><span className="custom-field-cell">{formatCustomValue(field, customValue(member.customValues, field.id))}</span></td>)}
                   <td><span className={"load-ring " + (load > member.capacity ? "over" : member.capacity > 0 && load <= member.capacity * .6 ? "open" : "")} style={{ "--load": Math.min(100, loadRatio) } as React.CSSProperties}><strong>{load}%</strong></span><small className="capacity-limit">稼働上限 {member.capacity}%</small></td>
                   <td><div className="member-week-rail">{weeklyLoads.map((value, index) => { const ratio = member.capacity > 0 ? value / member.capacity * 100 : value > 0 ? 100 : 0; /* The label is a sibling of the bar, not a child: it belongs to its own grid track so it cannot overlap the next week's. */ return <Fragment key={index}><i className={value > member.capacity ? "over" : member.capacity > 0 && value <= member.capacity * .6 ? "open" : ""}><b style={{ height: Math.max(12, Math.min(100, ratio)) + "%" }} /></i><small>{value}%</small></Fragment>; })}</div></td>
-                  <td><span className="next-open">{member.capacity === 0 ? "稼働不可 · 稼働上限0%" : nextOpen === -1 ? "4週間で該当なし" : nextOpen === 0 ? "今週 空き" + Math.max(0, member.capacity - load) + "%" : (nextOpen + 1) + "週後"}<small>{member.location}</small></span></td>
+                  <td><span className="next-open">{member.capacity === 0 ? "稼働不可 · 稼働上限0%" : nextOpen === -1 ? "4週間で該当なし" : nextOpen === 0 ? weekName + " 空き" + Math.max(0, member.capacity - load) + "%" : (nextOpen + 1) + "週後"}<small>{member.location}</small></span></td>
                   <td className="member-row-actions">{onAddToProposal && <button className="quick-assign quiet" onClick={() => onAddToProposal(member.id)}><Sparkles size={14} />提案へ</button>}{canEdit ? <button className="quick-assign" onClick={() => onAssign(member.id)}><UserRoundPlus size={14} />アサイン</button> : <span className="read-only-label">閲覧のみ</span>}</td>
                 </tr>
               );
@@ -854,7 +1115,11 @@ export function ProposalView({
   onNeedIdChange,
 }: ProposalViewProps) {
   const [pickerQuery, setPickerQuery] = useState("");
+  /** Which columns the file carries. Minimal until the sender adds to it (#148). */
+  const [exportColumns, setExportColumns] = useState<string[]>([...DEFAULT_PROPOSAL_CSV_COLUMNS]);
   const weekStart = getWeekStart(weekOffset);
+  // Named, not 「今週」: these screens follow the board's paging (#146).
+  const weekName = weekLabel(weekStart);
   /**
    * What the proposal answers. A project's unfilled staffing need or an
    * opportunity's staffing plan — the screen could build a list of people and
@@ -942,27 +1207,94 @@ export function ProposalView({
           <option value="">未選択</option>
           {subjects.map((item) => <option value={item.id} key={item.id}>{item.label}</option>)}
         </select></label>
-        {/* This hides the names on *this* screen. It is not anonymisation: the
-            link carries real member ids and the reader can untick the box. The
-            toolbar has always said the link needs a login; #148 is the question of
-            whether an external-safe proposal should exist at all. */}
+        {/* What this hides and how far it holds, in one sentence, because 「隠す」 alone reads
+            as a promise. Measured: `anonymous=1` travels in the link and the reader does open
+            to hidden names — so the label's scope is not 「this screen」 — and unticking the
+            box brings them back, with real member ids in the URL either way. The empty state
+            says the same thing and disappears the moment a candidate is picked, which is when
+            the link gets copied. What is safe to send outside is #148, which settled on a file
+            rather than a link (#176). */}
         <label className="view-toggle">
           <input type="checkbox" checked={anonymous} onChange={(event) => onAnonymousChange(event.target.checked)} />
           <EyeOff size={14} />氏名・勤務地を隠す
         </label>
-        <span className="toolbar-result">最大{MAX_PROPOSAL_MEMBERS}名。社内リンクはログインが必要です。</span>
+        <span className="toolbar-result">最大{MAX_PROPOSAL_MEMBERS}名。社内リンクはログインが必要です。氏名・勤務地は共有リンクでも最初は隠れますが、開いた人が表示に戻せます。</span>
+        {/* The answer #148 settled on. A link cannot be sent outside — it carries real
+            member ids and the reader can put the names back — and a file can: no ids in it,
+            and nothing at the other end to untick. What a file cannot do is expire, so the
+            panel says that where the button is rather than leaving it implied. */}
+        <details className="proposal-export">
+          {/* Two ways out, one set of choices. #179 asked for paper as well as the file, and
+              made the same tick boxes decide what goes on it: the alternative was a second
+              list of fields to keep in step with this one. Which is why the summary names
+              both — the boxes are in here, and a print button behind a 「CSV」 label is a
+              print button nobody finds. */}
+          <summary><Download size={14} />書き出す・印刷する</summary>
+          <fieldset className="proposal-export-columns">
+            {/* 候補 is not in here: every file has it, and a file of nothing at all is not a
+                proposal. Saying so in the legend beats a checkbox that cannot be unticked. */}
+            <legend>ファイルと紙に入れる項目（候補は必ず入ります）</legend>
+            {proposalCsvColumns(anonymous).map((column) => (
+              <label key={column}>
+                <input
+                  type="checkbox"
+                  checked={exportColumns.includes(column)}
+                  onChange={(event) => setExportColumns(event.target.checked
+                    ? [...exportColumns, column]
+                    : exportColumns.filter((item) => item !== column))}
+                />
+                {column}
+              </label>
+            ))}
+          </fieldset>
+          <p className="proposal-export-note">書き出したファイルと印刷した紙は取り消せません。共有リンクと違って氏名を戻す操作はありませんが、渡した後に消すこともできません。</p>
+          <button
+            type="button"
+            className="view-add-button"
+            disabled={selected.length === 0}
+            onClick={() => downloadCsv("mosaic-proposal.csv", exportProposalCsv(state, {
+              memberIds: selected.map((member) => member.id),
+              columns: exportColumns,
+              anonymous,
+              weekStart,
+              needId: subject?.need.id,
+            }))}
+          >
+            {/* Which way the names are going out, on the control that sends them. The panel
+                looked the same either way, and 「2名を書き出す」 does not say whether those two
+                are named in the file — the evaluation on #148 asked for this. */}
+            <Download size={15} />{selected.length > 0
+              ? `${anonymous ? "氏名を隠して" : "実名で"}${selected.length}名を書き出す`
+              : "候補を選ぶと書き出せます"}
+          </button>
+          {/* Paper, for the case a spreadsheet is the wrong thing to hand over: the file puts
+              the cards back into columns, and a proposal is read as cards. The browser's own
+              print dialogue is the PDF writer too, so this is the whole of the feature — what
+              lands on the page is `@media print` in the stylesheet, working from this screen's
+              own markup. It says which way the names are going, like the button above (#179). */}
+          <button
+            type="button"
+            className="view-add-button"
+            disabled={selected.length === 0}
+            onClick={() => window.print()}
+          >
+            <Printer size={15} />{selected.length > 0
+              ? `${anonymous ? "氏名を隠して" : "実名で"}${selected.length}名を印刷`
+              : "候補を選ぶと印刷できます"}
+          </button>
+        </details>
       </div>
 
       <div className="proposal-layout">
         <aside className="proposal-picker">
-          <div className="inline-search"><Search size={15} /><input value={pickerQuery} onChange={(event) => setPickerQuery(event.target.value)} placeholder="候補を検索して追加" aria-label="提案に追加するメンバーを検索" /></div>
+          <label className="inline-search"><Search size={15} /><input value={pickerQuery} onChange={(event) => setPickerQuery(event.target.value)} placeholder="候補を検索して追加" aria-label="提案に追加するメンバーを検索" /></label>
           {favoriteMembers.length > 0 && (
             <div className="proposal-picker-group">
               <small>お気に入り</small>
               {favoriteMembers.slice(0, 8).map((member) => (
                 <button type="button" key={member.id} className="proposal-picker-item" onClick={() => addMember(member.id)} disabled={selectedIds.length >= MAX_PROPOSAL_MEMBERS}>
                   <span className={"avatar " + member.avatarTone}>{member.initials}</span>
-                  <span className="proposal-picker-copy"><strong>{member.name}</strong><small>{member.role}</small></span>
+                  <span className="proposal-picker-copy"><strong>{memberLabel(state, member)}</strong><small>{member.role}</small></span>
                   <Plus size={14} />
                 </button>
               ))}
@@ -973,7 +1305,7 @@ export function ProposalView({
             {pickerMembers.slice(0, 12).map((member) => (
               <button type="button" key={member.id} className="proposal-picker-item" onClick={() => addMember(member.id)} disabled={selectedIds.length >= MAX_PROPOSAL_MEMBERS}>
                 <span className={"avatar " + member.avatarTone}>{member.initials}</span>
-                <span className="proposal-picker-copy"><strong>{member.name}</strong><small>{member.role}</small></span>
+                <span className="proposal-picker-copy"><strong>{memberLabel(state, member)}</strong><small>{member.role}</small></span>
                 <Plus size={14} />
               </button>
             ))}
@@ -981,7 +1313,13 @@ export function ProposalView({
           </div>
         </aside>
 
-        <div className="proposal-cards">
+        {/* What the tick boxes chose, for the print rules to read: CSS cannot see React state,
+            and the alternative was a class per field. The values are the column names the
+            checkboxes show, so `tests/proposal-print-contract.test.mjs` holds the stylesheet
+            to the list `proposalCsvColumns` offers — rename one there and the print rule that
+            still says the old name fails rather than quietly printing a field nobody asked
+            for (#179). */}
+        <div className="proposal-cards" data-print={exportColumns.join(" ")}>
           {selected.length === 0 && (
             <div className="view-empty proposal-empty">
               <UsersRound size={22} />
@@ -990,18 +1328,37 @@ export function ProposalView({
             </div>
           )}
           {selected.map((member, index) => {
-            const label = anonymous ? anonymousCandidateLabel(index) : member.name;
+            // Anonymous mode numbers the candidates, so it needs no disambiguation (#123).
+            const label = anonymous ? anonymousCandidateLabel(index) : memberLabel(state, member);
             const weeklyLoads = proposalWeeklyLoads(state, member, weekStart);
             return (
               <article className={"proposal-card" + (anonymous ? " is-anonymous" : "")} key={member.id}>
+                {/* Paper only, and on every card. The ribbon that names the proposal is one
+                    element in normal flow, so once the candidates spill past the first page —
+                    four of them, at 267px a card in 1017px of printable height — every later
+                    page is candidates with nothing saying whose proposal they are. A running
+                    header would say it once per page, but `position: fixed` repeats are
+                    engine-dependent and cannot be measured here, and `@page` margin boxes are
+                    not in Chrome, so this is the one that certainly prints (#185).
+                    The display mode comes with it: a reader holding only page two would not
+                    otherwise know that names were being withheld. */}
+                <p className="proposal-card-provenance">{subject ? subject.label : "提案先未選択"} · {anonymous ? "氏名なし" : "氏名あり"}</p>
                 <header>
                   <span className={"avatar " + (anonymous ? "sand" : member.avatarTone)}>{anonymous ? anonymousCandidateLabel(index).slice(-1) : member.initials}</span>
+                  {/* Named so the print rules can drop the ones the tick boxes did not
+                      choose. Structural selectors would reach these today and mean something
+                      else the next time a line is added here (#179).
+
+                      The department is its own element because it is not one of the columns:
+                      ticking 「職種」 would otherwise put 「QA Engineer · 品質保証」 on a page
+                      going outside the organisation, and only the first half of that was
+                      asked for. The evaluation on #179 found it. */}
                   <div>
                     <h3>{label}</h3>
-                    <p>{member.role}{anonymous ? "" : ` · ${member.department}`}</p>
-                    {!anonymous && <small>{member.location}</small>}
+                    <p className="proposal-card-role">{member.role}{anonymous ? "" : <span className="proposal-card-department"> · {member.department}</span>}</p>
+                    {!anonymous && <small className="proposal-card-location">{member.location}</small>}
                   </div>
-                  {onToggleFavorite && !anonymous && <FavoriteStar name={member.name} pressed={isFavorited(favorites, "member", member.id)} onToggle={() => onToggleFavorite(member.id)} />}
+                  {onToggleFavorite && !anonymous && <FavoriteStar name={memberLabel(state, member)} pressed={isFavorited(favorites, "member", member.id)} onToggle={() => onToggleFavorite(member.id)} />}
                   <button type="button" className="proposal-remove" onClick={() => onSelectedIdsChange(selectedIds.filter((id) => id !== member.id))}>外す</button>
                 </header>
                 <div className="member-skills">{memberSkillLevels(member).slice(0, 4).map((level) => <span key={level.name}>{level.name}<small>{level.proficiency}</small></span>)}</div>
@@ -1013,8 +1370,12 @@ export function ProposalView({
                   const match = matchById.get(member.id);
                   return (
                     <p className={"proposal-match" + (match ? "" : " is-unmatched")}>
+                      {/* The matched skills are skill data, and paper asks about skills with
+                          its own tick box — 「要件期間の最小空き」 is the percentage beside it.
+                          Its own class, so the two answer to the boxes they belong to (#179,
+                          from the evaluation). */}
                       {match
-                        ? <>適合 {match.score}点 · 要件期間の最小空き {match.availablePercent}% {match.matchedMust.length > 0 && <em><Check size={11} />{match.matchedMust.join("・")}</em>}</>
+                        ? <>要件期間の最小空き {match.availablePercent}% {match.matchedMust.length > 0 && <em className="proposal-match-skills"><Check size={11} />{match.matchedMust.join("・")}</em>}</>
                         : <>この要件には適合していません</>}
                     </p>
                   );
@@ -1024,7 +1385,7 @@ export function ProposalView({
                     const ratio = member.capacity > 0 ? load / member.capacity * 100 : load > 0 ? 100 : 0;
                     return (
                       <div key={weekIndex}>
-                        <span>{weekIndex === 0 ? "今週" : `${weekIndex + 1}週後`}</span>
+                        <span>{weekIndex === 0 ? weekName : `${weekIndex + 1}週後`}</span>
                         <i><b className={load > member.capacity ? "over" : ""} style={{ width: Math.min(100, ratio) + "%" }} /></i>
                         <strong>{load}% / {member.capacity}%</strong>
                       </div>
@@ -1139,17 +1500,22 @@ export function ReportsView({ state, onOpenWeek, onResolveNeed, onOpenOpportunit
       </section>
 
       <div className="horizon-card">
-        <div className="horizon-y-labels"><span>120%</span><span>100%</span><span>60%</span><span>0</span></div>
-        <div className="horizon-grid">
-          <div className="horizon-guide g120" /><div className="horizon-guide g100" /><div className="horizon-guide g60" />
-          {horizon.map((week) => (
+        {/* The ticks and the bars share one row now. They used to be siblings with
+            independently computed heights, so the label reading 100% sat 31px below the
+            line drawn at 100% and a reader pairing them read a different value (#133). */}
+        <div className="horizon-plot">
+          <div className="horizon-y-labels"><span className="t120">120%</span><span className="t100">100%</span><span className="t60">60%</span><span className="t0">0</span></div>
+          <div className="horizon-grid">
+            <div className="horizon-guide g120" /><div className="horizon-guide g100" /><div className="horizon-guide g60" />
+            {horizon.map((week) => (
             <button className="horizon-week" onClick={() => onOpenWeek(week.offset)} key={week.weekStart}>
               <span className="horizon-bar"><i className={week.average > 100 ? "over" : ""} style={{ height: Math.min(100, week.average / 120 * 100) + "%" }} />{week.draft > 0 && <b style={{ bottom: Math.min(100, week.average / 120 * 100) + "%" }} />}</span>
               <strong>{week.average}%</strong>
               {week.pipelineDemand > 0 && <span className="pipeline-chip">+{week.pipelineDemand}名</span>}
               <small>{formatMonthDay(week.weekStart)}週</small>
             </button>
-          ))}
+            ))}
+          </div>
         </div>
         <div className="horizon-caption"><span><i className="confirmed" />確定稼働</span><span><i className="draft" />仮置きあり</span><span><i className="pipeline" />受注前の想定人数</span><button onClick={() => onOpenWeek(0)}>ボードで確認 <ArrowRight size={13} /></button></div>
       </div>
@@ -1163,7 +1529,7 @@ export function ReportsView({ state, onOpenWeek, onResolveNeed, onOpenOpportunit
         <section className="exceptions-card">
           <div className="card-heading"><div><small>EXCEPTIONS</small><h3>判断が必要な項目</h3></div><span>{currentOverloads.length + activeNeeds.length + pipelineNeeds.length}</span></div>
           <div className="exception-list">
-            {currentOverloads.map((member) => <button onClick={() => onOpenWeek(0)} key={member.id}><span className="exception-icon risk"><CircleAlert size={14} /></span><span><strong>{member.name}さんが{memberLoad(state, member.id, getWeekStart(0))}%</strong><small>今週の稼働を調整してください</small></span><ChevronRight size={15} /></button>)}
+            {currentOverloads.map((member) => <button onClick={() => onOpenWeek(0)} key={member.id}><span className="exception-icon risk"><CircleAlert size={14} /></span><span><strong>{memberLabel(state, member)}さんが{memberLoad(state, member.id, getWeekStart(0))}%</strong><small>今週の稼働を調整してください</small></span><ChevronRight size={15} /></button>)}
             {activeNeeds.map((need) => <button onClick={() => onResolveNeed(need.id)} key={need.id}><span className={"exception-icon " + (need.status === "planned" ? "planned" : "open")}><CalendarClock size={14} /></span><span><strong>{state.projects.find((project) => project.id === need.projectId)?.name}</strong><small>{need.role} {need.allocation}% · {need.status === "planned" ? "解消予定" : "担当未定"}</small></span><ChevronRight size={15} /></button>)}
             {pipelineNeeds.map((need) => {
               const opportunity = activeOpportunities.find((item) => item.id === need.opportunityId);
@@ -1222,7 +1588,7 @@ export function SkillsView({ state, onAddCatalogEntry, onOpenMember, onResolveNe
       </div>
 
       <div className="view-toolbar">
-        <div className="inline-search"><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="スキル・分類を検索" aria-label="スキルを検索" /></div>
+        <label className="inline-search"><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="スキル・分類を検索" aria-label="スキルを検索" /></label>
         <label className="view-filter"><span className="filter-label">表示</span><select value={focus} onChange={(event) => setFocus(event.target.value as typeof focus)} aria-label="表示を絞り込み">
           {(["すべて", "不足あり", "保有あり"] as const).map((option) => <option key={option}>{option}</option>)}
         </select></label>
@@ -1264,9 +1630,16 @@ export function SkillsView({ state, onAddCatalogEntry, onOpenMember, onResolveNe
             {filtered.map((row) => (
               <tr key={row.id} className={row.kind === "category" ? "category-row" : row.gap > 0 ? "gap-row" : ""}>
                 <td>
-                  <span className={"skill-tree-name depth-" + row.depth}>
+                  <span className="skill-tree-name" style={{ "--depth": row.depth } as React.CSSProperties}>
                     <strong>{row.name}</strong>
-                    <small>{row.kind === "category" ? "分類" : row.path.slice(0, -1).join(" / ") || "未分類"}</small>
+                    {/* What it is and where it sits. A nested category used to say only
+                        「分類」, which left the indent as its one placing cue — and past
+                        three levels the indent stopped moving. Keeping the word matters
+                        too: dropping it would leave the kind to the row's background
+                        colour alone, which a screen reader does not read (#114). */}
+                    <small>{row.kind === "category"
+                      ? ["分類", row.path.slice(0, -1).join(" / ")].filter(Boolean).join(" · ")
+                      : row.path.slice(0, -1).join(" / ") || "未分類"}</small>
                   </span>
                 </td>
                 <td><strong>{row.memberCount}</strong><small>名</small></td>
@@ -1291,7 +1664,7 @@ export function SkillsView({ state, onAddCatalogEntry, onOpenMember, onResolveNe
 
       <div className="report-insight">
         <span><Sparkles size={17} /></span>
-        <div><strong>スキルマップの見方</strong><p>「未充足」は、そのスキルを求めている要員要件の件数です。「不足」はそこから要件を満たす保有者の人数を引いた残りで、1人が1件を担う想定で数えています。</p></div>
+        <div><strong>スキルマップの見方</strong><p>「未充足」は、そのスキルを求めている要員要件の件数です。「不足」はそのうち、求められた習熟度に届く保有者が誰もいない件数です。どちらも件数なので、不足が未充足を超えることはありません。実際に担当できるかどうかは、各要件の候補画面で確認してください。</p></div>
         {state.members[0] && <button onClick={() => onOpenMember(state.members[0].id)}>メンバーを確認 <ArrowRight size={13} /></button>}
       </div>
     </section>
@@ -1335,8 +1708,13 @@ export function CustomFieldInputs({
   onChange: (values: Record<string, string>) => void;
 }) {
   if (fields.length === 0) return null;
+  // A Fragment, not a wrapper. The drawer form builds its fields with child selectors —
+  // `.assignment-form > label`, `.assignment-form > label > input` — so a wrapping div cut
+  // the chain and these labels inherited none of it: inline, no spacing, and an input at
+  // the browser's default size beside the label text. The selects looked right only
+  // because `.assignment-form select` is written without the `>` (#164).
   return (
-    <div className="custom-field-inputs">
+    <>
       {fields.map((field) => {
         const value = values[field.id] ?? "";
         const setValue = (next: string) => onChange({ ...values, [field.id]: next });
@@ -1363,7 +1741,7 @@ export function CustomFieldInputs({
           </label>
         );
       })}
-    </div>
+    </>
   );
 }
 
@@ -1627,7 +2005,7 @@ export function ProfileRequestsPanel({
             {state.members.map((member) => (
               <label key={member.id}>
                 <input type="checkbox" checked={selectedIds.includes(member.id)} onChange={() => toggleMember(member.id)} />
-                {member.name}
+                {memberLabel(state, member)}
               </label>
             ))}
           </fieldset>
@@ -1746,7 +2124,7 @@ export function FieldsView({ state, onAddField, canManage = false, canManageRequ
       />
 
       <div className="view-toolbar">
-        <div className="inline-search"><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="項目名・キーを検索" aria-label="項目を検索" /></div>
+        <label className="inline-search"><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="項目名・キーを検索" aria-label="項目を検索" /></label>
         <label className="view-filter"><span className="filter-label">対象</span><select value={entityType} onChange={(event) => setEntityType(event.target.value as typeof entityType)} aria-label="対象で絞り込み">
           {(["すべて", "member", "project"] as const).map((option) => <option value={option} key={option}>{option === "すべて" ? "すべて" : option === "member" ? "メンバー" : "プロジェクト"}</option>)}
         </select></label>
@@ -1880,7 +2258,7 @@ export function MemberOrgFields({ units, primaryUnitId, extraUnitIds, managerUni
   );
 }
 
-export function OrgView({ state, onAddUnit, onMoveUnit, onArchiveUnit, canManage = false }: OrgViewProps) {
+export function OrgView({ state, onAddUnit, onMoveUnit, onArchiveUnit, canManage = false, lastMove = null, onUndoMove }: OrgViewProps) {
   const [query, setQuery] = useState("");
   const [name, setName] = useState("");
   const [parentId, setParentId] = useState("");
@@ -1917,7 +2295,7 @@ export function OrgView({ state, onAddUnit, onMoveUnit, onArchiveUnit, canManage
       </div>
 
       <div className="view-toolbar">
-        <div className="inline-search"><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="部門名を検索" aria-label="部門を検索" /></div>
+        <label className="inline-search"><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="部門名を検索" aria-label="部門を検索" /></label>
         <span className="toolbar-result">{filtered.length}件を表示</span>
       </div>
 
@@ -1950,12 +2328,12 @@ export function OrgView({ state, onAddUnit, onMoveUnit, onArchiveUnit, canManage
               const depth = Math.max(0, orgUnitPath(state.orgUnits, unit.id).length - 1);
               const primaryCount = membersInOrgSubtree(state, unit.id, "primary").length;
               const concurrentCount = membersInOrgSubtree(state, unit.id, "any").length - primaryCount;
-              const managerNames = orgManagers(state, unit.id).map((member) => member.name);
+              const managerNames = orgManagers(state, unit.id).map((member) => memberLabel(state, member));
               const blocker = canManage ? orgUnitArchiveBlocker(state, unit.id) : null;
               return (
                 <tr key={unit.id} className={depth === 0 ? "category-row" : ""}>
                   <td>
-                    <span className={"skill-tree-name depth-" + Math.min(3, depth)}>
+                    <span className="skill-tree-name" style={{ "--depth": depth } as React.CSSProperties}>
                       <strong>{unit.name}</strong>
                       <small>{orgUnitPath(state.orgUnits, unit.id).slice(0, -1).join(" / ") || "最上位"}</small>
                     </span>
@@ -1985,6 +2363,40 @@ export function OrgView({ state, onAddUnit, onMoveUnit, onArchiveUnit, canManage
                           <option value={candidate.id} key={candidate.id}>{orgUnitPath(state.orgUnits, candidate.id).join(" / ")}</option>
                         ))}
                       </select>
+                      {/* In the cell, right after the select, because that is the one place a
+                          keyboard reaches in a single Tab from the control that did the move.
+                          #113 put this in the toast, where it stood eight seconds and sat at
+                          the end of the document — measured, past every remaining row and the
+                          change bar. It stays until the next move, so nothing races (#173). */}
+                      {lastMove?.unitId === unit.id && onUndoMove && (
+                        <button
+                          type="button"
+                          className="org-undo-move"
+                          /* The visible words stay short — the cell is 208px at 375px — and the
+                             name a screen reader reads says which department, because a button
+                             list gives no row to read it from. It opens with the visible text
+                             rather than replacing it, so speaking what is written still works. */
+                          aria-label={`この移動を元に戻す（${lastMove.name}）`}
+                          onClick={(event) => {
+                            // Same guard as the select above: `moveOrgUnit` throws, and the
+                            // offer is only as fresh as the last render. Without this the
+                            // throw would leave an event handler rather than the error slot.
+                            const select = event.currentTarget.closest("td")?.querySelector("select");
+                            try {
+                              onUndoMove();
+                              setError("");
+                            } catch (caught) {
+                              setError(caught instanceof Error ? caught.message : "部門を移せませんでした");
+                            }
+                            // This button is about to unmount, and focus would land on the
+                            // document. Back to the select, which is where another move starts
+                            // and is the only other way back (#173).
+                            select?.focus();
+                          }}
+                        >
+                          <Undo2 size={13} />この移動を元に戻す
+                        </button>
+                      )}
                     </td>
                   )}
                   {canManage && (

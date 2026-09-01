@@ -161,6 +161,18 @@ export type Assignment = {
   label?: string;
   staffingNeedId?: string | null;
   clientRequestId?: string | null;
+  /**
+   * The weekend days this assignment was actually worked, as 'YYYY-MM-DD'.
+   *
+   * Opt-in, one date at a time, because the range says nothing about it: 12 of the
+   * 15 assignments in the seed span a weekend simply by lasting more than a week,
+   * and counting those would put 鈴木健太 at 120% on a Saturday nobody works. The
+   * weekday ceiling does not move — these are the excess above it (#222).
+   *
+   * Absent and `[]` mean the same thing here, and differ only in the save payload,
+   * where absent leaves the stored days alone and `[]` clears them.
+   */
+  weekendWorkDates?: string[];
 };
 
 export type StaffingNeed = {
@@ -313,6 +325,15 @@ export type WeekDay = {
   month: number;
   year: number;
   iso: string;
+  /**
+   * Saturday or Sunday. The board draws these columns so a month looks like a
+   * month and a bar crossing a weekend stays one bar — but the figures are still
+   * counted over weekdays only, because an assignment is a date range with no
+   * working days in it, and 12 of the 15 in the seed span a weekend simply by
+   * running for more than a week. Recording actual weekend work needs a field on
+   * the assignment (#207, and #222 for that field).
+   */
+  weekend: boolean;
 };
 
 export const projectTone: Record<string, Tone> = {
@@ -532,35 +553,41 @@ export function getWeekStart(offset: number, anchor = getCurrentWeekStart()) {
 
 export function getWeekDays(offset: number, anchor = getCurrentWeekStart()): WeekDay[] {
   const start = getWeekStart(offset, anchor);
-  // Five days from a Monday are all weekdays, so nothing here is ever dropped.
-  return Array.from({ length: 5 }, (_, index) => weekDayFrom(addDays(start, index))!);
+  // Monday to Sunday. It was Monday to Friday, and a month drawn without its
+  // weekends is not a calendar — the 8th and 9th were simply missing, and a bar
+  // running from one week into the next arrived as two bars (#207).
+  return Array.from({ length: 7 }, (unused, index) => weekDayFrom(addDays(start, index)));
 }
 
 export type BoardUnit = "week" | "month";
 
 /**
- * What the board is showing: the weekdays in view, and the dates they span.
+ * What the board is showing: the days in view, and the dates they span.
  *
- * A week is the five weekdays from a Monday, as it always was. A month is every
- * weekday of a calendar month — 20 to 23 of them — so the range's own ends are
- * the first and last weekday, not the 1st and the 31st. Nothing in this app draws
- * a Saturday, and a range that claimed to start on one would put the wrong date
- * under the wrong column.
+ * A week is Monday to Sunday. A month is every day of the calendar month, so the
+ * range's ends are the 1st and the last — which they were not while weekends were
+ * dropped: August opened on a Saturday, so its range began on the 3rd.
+ *
+ * Weekends are columns, not figures. Nothing here decides whether anyone works
+ * them; the loads and the capacity are still counted over weekdays, because an
+ * assignment carries a date range and no working days, and most of them span a
+ * weekend simply by lasting more than a week (#207, and #222 for the field that
+ * would let a Saturday mean something).
  */
 export type BoardRange = { unit: BoardUnit; start: string; end: string; days: WeekDay[] };
 
-const WEEKDAY_LABELS = ["月", "火", "水", "木", "金"];
+const DAY_LABELS = ["月", "火", "水", "木", "金", "土", "日"];
 
-function weekDayFrom(iso: string): WeekDay | null {
+function weekDayFrom(iso: string): WeekDay {
   const date = new Date(iso + "T00:00:00Z");
   const index = (date.getUTCDay() + 6) % 7;
-  if (index > 4) return null;
   return {
-    day: WEEKDAY_LABELS[index],
+    day: DAY_LABELS[index],
     date: date.getUTCDate(),
     month: date.getUTCMonth() + 1,
     year: date.getUTCFullYear(),
     iso,
+    weekend: index > 4,
   };
 }
 
@@ -580,10 +607,81 @@ export function boardRange(unit: BoardUnit, offset: number, today = currentLocal
   const month = first.getUTCMonth();
   const days: WeekDay[] = [];
   for (const cursor = first; cursor.getUTCMonth() === month; cursor.setUTCDate(cursor.getUTCDate() + 1)) {
-    const day = weekDayFrom(isoDate(cursor));
-    if (day) days.push(day);
+    days.push(weekDayFrom(isoDate(cursor)));
   }
   return { unit, start: days[0].iso, end: days[days.length - 1].iso, days };
+}
+
+/**
+ * The one week the board's week-scoped figures measure.
+ *
+ * Today's week when today is somewhere in the range, and the range's opening week
+ * otherwise. In week mode those are the same answer — the range is one week, and its
+ * start is that week's Monday either way — so this only decides anything in month mode,
+ * where it is the difference between 「the week you are in」 and 「the week this month
+ * happens to open in」.
+ *
+ * Measured before the change, on 2026-08-23 with August in view: the average said 0%
+ * because it was reading 8/3週, three weeks past. The assignment form reads the same week,
+ * so it offered 鈴木健太 at 「0%」 while the board showed him at 120% — an empty slot where
+ * there was none (#187).
+ *
+ * A month-wide aggregate would be a different figure with a different denominator, and
+ * every drawer and the other tabs read this same week. So the week stays a week, and the
+ * label beside it keeps naming which one (#115).
+ */
+export function boardBasisWeek(range: BoardRange, today = currentLocalDate()) {
+  // ISO dates compare as strings in date order, so this is 「is today in the span」.
+  const inView = today >= range.start && today <= range.end;
+  if (inView) return getWeekStartForDate(today);
+  /*
+   * The range's first *working* day, not its first day. August 2026 opens on a
+   * Saturday, and now that the board draws weekends the range starts on the 1st —
+   * whose week began on 7月27日, four days of which are July. Measuring a month by
+   * a mostly-previous-month week is a worse answer than the one this gave while
+   * the weekends were missing, and the working day gives that answer back (#207).
+   */
+  const firstWorkingDay = range.days.find((day) => !day.weekend);
+  return getWeekStartForDate(firstWorkingDay?.iso ?? range.start);
+}
+
+/**
+ * Where the board is, in the words the rest of the screen uses.
+ *
+ * 「8月 第3週」 for a week, 「2026年 8月」 for a month. It replaced 「WEEK 34」, an ISO week
+ * number: correct, year-wide, and no answer at all to 「what week of the month is this」,
+ * which is what #194 was asked.
+ *
+ * 第N週 counts Mondays inside the month the week starts in — August's are the 3rd, 10th,
+ * 17th, 24th and 31st, so the week of the 17th is its third. A week that crosses into
+ * January belongs to the month of its Monday, so 12/28 is December's fourth.
+ */
+export function boardRangeName(range: BoardRange) {
+  const start = range.days[0];
+  if (range.unit === "month") return `${start.year}年 ${start.month}月`;
+  // `range.start` is a Monday, so its date decides which Monday of the month it is.
+  const nth = Math.floor((Number(range.start.slice(8, 10)) - 1) / 7) + 1;
+  return `${start.month}月 第${nth}週`;
+}
+
+/**
+ * How far the range is from today, counted in the unit the board is showing: 0 for the week
+ * or month today belongs to, positive ahead, negative behind.
+ *
+ * Paging three weeks out moved every figure and said nothing about how far out it was. The
+ * screen writes this as 「3週後」 and writes nothing at 0 — 「今週」 is the word #146 retired
+ * from these screens, and inventing a replacement would be worse than the silence: today is
+ * a Saturday or Sunday two days in seven, when the week on screen does not contain it at all
+ * (#194).
+ */
+export function boardRangeDistance(range: BoardRange, today = currentLocalDate()) {
+  if (range.unit === "week") {
+    const here = Date.parse(getWeekStartForDate(today) + "T00:00:00Z");
+    return Math.round((Date.parse(range.start + "T00:00:00Z") - here) / 604_800_000);
+  }
+  const now = new Date(today + "T00:00:00Z");
+  const there = range.days[0];
+  return (there.year - now.getUTCFullYear()) * 12 + (there.month - 1 - now.getUTCMonth());
 }
 
 /**
@@ -604,8 +702,9 @@ export function assignmentSpan(assignment: Assignment, range: BoardRange) {
   for (let index = range.days.length - 1; index >= 0; index -= 1) {
     if (range.days[index].iso <= assignment.endDate) { last = index; break; }
   }
-  // Both are -1 only for an assignment that overlaps the range's span but lands
-  // entirely on its weekends — a Saturday-to-Sunday assignment inside the month.
+  // Both are -1 only for a range that overlaps the span but holds none of its days,
+  // which the day list no longer produces now that it skips nothing. The guard
+  // stays: it is what makes the return type honest for any range that ever does.
   if (first < 0 || last < 0 || last < first) return null;
   return { start: first + 1, span: last - first + 1 };
 }
@@ -614,17 +713,82 @@ export function overlaps(startDate: string, endDate: string, rangeStart: string,
   return startDate <= rangeEnd && endDate >= rangeStart;
 }
 
+/**
+ * The week's last day, Sunday.
+ *
+ * It was Friday, on purpose: while a weekend could not be recorded, reaching into
+ * it would have counted the weekends that assignments span merely by lasting more
+ * than a week (#207). Now that a weekend day carries load only when it was
+ * recorded, the window has to include it or the whole feature would be invisible
+ * in every figure (#222).
+ *
+ * The ceiling is still five weekdays. This is the window loads are read over, not
+ * a claim about how much anyone is expected to work.
+ */
 export function weekEnd(weekStart: string) {
-  return addDays(weekStart, 4);
+  return addDays(weekStart, 6);
 }
 
-export type DailyLoad = { date: string; load: number };
+export type DailyLoad = {
+  date: string;
+  load: number;
+  /**
+   * Saturday or Sunday. Callers that treat capacity as five weekdays filter on
+   * this: weekend load is excess above the ceiling, and a free weekend is not 空き
+   * (#222).
+   */
+  weekend: boolean;
+};
 
 const millisecondsPerDay = 86_400_000;
 
 function isoDayNumber(value: string) {
   const milliseconds = Date.parse(value + "T00:00:00Z");
   return Number.isFinite(milliseconds) ? Math.floor(milliseconds / millisecondsPerDay) : null;
+}
+
+/**
+ * Does this assignment put load on this date?
+ *
+ * Inside its range on a weekday, and on a weekend only if that day was recorded.
+ * The set is built per assignment rather than scanned, because the daily loop asks
+ * this question once per day per assignment.
+ */
+function assignmentCoversDate(assignment: Assignment, date: string, weekend: boolean) {
+  if (assignment.startDate > date || assignment.endDate < date) return false;
+  if (!weekend) return true;
+  return (assignment.weekendWorkDates ?? []).includes(date);
+}
+
+export function isWeekendDate(iso: string) {
+  const day = new Date(iso + "T00:00:00Z").getUTCDay();
+  return day === 0 || day === 6;
+}
+
+/**
+ * The load on each day of a span, weekends included.
+ *
+ * It used to skip Saturday and Sunday outright. They are here now, carrying only
+ * the assignments that recorded them — which is the whole of how weekend work
+ * enters the figures. Every caller that treats capacity as five weekdays has to
+ * filter on `weekend` itself: the ceiling did not move, so a weekend day's load is
+ * excess, and its unused hours are not 空き (#222).
+ */
+export function memberDailyLoads(state: WorkspaceState, memberId: string, startDate: string, endDate: string): DailyLoad[] {
+  // The same guard `memberPeakLoad` has. Every caller used to pass a week the
+  // board had computed; the assignment form now passes its own date inputs, and a
+  // half-typed one makes `addDays` return NaN rather than a date (#199).
+  if (isoDayNumber(startDate) === null || isoDayNumber(endDate) === null) return [];
+  const mine = state.assignments.filter((assignment) => assignment.personId === memberId);
+  const days: DailyLoad[] = [];
+  for (let date = startDate; date <= endDate; date = addDays(date, 1)) {
+    const weekend = isWeekendDate(date);
+    const load = mine
+      .filter((assignment) => assignmentCoversDate(assignment, date, weekend))
+      .reduce((sum, assignment) => sum + assignment.allocation, 0);
+    days.push({ date, load, weekend });
+  }
+  return days;
 }
 
 function intervalContainsBusinessDay(startDay: number, endDay: number) {
@@ -637,27 +801,30 @@ function intervalContainsBusinessDay(startDay: number, endDay: number) {
   return false;
 }
 
-export function memberDailyLoads(state: WorkspaceState, memberId: string, startDate: string, endDate: string): DailyLoad[] {
-  const days: DailyLoad[] = [];
-  for (let date = startDate; date <= endDate; date = addDays(date, 1)) {
-    const day = new Date(date + "T00:00:00Z").getUTCDay();
-    if (day === 0 || day === 6) continue;
-    const load = state.assignments
-      .filter((assignment) => assignment.personId === memberId && assignment.startDate <= date && assignment.endDate >= date)
-      .reduce((sum, assignment) => sum + assignment.allocation, 0);
-    days.push({ date, load });
-  }
-  return days;
-}
-
+/**
+ * The highest load on any one day of a span.
+ *
+ * Two halves, because the two kinds of day are counted differently and only one of
+ * them can be walked.
+ *
+ * Weekdays keep the interval sweep: every assignment contributes to every weekday
+ * of its range, so the peak is found from the range ends alone. That matters — a
+ * span can run to 9999-12-31, which is three million days, and the sweep is one
+ * event per assignment either way.
+ *
+ * Weekends cannot be swept, because an assignment contributes only to the days it
+ * recorded. But there is nothing to scan either: the recorded days *are* the list.
+ * So the weekend half is a maximum over those dates, bounded by how many were
+ * actually entered rather than by the length of the span (#222).
+ */
 export function memberPeakLoad(state: WorkspaceState, memberId: string, startDate: string, endDate: string) {
   const rangeStart = isoDayNumber(startDate);
   const rangeEnd = isoDayNumber(endDate);
   if (rangeStart === null || rangeEnd === null || rangeEnd < rangeStart) return 0;
+  const mine = state.assignments.filter((assignment) => assignment.personId === memberId);
 
   const events = new Map<number, number>();
-  state.assignments.forEach((assignment) => {
-    if (assignment.personId !== memberId) return;
+  mine.forEach((assignment) => {
     const assignmentStart = isoDayNumber(assignment.startDate);
     const assignmentEnd = isoDayNumber(assignment.endDate);
     if (assignmentStart === null || assignmentEnd === null) return;
@@ -679,7 +846,46 @@ export function memberPeakLoad(state: WorkspaceState, memberId: string, startDat
       peak = Math.max(peak, load);
     }
   });
+
+  // Every weekend day anyone recorded inside the span, each carrying only the
+  // assignments that named it.
+  const recorded = new Set<string>();
+  mine.forEach((assignment) => {
+    (assignment.weekendWorkDates ?? []).forEach((date) => {
+      if (date >= startDate && date <= endDate) recorded.add(date);
+    });
+  });
+  recorded.forEach((date) => {
+    const dayLoad = mine
+      .filter((assignment) => assignment.startDate <= date
+        && assignment.endDate >= date
+        && (assignment.weekendWorkDates ?? []).includes(date))
+      .reduce((sum, assignment) => sum + assignment.allocation, 0);
+    peak = Math.max(peak, dayLoad);
+  });
   return peak;
+}
+
+/** How many weekend days a form will offer at once. Two years of them. */
+export const WEEKEND_PICKER_LIMIT = 210;
+
+/**
+ * The weekend days inside a span, for the form that ticks them.
+ *
+ * Capped, and the caller is told when it capped: an assignment can run to
+ * 9999-12-31, and a list of three hundred thousand checkboxes is not a form. The
+ * cap is on what is *offered*, never on what is stored — dates already recorded
+ * outside it stay recorded (#222).
+ */
+export function weekendDatesBetween(startDate: string, endDate: string, limit = WEEKEND_PICKER_LIMIT) {
+  if (isoDayNumber(startDate) === null || isoDayNumber(endDate) === null) return { dates: [], capped: false };
+  const dates: string[] = [];
+  for (let date = startDate; date <= endDate; date = addDays(date, 1)) {
+    if (!isWeekendDate(date)) continue;
+    if (dates.length >= limit) return { dates, capped: true };
+    dates.push(date);
+  }
+  return { dates, capped: false };
 }
 
 export function memberLoad(state: WorkspaceState, memberId: string, weekStart: string) {
@@ -712,6 +918,47 @@ export function memberById(state: WorkspaceState, id: string) {
   return state.members.find((member) => member.id === id);
 }
 
+/**
+ * Everyone an owner field could be naming.
+ *
+ * Projects and opportunities carry both `ownerPersonId` and a denormalised `ownerName`,
+ * and the seeded projects carry only the name. Three places resolved the name with
+ * `members.find(member => member.name === ownerName)`, which returns whoever comes
+ * first: opening a project's edit form bound it to that person, renaming a member
+ * rewrote the owner of every project holding the old name — taking over a namesake's
+ * projects — and the archive guard counted somebody else's.
+ *
+ * The list is what those three need, because they want opposite things from an
+ * ambiguous answer. Rewriting somebody's record needs certainty; refusing to archive
+ * needs only the possibility.
+ */
+export function ownerCandidates(state: WorkspaceState, owner: { ownerPersonId?: string; ownerName?: string | null }): Member[] {
+  if (owner.ownerPersonId) {
+    const member = memberById(state, owner.ownerPersonId);
+    return member ? [member] : [];
+  }
+  const name = owner.ownerName?.trim();
+  if (!name) return [];
+  return state.members.filter((member) => member.name.trim() === name);
+}
+
+/**
+ * Whom an owner field names, when that can be known — nobody when two people share the
+ * name, because a name two people answer to does not name a person. Callers that write
+ * use this; a caller that guards asks `ownerCandidates` instead, or it treats 「I cannot
+ * tell」 as 「not them」 and lets the thing through.
+ */
+export function ownerMember(state: WorkspaceState, owner: { ownerPersonId?: string; ownerName?: string | null }) {
+  const candidates = ownerCandidates(state, owner);
+  return candidates.length === 1 ? candidates[0] : undefined;
+}
+
+/** What to print for an owner: the member's label when it is theirs, else the stored name. */
+export function ownerLabel(state: WorkspaceState, owner: { ownerPersonId?: string; ownerName?: string | null }) {
+  const member = ownerMember(state, owner);
+  return member ? memberLabel(state, member) : owner.ownerName ?? null;
+}
+
 export function projectById(state: WorkspaceState, id: string) {
   return state.projects.find((project) => project.id === id);
 }
@@ -721,12 +968,184 @@ export function formatDate(iso: string) {
   return year + "年" + month + "月" + day + "日";
 }
 
+/**
+ * The name of the week a figure was measured over — 「8/17週」.
+ *
+ * 「今週」 is reserved for the week containing today. Every other week-scoped
+ * figure on these screens follows the board's paging, and once the board can show
+ * a month the week it opens in is not the range either — so those figures name
+ * their own week rather than claiming to be the current one (#146; #115 and #119
+ * are the same defect from the other end).
+ *
+ * Takes any date in the week, not only its Monday, so a caller cannot name one
+ * week while measuring another.
+ */
+export function weekLabel(iso: string) {
+  const monday = getWeekStartForDate(iso);
+  return Number(monday.slice(5, 7)) + "/" + Number(monday.slice(8, 10)) + "週";
+}
+
 export function getIsoWeekNumber(iso: string) {
   const date = new Date(iso + "T00:00:00Z");
   const day = date.getUTCDay() || 7;
   date.setUTCDate(date.getUTCDate() + 4 - day);
   const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
   return Math.ceil((((date.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
+}
+
+/**
+ * A member's name, with just enough beside it to tell them from a namesake.
+ *
+ * #123: nothing stops two members having the same name — `handleCreateMember` rejects
+ * only an empty one — and two of them are indistinguishable on the screens that pick
+ * people. Measured, with a second 「林 葵」 given the same role, the same primary org unit
+ * and the same location as the first:
+ *
+ * | place                          | showed                              | told apart |
+ * | ------------------------------ | ----------------------------------- | ---------- |
+ * | member row                     | 林 葵 / Project Manager · 事業推進  | no         |
+ * | detail panel heading           | 林 葵                               | no         |
+ * | assignment form's options      | 林 葵 · 8/17週 60% / … 0%           | no         |
+ * | assignment bar's aria-label    | 採用サイトのアサイン詳細（林 葵・…） | no         |
+ * | board row, proposal picker     | AH 林 葵 / 林葵 林 葵               | by accident |
+ *
+ * The accident is that seeded members carry romanised `initials` while a new one gets
+ * `makeInitials`, so the avatars differed. Not a designed distinction.
+ *
+ * What the same measurement showed is that **no member attribute is guaranteed unique**.
+ * Those two shared their org unit, their location, and every custom field (all unset).
+ * So this tries the one attribute every member has, then falls back to the id:
+ *
+ * 1. `location`, when it is unique among the namesakes — 「林 葵（大阪）」
+ * 2. otherwise the tail of the id — 「林 葵（#4f2a）」
+ *
+ * `department` is deliberately not in that list: it is already printed beside the name in
+ * the member list and on the board, and the measurement above is a case where it
+ * collides. Something already on screen cannot do the distinguishing. Custom fields are
+ * out too — they can be unset, and both of those were.
+ *
+ * A name shared by nobody comes back untouched, which is almost every row.
+ */
+export function memberLabel(state: Pick<WorkspaceState, "members">, member: Pick<Member, "id" | "name" | "location">) {
+  const { name, tag } = memberLabelParts(state, member);
+  return name + tag;
+}
+
+/**
+ * The same label in two pieces: the name, and the tag that tells it from a namesake's.
+ * The tag is empty when nobody shares the name.
+ *
+ * A screen that has room for only part of the label needs the pieces. The tag sits at
+ * the end, so an ellipsis eats exactly the part that does the distinguishing — measured
+ * at 375px, where the name cell is 122px and 「中村 美咲（#nakamura）」 wants 134.3px
+ * (#163).
+ */
+export function memberLabelParts(state: Pick<WorkspaceState, "members">, member: Pick<Member, "id" | "name" | "location">) {
+  return memberLabels(state.members).get(member.id) ?? { name: member.name, tag: "" };
+}
+
+/** A member's name, and the tag that distinguishes it. */
+export type MemberLabel = { name: string; tag: string };
+
+/**
+ * Every member's label, in one pass, cached against the array itself.
+ *
+ * `memberLabel` is called once per row, and a filter over all members inside it made
+ * the member list O(n²) — a thousand people is a million name comparisons per render.
+ * React hands back the same `members` array until the workspace changes, so a WeakMap
+ * keyed on it turns that into one pass, and the cache goes away with the array.
+ */
+const labelCache = new WeakMap<readonly Pick<Member, "id" | "name" | "location">[], Map<string, Readonly<MemberLabel>>>();
+
+export function memberLabels(members: readonly Pick<Member, "id" | "name" | "location">[]): ReadonlyMap<string, Readonly<MemberLabel>> {
+  const cached = labelCache.get(members);
+  if (cached) return cached;
+  const byName = new Map<string, Pick<Member, "id" | "name" | "location">[]>();
+  for (const member of members) {
+    const key = member.name.trim();
+    const group = byName.get(key) ?? [];
+    group.push(member);
+    byName.set(key, group);
+  }
+  const labels = new Map<string, Readonly<MemberLabel>>();
+  for (const [name, group] of byName) {
+    if (group.length < 2) {
+      labels.set(group[0].id, { name: group[0].name, tag: "" });
+      continue;
+    }
+    // The whole group takes the same kind of suffix. Deciding per person let one
+    // namesake read 「（大阪）」 while another read 「（#4f2a）」, and adding a third person
+    // could change an existing label's kind — the evaluator on #123 asked for this.
+    // A location only counts when it is written: 「林 葵（）」 tells nobody anything, and
+    // 「東京」 against 「 東京 」 is one place typed twice. And it has to fit where it is
+    // shown, because a tag that is cut off is not a tag — see LOCATION_TAG_MAX.
+    const locations = group.map((member) => member.location.trim());
+    const byLocation = locations.every((place) => place && place.length <= LOCATION_TAG_MAX)
+      && new Set(locations).size === group.length;
+    const ids = group.map((item) => item.id);
+    for (const [index, member] of group.entries()) {
+      labels.set(member.id, {
+        name,
+        tag: byLocation ? `（${locations[index]}）` : `（#${idTail(member.id, ids)}）`,
+      });
+    }
+  }
+  labelCache.set(members, labels);
+  return labels;
+}
+
+/**
+ * How long a location may be and still be a tag.
+ *
+ * The tag goes at the end of the label and the member list's name cell truncates from
+ * the end, so a tag too wide for the cell loses its tail — and if two people's locations
+ * share a long prefix, that is the whole of the difference. #163 gave the tag its own box
+ * so it is not the part that shrinks, but a box cannot be wider than the cell.
+ *
+ * Measured with canvas at the cell's own font (700 12px Zen Kaku Gothic New), against the
+ * 122px the cell has at 375px — the narrowest width this repo verifies:
+ *
+ * | tag                          | width   |
+ * | ---------------------------- | ------- |
+ * | 「（東京）」                    |  48.0px |
+ * | 「（リモート）」                 |  72.0px |
+ * | 「（東京都千代田区）」 (8)         | 108.0px |
+ * | 「（東京都千代田区丸の内A）」 (12) | 151.9px |
+ *
+ * Eight characters is the longest that still shows whole. Past that the group falls back
+ * to the id, which is four hex characters at 53.3px and distinguishes by construction.
+ * A readable place name loses to a hex tail, which is the trade: 「林 葵（#4f2a）」 says
+ * less than 「林 葵（東京）」 but more than two rows that read the same.
+ */
+const LOCATION_TAG_MAX = 8;
+
+/**
+ * Enough of `id` to tell it from the others, and never a fragment of a word.
+ *
+ * New ids are `crypto.randomUUID()`, where any tail is meaningless hex and four
+ * characters read as what they are. Anything else is printed whole: the seeded members
+ * carry readable slugs — `hayashi`, `saeki` — and the tail of one of those is a word
+ * fragment. 「#ashi」 out of `hayashi` looked like it meant something, measured on the
+ * DEMO data, which is what a reader sees.
+ *
+ * A UUID is recognised rather than guessed at by length. A first version trimmed
+ * anything over twelve characters, which is a number taken from the seed slugs and
+ * would have cut a thirteen-character one into a fragment.
+ *
+ * The loop is there because a fixture or a migration can produce ids that share a tail;
+ * printing the same token for two different people would be the defect wearing a
+ * different hat.
+ */
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
+
+function idTail(id: string, among: string[]) {
+  if (!UUID.test(id)) return id;
+  const others = among.filter((other) => other !== id);
+  for (let length = 4; length < id.length; length += 1) {
+    const tail = id.slice(-length);
+    if (!others.some((other) => other.endsWith(tail))) return tail;
+  }
+  return id;
 }
 
 export function makeInitials(name: string) {
@@ -966,6 +1385,27 @@ export function buildSkillMap(state: WorkspaceState): SkillMapRow[] {
       ? holders.filter(({ proficiency }) => requirements.length === 0 || requirements.some((requirement) => proficiency >= requirement.minProficiency)).length
       : 0;
     const openNeedCount = requirements.length;
+    /**
+     * #126: this was `max(0, openNeedCount - qualifiedCount)` — a count of
+     * requirements minus a count of people. The result was in neither unit, and #85
+     * had to add 「1人が1件を担う想定で数えています」 to the screen to make it readable
+     * at all. Measured, three requirements met by one qualified holder came out as 2,
+     * and two requirements in periods that do not overlap came out as 1.
+     *
+     * It counts requirements no holder qualifies for now: the same pairing read from the
+     * requirement's side instead of the holder's. Not the complement of
+     * `qualifiedCount` — that counts holders who clear at least one requirement, and
+     * neither number determines the other. Same unit as `openNeedCount`, so
+     * `gap <= openNeedCount` always, and the assumption about one person per
+     * requirement is gone.
+     *
+     * Availability is deliberately not folded in. This map answers 「do we have anyone
+     * with this skill」; whether they are free in a requirement's period is answered by
+     * that requirement's resolution guide, which prints 要件期間の最小空き. Two answers
+     * to one question is what #124 is about.
+     */
+    const gap = requirements.filter((requirement) =>
+      !holders.some(({ proficiency }) => proficiency >= requirement.minProficiency)).length;
     rows.set(item.id, {
       id: item.id,
       name: item.name,
@@ -978,7 +1418,7 @@ export function buildSkillMap(state: WorkspaceState): SkillMapRow[] {
       departments: [...departmentCounts.entries()].map(([department, count]) => ({ department, count })).sort((left, right) => right.count - left.count || left.department.localeCompare(right.department, "ja")),
       openNeedCount,
       qualifiedCount,
-      gap: Math.max(0, openNeedCount - qualifiedCount),
+      gap,
     });
   });
 
@@ -1852,6 +2292,25 @@ export function matchScore(availablePercent: number, matchedNiceCount: number) {
   return Math.min(60, matchedNiceCount * 20) + Math.min(40, Math.round(availablePercent * 0.4));
 }
 
+/**
+ * The highest score this scene can produce, which is not always 100.
+ *
+ * `matchScore` gives 20 per satisfied 「あると良い」 skill up to 60, plus 40 for the
+ * availability. A scene with one such skill therefore tops out at 60, and one with
+ * none at 40 — so 「n/100点」 would be a lie for most scenes, and 「n点」 alone leaves
+ * the reader with no denominator at all (#150).
+ *
+ * The 「必須」 skills are absent on purpose: `matchMember` drops a candidate that
+ * misses one, so they gate inclusion rather than earn points.
+ */
+export function matchScoreMax(scene: SearchScene) {
+  const nice = searchSceneSkills(scene).filter((skill) => skill.importance === "nice").length;
+  // Through `matchScore` rather than repeating its two caps: full availability is by
+  // definition the top of the availability half, so this stays correct if the weights
+  // move.
+  return matchScore(100, nice);
+}
+
 export function matchMember(state: WorkspaceState, member: Member, scene: SearchScene): MemberMatch | null {
   if (scene.role && member.role.toLocaleLowerCase() !== scene.role.toLocaleLowerCase()) return null;
   if (scene.location && member.location.toLocaleLowerCase() !== scene.location.toLocaleLowerCase()) return null;
@@ -1879,9 +2338,19 @@ export function matchMember(state: WorkspaceState, member: Member, scene: Search
   };
 }
 
+/**
+ * Best first: score, then availability, then name.
+ *
+ * Availability is the tie-break because `matchScore` rounds — 60% and 61% both give 24
+ * — and the screens that consume this order print the availability rather than the
+ * score (#150). Without it the heading 「要件期間の最小空きが多い順」 was false for any
+ * pair inside the same 2.5-point band, and the name decided which came first.
+ */
 export function matchMembers(state: WorkspaceState, scene: SearchScene): MemberMatch[] {
   return state.members.flatMap((member) => {
     const match = matchMember(state, member, scene);
     return match ? [match] : [];
-  }).sort((left, right) => right.score - left.score || left.member.name.localeCompare(right.member.name, "ja"));
+  }).sort((left, right) => right.score - left.score
+    || right.availablePercent - left.availablePercent
+    || left.member.name.localeCompare(right.member.name, "ja"));
 }

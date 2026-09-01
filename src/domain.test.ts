@@ -8,7 +8,10 @@ import {
   addSkillCatalogEntry,
   archiveOrgUnit,
   assignmentSpan,
+  boardBasisWeek,
   boardRange,
+  boardRangeDistance,
+  boardRangeName,
   projectMembersOnDays,
   buildSkillMap,
   cancelProfileRequest,
@@ -21,10 +24,18 @@ import {
   getCurrentWeekStart,
   getIsoWeekNumber,
   getWeekStartForDate,
+  matchScore,
+  matchScoreMax,
+  memberLabel,
+  weekLabel,
   hydrateWorkspaceSkills,
   inferSkillCatalog,
   initialWorkspace,
   memberDailyLoads,
+  overlaps,
+  WEEKEND_PICKER_LIMIT,
+  weekendDatesBetween,
+  weekEnd,
   memberLoad,
   memberMatchesNeed,
   memberPeakLoad,
@@ -49,6 +60,13 @@ import {
   submitProfileRequest,
   visibleCustomFields,
   type WorkspaceState,
+  type Member,
+  type SearchScene,
+  type SkillProficiency,
+  type StaffingNeed,
+  type SearchSkillFilter,
+  ownerLabel,
+  ownerMember,
 } from "./domain";
 
 describe("calendar helpers", () => {
@@ -69,12 +87,138 @@ describe("calendar helpers", () => {
     expect(getWeekStartForDate("2026-08-23")).toBe("2026-08-17");
   });
 
+  /**
+   * #146: 「今週」 was on figures measured over whatever week the board was paged
+   * to. This is what they say instead, and it takes any day of the week so a
+   * caller cannot name one week while measuring another.
+   */
+  it("names the week a figure covers, from any day in it", () => {
+    expect(weekLabel("2026-08-17")).toBe("8/17週");
+    expect(weekLabel("2026-08-21")).toBe("8/17週");
+    expect(weekLabel("2026-08-23")).toBe("8/17週");
+    expect(weekLabel("2026-08-24")).toBe("8/24週");
+    // No zero padding, and a week that straddles a month keeps its Monday's month.
+    expect(weekLabel("2026-09-01")).toBe("8/31週");
+    expect(weekLabel("2027-01-01")).toBe("12/28週");
+  });
+
   it("creates distinct database-safe project codes for duplicate names", () => {
     const first = createProjectCode("Project Alpha", "00000000-0000-4000-8000-000000000001");
     const second = createProjectCode("Project Alpha", "11111111-0000-4000-8000-000000000001");
     expect(first).toBe("PROJECTA-00000000000");
     expect(second).toBe("PROJECTA-11111111000");
     expect(first).not.toBe(second);
+  });
+
+  /**
+   * The figures on the board are week-scoped, and this is the week they measure.
+   *
+   * Week mode cannot tell the two readings apart: the range is one week, so its start is
+   * that week's Monday whether or not today is inside it. Month mode can, and did — on
+   * 2026-08-23 with August in view the average read 8/3週 and said 0%, three weeks after
+   * the fact, and the assignment form read the same week and offered a fully booked person
+   * as free (#187).
+   */
+  describe("the week the board measures", () => {
+    it("is the same week either way while a week is in view", () => {
+      for (const today of ["2026-08-17", "2026-08-19", "2026-08-21"]) {
+        const week = boardRange("week", 0, today);
+        expect(boardBasisWeek(week, today), today).toBe("2026-08-17");
+      }
+      // Paged a week forward, today is no longer in view and the range still answers.
+      expect(boardBasisWeek(boardRange("week", 1, "2026-08-19"), "2026-08-19")).toBe("2026-08-24");
+    });
+
+    it("is today's week while the month holding today is in view", () => {
+      const august = boardRange("month", 0, "2026-08-23");
+      expect(august.start).toBe("2026-08-01");
+      // 8/23 is a Sunday, and the week it belongs to opened on the 17th.
+      expect(boardBasisWeek(august, "2026-08-23")).toBe("2026-08-17");
+      // A weekday in the same week reads the same, and so does the month's own first day.
+      expect(boardBasisWeek(august, "2026-08-19")).toBe("2026-08-17");
+      expect(boardBasisWeek(august, "2026-08-03")).toBe("2026-08-03");
+    });
+
+    it("is the opening week of a month that does not hold today", () => {
+      // October 2026 opens on a Thursday, so its first column belongs to the week of 9/28.
+      const october = boardRange("month", 1, "2026-09-15");
+      expect(october.start).toBe("2026-10-01");
+      expect(boardBasisWeek(october, "2026-09-15")).toBe("2026-09-28");
+      // And backwards, where today is past the whole range: August opens on Monday 8/3.
+      expect(boardBasisWeek(boardRange("month", -1, "2026-09-15"), "2026-09-15")).toBe("2026-08-03");
+    });
+
+    /**
+     * A month that opens on a weekend now starts on the 1st, so a today inside those
+     * days is in the range after all — and the week measured is today's, which is a week
+     * that began in the month before. The range's own opening week is the fallback for a
+     * month nobody is standing in, and it takes the first *working* day, so August is
+     * measured over 8/3週 rather than the mostly-July 7/27週 (#207).
+     */
+    it("measures a month nobody is standing in from its first working day", () => {
+      const august = boardRange("month", 0, "2026-08-02");
+      expect(august.start).toBe("2026-08-01");
+      // 8/2 is a Sunday and now has a column, so this is the 「today is in view」 branch.
+      expect(boardBasisWeek(august, "2026-08-02")).toBe("2026-07-27");
+      // From outside the month, the answer stays inside it.
+      expect(boardBasisWeek(august, "2026-09-15")).toBe("2026-08-03");
+    });
+  });
+
+  /**
+   * Where the board says it is. 「WEEK 34」 was an ISO week number — year-wide, and no answer
+   * to 「what week of the month is this」, which is what #194 asked.
+   */
+  describe("naming where the board is", () => {
+    it("counts the Mondays of the month the week starts in", () => {
+      // August 2026's Mondays: 3, 10, 17, 24, 31.
+      expect(boardRangeName(boardRange("week", 0, "2026-08-03"))).toBe("8月 第1週");
+      expect(boardRangeName(boardRange("week", 0, "2026-08-19"))).toBe("8月 第3週");
+      // A fifth Monday is a fifth week, not a rounding error.
+      expect(boardRangeName(boardRange("week", 0, "2026-08-31"))).toBe("8月 第5週");
+    });
+
+    it("gives a week that crosses a year end to the month its Monday is in", () => {
+      // 2026-12-28 is a Monday and that week runs to 2027-01-01. December's Mondays: 7, 14,
+      // 21, 28.
+      expect(boardRangeName(boardRange("week", 0, "2026-12-30"))).toBe("12月 第4週");
+    });
+
+    it("names a month with its year", () => {
+      expect(boardRangeName(boardRange("month", 0, "2026-08-19"))).toBe("2026年 8月");
+      expect(boardRangeName(boardRange("month", 1, "2026-12-15"))).toBe("2027年 1月");
+    });
+  });
+
+  /**
+   * And how far that is from today. Paging three weeks out moved every figure and said
+   * nothing about how far out it was (#194).
+   */
+  describe("how far the board is from today", () => {
+    it("counts weeks in week mode, signed", () => {
+      expect(boardRangeDistance(boardRange("week", 0, "2026-08-19"), "2026-08-19")).toBe(0);
+      expect(boardRangeDistance(boardRange("week", 2, "2026-08-19"), "2026-08-19")).toBe(2);
+      expect(boardRangeDistance(boardRange("week", -1, "2026-08-19"), "2026-08-19")).toBe(-1);
+    });
+
+    /**
+     * Zero on a weekend too, when the week on screen does not contain today at all — which is
+     * why the screen writes nothing at zero rather than claiming today is in it.
+     */
+    it("is zero for the week today belongs to, weekend included", () => {
+      // 2026-08-23 is a Sunday; its week is 8/17-8/21 and holds no Sunday column.
+      const week = boardRange("week", 0, "2026-08-23");
+      expect(week.start).toBe("2026-08-17");
+      expect(boardRangeDistance(week, "2026-08-23")).toBe(0);
+    });
+
+    it("counts months in month mode, across a year boundary", () => {
+      expect(boardRangeDistance(boardRange("month", 0, "2026-08-19"), "2026-08-19")).toBe(0);
+      expect(boardRangeDistance(boardRange("month", 1, "2026-08-19"), "2026-08-19")).toBe(1);
+      expect(boardRangeDistance(boardRange("month", -2, "2026-08-19"), "2026-08-19")).toBe(-2);
+      // December to January is one month, not eleven back.
+      expect(boardRangeDistance(boardRange("month", 1, "2026-12-15"), "2026-12-15")).toBe(1);
+    });
   });
 
   const assignment = (startDate: string, endDate: string) => ({
@@ -95,29 +239,38 @@ describe("calendar helpers", () => {
    */
   it("counts columns, not days, once the range is a month", () => {
     const month = boardRange("month", 0, "2026-08-17");
-    expect(month.start).toBe("2026-08-03");
+    expect(month.start).toBe("2026-08-01");
     expect(month.end).toBe("2026-08-31");
-    expect(month.days).toHaveLength(21);
-    // Every day in view is a weekday, and they are in order.
+    expect(month.days).toHaveLength(31);
+    // Every day of the month is in view, in order, weekends included (#207).
     expect(month.days.every((day) => day.month === 8)).toBe(true);
     expect(month.days.map((day) => day.iso)).toEqual([...month.days.map((day) => day.iso)].sort());
+    expect(month.days.filter((day) => day.weekend)).toHaveLength(10);
 
-    expect(assignmentSpan(assignment("2026-08-03", "2026-08-07"), month)).toEqual({ start: 1, span: 5 });
-    // The Monday of the fourth week: day 21 of the month, column 16.
-    expect(assignmentSpan(assignment("2026-08-24", "2026-08-24"), month)).toEqual({ start: 16, span: 1 });
-    // Spanning a weekend takes the columns either side of it and not the weekend.
-    expect(assignmentSpan(assignment("2026-08-07", "2026-08-10"), month)).toEqual({ start: 5, span: 2 });
+    // Column N is day N now that nothing is skipped, which is the plainest form of
+    // 「position in the list, not distance in days」 this can take.
+    expect(assignmentSpan(assignment("2026-08-03", "2026-08-07"), month)).toEqual({ start: 3, span: 5 });
+    expect(assignmentSpan(assignment("2026-08-24", "2026-08-24"), month)).toEqual({ start: 24, span: 1 });
+    // Spanning a weekend is one bar across it: it was two, one per work week, and a
+    // month of them read as a fortnight of gaps that were never in the data (#207).
+    expect(assignmentSpan(assignment("2026-08-07", "2026-08-10"), month)).toEqual({ start: 7, span: 4 });
   });
 
   it("clamps an assignment that runs past both ends of the range", () => {
     const month = boardRange("month", 0, "2026-08-17");
-    expect(assignmentSpan(assignment("2026-07-01", "2026-09-30"), month)).toEqual({ start: 1, span: 21 });
+    expect(assignmentSpan(assignment("2026-07-01", "2026-09-30"), month)).toEqual({ start: 1, span: 31 });
   });
 
-  it("drops an assignment that lands only on a weekend inside the range", () => {
+  /**
+   * It used to draw nothing: the board had no weekend columns, so a Saturday-to-Sunday
+   * assignment had nowhere to go. It has columns now, so the bar appears — while the
+   * figures beside it stay weekday-only, because a date range does not say whether
+   * anyone worked those days (#207, and #222 for the field that would).
+   */
+  it("draws an assignment that lands only on a weekend inside the range", () => {
     const month = boardRange("month", 0, "2026-08-17");
-    // 8/8 is a Saturday and 8/9 a Sunday: inside the month, on no column.
-    expect(assignmentSpan(assignment("2026-08-08", "2026-08-09"), month)).toBeNull();
+    // 8/8 is a Saturday and 8/9 a Sunday: columns 8 and 9 of the month.
+    expect(assignmentSpan(assignment("2026-08-08", "2026-08-09"), month)).toEqual({ start: 8, span: 2 });
   });
 
   /**
@@ -128,7 +281,7 @@ describe("calendar helpers", () => {
   it("takes the month from today, not from this week's Monday", () => {
     for (const day of ["2026-08-01", "2026-08-02"]) {
       const range = boardRange("month", 0, day);
-      expect(range.start, day).toBe("2026-08-03");
+      expect(range.start, day).toBe("2026-08-01");
       expect(range.end, day).toBe("2026-08-31");
     }
     // And the week still normalises to its Monday, from any day in it.
@@ -137,31 +290,34 @@ describe("calendar helpers", () => {
   });
 
   /**
-   * The board has no weekend columns, so an assignment that only touches a weekend
-   * draws no bar. A staffing count that included it would put a number on screen
-   * with nothing behind it.
+   * The days are the caller's choice, which is the whole of how the weekend is handled:
+   * the board passes every column to draw the bars, and the working days to count the
+   * staffing, because a date range says nothing about whether a Saturday was worked
+   * (#207). Both readings are here so that neither can drift into the other.
    */
-  it("counts only the people whose assignment lands on a day in view", () => {
+  it("counts the people whose assignment lands on one of the days it is given", () => {
     const month = boardRange("month", 0, "2026-08-17");
     const state = {
       members: [], projects: [], needs: [],
       assignments: [
         { id: "weekday", personId: "a", projectId: "p", startDate: "2026-08-10", endDate: "2026-08-11", allocation: 50, status: "confirmed" },
-        // 8/8 Saturday to 8/9 Sunday: inside the month's span, on no column.
+        // 8/8 Saturday to 8/9 Sunday: a column of its own now, and no working day.
         { id: "weekend", personId: "b", projectId: "p", startDate: "2026-08-08", endDate: "2026-08-09", allocation: 50, status: "confirmed" },
       ],
     } as unknown as WorkspaceState;
-    expect(projectMembersOnDays(state, "p", month.days)).toBe(1);
+    expect(projectMembersOnDays(state, "p", month.days)).toBe(2);
+    expect(projectMembersOnDays(state, "p", month.days.filter((day) => !day.weekend))).toBe(1);
   });
 
   it("keeps a week that straddles New Year in one range", () => {
     // 2026-12-28 is a Monday; that week runs into 2027.
     const week = boardRange("week", 0, "2026-12-30");
     expect(week.days.map((day) => day.iso)).toEqual([
-      "2026-12-28", "2026-12-29", "2026-12-30", "2026-12-31", "2027-01-01",
+      "2026-12-28", "2026-12-29", "2026-12-30", "2026-12-31",
+      "2027-01-01", "2027-01-02", "2027-01-03",
     ]);
     expect(week.days[0].year).toBe(2026);
-    expect(week.days[4].year).toBe(2027);
+    expect(week.days[6].year).toBe(2027);
   });
 
   it("pages by the unit it is showing", () => {
@@ -204,6 +360,18 @@ describe("capacity calculations", () => {
     expect(memberDailyLoads(state, "m", "2026-08-17", "2026-08-21").map((day) => day.load)).toEqual([100, 100, 0, 0, 0]);
     expect(memberLoad(state, "m", "2026-08-17")).toBe(100);
     expect(memberPeakLoad(state, "m", "2026-08-17", "2026-08-28")).toBe(100);
+
+    /*
+     * Every caller used to pass a week the board had computed. The assignment form
+     * passes its own date inputs now (#199), and an empty one made `addDays` return
+     * a date built from `new Date("T00:00:00Z")` — so the walk started from
+     * 「NaN-NaN-NaN」 rather than stopping. Same guard `memberPeakLoad` already had.
+     */
+    expect(memberDailyLoads(state, "m", "", "2026-08-21")).toEqual([]);
+    expect(memberDailyLoads(state, "m", "2026-08-17", "")).toEqual([]);
+    expect(memberDailyLoads(state, "m", "2026-8-17", "2026-08-21")).toEqual([]);
+    // A backwards range is not malformed, just empty — the loop condition covers it.
+    expect(memberDailyLoads(state, "m", "2026-08-21", "2026-08-17")).toEqual([]);
   });
 
   it("calculates peak load for an extreme date range without scanning every day", () => {
@@ -218,6 +386,86 @@ describe("capacity calculations", () => {
     } satisfies WorkspaceState;
 
     expect(memberPeakLoad(state, "m", "2026-08-17", "9999-12-31")).toBe(70);
+  });
+});
+
+/**
+ * #150: 「適合 n点」 was printed with no denominator, and the denominator is not a
+ * constant — it moves with how many 「あると良い」 skills the scene names.
+ */
+describe("what the fit score is out of", () => {
+  const scene = (skills: SearchSkillFilter[]): SearchScene => ({ id: "s", name: "s", skills });
+
+  it("tops out at 40 plus 20 per nice-to-have, capped at 60", () => {
+    expect(matchScoreMax(scene([]))).toBe(40);
+    expect(matchScoreMax(scene([{ name: "A", minProficiency: 3 as const, importance: "nice" as const }]))).toBe(60);
+    expect(matchScoreMax(scene([
+      { name: "A", minProficiency: 3 as const, importance: "nice" as const },
+      { name: "B", minProficiency: 3 as const, importance: "nice" as const },
+    ]))).toBe(80);
+    expect(matchScoreMax(scene([
+      { name: "A", minProficiency: 3 as const, importance: "nice" as const },
+      { name: "B", minProficiency: 3 as const, importance: "nice" as const },
+      { name: "C", minProficiency: 3 as const, importance: "nice" as const },
+      { name: "D", minProficiency: 3 as const, importance: "nice" as const },
+    ]))).toBe(100);
+  });
+
+  it("counts must-have skills for nothing, because they are a filter", () => {
+    expect(matchScoreMax(scene([
+      { name: "A", minProficiency: 3 as const, importance: "must" as const },
+      { name: "B", minProficiency: 5 as const, importance: "must" as const },
+    ]))).toBe(40);
+    // And the ceiling is reachable: full availability, no nice-to-haves.
+    expect(matchScore(100, 0)).toBe(40);
+    expect(matchScore(250, 0)).toBe(40);
+  });
+
+  /**
+   * The tie-break the guide's heading depends on. `matchScore` rounds, so 60% and 61%
+   * both give 24 — before availability became the second key, the name decided which
+   * came first and 「要件期間の最小空きが多い順」 was false for any pair inside the same
+   * 2.5-point band. The fixture is deliberately in the wrong order by name so the sort
+   * has to do the work.
+   */
+  it("breaks a score tie on availability, not on the name", () => {
+    const base = { role: "Engineer", department: "D", location: "東京", capacity: 100 as const, skills: [] as string[], initials: "XX", avatarTone: "" };
+    // 「あ」 before 「ん」 by name, and the lower availability, so a name tie-break puts
+    // it first and an availability tie-break puts it second.
+    const state = {
+      members: [
+        { ...base, id: "low", name: "あ低 空き", capacity: 60 },
+        { ...base, id: "high", name: "ん高 空き", capacity: 61 },
+      ],
+      projects: [], assignments: [], needs: [],
+    } as unknown as WorkspaceState;
+    const scene: SearchScene = { id: "s", name: "s", skills: [], startDate: "2026-09-01", endDate: "2026-09-30" };
+    const ranked = matchMembers(state, scene);
+    expect(ranked.map((match) => match.availablePercent)).toEqual([61, 60]);
+    // Both land on the same rounded score, which is the whole point.
+    expect(new Set(ranked.map((match) => match.score)).size).toBe(1);
+    expect(ranked.map((match) => match.member.id)).toEqual(["high", "low"]);
+  });
+
+  /**
+   * Why the proposal screen and the resolution guide stopped printing a score.
+   * `searchSceneFromNeed` forces every skill to 「必須」 — the requirement type has no
+   * importance field to carry anything else — so for those screens the score reduced
+   * to `round(空き% × 0.4)`, which is the number printed beside it.
+   *
+   * If requirements ever gain a nice-to-have, this fails, and showing a score on
+   * those screens becomes worth reconsidering. That is the point of pinning it.
+   */
+  it("a score built from a requirement is the availability and nothing else", () => {
+    const need = {
+      id: "n", role: "QA Engineer", skills: ["QA", "Mobile"],
+      skillRequirements: [{ name: "QA", minProficiency: 3 as const }, { name: "Mobile", minProficiency: 4 as const }],
+      startDate: "2026-08-24", endDate: "2026-09-04", allocation: 60,
+    };
+    expect(matchScoreMax(searchSceneFromNeed(need))).toBe(40);
+    for (const available of [0, 25, 60, 100, 140]) {
+      expect(matchScore(available, 0)).toBe(Math.min(40, Math.round(available * 0.4)));
+    }
   });
 });
 
@@ -279,6 +527,267 @@ describe("skill taxonomy and matching", () => {
     expect(() => addSkillCatalogEntry(initialWorkspace.skillCatalog ?? [], { name: "React", kind: "skill" })).toThrow("同じ名前");
     expect(() => addSkillCatalogEntry(initialWorkspace.skillCatalog ?? [], { name: "GraphQL", kind: "skill", parentId: "skill-react" })).toThrow("親には分類");
     expect(addSkillCatalogEntry(initialWorkspace.skillCatalog ?? [], { name: "GraphQL", kind: "skill", parentId: "cat-backend", id: "skill-graphql" }).some((item) => item.id === "skill-graphql")).toBe(true);
+  });
+});
+
+/**
+ * #126: 「不足」 was `max(0, requirementCount - qualifiedHolderCount)` — a count of
+ * requirements minus a count of people, so the result was in neither unit. #85 had to
+ * put 「1人が1件を担う想定で数えています」 on the screen to make it readable.
+ *
+ * Measured before the change, and these are the cases the issue named:
+ *
+ * | case                                             | 未充足 | 保有 | 不足 was |
+ * | ------------------------------------------------ | ----- | --- | -------- |
+ * | 3 requirements, 1 holder who meets all three      | 3     | 1   | **2**    |
+ * | 1 requirement, 3 holders                          | 1     | 3   | 0        |
+ * | 2 requirements in periods that do not overlap     | 2     | 1   | **1**    |
+ * | 2 requirements, holder too junior for either      | 2     | 1   | 2        |
+ * | 2 requirements, holder meets one of them          | 2     | 1   | 1        |
+ *
+ * It counts requirements no holder qualifies for now, which is the same unit as
+ * 未充足 and needs no assumption about how many requirements one person can carry.
+ */
+describe("what 「不足」 counts", () => {
+  // Typed rather than cast: a fixture that stops matching the model should fail here
+  // rather than be waved through by `as unknown as`.
+  const holder = (id: string, proficiency: SkillProficiency): Member => ({
+    id, name: id, role: "Engineer", department: "D", location: "東京", capacity: 100,
+    skills: ["Go"], initials: "XX", avatarTone: "mint",
+    skillLevels: [{ name: "Go", proficiency }],
+  });
+  const requirement = (id: string, minProficiency: SkillProficiency, startDate: string, endDate: string): StaffingNeed => ({
+    id, projectId: "p", role: "Engineer", skills: ["Go"],
+    skillRequirements: [{ name: "Go", minProficiency }],
+    startDate, endDate, allocation: 50, status: "open",
+  });
+  const map = (members: Member[], needs: StaffingNeed[]) =>
+    buildSkillMap({ members, projects: [], assignments: [], needs }).find((row) => row.name === "Go")!;
+
+  it("is 0 when someone can meet every requirement, however many there are", () => {
+    // The case that made the old arithmetic visible: 3 − 1 = 2, for a skill the team has.
+    const row = map([holder("m1", 5)], [requirement("n1", 3, "2026-09-01", "2026-09-30"),
+      requirement("n2", 3, "2026-09-01", "2026-09-30"), requirement("n3", 3, "2026-09-01", "2026-09-30")]);
+    expect({ openNeedCount: row.openNeedCount, memberCount: row.memberCount, gap: row.gap })
+      .toEqual({ openNeedCount: 3, memberCount: 1, gap: 0 });
+  });
+
+  it("is 0 for several holders and one requirement", () => {
+    const row = map([holder("m1", 5), holder("m2", 4), holder("m3", 3)], [requirement("n1", 3, "2026-09-01", "2026-09-30")]);
+    expect(row.gap).toBe(0);
+  });
+
+  /**
+   * Availability is not part of this number, in either direction. Two requirements in
+   * periods that cannot overlap used to read 1; they read 0 now, for the same reason
+   * three overlapping ones do — the team has the skill. Whether the one holder is free
+   * is what the requirement's own candidate list answers.
+   */
+  it("ignores whether the periods overlap, because that is another screen's question", () => {
+    const apart = map([holder("m1", 5)], [requirement("n1", 3, "2026-09-01", "2026-09-30"),
+      requirement("n2", 3, "2026-11-01", "2026-11-30")]);
+    const together = map([holder("m1", 5)], [requirement("n1", 3, "2026-09-01", "2026-09-30"),
+      requirement("n2", 3, "2026-09-01", "2026-09-30")]);
+    expect(apart.gap).toBe(0);
+    expect(together.gap).toBe(0);
+  });
+
+  it("counts a requirement nobody is senior enough for", () => {
+    const both = map([holder("m1", 2)], [requirement("n1", 4, "2026-09-01", "2026-09-30"),
+      requirement("n2", 4, "2026-09-01", "2026-09-30")]);
+    expect(both.gap).toBe(2);
+    // And only the ones that are actually out of reach: the holder covers the 3, not the 5.
+    const one = map([holder("m1", 3)], [requirement("n1", 3, "2026-09-01", "2026-09-30"),
+      requirement("n2", 5, "2026-09-01", "2026-09-30")]);
+    expect(one.gap).toBe(1);
+  });
+
+  it("never exceeds the number of requirements, whatever the holders look like", () => {
+    for (const proficiency of [1, 2, 3, 4, 5] as SkillProficiency[]) {
+      for (const holders of [[], [holder("m1", proficiency)], [holder("m1", proficiency), holder("m2", 1)]]) {
+        for (const minimum of [1, 3, 5] as SkillProficiency[]) {
+          const row = map(holders, [requirement("n1", minimum, "2026-09-01", "2026-09-30"),
+            requirement("n2", minimum, "2026-09-01", "2026-09-30")]);
+          expect(row.gap, `${holders.length} holder(s) at ${proficiency} against a minimum of ${minimum}`)
+            .toBeLessThanOrEqual(row.openNeedCount);
+          expect(row.gap).toBeGreaterThanOrEqual(0);
+        }
+      }
+    }
+  });
+
+  /** A category's number is the sum of its skills', which only holds while it is a count. */
+  it("adds up across a category", () => {
+    const rows = buildSkillMap({
+      members: [{ id: "m1", name: "m1", role: "Engineer", department: "D", location: "東京", capacity: 100,
+        skills: ["Go", "Rust"], initials: "XX", avatarTone: "mint",
+        skillLevels: [{ name: "Go", proficiency: 5 }, { name: "Rust", proficiency: 1 }] }],
+      projects: [], assignments: [],
+      needs: [requirement("n1", 3, "2026-09-01", "2026-09-30"),
+        { id: "n2", projectId: "p", role: "Engineer", skills: ["Rust"],
+          skillRequirements: [{ name: "Rust", minProficiency: 4 }],
+          startDate: "2026-09-01", endDate: "2026-09-30", allocation: 50, status: "open" }],
+    });
+    const skills = rows.filter((row) => row.kind === "skill");
+    const categories = rows.filter((row) => row.kind === "category");
+    const total = skills.reduce((sum, row) => sum + row.gap, 0);
+    expect(total).toBe(1);
+    for (const category of categories) {
+      const own = rows.filter((row) => row.kind === "skill" && row.path.includes(category.name));
+      expect(category.gap).toBe(own.reduce((sum, row) => sum + row.gap, 0));
+    }
+  });
+});
+
+/**
+ * #123: nothing stops two members having the same name, and two of them were
+ * indistinguishable on the screens that pick people — measured with a second 「林 葵」
+ * given the same role, the same primary org unit, the same location and the same
+ * (unset) custom fields as the first. No member attribute is guaranteed unique, so the
+ * label tries the one every member has and then falls back to the id.
+ */
+describe("telling two people with one name apart", () => {
+  const person = (id: string, name: string, location: string): Member => ({
+    id, name, role: "Engineer", department: "D", location, capacity: 100,
+    skills: [], initials: "XX", avatarTone: "mint",
+  });
+  const label = (members: Member[], id: string) =>
+    memberLabel({ members }, members.find((item) => item.id === id)!);
+
+  it("leaves a name nobody shares alone", () => {
+    const members = [person("a", "林 葵", "東京"), person("b", "佐伯 優斗", "大阪")];
+    expect(label(members, "a")).toBe("林 葵");
+    expect(label(members, "b")).toBe("佐伯 優斗");
+  });
+
+  /**
+   * A location has to be written to count. 「林 葵（）」 names nobody, and 「東京」 against
+   * 「 東京 」 is one place typed twice — the evaluator on #123 found both reading as
+   * distinct places, because an unequal string was taken for an unequal location.
+   */
+  it("ignores a location that is blank or the same place typed twice", () => {
+    const blank = [person("a", "林 葵", ""), person("b", "林 葵", "東京")];
+    expect(label(blank, "a")).toBe("林 葵（#a）");
+    expect(label(blank, "b")).toBe("林 葵（#b）");
+
+    const spaced = [person("a", "林 葵", "東京"), person("b", "林 葵", " 東京 ")];
+    expect(label(spaced, "a")).toBe("林 葵（#a）");
+
+    // Written on both sides, and genuinely different: the padding is not printed.
+    const padded = [person("a", "林 葵", " 東京 "), person("b", "林 葵", "大阪")];
+    expect(label(padded, "a")).toBe("林 葵（東京）");
+    expect(label(padded, "b")).toBe("林 葵（大阪）");
+  });
+
+  it("uses the location when that is what differs", () => {
+    const members = [person("a", "林 葵", "東京"), person("b", "林 葵", "大阪")];
+    expect(label(members, "a")).toBe("林 葵（東京）");
+    expect(label(members, "b")).toBe("林 葵（大阪）");
+    // And a third person elsewhere does not disturb them.
+    const withThird = [...members, person("c", "佐伯 優斗", "東京")];
+    expect(label(withThird, "c")).toBe("佐伯 優斗");
+  });
+
+  /**
+   * The measured case: same name, same location. There is nothing left to say except
+   * which record this is. A short id is printed whole — the seeded ids are readable
+   * slugs and the tail of one is a word fragment, 「#ashi」 out of `hayashi`, which looked
+   * like it meant something.
+   */
+  it("falls back to the id when the location matches too", () => {
+    const members = [person("hayashi", "林 葵", "東京"), person("hayashi-2", "林 葵", "東京")];
+    expect(label(members, "hayashi")).toBe("林 葵（#hayashi）");
+    expect(label(members, "hayashi-2")).toBe("林 葵（#hayashi-2）");
+  });
+
+  /**
+   * A tag that is cut off is not a tag. The name cell truncates from the end, and #163
+   * gave the tag its own box so it is not the part that shrinks — but a box cannot be
+   * wider than the cell, which is 122px at 375px. Measured at the cell's font,
+   * 「（東京都千代田区）」 is 108px and 「（東京都千代田区丸の内A）」 is 151.9px, and two places
+   * sharing a long prefix would differ only in the part that gets cut.
+   */
+  it("falls back to the id when a location is too long to show whole", () => {
+    const long = [
+      person("a", "林 葵", "東京都千代田区丸の内A"),
+      person("b", "林 葵", "東京都千代田区丸の内B"),
+    ];
+    expect(label(long, "a")).toBe("林 葵（#a）");
+    expect(label(long, "b")).toBe("林 葵（#b）");
+
+    // Eight characters still shows whole, so it is still a tag.
+    const eight = [person("a", "林 葵", "東京都千代田区"), person("b", "林 葵", "大阪市北区中之島")];
+    expect(label(eight, "a")).toBe("林 葵（東京都千代田区）");
+    expect(label(eight, "b")).toBe("林 葵（大阪市北区中之島）");
+
+    // All of a group or none of it, here too: one long location sends everyone to the id.
+    const mixed = [person("a", "林 葵", "東京"), person("b", "林 葵", "東京都千代田区丸の内B")];
+    expect(label(mixed, "a")).toBe("林 葵（#a）");
+    expect(label(mixed, "b")).toBe("林 葵（#b）");
+  });
+
+  /**
+   * A UUID's tail is meaningless hex either way, so it is the one shape that gets
+   * trimmed. Recognised by pattern rather than by length: a first version cut anything
+   * over twelve characters, a number taken from the seed slugs, which would have turned
+   * a thirteen-character slug into a fragment.
+   */
+  it("trims a UUID to a tail and prints anything else whole", () => {
+    const members = [
+      person("0f7c8a12-4b2e-4a55-9d31-aa0000004f2a", "林 葵", "東京"),
+      person("0f7c8a12-4b2e-4a55-9d31-aa0000009c81", "林 葵", "東京"),
+    ];
+    expect(label(members, "0f7c8a12-4b2e-4a55-9d31-aa0000004f2a")).toBe("林 葵（#4f2a）");
+    expect(label(members, "0f7c8a12-4b2e-4a55-9d31-aa0000009c81")).toBe("林 葵（#9c81）");
+    // Thirteen characters, not a UUID: printed whole rather than cut mid-word.
+    const slugs = [person("kawasaki-aoi", "林 葵", "東京"), person("kawasaki-aoi2", "林 葵", "東京")];
+    expect(label(slugs, "kawasaki-aoi2")).toBe("林 葵（#kawasaki-aoi2）");
+  });
+
+  /**
+   * All of a group or none of it. Choosing per person let one namesake read 「（大阪）」
+   * while another read 「（#4f2a）」, and adding a third person could change an existing
+   * label's kind — which the evaluator on #123 pointed out is unstable.
+   */
+  it("gives a whole group the same kind of suffix", () => {
+    const members = [
+      person("aaaa1111", "林 葵", "東京"),
+      person("bbbb2222", "林 葵", "東京"),
+      person("cccc3333", "林 葵", "大阪"),
+    ];
+    // Two of the three share 東京, so nobody in the group gets a location.
+    expect(label(members, "cccc3333")).toBe("林 葵（#cccc3333）");
+    expect(label(members, "aaaa1111")).toBe("林 葵（#aaaa1111）");
+    expect(label(members, "bbbb2222")).toBe("林 葵（#bbbb2222）");
+
+    // Make the locations distinct and the whole group switches together.
+    const distinct = [person("a", "林 葵", "東京"), person("b", "林 葵", "大阪"), person("c", "林 葵", "福岡")];
+    expect(distinct.map((item) => label(distinct, item.id)))
+      .toEqual(["林 葵（東京）", "林 葵（大阪）", "林 葵（福岡）"]);
+  });
+
+  /**
+   * Four characters is the starting length, not a fixed one. Ids that share a tail —
+   * a fixture, a migration that appends a suffix — would otherwise print the same
+   * token for two different people, which is the defect wearing a different hat.
+   */
+  it("lengthens the tail rather than printing the same token twice", () => {
+    // Two UUIDs sharing their last five characters, which a fixture or a migration can
+    // produce. Four would print the same token for both.
+    const members = [
+      person("0f7c8a12-4b2e-4a55-9d31-aaaaaa14f2a1", "林 葵", "東京"),
+      person("0f7c8a12-4b2e-4a55-9d31-bbbbbb24f2a1", "林 葵", "東京"),
+    ];
+    const first = label(members, "0f7c8a12-4b2e-4a55-9d31-aaaaaa14f2a1");
+    const second = label(members, "0f7c8a12-4b2e-4a55-9d31-bbbbbb24f2a1");
+    expect(first).not.toBe(second);
+    expect(first.startsWith("林 葵（#")).toBe(true);
+    expect(first.length).toBeGreaterThan("林 葵（#f2a1）".length);
+  });
+
+  it("ignores surrounding whitespace when deciding whether a name is shared", () => {
+    const members = [person("a", "林 葵", "東京"), person("b", " 林 葵 ", "大阪")];
+    expect(label(members, "a")).toBe("林 葵（東京）");
   });
 });
 
@@ -553,5 +1062,220 @@ describe("role permissions", () => {
     const marked = customFields.map((field) => field.key === "english" ? { ...field, canEdit: false } : field);
     expect(visibleCustomFields(marked, "member", "detail").map((field) => field.key)).toContain("english");
     expect(editableCustomFields(marked, "member", "detail").map((field) => field.key)).not.toContain("english");
+  });
+});
+
+/**
+ * #123, second finding: projects and opportunities carry a denormalised `ownerName`
+ * beside `ownerPersonId`, and the seeded projects carry only the name. Three places
+ * resolved it with `members.find(member => member.name === ownerName)`, which answers
+ * with whoever comes first — so with two namesakes, opening a project's edit form bound
+ * it to one of them, renaming a member rewrote the other's projects too, and the archive
+ * guard counted projects that were not theirs.
+ */
+describe("whom an owner name names", () => {
+  const person = (id: string, name: string): Member => ({
+    id, name, role: "Engineer", department: "D", location: "東京", capacity: 100,
+    skills: [], initials: "XX", avatarTone: "mint",
+  });
+  const state = (...members: Member[]) => ({ ...initialWorkspace, members });
+
+  it("answers with the member the id names", () => {
+    const one = person("a", "林 葵");
+    expect(ownerMember(state(one, person("b", "佐伯 優斗")), { ownerPersonId: "a", ownerName: "佐伯 優斗" })?.id)
+      .toBe("a");
+    // The id wins over a stale name, which is the point of storing it.
+    expect(ownerLabel(state(one, person("b", "佐伯 優斗")), { ownerPersonId: "a", ownerName: "佐伯 優斗" }))
+      .toBe("林 葵");
+  });
+
+  it("answers with the one person a name fits", () => {
+    const members = state(person("a", "林 葵"), person("b", "佐伯 優斗"));
+    expect(ownerMember(members, { ownerName: "林 葵" })?.id).toBe("a");
+    // Padding in the stored string is not a different person.
+    expect(ownerMember(members, { ownerName: " 林 葵 " })?.id).toBe("a");
+  });
+
+  it("refuses to guess when two people share the name", () => {
+    const members = state(person("a", "林 葵"), person("b", "林 葵"));
+    expect(ownerMember(members, { ownerName: "林 葵" })).toBeUndefined();
+    // The record still says a name, so that is what the screen prints. It is not
+    // labelled, because a label would claim to know which of them it is.
+    expect(ownerLabel(members, { ownerName: "林 葵" })).toBe("林 葵");
+  });
+
+  it("has no answer for an owner nobody recorded", () => {
+    const members = state(person("a", "林 葵"));
+    expect(ownerMember(members, {})).toBeUndefined();
+    expect(ownerMember(members, { ownerName: "  " })).toBeUndefined();
+    expect(ownerMember(members, { ownerName: "退職 済み" })).toBeUndefined();
+    expect(ownerLabel(members, {})).toBeNull();
+    // A name that is nobody's now still gets printed: the row records what it records.
+    expect(ownerLabel(members, { ownerName: "退職 済み" })).toBe("退職 済み");
+  });
+
+  it("labels an owner whose name two people share, once the id says which", () => {
+    const members = state(person("a", "林 葵"), person("b", "林 葵"));
+    expect(ownerLabel(members, { ownerPersonId: "b", ownerName: "林 葵" })).toBe("林 葵（#b）");
+  });
+});
+
+/**
+ * Weekend work, once it can be recorded (#222).
+ *
+ * #207 gave the board its Saturday and Sunday columns and changed no figure,
+ * because the range says nothing about whether anyone worked them: 12 of the 15
+ * assignments in the seed span a weekend simply by lasting more than a week.
+ * Recording the days is what turns a weekend into a fact, and the ceiling does not
+ * move — a recorded Saturday is excess above a week that is still five days long.
+ */
+describe("weekend work", () => {
+  const member = { id: "m", initials: "M", name: "Member", role: "QA", department: "QA", avatarTone: "mint" as const, skills: [], location: "Tokyo", capacity: 100 };
+  // 2026-08-17 is a Monday, so 8/22 is its Saturday and 8/23 its Sunday.
+  const state = (weekendWorkDates?: string[]): WorkspaceState => ({
+    members: [member],
+    projects: [],
+    needs: [],
+    assignments: [{
+      id: "a", personId: "m", projectId: "p",
+      startDate: "2026-08-17", endDate: "2026-08-28",
+      allocation: 60, status: "confirmed",
+      ...(weekendWorkDates ? { weekendWorkDates } : {}),
+    }],
+  } satisfies WorkspaceState);
+
+  it("leaves a spanned weekend empty and fills a recorded one", () => {
+    const spanned = memberDailyLoads(state(), "m", "2026-08-21", "2026-08-24");
+    expect(spanned.map((day) => `${day.date}:${day.load}${day.weekend ? "*" : ""}`)).toEqual([
+      "2026-08-21:60",
+      // The assignment covers both of these. Nobody worked them, so they are 0 —
+      // this is the reading that would have put 鈴木健太 at 120% on a Saturday.
+      "2026-08-22:0*",
+      "2026-08-23:0*",
+      "2026-08-24:60",
+    ]);
+
+    const recorded = memberDailyLoads(state(["2026-08-22"]), "m", "2026-08-21", "2026-08-24");
+    expect(recorded.map((day) => `${day.date}:${day.load}${day.weekend ? "*" : ""}`)).toEqual([
+      "2026-08-21:60",
+      "2026-08-22:60*",
+      "2026-08-23:0*",
+      "2026-08-24:60",
+    ]);
+  });
+
+  it("counts a recorded weekend in the week's peak, and a spanned one not at all", () => {
+    // The week ends on Sunday now, or a recorded weekend would be invisible in
+    // every figure — which is the whole feature (#222).
+    expect(weekEnd("2026-08-17")).toBe("2026-08-23");
+    expect(memberLoad(state(), "m", "2026-08-17")).toBe(60);
+    expect(memberLoad(state(["2026-08-22"]), "m", "2026-08-17")).toBe(60);
+
+    // Two assignments on the same Saturday stack, and only because both named it.
+    const both: WorkspaceState = {
+      ...state(["2026-08-22"]),
+      assignments: [
+        { id: "a", personId: "m", projectId: "p", startDate: "2026-08-17", endDate: "2026-08-28", allocation: 60, status: "confirmed", weekendWorkDates: ["2026-08-22"] },
+        { id: "b", personId: "m", projectId: "q", startDate: "2026-08-17", endDate: "2026-08-28", allocation: 50, status: "confirmed", weekendWorkDates: ["2026-08-22"] },
+      ],
+    };
+    expect(memberLoad(both, "m", "2026-08-17")).toBe(110);
+
+    // The second one only spans it: the Saturday carries 60, the weekdays 110.
+    const one: WorkspaceState = {
+      ...both,
+      assignments: [both.assignments[0], { ...both.assignments[1], weekendWorkDates: [] }],
+    };
+    expect(memberDailyLoads(one, "m", "2026-08-22", "2026-08-22")[0].load).toBe(60);
+    expect(memberLoad(one, "m", "2026-08-17")).toBe(110);
+  });
+
+  /**
+   * The sweep stays for weekdays. It has to: a span can run to 9999-12-31, and the
+   * peak has to come from the range ends rather than from three million steps. The
+   * weekend half is a maximum over the recorded dates, which is a list, not a scan.
+   */
+  it("still answers an extreme range without walking it", () => {
+    const long: WorkspaceState = {
+      members: [member],
+      projects: [],
+      needs: [],
+      assignments: [
+        { id: "long", personId: "m", projectId: "p", startDate: "2026-08-17", endDate: "9999-12-31", allocation: 40, status: "confirmed", weekendWorkDates: ["2026-08-22"] },
+        { id: "sat", personId: "m", projectId: "q", startDate: "2026-08-22", endDate: "2026-08-22", allocation: 90, status: "confirmed", weekendWorkDates: ["2026-08-22"] },
+      ],
+    };
+    const started = Date.now();
+    // 40 on every weekday, and 130 on the one Saturday both of them named.
+    expect(memberPeakLoad(long, "m", "2026-08-17", "9999-12-31")).toBe(130);
+    expect(Date.now() - started).toBeLessThan(2000);
+  });
+
+  it("offers the weekend days of a span, and says when it stopped", () => {
+    const week = weekendDatesBetween("2026-08-17", "2026-08-28");
+    expect(week.dates).toEqual(["2026-08-22", "2026-08-23"]);
+    expect(week.capped).toBe(false);
+
+    // A form cannot draw three hundred thousand checkboxes, so the offer is capped
+    // and says so. What is already stored is never capped.
+    const forever = weekendDatesBetween("2026-08-17", "9999-12-31");
+    expect(forever.dates).toHaveLength(WEEKEND_PICKER_LIMIT);
+    expect(forever.capped).toBe(true);
+
+    // A half-typed date offers nothing rather than walking from NaN.
+    expect(weekendDatesBetween("", "2026-08-28").dates).toEqual([]);
+    expect(weekendDatesBetween("2026-08-17", "2026-08-19").dates).toEqual([]);
+  });
+
+  it("ignores a recorded day outside the assignment's own range", () => {
+    // The database prunes these and the forms filter them, but the reading has to
+    // be right on data that arrived any other way.
+    const stale: WorkspaceState = {
+      ...state(),
+      assignments: [{ ...state().assignments[0], endDate: "2026-08-21", weekendWorkDates: ["2026-08-22"] }],
+    };
+    expect(memberDailyLoads(stale, "m", "2026-08-22", "2026-08-22")[0].load).toBe(0);
+    expect(memberPeakLoad(stale, "m", "2026-08-17", "2026-08-23")).toBe(60);
+  });
+
+
+  /**
+   * What else moved when the week's window reached Sunday. `weekEnd` is not only
+   * the load window: `pipelineDemandForWeek` and three drawer lists ask 「does this
+   * overlap the week」 through it, and a thing that touches only the Saturday used
+   * to fall outside. Pinned because the evaluation asked for it (#222).
+   */
+  it("brings what only touches the weekend into the week", () => {
+    const weekendOnly = { startDate: "2026-08-22", endDate: "2026-08-23" };
+    expect(overlaps(weekendOnly.startDate, weekendOnly.endDate, "2026-08-17", weekEnd("2026-08-17"))).toBe(true);
+    // And it is genuinely the change: against the old Friday end it did not.
+    expect(overlaps(weekendOnly.startDate, weekendOnly.endDate, "2026-08-17", "2026-08-21")).toBe(false);
+
+    const pipeline: Pick<WorkspaceState, "opportunities"> = {
+      opportunities: [{
+        id: "o", code: "OP", name: "週末案件", summary: "", stage: "proposal",
+        ownerName: null, tone: "blue", startDate: "2026-08-22", endDate: "2026-08-23", demand: 3,
+      }],
+    };
+    expect(pipelineDemandForWeek(pipeline, "2026-08-17")).toBe(3);
+  });
+
+  it("does not let a weekend outside the window raise the peak inside it", () => {
+    // 8/29 is a Saturday, and two assignments recorded it — 110 there against 60 on
+    // any weekday. Ask about the week *before* and the answer has to be 60: the
+    // recorded days are a list, and the list has to be clipped to what was asked
+    // for. The two figures differ on purpose, or a clip that never happened would
+    // still read 60 and prove nothing.
+    const later: WorkspaceState = {
+      ...state(),
+      assignments: [
+        { ...state().assignments[0], endDate: "2026-09-30", weekendWorkDates: ["2026-08-29"] },
+        { id: "b", personId: "m", projectId: "q", startDate: "2026-08-24", endDate: "2026-09-30", allocation: 50, status: "confirmed", weekendWorkDates: ["2026-08-29"] },
+      ],
+    };
+    expect(memberPeakLoad(later, "m", "2026-08-17", "2026-08-23")).toBe(60);
+    // And in the week that holds it, it is there in full.
+    expect(memberPeakLoad(later, "m", "2026-08-24", "2026-08-30")).toBe(110);
+    expect(memberDailyLoads(later, "m", "2026-08-29", "2026-08-29")[0].load).toBe(110);
   });
 });

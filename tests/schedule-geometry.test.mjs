@@ -174,3 +174,83 @@ test("the wide-screen override comes after the tokens it overrides", async () =>
     }
   }
 });
+
+/**
+ * A bar too narrow to hold both its name and its percentage keeps the name.
+ *
+ * Measured at 1440px in month mode, where a day column is 34px: a two-day bar is 58px
+ * wide, 38px of that inside its padding, and the percentage badge with its gap is 31.8px —
+ * the project name got 3.3px of the 102px it wanted, ellipsis and all. The name is the only
+ * thing on the bar that says which project it is; the percentage is also in the bar's
+ * `title`, in the drawer behind it, and the row's total is in the `.load` chip beside it.
+ *
+ * 100px is measured, not chosen: with the badge, a three-day bar (92px) still leaves the
+ * name 40px. Without it the name gets 4px at one day, 38px at two, 72px at three, and from
+ * four days up both fit. Week mode's columns are 72px, where the shortest bar is around
+ * 200px, so it never reaches this rule (#188).
+ *
+ * Static, like the rest of this file: it reads the declarations, not the rendered bar. The
+ * rendered evidence is in the PR — 3.3px → 35px on the two-day bar, badge gone, every
+ * wider bar keeping both.
+ */
+test("a narrow bar drops the percentage rather than the project name", async () => {
+  const css = withoutComments(await read()).replaceAll("\r\n", "\n");
+
+  // The bar has to be its own container: what is too narrow is the bar, not the viewport,
+  // and the same viewport holds bars of every width.
+  const bar = allRules(css, "assignment").filter(({ selector }) => selector === ".assignment");
+  const containerTypes = bar.flatMap(({ body }) => [
+    ...declarations(body, "container-type"),
+    ...declarations(body, "container"),
+  ]);
+  assert.ok(
+    containerTypes.some((value) => /inline-size/u.test(value)),
+    "`.assignment` must be an inline-size container, or the query below has nothing to measure",
+  );
+
+  const query = css.match(/@container\s*\(max-width:\s*(\d+)px\)\s*\{([\s\S]*?)\n\}/u);
+  assert.ok(query, "expected a @container block for the narrow bar");
+  assert.equal(query[1], "100", "the threshold is measured: 92px still leaves the name 40px with the badge");
+  assert.match(query[2], /\.assignment small\s*\{[^}]*display:\s*none/u,
+    "the badge is what goes; the name is the only thing that identifies the bar");
+  // And not the name — the failure this replaces was the name being the one that vanished.
+  assert.doesNotMatch(query[2], /\.assignment span\s*\{[^}]*display:\s*none/u,
+    "dropping the name would be the bug this rule exists to fix");
+});
+
+/**
+ * A row is as tall as what is in it.
+ *
+ * `.schedule-row` had `min-height: 104px` — 36px of bar twice, a 4px gap and 14px of padding
+ * top and bottom, which is a row with two assignments. Measured at 1425px, every row was
+ * 104-105px whether it held one bar or two, and a single bar *stretched* to fill the space:
+ * 36px of assignment drawn 75px tall, one day's work looking like three days'.
+ *
+ * With the floor gone, `align-content: start` to stop the stretch, and 10px of padding
+ * instead of 14: rows 78 / 97px at 1425px against 104 / 105, page 1430 → 1286, seven of nine
+ * rows on screen instead of six. At 375px, 78 / 113 against 120 / 121, page 2426 → 2199. Bars
+ * hold their tap size at both widths — 36px and 44px — which is what stops the two-bar rows
+ * shrinking further, and is #190's question rather than this one's.
+ *
+ * 8px of padding was measured too: 4px a row against a legible gutter, and the gutter won.
+ * Shortening the person cell's wrapped subtitle would have been the biggest single win
+ * (72.6 → 56.4px) and is not taken here: it drops the department from the row (#192).
+ */
+test("a schedule row takes its height from its content", async () => {
+  const css = withoutComments(await read()).replaceAll("\r\n", "\n");
+
+  // 78px is one row of content — the person cell's avatar beside two lines of name, plus the
+  // row's 10px of padding — so it is a floor for a row with nothing in its week, not padding
+  // for one with something. 104px and 120px were two assignments' worth, desktop and narrow.
+  const floors = allRules(css, "schedule-row")
+    .flatMap(({ selector, body }) => declarations(body, "min-height").map((value) => ({ selector, value })))
+    .filter(({ value }) => !/^\d+(?:\.\d+)?px$/u.test(value) || Number.parseFloat(value) > 78);
+  assert.deepEqual(floors.map(({ selector, value }) => `${selector} → ${value}`), [],
+    "a floor above one row of content pads every row that holds less than two assignments (#192)");
+
+  // The stretch is the other half. Without this the single bar in a row fills the cell.
+  const cells = allRules(css, "week-cell");
+  const alignments = cells.flatMap(({ body }) => declarations(body, "align-content"));
+  assert.ok(alignments.includes("start"),
+    "`.week-cell` needs `align-content: start`, or one assignment is drawn as tall as the row (#192)");
+});
