@@ -33,9 +33,10 @@ if (!window.matchMedia) {
  * テストは `getWeekStart(0)` などで実時刻の「今週」を組み立てるので、時計が8月から
  * 出た瞬間に両者が食い違う。2026-09-01 に差分なしで main が赤くなった（#235）。
  *
- * そこでテストの「いま」を1点に固定する。偽物にするのは Date だけ。`setTimeout` まで
- * 偽物にすると Testing Library が fake timer 経路へ切り替わり、`waitFor` と
- * `userEvent` の待ち方が全テストで変わってしまう。狂っているのは日付だけである。
+ * そこでテストの「いま」を1点に固定する。止めるのは日付だけで、タイマーは実物のまま
+ * にする。`vi.setSystemTime` は fake timer を有効にしなくても Date を固定できるので、
+ * `vi.isFakeTimers()` は false のまま（実測）。Testing Library や userEvent が
+ * 「fake timer が入っている」と判断して待ち方を変えることがない。
  *
  * モジュール先頭で固定するのは、`const weekStart = getWeekStart(0)` のようなモジュール
  * 定数が import 時（= beforeEach より前）に評価されるため。beforeEach だけでは、実時刻
@@ -43,7 +44,8 @@ if (!window.matchMedia) {
  */
 const TEST_NOW = new Date("2026-08-19T09:00:00+09:00");
 const pinClock = () => {
-  vi.useFakeTimers({ toFake: ["Date"] });
+  // 自前でタイマーを進めるテストの後始末も兼ねる。解除してから日付だけ入れ直す。
+  vi.useRealTimers();
   vi.setSystemTime(TEST_NOW);
 };
 
