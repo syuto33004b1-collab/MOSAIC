@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { checkEvaluationRecord, touchesOwnCheck } from "../scripts/check-evaluation-record.mjs";
+import { checkEvaluationRecord, isExemptAuthor, touchesOwnCheck } from "../scripts/check-evaluation-record.mjs";
 
 const A = "a".repeat(40);
 const B = "b".repeat(40);
@@ -319,6 +319,63 @@ test("the CLI reports a claimed bypass to the workflow, so it can be labelled", 
     const proper = await run(body({ commit: A }));
     assert.equal(proper.code, 0, proper.stderr);
     assert.match(await readFile(outputPath, "utf8"), /bypass=false/u);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("exempts only the dependency bot, by its authenticated login", () => {
+  assert.equal(isExemptAuthor("dependabot[bot]"), true);
+  assert.equal(isExemptAuthor("Dependabot[bot]"), true, "logins are not case sensitive");
+  // A person can register none of these, but the set is exact regardless.
+  assert.equal(isExemptAuthor("dependabot"), false);
+  assert.equal(isExemptAuthor("not-dependabot[bot]"), false);
+  assert.equal(isExemptAuthor("dependabot[bot]x"), false);
+  assert.equal(isExemptAuthor("renovate[bot]"), false);
+  assert.equal(isExemptAuthor(""), false);
+  assert.equal(isExemptAuthor(undefined), false);
+});
+
+/**
+ * Through the CLI, because the exemption lives in the wiring between the
+ * workflow and the check — the same gap that shipped the `/s+/` bug above. A
+ * unit test on `isExemptAuthor` alone would pass with `PR_AUTHOR` never read.
+ */
+test("the CLI lets a Dependabot pull request through without a record", async () => {
+  const { mkdtemp, writeFile, rm } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { execFile } = await import("node:child_process");
+  const path = await import("node:path");
+  const { fileURLToPath } = await import("node:url");
+
+  const script = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "scripts", "check-evaluation-record.mjs");
+  const dir = await mkdtemp(path.join(tmpdir(), "evalrec-"));
+  try {
+    await writeFile(path.join(dir, "commits.txt"), `${A}\n`);
+    // What Dependabot actually writes: a changelog, and no record anywhere.
+    const bumpBody = "Bumps [jsdom](https://github.com/jsdom/jsdom) from 29.0.1 to 30.0.1.\n\nSigned-off-by: dependabot[bot]";
+
+    const run = (author) => new Promise((resolve) => {
+      const child = execFile(process.execPath, [script, path.join(dir, "commits.txt")], {
+        env: { ...process.env, PR_AUTHOR: author, GITHUB_OUTPUT: "" },
+      }, (error, stdout, stderr) => resolve({ code: error?.code ?? 0, stdout, stderr }));
+      child.stdin.end(bumpBody);
+    });
+
+    const bot = await run("dependabot[bot]");
+    assert.equal(bot.code, 0, bot.stderr);
+    assert.ok(bot.stdout.includes("::notice::"), `no notice in: ${bot.stdout}`);
+    assert.ok(bot.stdout.includes("dependabot[bot]"), "the notice names who was exempted");
+
+    // The same body from anyone else still fails. The exemption is the author's,
+    // not the body's.
+    const human = await run("syuto33004b1-collab");
+    assert.notEqual(human.code, 0, "a human owes the record");
+    assert.ok(human.stderr.includes("評価者"), human.stderr);
+
+    // No PR_AUTHOR at all — a workflow that forgot to pass it must not exempt.
+    const missing = await run("");
+    assert.notEqual(missing.code, 0, "an unknown author owes the record");
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

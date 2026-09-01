@@ -32,6 +32,20 @@ const SHA_PATTERN = /^[0-9a-f]{40}$/u;
 const MIN_BYPASS_REASON = 20;
 
 /**
+ * Authors whose pull requests carry no evaluation record, because there was no
+ * pre-PR evaluation to record: the diff is not written by an agent that could
+ * have run one. Requiring the record of them made every dependency bump
+ * permanently unmergeable, since `Evaluation record` is a required check (#237).
+ *
+ * The mechanical gates still apply. Only the record is waived.
+ *
+ * This reads the pull request's author as GitHub authenticated it, not anything
+ * from the body, so it cannot be claimed by writing a line. A login cannot
+ * contain brackets, so `dependabot[bot]` is not registrable by a person either.
+ */
+const EXEMPT_AUTHORS = new Set(["dependabot[bot]"]);
+
+/**
  * Removes fenced code blocks so a template or a quoted example inside one is not
  * mistaken for the real record. Without this, the `評価なし承認:` example in
  * AGENTS.md would grant a bypass to anyone who pasted it into a body.
@@ -174,6 +188,11 @@ export function checkEvaluationRecord(body, prCommits, growth) {
   };
 }
 
+/** True when this pull request's author owes no evaluation record (#237). */
+export function isExemptAuthor(login) {
+  return EXEMPT_AUTHORS.has(String(login ?? "").trim().toLowerCase());
+}
+
 /** True when the diff touches the check itself, which review should notice. */
 export function touchesOwnCheck(changedPaths) {
   const watched = [
@@ -195,6 +214,9 @@ export function touchesOwnCheck(changedPaths) {
  *
  * The lists come through files rather than argv because a long-lived branch can
  * exceed the OS argument limit.
+ *
+ * `PR_AUTHOR` is the pull request author's login. An exempt author (#237) owes no
+ * record, and the check says so in the log rather than passing silently.
  *
  * Writes `bypass=true|false` to `$GITHUB_OUTPUT` when that is set, which is what
  * the workflow labels on. It follows the *claim*, not the grant: a body that
@@ -243,6 +265,14 @@ async function main() {
   }
 
   for (const warning of result.warnings) console.log(`::warning::${warning}`);
+
+  // After the warnings, so a bot bumping an action in ci.yml still says so, and
+  // before the exit code, so the record itself is not required (#237).
+  const author = process.env.PR_AUTHOR ?? "";
+  if (isExemptAuthor(author)) {
+    console.log(`::notice::${author} の PR なので評価記録は要求しません（#237）。機械的な検証は通す必要があります。`);
+    return;
+  }
 
   if (result.bypass) {
     console.log(`評価なしで承認されています: ${result.record.bypassReason}`);
