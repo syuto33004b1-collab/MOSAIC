@@ -36,6 +36,15 @@ const READ_RESOURCES = ["summary", "members", "projects", "assignments", "staffi
 const MAX_READ_RESULTS = INTEGRATION_LIMITS.maxReadResults;
 const DEFAULT_READ_RESULTS = INTEGRATION_LIMITS.defaultReadResults;
 const MAX_SKILLS = INTEGRATION_LIMITS.maxSkills;
+// The same number as the screen's weekend picker (`WEEKEND_PICKER_LIMIT` in
+// src/domain.ts): two years of weekends, and a bounded payload.
+//
+// The field replaces the stored days, so a longer list is refused rather than
+// truncated. Truncating would delete the days it dropped, and silently — the
+// caller asked to keep them (#229).
+const MAX_WEEKEND_WORK_DATES = 210;
+// How many of them a proposal card spells out before it starts counting.
+const WEEKEND_PREVIEW_DAYS = 6;
 const SKILL_IMPORTANCES = ["must", "nice"];
 const REPORT_SOURCES = ["members", "projects"];
 const REPORT_GROUP_BY = ["department", "role", "location", "status"];
@@ -146,6 +155,12 @@ const assignmentFields = {
   endDate: dateSchema,
   allocation: { type: "number", exclusiveMinimum: 0, maximum: 100 },
   label: { type: "string", nullable: true },
+  weekendWorkDates: {
+    type: "array",
+    items: dateSchema,
+    maxItems: MAX_WEEKEND_WORK_DATES,
+    description: "土日のうち稼働する日。この配列で置き換えるので、日を足すときは既存の日付も含める。空配列で全て取り消す",
+  },
 };
 
 const needFields = {
@@ -488,6 +503,35 @@ function parseProjectFields(value, patch = false) {
   return parsed;
 }
 
+/**
+ * The weekend days an assignment is worked. Absent keeps what is stored, `[]`
+ * clears it, and `null` is an error — the contract #222 settled, because a whole
+ * workspace is saved at once and a caller that does not know the field must not
+ * erase it.
+ *
+ * Sorted and deduplicated so the same request always hashes the same way. A day
+ * that is not a Saturday or a Sunday is refused here rather than at the database
+ * CHECK, where the caller would read a Postgres error.
+ */
+function weekendWorkDates(value, field) {
+  if (!Array.isArray(value)) fail("INVALID_TOOL_ARGUMENTS", `${field}は配列で入力してください。`);
+  if (value.length > MAX_WEEKEND_WORK_DATES) {
+    fail("INVALID_TOOL_ARGUMENTS", `${field}は一度に${MAX_WEEKEND_WORK_DATES}日までです。それより多い場合は画面から編集してください。`);
+  }
+  const dates = new Set();
+  for (const item of value) {
+    const date = dateValue(item, field);
+    const weekday = new Date(`${date}T00:00:00Z`).getUTCDay();
+    if (weekday !== 0 && weekday !== 6) fail("INVALID_TOOL_ARGUMENTS", `${field}には土日だけを指定してください（${date}は平日です）。`);
+    dates.add(date);
+  }
+  return [...dates].sort();
+}
+
+function optionalWeekendWorkDates(value, field) {
+  return value === undefined ? undefined : weekendWorkDates(value, field);
+}
+
 function parseAssignmentFields(value, patch = false) {
   const input = record(value, patch ? "アサイン変更" : "アサイン");
   allowedKeys(input, Object.keys(assignmentFields), patch ? "アサイン変更" : "アサイン");
@@ -498,6 +542,7 @@ function parseAssignmentFields(value, patch = false) {
     endDate: patch ? optionalDate(input.endDate, "終了日") : dateValue(input.endDate, "終了日"),
     allocation: patch ? optionalNumber(input.allocation, "稼働配分", 0, 100, { exclusiveMin: true, maxDecimals: 2 }) : numberValue(input.allocation, "稼働配分", 0, 100, { exclusiveMin: true, maxDecimals: 2 }),
     label: optionalString(input.label, "ラベル", { allowEmpty: true, nullable: true, max: 240 }),
+    weekendWorkDates: optionalWeekendWorkDates(input.weekendWorkDates, "土日稼働日"),
   });
   if (patch && Object.keys(parsed).length === 0) fail("INVALID_TOOL_ARGUMENTS", "アサインの変更項目を1つ以上指定してください。");
   ensureDateRange(parsed.startDate, parsed.endDate, "アサイン期間");
@@ -1005,6 +1050,26 @@ function memberPeakLoad(state, personId, startDate, endDate, excludedAssignmentI
     const next = days[index + 1] ?? rangeEnd + 1;
     if (containsBusinessDay(day, Math.min(rangeEnd, next - 1))) peak = Math.max(peak, load);
   });
+
+  // The sweep above skips weekends, because a period only means the weekdays in
+  // it. A weekend counts only for the assignments that recorded that exact day,
+  // so it cannot be swept — but it needs no scan either: the recorded days are
+  // the list (#229, mirroring memberPeakLoad in src/domain.ts).
+  const mine = state.assignments.filter((assignment) =>
+    assignment.id !== excludedAssignmentId && assignment.personId === personId && assignment.status !== "cancelled");
+  const recorded = new Set();
+  for (const assignment of mine) {
+    for (const date of assignment.weekendWorkDates ?? []) {
+      if (date >= startDate && date <= endDate) recorded.add(date);
+    }
+  }
+  for (const date of recorded) {
+    const dayLoad = mine
+      .filter((assignment) => assignment.startDate <= date && assignment.endDate >= date
+        && (assignment.weekendWorkDates ?? []).includes(date))
+      .reduce((sum, assignment) => sum + Number(assignment.allocation), 0);
+    peak = Math.max(peak, dayLoad);
+  }
   return peak;
 }
 
@@ -1185,7 +1250,9 @@ export function readWorkspaceTool(snapshot, name, args, caller) {
       .filter((assignment) => !filters.statuses?.length || filters.statuses.includes(assignment.status))
       .filter((assignment) => overlaps(assignment, filters.startDate, filters.endDate))
       .filter((assignment) => !filters.id || assignment.id === filters.id)
-      .map((assignment) => ({ id: assignment.id, personId: assignment.personId, personName: members.get(assignment.personId)?.name ?? null, projectId: assignment.projectId, projectName: projects.get(assignment.projectId)?.name ?? null, startDate: assignment.startDate, endDate: assignment.endDate, allocation: Number(assignment.allocation), status: assignment.status, label: assignment.label ?? null, staffingNeedId: assignment.staffingNeedId ?? null }));
+      // weekendWorkDates is returned in full, never trimmed: a write replaces the
+      // stored days, so a caller reading a short list would delete the rest (#229).
+      .map((assignment) => ({ id: assignment.id, personId: assignment.personId, personName: members.get(assignment.personId)?.name ?? null, projectId: assignment.projectId, projectName: projects.get(assignment.projectId)?.name ?? null, startDate: assignment.startDate, endDate: assignment.endDate, allocation: Number(assignment.allocation), status: assignment.status, label: assignment.label ?? null, staffingNeedId: assignment.staffingNeedId ?? null, weekendWorkDates: [...(assignment.weekendWorkDates ?? [])].sort() }));
     return { resource: filters.resource, revision: state.revision, ...bounded(values, filters.limit) };
   }
 
@@ -1325,6 +1392,20 @@ function assertProjectDates(project) {
 function assertWithinProject(item, project, label) {
   ensureDateRange(item.startDate, item.endDate, `${label}期間`);
   if (item.startDate < project.startDate || item.endDate > project.endDate) fail("WORKSPACE_VALIDATION_FAILED", `${label}期間はプロジェクト期間内にしてください。`);
+}
+
+/**
+ * Weekend days have to fall inside the assignment that records them. Checked
+ * against the period the action *results in*, since a patch can move the period
+ * and name weekend days in the same call, and refused here rather than at the
+ * database trigger (#229).
+ */
+function assertWeekendDatesWithin(assignment, label) {
+  for (const date of assignment.weekendWorkDates ?? []) {
+    if (date < assignment.startDate || date > assignment.endDate) {
+      fail("WORKSPACE_VALIDATION_FAILED", `${label}の土日稼働日は${label}期間内にしてください（${date}は${assignment.startDate}〜${assignment.endDate}の外です）。`);
+    }
+  }
 }
 
 function assertWithinOpportunity(item, opportunity, label) {
@@ -1590,6 +1671,40 @@ function percentPreview(value) {
   return value === null || value === undefined || value === "" ? "未設定" : `${value}%`;
 }
 
+/** `2026-08-22` as 「8/22（土）」. The month and day a person reads on the board. */
+function weekendDayPreview(date) {
+  const parsed = new Date(`${date}T00:00:00Z`);
+  const weekday = ["日", "月", "火", "水", "木", "金", "土"][parsed.getUTCDay()];
+  return `${parsed.getUTCMonth() + 1}/${parsed.getUTCDate()}（${weekday}）`;
+}
+
+/**
+ * Weekend days for a card, at most a handful spelled out. A two-year assignment
+ * can carry a hundred of them, and a hundred dates in one row is not a preview.
+ */
+function weekendDatesPreview(dates) {
+  const values = [...(dates ?? [])].sort();
+  if (!values.length) return "なし";
+  const shown = values.slice(0, WEEKEND_PREVIEW_DAYS).map(weekendDayPreview).join(", ");
+  return values.length > WEEKEND_PREVIEW_DAYS ? `${shown} ほか${values.length - WEEKEND_PREVIEW_DAYS}日（計${values.length}日）` : shown;
+}
+
+/**
+ * What the weekend days mean for the person, as impact lines. Working a Saturday
+ * is not the same kind of change as moving an allocation, so it is said out loud
+ * rather than left in the field list (#229).
+ */
+function weekendWorkImpacts(person, before, after) {
+  const previous = new Set(before ?? []);
+  const next = new Set(after ?? []);
+  const added = [...next].filter((date) => !previous.has(date)).sort();
+  const removed = [...previous].filter((date) => !next.has(date)).sort();
+  const lines = [];
+  if (added.length) lines.push(`${person.name}さんに${weekendDatesPreview(added)}の休日稼働が入ります。`);
+  if (removed.length) lines.push(`${person.name}さんの${weekendDatesPreview(removed)}の休日稼働を取り消します。`);
+  return lines;
+}
+
 function headcountPreview(value) {
   return value === null || value === undefined || value === "" ? "未設定" : `${value}名`;
 }
@@ -1735,18 +1850,24 @@ function applyAction(state, toolName, args, newUuid, requestId) {
   } else if (toolName === "create_assignment") {
     const person = byId(next.members, args.personId, "メンバー");
     const project = byId(next.projects, args.projectId, "プロジェクト");
-    const assignment = { id: newUuid(), personId: person.id, projectId: project.id, startDate: args.startDate, endDate: args.endDate, allocation: args.allocation, status: "confirmed", label: args.label ?? null, staffingNeedId: null, clientRequestId: requestId };
+    const assignment = { id: newUuid(), personId: person.id, projectId: project.id, startDate: args.startDate, endDate: args.endDate, allocation: args.allocation, status: "confirmed", label: args.label ?? null, staffingNeedId: null, clientRequestId: requestId, weekendWorkDates: args.weekendWorkDates ?? [] };
     assertWithinProject(assignment, project, "アサイン");
+    assertWeekendDatesWithin(assignment, "アサイン");
     next.assignments.push(assignment);
     relevantAssignment = assignment;
     subject = `${person.name} → ${project.name}`;
     details.push(`${assignment.startDate}〜${assignment.endDate} / ${assignment.allocation}%`);
+    if (assignment.weekendWorkDates.length) {
+      details.push({ label: "土日稼働", value: weekendDatesPreview(assignment.weekendWorkDates) });
+      impacts.push(...weekendWorkImpacts(person, [], assignment.weekendWorkDates));
+    }
   } else if (toolName === "update_assignment") {
     const current = byId(next.assignments, args.assignmentId, "アサイン");
     const updated = { ...current, ...args.patch };
     const person = byId(next.members, updated.personId, "メンバー");
     const project = byId(next.projects, updated.projectId, "プロジェクト");
     assertWithinProject(updated, project, "アサイン");
+    assertWeekendDatesWithin(updated, "アサイン");
     if (current.staffingNeedId) {
       const need = next.needs.find((candidate) => candidate.id === current.staffingNeedId);
       const testState = { ...next, assignments: next.assignments.map((assignment) => assignment.id === updated.id ? updated : assignment) };
@@ -1772,7 +1893,9 @@ function applyAction(state, toolName, args, newUuid, requestId) {
     addPreviewChange(details, "終了日", current.endDate, updated.endDate);
     addPreviewChange(details, "稼働配分", current.allocation, updated.allocation, percentPreview);
     addPreviewChange(details, "ラベル", current.label, updated.label);
+    addPreviewChange(details, "土日稼働", current.weekendWorkDates ?? [], updated.weekendWorkDates ?? [], weekendDatesPreview);
     addPreviewChange(details, "要員要件との紐づけ", current.staffingNeedId, updated.staffingNeedId, (id) => needPreview(next, id));
+    impacts.push(...weekendWorkImpacts(person, current.weekendWorkDates ?? [], updated.weekendWorkDates ?? []));
   } else if (toolName === "delete_assignment") {
     const assignment = byId(next.assignments, args.assignmentId, "アサイン");
     const person = byId(next.members, assignment.personId, "メンバー");
