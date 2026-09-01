@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { checkEvaluationRecord, isExemptAuthor, touchesOwnCheck } from "../scripts/check-evaluation-record.mjs";
+import { checkEvaluationRecord, evaluationRecordWaived, isExemptAuthor, touchesOwnCheck } from "../scripts/check-evaluation-record.mjs";
 
 const A = "a".repeat(40);
 const B = "b".repeat(40);
@@ -336,6 +336,36 @@ test("exempts only the dependency bot, by its authenticated login", () => {
   assert.equal(isExemptAuthor(undefined), false);
 });
 
+const BOT_COMMIT = "49699333+dependabot[bot]@users.noreply.github.com";
+
+/**
+ * The author of a pull request is whoever opened it, and it stays the bot after
+ * anyone with write access pushes to the branch. Pushing a lint fix onto a bump
+ * branch is a normal thing to do here, so the waiver has to lapse for it (#237).
+ */
+test("the waiver lapses as soon as a commit is not the bot's own", () => {
+  assert.equal(evaluationRecordWaived("dependabot[bot]", [BOT_COMMIT, BOT_COMMIT]).waived, true);
+
+  const mixed = evaluationRecordWaived("dependabot[bot]", [BOT_COMMIT, "owner@example.com"]);
+  assert.equal(mixed.waived, false);
+  assert.match(mixed.reason, /owner@example\.com/u, "the refusal names the address it saw");
+
+  // Fail closed: no commit authors means nothing is waived.
+  assert.equal(evaluationRecordWaived("dependabot[bot]", []).waived, false);
+  assert.equal(evaluationRecordWaived("dependabot[bot]", undefined).waived, false);
+
+  // An unrecognised bot identity is a log line to read, not a hole.
+  const other = evaluationRecordWaived("dependabot[bot]", ["dependabot@example.com"]);
+  assert.equal(other.waived, false);
+  assert.match(other.reason, /dependabot@example\.com/u);
+
+  // Nobody else is waived whatever the commits say, and that is not worth a log
+  // line — it is every other pull request.
+  const human = evaluationRecordWaived("syuto33004b1-collab", [BOT_COMMIT]);
+  assert.equal(human.waived, false);
+  assert.equal(human.reason, undefined);
+});
+
 /**
  * Through the CLI, because the exemption lives in the wiring between the
  * workflow and the check — the same gap that shipped the `/s+/` bug above. A
@@ -352,20 +382,32 @@ test("the CLI lets a Dependabot pull request through without a record", async ()
   const dir = await mkdtemp(path.join(tmpdir(), "evalrec-"));
   try {
     await writeFile(path.join(dir, "commits.txt"), `${A}\n`);
+    await writeFile(path.join(dir, "authors.txt"), `${BOT_COMMIT}\n`);
+    await writeFile(path.join(dir, "mixed.txt"), `${BOT_COMMIT}\nowner@example.com\n`);
     // What Dependabot actually writes: a changelog, and no record anywhere.
     const bumpBody = "Bumps [jsdom](https://github.com/jsdom/jsdom) from 29.0.1 to 30.0.1.\n\nSigned-off-by: dependabot[bot]";
 
-    const run = (author) => new Promise((resolve) => {
-      const child = execFile(process.execPath, [script, path.join(dir, "commits.txt")], {
+    const run = (author, authorsFile = "authors.txt") => new Promise((resolve) => {
+      const argv = [script, path.join(dir, "commits.txt"), path.join(dir, "changed.txt"), path.join(dir, "growth.txt")];
+      if (authorsFile) argv.push(path.join(dir, authorsFile));
+      const child = execFile(process.execPath, argv, {
         env: { ...process.env, PR_AUTHOR: author, GITHUB_OUTPUT: "" },
       }, (error, stdout, stderr) => resolve({ code: error?.code ?? 0, stdout, stderr }));
       child.stdin.end(bumpBody);
     });
+    await writeFile(path.join(dir, "changed.txt"), "package-lock.json\n");
+    await writeFile(path.join(dir, "growth.txt"), `${A} 0 0 0\n`);
 
     const bot = await run("dependabot[bot]");
     assert.equal(bot.code, 0, bot.stderr);
     assert.ok(bot.stdout.includes("::notice::"), `no notice in: ${bot.stdout}`);
     assert.ok(bot.stdout.includes("dependabot[bot]"), "the notice names who was exempted");
+
+    // A commit pushed onto the bot's branch by someone else. The pull request
+    // author is still the bot; the record is owed again, and the log says why.
+    const mixed = await run("dependabot[bot]", "mixed.txt");
+    assert.notEqual(mixed.code, 0, "a human commit on a bump branch owes the record");
+    assert.ok(mixed.stdout.includes("owner@example.com"), `no reason in: ${mixed.stdout}`);
 
     // The same body from anyone else still fails. The exemption is the author's,
     // not the body's.
@@ -376,6 +418,10 @@ test("the CLI lets a Dependabot pull request through without a record", async ()
     // No PR_AUTHOR at all — a workflow that forgot to pass it must not exempt.
     const missing = await run("");
     assert.notEqual(missing.code, 0, "an unknown author owes the record");
+
+    // No authors file at all — the same, for a workflow that forgot argv[5].
+    const noAuthors = await run("dependabot[bot]", "");
+    assert.notEqual(noAuthors.code, 0, "unknown commit authors waive nothing");
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
