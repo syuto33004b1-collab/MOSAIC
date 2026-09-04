@@ -883,6 +883,20 @@ test("keeps the three-valued weekend contract through an assignment patch", () =
   assert.throws(() => patch(null), /配列/);
 });
 
+test("takes weekend days as a difference when editing, and refuses a mixed call", () => {
+  const patch = (fields) => parseWorkspaceToolCall("update_assignment", { assignmentId: ids.assignment, patch: fields }).args.patch;
+  assert.deepEqual(patch({ addWeekendWorkDates: ["2026-08-22"] }).addWeekendWorkDates, ["2026-08-22"]);
+  assert.deepEqual(patch({ removeWeekendWorkDates: ["2026-08-15"] }).removeWeekendWorkDates, ["2026-08-15"]);
+  // One or the other. Both at once has no obvious meaning, so it is refused.
+  assert.throws(() => patch({ weekendWorkDates: ["2026-08-22"], addWeekendWorkDates: ["2026-08-23"] }), /どちらか/);
+  assert.throws(() => patch({ addWeekendWorkDates: ["2026-08-22"], removeWeekendWorkDates: ["2026-08-22"] }), /両方/);
+  // The difference is for editing only: a create has nothing to differ from.
+  assert.throws(
+    () => parseWorkspaceToolCall("create_assignment", { personId: ids.bob, projectId: ids.secondProject, startDate: "2026-08-01", endDate: "2026-08-31", allocation: 10, addWeekendWorkDates: ["2026-08-22"] }),
+    /未対応の項目/,
+  );
+});
+
 test("plans weekend work days and says whose weekend it is", async () => {
   const plan = await planWorkspaceAction(plannerOptions("create_assignment", {
     personId: ids.bob,
@@ -894,9 +908,9 @@ test("plans weekend work days and says whose weekend it is", async () => {
   }));
   assert.deepEqual(plan.payload.assignments.upsert[0].weekendWorkDates, ["2026-08-22", "2026-08-23"]);
   assert.deepEqual(plan.preview.details.filter((detail) => detail?.label === "土日稼働"),
-    [{ label: "土日稼働", value: "8/22（土）, 8/23（日）" }]);
+    [{ label: "土日稼働", value: "2026/8/22（土）, 2026/8/23（日）" }]);
   assert.deepEqual(plan.preview.impacts.filter((line) => line.includes("休日稼働")),
-    ["Bob Bさんに8/22（土）, 8/23（日）の休日稼働が入ります。"]);
+    ["Bob Bさんが2026/8/22（土）, 2026/8/23（日）に休日稼働します。"]);
 });
 
 test("shows the weekend days a patch adds and removes", async () => {
@@ -906,10 +920,10 @@ test("shows the weekend days a patch adds and removes", async () => {
   }, { snapshot: weekendSnapshot() }));
   assert.deepEqual(plan.payload.assignments.upsert[0].weekendWorkDates, ["2026-08-22", "2026-08-23"]);
   assert.deepEqual(plan.preview.details.filter((detail) => detail?.label === "土日稼働"),
-    [{ label: "土日稼働", value: "8/15（土）, 8/22（土） → 8/22（土）, 8/23（日）" }]);
+    [{ label: "土日稼働", value: "2026/8/15（土）, 2026/8/22（土） → 2026/8/22（土）, 2026/8/23（日）" }]);
   assert.deepEqual(plan.preview.impacts.filter((line) => line.includes("休日稼働")), [
-    "Alice Aさんに8/23（日）の休日稼働が入ります。",
-    "Alice Aさんの8/15（土）の休日稼働を取り消します。",
+    "Alice Aさんが2026/8/23（日）に休日稼働します。",
+    "Alice Aさんの2026/8/15（土）の休日稼働を取り消します。",
   ]);
 });
 
@@ -968,4 +982,71 @@ test("counts a recorded weekend in the overload warning", async () => {
     { ...weekendOnly, weekendWorkDates: ["2026-08-22"] }, { snapshot: state }));
   assert.deepEqual(loud.preview.impacts.filter((line) => line.includes("を超えます")),
     ["Bob Bさんの最大稼働が85%となり、稼働上限80%を超えます。"]);
+});
+
+test("carries the weekend contract into the payload the RPC receives", async () => {
+  const stored = ["2026-08-15", "2026-08-22"];
+  const upsert = async (patch) => {
+    const plan = await planWorkspaceAction(plannerOptions("update_assignment",
+      { assignmentId: ids.assignment, patch }, { snapshot: weekendSnapshot(stored) }));
+    return plan.payload.assignments.upsert.find((row) => row.id === ids.assignment);
+  };
+
+  // An edit that says nothing about the weekend keeps every stored day. This is
+  // the case that matters: the row is resent whole, so a dropped field here
+  // would delete the days silently (#222).
+  assert.deepEqual((await upsert({ allocation: 30 })).weekendWorkDates, stored);
+  // Adding one keeps the rest.
+  assert.deepEqual((await upsert({ addWeekendWorkDates: ["2026-08-23"] })).weekendWorkDates,
+    ["2026-08-15", "2026-08-22", "2026-08-23"]);
+  // Removing one keeps the rest.
+  assert.deepEqual((await upsert({ removeWeekendWorkDates: ["2026-08-15"] })).weekendWorkDates, ["2026-08-22"]);
+  // The empty array is the only way to clear them all.
+  assert.deepEqual((await upsert({ weekendWorkDates: [] })).weekendWorkDates, []);
+  // A full replacement still replaces.
+  assert.deepEqual((await upsert({ weekendWorkDates: ["2026-08-23"] })).weekendWorkDates, ["2026-08-23"]);
+});
+
+test("prunes the stored weekend days a shortened assignment no longer covers", async () => {
+  // 8/08〜8/25 with 8/15 and 8/22 recorded, shortened to end on 8/16.
+  const plan = await planWorkspaceAction(plannerOptions("update_assignment",
+    { assignmentId: ids.assignment, patch: { endDate: "2026-08-16" } },
+    { snapshot: weekendSnapshot() }));
+  // The screen prunes at save time and the database trigger prunes regardless, so
+  // refusing the edit would only stop the assistant doing what the screen allows.
+  assert.deepEqual(plan.payload.assignments.upsert[0].weekendWorkDates, ["2026-08-15"]);
+  assert.deepEqual(plan.preview.impacts.filter((line) => line.includes("期間の外")),
+    ["2026/8/22（土）は変更後のアサイン期間の外になるため、休日稼働から外れます。"]);
+  // Announced as a period consequence, not as a removal the caller asked for.
+  assert.deepEqual(plan.preview.impacts.filter((line) => line.includes("取り消します")), []);
+});
+
+test("still refuses weekend days this very call names outside the period", async () => {
+  await assert.rejects(
+    () => planWorkspaceAction(plannerOptions("update_assignment", {
+      assignmentId: ids.assignment,
+      patch: { endDate: "2026-08-16", addWeekendWorkDates: ["2026-08-22"] },
+    }, { snapshot: weekendSnapshot() })),
+    (error) => error.code === "WORKSPACE_VALIDATION_FAILED" && /土日稼働日/.test(error.message),
+  );
+});
+
+test("counts the weekend the same way the screens do at the edges", async () => {
+  // A weekend day exactly on the assignment's first and last day counts, a
+  // cancelled assignment does not, and the assignment being edited is excluded
+  // from the load its own replacement is measured against.
+  const state = snapshot();
+  state.assignments = [
+    { id: ids.assignment, personId: ids.bob, projectId: ids.secondProject, staffingNeedId: null, startDate: "2026-08-22", endDate: "2026-08-23", allocation: 30, status: "confirmed", label: null, weekendWorkDates: ["2026-08-22", "2026-08-23"] },
+    { id: ids.secondAssignment, personId: ids.bob, projectId: ids.secondProject, staffingNeedId: null, startDate: "2026-08-01", endDate: "2026-08-31", allocation: 60, status: "cancelled", label: null, weekendWorkDates: ["2026-08-22"] },
+  ];
+  const read = readWorkspaceTool(state, "read_workspace", { resource: "members", query: "Bob", startDate: "2026-08-22", endDate: "2026-08-22" });
+  // 30 from the boundary day, and nothing from the cancelled 60.
+  assert.equal(read.items[0].peakAllocation, 30);
+  assert.equal(read.items[0].availablePercent, 50);
+
+  // Raising the same assignment to 70 is measured without its own old 30.
+  const plan = await planWorkspaceAction(plannerOptions("update_assignment",
+    { assignmentId: ids.assignment, patch: { allocation: 70 } }, { snapshot: state }));
+  assert.deepEqual(plan.preview.impacts.filter((line) => line.includes("を超えます")), []);
 });

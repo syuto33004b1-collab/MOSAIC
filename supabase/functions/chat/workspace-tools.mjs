@@ -159,7 +159,30 @@ const assignmentFields = {
     type: "array",
     items: dateSchema,
     maxItems: MAX_WEEKEND_WORK_DATES,
-    description: "土日のうち稼働する日。この配列で置き換えるので、日を足すときは既存の日付も含める。空配列で全て取り消す",
+    description: "土日のうち稼働する日。ここに書いた日で全て置き換える。空配列で全て取り消す",
+  },
+};
+
+/**
+ * Editing an assignment takes the weekend days as a difference, not a list.
+ *
+ * A caller that means「土曜も入れて」has to resend every stored day for
+ * `weekendWorkDates` to be safe, and a model that forgets one deletes it. These
+ * two say what changes, so nothing else can be lost (#229).
+ */
+const assignmentPatchFields = {
+  ...assignmentFields,
+  addWeekendWorkDates: {
+    type: "array",
+    items: dateSchema,
+    maxItems: MAX_WEEKEND_WORK_DATES,
+    description: "稼働する土日を追加する。既存の日はそのまま残る。日を足すときはこれを使う",
+  },
+  removeWeekendWorkDates: {
+    type: "array",
+    items: dateSchema,
+    maxItems: MAX_WEEKEND_WORK_DATES,
+    description: "稼働する土日を取り消す。書いた日だけが外れる",
   },
 };
 
@@ -274,7 +297,7 @@ export const WORKSPACE_TOOL_DECLARATIONS = Object.freeze([
   declaration("update_project", "プロジェクトを編集する。期間外になるアサイン・要員要件は取消対象になる。", updateParameters("projectId", projectFields)),
   declaration("delete_project", "プロジェクトをアーカイブし、関連アサイン・要員要件を取り消す。", createParameters({ projectId: uuidSchema }, ["projectId"])),
   declaration("create_assignment", "メンバーをプロジェクトへアサインする。要員要件を充足する場合はassign_person_to_needを使う。", createParameters(assignmentFields, ["personId", "projectId", "startDate", "endDate", "allocation"])),
-  declaration("update_assignment", "アサインを編集する。紐づく要員要件を満たさなくなる場合は要件を再オープンする。", updateParameters("assignmentId", assignmentFields)),
+  declaration("update_assignment", "アサインを編集する。紐づく要員要件を満たさなくなる場合は要件を再オープンする。土日の稼働はaddWeekendWorkDates / removeWeekendWorkDatesで足し引きする。", updateParameters("assignmentId", assignmentPatchFields)),
   declaration("delete_assignment", "アサインを取り消す。紐づく要員要件は再オープンする。", createParameters({ assignmentId: uuidSchema }, ["assignmentId"])),
   declaration("create_staffing_need", "プロジェクトへ未充足の要員要件を登録する。", createParameters(needFields, ["projectId", "role", "skills", "startDate", "endDate", "allocation"])),
   declaration("update_staffing_need", "要員要件を編集する。既存アサインが新条件を満たさない場合は取り消して再オープンする。", updateParameters("staffingNeedId", needFields)),
@@ -534,7 +557,11 @@ function optionalWeekendWorkDates(value, field) {
 
 function parseAssignmentFields(value, patch = false) {
   const input = record(value, patch ? "アサイン変更" : "アサイン");
-  allowedKeys(input, Object.keys(assignmentFields), patch ? "アサイン変更" : "アサイン");
+  allowedKeys(input, Object.keys(patch ? assignmentPatchFields : assignmentFields), patch ? "アサイン変更" : "アサイン");
+  if (patch && input.weekendWorkDates !== undefined
+    && (input.addWeekendWorkDates !== undefined || input.removeWeekendWorkDates !== undefined)) {
+    fail("INVALID_TOOL_ARGUMENTS", "土日稼働日は、全て置き換えるか足し引きするかのどちらかにしてください。");
+  }
   const parsed = compact({
     personId: patch ? optionalUuid(input.personId, "メンバーID") : uuidValue(input.personId, "メンバーID"),
     projectId: patch ? optionalUuid(input.projectId, "プロジェクトID") : uuidValue(input.projectId, "プロジェクトID"),
@@ -543,8 +570,12 @@ function parseAssignmentFields(value, patch = false) {
     allocation: patch ? optionalNumber(input.allocation, "稼働配分", 0, 100, { exclusiveMin: true, maxDecimals: 2 }) : numberValue(input.allocation, "稼働配分", 0, 100, { exclusiveMin: true, maxDecimals: 2 }),
     label: optionalString(input.label, "ラベル", { allowEmpty: true, nullable: true, max: 240 }),
     weekendWorkDates: optionalWeekendWorkDates(input.weekendWorkDates, "土日稼働日"),
+    addWeekendWorkDates: patch ? optionalWeekendWorkDates(input.addWeekendWorkDates, "追加する土日稼働日") : undefined,
+    removeWeekendWorkDates: patch ? optionalWeekendWorkDates(input.removeWeekendWorkDates, "取り消す土日稼働日") : undefined,
   });
   if (patch && Object.keys(parsed).length === 0) fail("INVALID_TOOL_ARGUMENTS", "アサインの変更項目を1つ以上指定してください。");
+  const both = (parsed.addWeekendWorkDates ?? []).filter((date) => (parsed.removeWeekendWorkDates ?? []).includes(date));
+  if (both.length) fail("INVALID_TOOL_ARGUMENTS", `${both.join(", ")}を追加と取り消しの両方に指定しています。`);
   ensureDateRange(parsed.startDate, parsed.endDate, "アサイン期間");
   return parsed;
 }
@@ -1395,17 +1426,51 @@ function assertWithinProject(item, project, label) {
 }
 
 /**
- * Weekend days have to fall inside the assignment that records them. Checked
- * against the period the action *results in*, since a patch can move the period
- * and name weekend days in the same call, and refused here rather than at the
- * database trigger (#229).
+ * Weekend days named by *this* call have to fall inside the period the call
+ * results in — a patch can move the period and name days at once — and are
+ * refused here rather than at the database trigger (#229).
+ *
+ * Days that are already stored are not this call's doing, so they are pruned
+ * instead of refused; see `settleWeekendDates`.
  */
-function assertWeekendDatesWithin(assignment, label) {
-  for (const date of assignment.weekendWorkDates ?? []) {
+function assertWeekendDatesWithin(assignment, dates, label) {
+  for (const date of dates ?? []) {
     if (date < assignment.startDate || date > assignment.endDate) {
       fail("WORKSPACE_VALIDATION_FAILED", `${label}の土日稼働日は${label}期間内にしてください（${date}は${assignment.startDate}〜${assignment.endDate}の外です）。`);
     }
   }
+}
+
+/**
+ * The weekend days an edited assignment ends up with, and the stored ones its new
+ * period drops.
+ *
+ * Shortening an assignment drops the weekend days that fall outside it. The
+ * screen does the same at save time, and the database trigger prunes them
+ * regardless — so refusing the edit would just stop the assistant from doing
+ * something the screen allows. It is announced instead (#229).
+ *
+ * @returns {{ dates: string[], dropped: string[], added: string[] }}
+ */
+function settleWeekendDates(current, patch, period) {
+  const stored = [...(current.weekendWorkDates ?? [])];
+  const replaced = patch.weekendWorkDates !== undefined;
+  const added = replaced
+    ? patch.weekendWorkDates.filter((date) => !stored.includes(date))
+    : (patch.addWeekendWorkDates ?? []);
+  const removed = new Set(replaced
+    ? stored.filter((date) => !patch.weekendWorkDates.includes(date))
+    : (patch.removeWeekendWorkDates ?? []));
+
+  const kept = replaced ? patch.weekendWorkDates : stored.filter((date) => !removed.has(date));
+  const wanted = [...new Set([...kept, ...added])].sort();
+  const inPeriod = (date) => date >= period.startDate && date <= period.endDate;
+  return {
+    dates: wanted.filter(inPeriod),
+    // Only stored days can be dropped: the ones this call named are refused.
+    dropped: wanted.filter((date) => !inPeriod(date)),
+    added,
+  };
 }
 
 function assertWithinOpportunity(item, opportunity, label) {
@@ -1671,11 +1736,16 @@ function percentPreview(value) {
   return value === null || value === undefined || value === "" ? "未設定" : `${value}%`;
 }
 
-/** `2026-08-22` as 「8/22（土）」. The month and day a person reads on the board. */
+/**
+ * `2026-08-22` as 「2026/8/22（土）」.
+ *
+ * With the year, unlike the board's own labels: an assignment can run for years,
+ * and 「8/22（土）」 alone does not say which one is about to be worked (#229).
+ */
 function weekendDayPreview(date) {
   const parsed = new Date(`${date}T00:00:00Z`);
   const weekday = ["日", "月", "火", "水", "木", "金", "土"][parsed.getUTCDay()];
-  return `${parsed.getUTCMonth() + 1}/${parsed.getUTCDate()}（${weekday}）`;
+  return `${parsed.getUTCFullYear()}/${parsed.getUTCMonth() + 1}/${parsed.getUTCDate()}（${weekday}）`;
 }
 
 /**
@@ -1700,7 +1770,7 @@ function weekendWorkImpacts(person, before, after) {
   const added = [...next].filter((date) => !previous.has(date)).sort();
   const removed = [...previous].filter((date) => !next.has(date)).sort();
   const lines = [];
-  if (added.length) lines.push(`${person.name}さんに${weekendDatesPreview(added)}の休日稼働が入ります。`);
+  if (added.length) lines.push(`${person.name}さんが${weekendDatesPreview(added)}に休日稼働します。`);
   if (removed.length) lines.push(`${person.name}さんの${weekendDatesPreview(removed)}の休日稼働を取り消します。`);
   return lines;
 }
@@ -1852,7 +1922,7 @@ function applyAction(state, toolName, args, newUuid, requestId) {
     const project = byId(next.projects, args.projectId, "プロジェクト");
     const assignment = { id: newUuid(), personId: person.id, projectId: project.id, startDate: args.startDate, endDate: args.endDate, allocation: args.allocation, status: "confirmed", label: args.label ?? null, staffingNeedId: null, clientRequestId: requestId, weekendWorkDates: args.weekendWorkDates ?? [] };
     assertWithinProject(assignment, project, "アサイン");
-    assertWeekendDatesWithin(assignment, "アサイン");
+    assertWeekendDatesWithin(assignment, assignment.weekendWorkDates, "アサイン");
     next.assignments.push(assignment);
     relevantAssignment = assignment;
     subject = `${person.name} → ${project.name}`;
@@ -1863,11 +1933,17 @@ function applyAction(state, toolName, args, newUuid, requestId) {
     }
   } else if (toolName === "update_assignment") {
     const current = byId(next.assignments, args.assignmentId, "アサイン");
-    const updated = { ...current, ...args.patch };
+    // The weekend keys are a difference, not fields of the row: `settleWeekendDates`
+    // turns them into the stored list below.
+    const patchFields = Object.fromEntries(Object.entries(args.patch)
+      .filter(([key]) => key !== "addWeekendWorkDates" && key !== "removeWeekendWorkDates"));
+    const updated = { ...current, ...patchFields };
     const person = byId(next.members, updated.personId, "メンバー");
     const project = byId(next.projects, updated.projectId, "プロジェクト");
     assertWithinProject(updated, project, "アサイン");
-    assertWeekendDatesWithin(updated, "アサイン");
+    const weekend = settleWeekendDates(current, args.patch, updated);
+    assertWeekendDatesWithin(updated, weekend.added, "アサイン");
+    updated.weekendWorkDates = weekend.dates;
     if (current.staffingNeedId) {
       const need = next.needs.find((candidate) => candidate.id === current.staffingNeedId);
       const testState = { ...next, assignments: next.assignments.map((assignment) => assignment.id === updated.id ? updated : assignment) };
@@ -1893,9 +1969,16 @@ function applyAction(state, toolName, args, newUuid, requestId) {
     addPreviewChange(details, "終了日", current.endDate, updated.endDate);
     addPreviewChange(details, "稼働配分", current.allocation, updated.allocation, percentPreview);
     addPreviewChange(details, "ラベル", current.label, updated.label);
-    addPreviewChange(details, "土日稼働", current.weekendWorkDates ?? [], updated.weekendWorkDates ?? [], weekendDatesPreview);
+    addPreviewChange(details, "土日稼働", current.weekendWorkDates ?? [], updated.weekendWorkDates, weekendDatesPreview);
     addPreviewChange(details, "要員要件との紐づけ", current.staffingNeedId, updated.staffingNeedId, (id) => needPreview(next, id));
-    impacts.push(...weekendWorkImpacts(person, current.weekendWorkDates ?? [], updated.weekendWorkDates ?? []));
+    // The dropped days get their own line below, so they are not also counted as
+    // a removal the caller asked for.
+    impacts.push(...weekendWorkImpacts(person,
+      (current.weekendWorkDates ?? []).filter((date) => !weekend.dropped.includes(date)),
+      updated.weekendWorkDates));
+    if (weekend.dropped.length) {
+      impacts.push(`${weekendDatesPreview(weekend.dropped)}は変更後のアサイン期間の外になるため、休日稼働から外れます。`);
+    }
   } else if (toolName === "delete_assignment") {
     const assignment = byId(next.assignments, args.assignmentId, "アサイン");
     const person = byId(next.members, assignment.personId, "メンバー");
