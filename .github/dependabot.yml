@@ -12,7 +12,8 @@ updates:
     # Majors that cannot be installed or run here. Measured 2026-09-01 (#239),
     # re-checked 2026-09-08 (#240); each entry says what has to change before
     # it comes out. Only the blocked major is named, so the next one is offered
-    # and judged on its own.
+    # and judged on its own — except where the bound follows this project's own
+    # engines range (@types/node), which no upstream release can lift.
     #
     # This silences security updates for these versions too, not just version
     # updates — a fix released only in the ignored major would not be offered.
@@ -34,8 +35,9 @@ updates:
         versions: ["10.x"]
       # Installs, but lies: `engines.node` is `>=24.0.0 <25`, and the types for
       # a later Node let code that calls APIs this runtime does not have pass
-      # the type check (#243, #249 were closed for this). Remove when the
-      # engines range moves past 24, in the same PR that moves it.
+      # the type check (#243, #249 were closed for this). The bound is the
+      # first major above the engines range: raise it in the same PR that
+      # moves the range (Node 25 makes this `>=26.0.0`), never just drop it.
       - dependency-name: "@types/node"
         versions: [">=25.0.0"]
     groups:
