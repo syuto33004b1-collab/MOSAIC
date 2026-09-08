@@ -491,6 +491,34 @@ describe("role-aware workspace", () => {
     expect(warning()).toHaveTextContent(/150% になります（稼働上限 100%）/u);
   });
 
+  it("counts the weekend days the draft ticks", async () => {
+    // The Saturday already carries 80%, but a weekend day counts only for the
+    // assignments that record it — so the draft's 40% lands there only once it is
+    // ticked. Measured with the draft in place, or a weekend-only overbooking would
+    // pass in silence (the evaluation of #254 caught this).
+    const project = { ...initialWorkspace.projects[0], id: "project", name: "週末案件", startDate: "2026-08-01", endDate: "2026-09-30" };
+    const member = { ...initialWorkspace.members[0], id: "w", name: "週末 太郎", capacity: 100 };
+    const adapter = sharedAdapter();
+    adapter.initialState = {
+      members: [member], projects: [project],
+      assignments: [{ id: "sat", personId: member.id, projectId: project.id, startDate: "2026-08-22", endDate: "2026-08-23", allocation: 80, status: "confirmed", weekendWorkDates: ["2026-08-22"] }],
+      needs: [],
+    } as unknown as WorkspaceState;
+    const user = userEvent.setup();
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
+    await user.click(screen.getByRole("button", { name: "アサインを追加" }));
+    const dialog = within(screen.getByRole("dialog", { name: "詳細パネル" }));
+    await user.click(dialog.getByRole("radio", { name: /週末 太郎/u }));
+    fireEvent.change(dialog.getByLabelText("終了日"), { target: { value: "2026-08-23" } });
+    const warning = () => document.querySelector(".form-note.warn");
+    expect(warning()).toBeNull();
+
+    await user.click(dialog.getByLabelText("22土"));
+    expect(warning()).toHaveTextContent(/120% になります（稼働上限 100%）/u);
+    await user.click(dialog.getByLabelText("22土"));
+    expect(warning()).toBeNull();
+  });
+
   it("cancels a persisted assignment through the shared save payload state", async () => {
     const user = userEvent.setup();
     const adapter = sharedAdapter();

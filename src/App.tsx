@@ -994,12 +994,26 @@ export default function Home({ mode = "demo", organizationId, organizationName =
    * and the assistant's proposal card only says it too (#229).
    */
   const addOverload = (() => {
-    const chosen = addCandidates.find((candidate) => candidate.member.id === form.personId);
-    if (!chosen) return null;
-    // The new assignment covers every day of the range, so the range's peak moves by
-    // exactly the allocation.
-    const projected = chosen.peak + (Number(form.allocation) || 0);
-    return projected > chosen.member.capacity ? { projected, capacity: chosen.member.capacity } : null;
+    const member = memberById(workspace, form.personId);
+    if (!member) return null;
+    // Measured with the draft in place, the way `editCandidates` measures a swap: the
+    // picker's peak plus the allocation would miss the weekend days the form has
+    // ticked, which count only once an assignment records them.
+    const preview: WorkspaceState = {
+      ...workspace,
+      assignments: [...workspace.assignments, {
+        id: "draft-preview",
+        personId: member.id,
+        projectId: form.projectId,
+        startDate: form.startDate,
+        endDate: form.endDate,
+        allocation: Number(form.allocation) || 0,
+        status: "draft",
+        weekendWorkDates: form.weekendWorkDates,
+      }],
+    };
+    const projected = memberPeakLoad(preview, member.id, form.startDate, form.endDate);
+    return projected > member.capacity ? { projected, capacity: member.capacity } : null;
   })();
   const editOverload = (() => {
     // `editCandidates` already measures with the moved assignment in place.
