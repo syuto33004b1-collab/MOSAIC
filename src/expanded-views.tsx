@@ -572,7 +572,11 @@ export function MemberPicker({
  * above the first row and this is not the place to give it back.
  */
 export function ActiveFilters({ applied, result, onClearAll }: {
-  applied: { key: string; label: string; value: string; onClear: () => void }[];
+  /**
+   * A filter with a chosen value is 「状態: 完了」; a filter that is only on or off
+   * is its label alone — 「お気に入りのみ」, not 「お気に入り: のみ」 (#252).
+   */
+  applied: { key: string; label: string; value?: string; onClear: () => void }[];
   /** What the filters left, said where it matters — including 0. */
   result: string;
   onClearAll: () => void;
@@ -589,9 +593,9 @@ export function ActiveFilters({ applied, result, onClearAll }: {
           onClick={item.onClear}
           // The name carries what it does, not just what it is: 「職種: QA」 alone
           // reads as a label rather than a control (#84's lesson, one screen over).
-          aria-label={`${item.label}の絞り込み「${item.value}」を外す`}
+          aria-label={item.value ? `${item.label}の絞り込み「${item.value}」を外す` : `${item.label}の絞り込みを外す`}
         >
-          <span>{item.label}: {item.value}</span>
+          <span>{item.value ? `${item.label}: ${item.value}` : item.label}</span>
           <X size={12} />
         </button>
       ))}
@@ -676,7 +680,7 @@ export function ProjectsView({
           applied={[
             ...(searchValue.trim() ? [{ key: "query", label: "検索", value: searchValue.trim(), onClear: () => setSearchValue("") }] : []),
             ...(status !== "すべて" ? [{ key: "status", label: "状態", value: status, onClear: () => setStatus("すべて") }] : []),
-            ...(favoritesOnly ? [{ key: "favorites", label: "お気に入り", value: "のみ", onClear: () => onFavoritesOnlyChange?.(false) }] : []),
+            ...(favoritesOnly ? [{ key: "favorites", label: "お気に入りのみ", onClear: () => onFavoritesOnlyChange?.(false) }] : []),
           ]}
           result={`${filtered.length}件`}
           onClearAll={() => { setSearchValue(""); setStatus("すべて"); onFavoritesOnlyChange?.(false); }}
@@ -1014,7 +1018,7 @@ export function MembersView({
             ...(role !== "すべて" ? [{ key: "role", label: "職種", value: role, onClear: () => setRole("すべて") }] : []),
             ...(orgFilter ? [{ key: "org", label: "部門", value: orgUnitPath(state.orgUnits, orgFilter).join(" / "), onClear: () => setOrgFilter("") }] : []),
             ...(selectedScene ? [{ key: "scene", label: "シーン", value: selectedScene.name, onClear: () => setSceneId("") }] : []),
-            ...(favoritesOnly ? [{ key: "favorites", label: "お気に入り", value: "のみ", onClear: () => onFavoritesOnlyChange?.(false) }] : []),
+            ...(favoritesOnly ? [{ key: "favorites", label: "お気に入りのみ", onClear: () => onFavoritesOnlyChange?.(false) }] : []),
           ]}
           result={`${filtered.length}名`}
           onClearAll={() => { setSearchValue(""); setRole("すべて"); setOrgFilter(""); setSceneId(""); onFavoritesOnlyChange?.(false); }}

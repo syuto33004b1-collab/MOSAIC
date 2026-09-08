@@ -4897,6 +4897,23 @@ describe("the board narrows by more than one thing", () => {
     expect(marked.every(Boolean)).toBe(true);
   });
 
+  it("names an on-or-off condition by its label alone", async () => {
+    const user = onWednesday();
+    render(<App />);
+    await openBoard(user);
+    await openFilters(user);
+    await user.click(screen.getByLabelText("上限超過のみ"));
+    // #252: the chip read 「上限超過: のみ」, forcing 「ラベル: 値」 onto a condition
+    // that has no value. A condition with a chosen value keeps the colon.
+    expect(chips()).toEqual(["上限超過のみ"]);
+    await user.selectOptions(screen.getByLabelText("部門で絞り込み"), "org-design");
+    expect(chips()).toEqual(["部門: デザイン本部 / デザイン", "上限超過のみ"]);
+
+    await user.click(screen.getByRole("button", { name: "上限超過のみの絞り込みを外す" }));
+    expect((screen.getByLabelText("上限超過のみ") as HTMLInputElement).checked).toBe(false);
+    expect(chips()).toEqual(["部門: デザイン本部 / デザイン"]);
+  });
+
   /**
    * 「要調整」 is the pulse strip's count, which also counts unfilled roles — a
    * different set from a row's own warning. So the control is named after what
