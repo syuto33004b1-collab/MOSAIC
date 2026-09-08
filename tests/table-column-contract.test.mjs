@@ -155,9 +155,17 @@ test("the variable column has both a floor and a ceiling", async () => {
   assert.match(rule[1], /max-width:\s*\d+px/u);
 });
 
-test("the actions cell can grow when its buttons wrap", async () => {
-  // It is display: flex, so the shared `td { height: 68px }` becomes a definite
-  // height and squeezed the two wrapped buttons into a 4px overlap.
+test("the actions cell is a table cell, and the flex box sits inside it", async () => {
+  // The cell used to be display: flex and needed `height: auto` so its wrapped
+  // buttons could grow the row. A flex td is not a table cell: it stopped at its
+  // content's height (49px in a 67px row), and once the column was sticky the
+  // columns scrolled beneath it showed through the bottom 18px (#261). The flex
+  // box is now a div inside the cell, so the cell is as tall as its row.
   const css = withoutComments(await read("src/styles.css"));
-  assert.match(css, /\.member-table td\.member-row-actions\s*\{[^}]*height:\s*auto/u);
+  const cellRules = [...css.matchAll(/(?:^|\})\s*((?:[^{}]*,\s*)?[^{},]*\.member-row-actions)\s*\{([^}]*)\}/gu)];
+  assert.ok(cellRules.length > 0, "expected rules for .member-row-actions");
+  for (const [, selector, body] of cellRules) {
+    assert.doesNotMatch(body, /display:\s*(?:inline-)?flex/u, `${selector.trim()} must stay a table cell`);
+  }
+  assert.match(css, /\.member-row-actions-inner\s*\{[^}]*display:\s*flex/u, "the buttons' flex box must be the inner div");
 });

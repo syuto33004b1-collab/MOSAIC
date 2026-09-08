@@ -1507,8 +1507,12 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
    makes the table wider than its wrapper at every width, so refusing to wrap here buys
    row height at the price of sideways scroll: rows 92 → 67 at 1425px, 83 → 67 at 605px.
    Take the floor away and this does the opposite — the squeeze moves onto the name and
-   skills cells and the rows grow, which is the measurement #136 stopped at (#132). */
-.member-row-actions { display: flex; flex-wrap: nowrap; gap: 6px; justify-content: flex-end; }
+   skills cells and the rows grow, which is the measurement #136 stopped at (#132).
+   The flex box is a div inside the cell, not the cell: a `td` made flex stops being a
+   table cell, sits at its content's height (49px in a 67px row) and paints its
+   background only that far, so the columns scrolled under the sticky actions showed
+   through the bottom 18px (#261). */
+.member-row-actions-inner { display: flex; flex-wrap: nowrap; gap: 6px; justify-content: flex-end; }
 .quick-assign.quiet { color: #687285; }
 .proposal-layout {
   display: grid;
@@ -1767,10 +1771,9 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
    neighbours out of the table. */
 .portfolio-table .col-custom,
 .member-table .col-custom { min-width: 88px; max-width: 150px; }
-/* This cell is display: flex, which turns the shared td height into a definite
-   height rather than a minimum — so when the two buttons wrapped, the flex
-   lines were squeezed into 68px and overlapped by 4px. Let the row grow. */
-.member-table td.member-row-actions { height: auto; align-content: center; }
+/* The actions cell used to be display: flex and needed `height: auto` here so its
+   wrapped buttons could grow the row. It is a table cell again (#261): the row's
+   height is the cell's, and `.member-table td`'s vertical-align centres the inner box. */
 .portfolio-table th,
 .member-table th {
   /* 32px: the label is one 12px line, so 40 was 24px of padding (#136). */
