@@ -1240,6 +1240,10 @@ export function skillInputProblems(value: string): string[] {
     const name = trimmed.slice(0, separator).trim();
     const level = trimmed.slice(separator + 1).trim();
     if (!name) return [`「${trimmed}」のスキル名が空です`];
+    // The last colon is the level's; any other colon is a name the parser would keep
+    // — 「React:abc:3」 as a skill called 「React:abc」 — which is the silence this
+    // function exists to end.
+    if (name.includes(":")) return [`「${trimmed}」のスキル名にコロンは使えません`];
     if (!/^[1-5]$/u.test(level)) return [`「${trimmed}」の習熟度は 1〜5 の数字にしてください`];
     return [];
   });

@@ -1548,6 +1548,31 @@ describe("the member screen's scene form", () => {
     await user.click(screen.getByRole("button", { name: "検索シーンを保存" }));
     expect(await screen.findByRole("option", { name: "書式 検証" })).toBeInTheDocument();
   });
+
+  it("refuses the same skill in the member form, by toast, and keeps the form open", async () => {
+    // The App-side forms guard with a toast rather than an inline error; one of the
+    // four stands for them (the evaluation of #259 asked for a direct check).
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: "メンバー" }));
+    const rows = () => document.querySelectorAll(".member-table tbody tr").length;
+    const before = rows();
+    await user.click(screen.getAllByRole("button", { name: "メンバーを追加" }).find((button) => !button.hasAttribute("disabled"))!);
+    const dialog = within(screen.getByRole("dialog", { name: "詳細パネル" }));
+    await user.type(dialog.getByLabelText("氏名"), "書式 花子");
+    const skills = dialog.getByLabelText("スキル（カンマ区切り）");
+    await user.type(skills, "React:abc:3");
+    await user.click(dialog.getByRole("button", { name: "メンバーを追加" }));
+    expect(screen.getByText("「React:abc:3」のスキル名にコロンは使えません")).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "詳細パネル" })).toBeInTheDocument();
+    expect(rows()).toBe(before);
+
+    await user.clear(skills);
+    await user.type(skills, "React:3");
+    await user.click(dialog.getByRole("button", { name: "メンバーを追加" }));
+    expect(rows()).toBe(before + 1);
+    expect(screen.getByText("書式 花子")).toBeInTheDocument();
+  });
 });
 
 describe("the sidebar's utilisation card", () => {

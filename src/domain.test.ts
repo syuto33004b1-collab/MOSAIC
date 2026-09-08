@@ -494,6 +494,9 @@ describe("skill taxonomy and matching", () => {
     expect(skillInputProblems("TypeScript:9")).toEqual(["「TypeScript:9」の習熟度は 1〜5 の数字にしてください"]);
     expect(skillInputProblems("React:")).toEqual(["「React:」の習熟度は 1〜5 の数字にしてください"]);
     expect(skillInputProblems(":3")).toEqual(["「:3」のスキル名が空です"]);
+    // Only the last colon can be the level's; the evaluation found 「React:abc:3」 slipping through.
+    expect(skillInputProblems("React:abc:3")).toEqual(["「React:abc:3」のスキル名にコロンは使えません"]);
+    expect(skillInputProblems("Kubernetes: Helm:3")).toEqual(["「Kubernetes: Helm:3」のスキル名にコロンは使えません"]);
     expect(skillInputProblems("React:abc, :3")).toHaveLength(2);
     // What the parser would have made of the same input, for the record.
     expect(parseSkillInput("React:abc, :3, TypeScript:9")).toEqual([{ name: "React:abc", proficiency: 3 }, { name: "TypeScript", proficiency: 3 }]);
