@@ -75,7 +75,8 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .icon-button { position: relative; width: 39px; height: 39px; border-radius: 11px; color: #626b7e; font-family: var(--font-data); font-size: 19px; }
 .icon-button.has-dot::after { content: ""; position: absolute; top: 9px; right: 9px; width: 5px; height: 5px; border: 2px solid #fff; border-radius: 50%; background: var(--coral); }
 /* Never shrinks, never wraps: with the search box open the topbar squeezed it into
-   「アサインを追／加」 (#256). What has to give is the search box, whose input can. */
+   「アサインを追／加」 (#256). The room comes from stacking the bar while the box is
+   out (the `search-open` rule below); this only rules out breaking inside the label. */
 .primary-button { flex-shrink: 0; height: 40px; padding: 0 16px; border-color: var(--cobalt); border-radius: 11px; background: var(--cobalt); color: #fff; font-size: var(--text-min); font-weight: 700; white-space: nowrap; box-shadow: 0 8px 18px rgba(86,104,232,.2); }
 .primary-button span { margin-right: 5px; font-size: var(--text-lg); font-weight: 400; }
 
