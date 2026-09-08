@@ -162,10 +162,15 @@ test("the actions cell is a table cell, and the flex box sits inside it", async 
   // columns scrolled beneath it showed through the bottom 18px (#261). The flex
   // box is now a div inside the cell, so the cell is as tall as its row.
   const css = withoutComments(await read("src/styles.css"));
-  const cellRules = [...css.matchAll(/(?:^|\})\s*((?:[^{}]*,\s*)?[^{},]*\.member-row-actions)\s*\{([^}]*)\}/gu)];
+  // Every rule whose selector list names the cell — inside a media block too, and
+  // whether the class sits at the end of the selector or not — must leave `display`
+  // alone; any other display would take the cell out of the table again.
+  const flat = css.replace(/@(?:media|container|supports)[^{]*\{/gu, "");
+  const cellRules = [...flat.matchAll(/([^{}]+)\{([^{}]*)\}/gu)]
+    .filter(([, selectors]) => selectors.split(",").some((selector) => /\.member-row-actions(?![\w-])/u.test(selector)));
   assert.ok(cellRules.length > 0, "expected rules for .member-row-actions");
-  for (const [, selector, body] of cellRules) {
-    assert.doesNotMatch(body, /display:\s*(?:inline-)?flex/u, `${selector.trim()} must stay a table cell`);
+  for (const [, selectors, body] of cellRules) {
+    assert.doesNotMatch(body, /(?:^|;)\s*display\s*:/u, `${selectors.trim().replace(/\s+/gu, " ")} must not change the cell's display`);
   }
   assert.match(css, /\.member-row-actions-inner\s*\{[^}]*display:\s*flex/u, "the buttons' flex box must be the inner div");
 });
