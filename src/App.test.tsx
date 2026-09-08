@@ -4973,6 +4973,17 @@ describe("the board narrows by more than one thing", () => {
     await user.click(screen.getByRole("button", { name: "検索" }));
     await user.click(screen.getByRole("button", { name: "検索を閉じる" }));
     expect(screen.getByRole("button", { name: "検索" })).toHaveFocus();
+
+    // The window closes the popover on Escape; the box does not stop that, so with
+    // both open, one Escape from the box closes both.
+    await user.click(screen.getByRole("button", { name: "検索" }));
+    await user.click(screen.getByRole("button", { name: "通知" }));
+    expect(screen.getByRole("button", { name: "通知を閉じる" })).toBeInTheDocument();
+    await user.click(screen.getByLabelText("メンバー・案件を検索"));
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("button", { name: "通知を閉じる" })).toBeNull();
+    expect(screen.queryByLabelText("メンバー・案件を検索")).toBeNull();
+    expect(screen.getByRole("button", { name: "検索" })).toHaveFocus();
   });
 });
 

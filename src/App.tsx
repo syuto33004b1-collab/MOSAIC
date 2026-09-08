@@ -2707,8 +2707,9 @@ export default function Home({ mode = "demo", organizationId, organizationName =
           </div>
           <div className="topbar-actions">
             {activeNav === "board" && (searchOpen ? (
-              // Escape here, not on the window: it should close only the box the
-              // keyboard is in, the way the drawer and the popover close on it (#257).
+              // Escape here as well as on the window: the box is where the keyboard is,
+              // and it should close the way the drawer and the popover do (#257). The
+              // window handler still runs, so a popover open beside it closes too.
               <label className="search-box"><Search size={16} /><input ref={searchInputRef} value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); closeSearch(); } }} placeholder="メンバー・案件を検索" aria-label="メンバー・案件を検索" /><button type="button" onClick={closeSearch} aria-label="検索を閉じる"><X size={15} /></button></label>
             ) : <button ref={searchButtonRef} className="icon-button" aria-label="検索" onClick={() => setSearchOpen(true)}><Search size={18} /></button>)}
             <div className="notification-wrap">
