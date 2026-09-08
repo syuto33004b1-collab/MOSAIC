@@ -4950,6 +4950,30 @@ describe("the board narrows by more than one thing", () => {
     expect((screen.getByLabelText("上限超過のみ") as HTMLInputElement).checked).toBe(false);
     expect(document.querySelector(".toolbar-chips")).toBeNull();
   });
+
+  it("puts the keyboard in the search box, and hands it back on the way out", async () => {
+    const user = onWednesday();
+    render(<App />);
+    await openBoard(user);
+    const everyone = rowNames();
+
+    // #257: the box replaces the button that opens it, so focus fell to the body on
+    // the way in and on the way out, and Escape — the way out of the drawer and the
+    // popover — did nothing here.
+    await user.click(screen.getByRole("button", { name: "検索" }));
+    expect(screen.getByLabelText("メンバー・案件を検索")).toHaveFocus();
+    await user.keyboard("Atlas");
+    expect(rowNames().length).toBeLessThan(everyone.length);
+
+    await user.keyboard("{Escape}");
+    expect(screen.queryByLabelText("メンバー・案件を検索")).toBeNull();
+    expect(rowNames()).toEqual(everyone);
+    expect(screen.getByRole("button", { name: "検索" })).toHaveFocus();
+
+    await user.click(screen.getByRole("button", { name: "検索" }));
+    await user.click(screen.getByRole("button", { name: "検索を閉じる" }));
+    expect(screen.getByRole("button", { name: "検索" })).toHaveFocus();
+  });
 });
 
 /**
