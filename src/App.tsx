@@ -337,8 +337,8 @@ function formRangeMeasured(startDate: string, endDate: string) {
 
 /** The picker's hint: what the numbers cover, or why there are none. */
 function formRangeHint(startDate: string, endDate: string, measured: string) {
-  if (!startDate || !endDate) return "開始日と終了日を入れると稼働が出ます";
-  if (endDate < startDate) return "終了日が開始日より前です。稼働は日付を直すと出ます";
+  if (!startDate || !endDate) return "開始日と終了日を入れると稼働が表示されます";
+  if (endDate < startDate) return "終了日が開始日より前です。稼働は日付を直すと表示されます";
   return measured;
 }
 
