@@ -94,6 +94,7 @@ import {
   setMemberOrgMemberships,
   setRolePermission,
   searchSceneFromNeed,
+  skillInputProblems,
   submitProfileRequest,
   editableCustomFields,
   visibleCustomFields,
@@ -1782,6 +1783,11 @@ export default function Home({ mode = "demo", organizationId, organizationName =
       setToast("稼働上限は0〜100%で設定してください");
       return;
     }
+    const skillProblems = skillInputProblems(memberForm.skills);
+    if (skillProblems.length > 0) {
+      setToast(skillProblems[0]);
+      return;
+    }
     const id = newId();
     const skillLevels = parseSkillInput(memberForm.skills);
     let customValues: Record<string, string>;
@@ -1835,6 +1841,11 @@ export default function Home({ mode = "demo", organizationId, organizationName =
     }
     if (!Number.isFinite(capacity) || capacity < 0 || capacity > 100) {
       setToast("稼働上限は0〜100%で設定してください");
+      return;
+    }
+    const skillProblems = skillInputProblems(memberEditForm.skills);
+    if (skillProblems.length > 0) {
+      setToast(skillProblems[0]);
       return;
     }
     const skillLevels = parseSkillInput(memberEditForm.skills);
@@ -2041,6 +2052,11 @@ export default function Home({ mode = "demo", organizationId, organizationName =
     }
     if (!Number.isFinite(allocation) || allocation <= 0 || allocation > 100) {
       setToast("必要配分は1〜100%で設定してください");
+      return;
+    }
+    const skillProblems = skillInputProblems(needForm.skills);
+    if (skillProblems.length > 0) {
+      setToast(skillProblems[0]);
       return;
     }
     const existing = editingNeedId ? workspace.needs.find((need) => need.id === editingNeedId) : undefined;
@@ -2325,6 +2341,11 @@ export default function Home({ mode = "demo", organizationId, organizationName =
     }
     if (!Number.isFinite(allocation) || allocation <= 0 || allocation > 100) {
       setToast("必要配分は1〜100%で設定してください");
+      return;
+    }
+    const skillProblems = skillInputProblems(opportunityNeedForm.skills);
+    if (skillProblems.length > 0) {
+      setToast(skillProblems[0]);
       return;
     }
     const existing = editingOpportunityNeedId ? (workspace.opportunityNeeds ?? []).find((need) => need.id === editingOpportunityNeedId) : undefined;

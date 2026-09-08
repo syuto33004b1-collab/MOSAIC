@@ -1527,6 +1527,27 @@ describe("the member screen's scene form", () => {
     // The saved scene turns up in the toolbar's picker.
     expect(await screen.findByRole("option", { name: "バックエンド候補" })).toBeInTheDocument();
   });
+
+  it("refuses a skill whose level is not a number, instead of saving it as a name", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: "メンバー" }));
+    await user.click(screen.getByText("新しい検索シーンの条件を入力"));
+    await user.type(screen.getByPlaceholderText("フロントエンド候補"), "書式 検証");
+
+    // #259: the parser forgave 「React:abc」 as a skill named that, and the scene it
+    // saved matched nobody without a word about why.
+    const must = screen.getByPlaceholderText("React:3, TypeScript:3");
+    await user.type(must, "React:abc");
+    await user.click(screen.getByRole("button", { name: "検索シーンを保存" }));
+    expect(screen.getByRole("alert")).toHaveTextContent("「React:abc」の習熟度は 1〜5 の数字にしてください");
+    expect(screen.queryByRole("option", { name: "書式 検証" })).toBeNull();
+
+    await user.clear(must);
+    await user.type(must, "React:3");
+    await user.click(screen.getByRole("button", { name: "検索シーンを保存" }));
+    expect(await screen.findByRole("option", { name: "書式 検証" })).toBeInTheDocument();
+  });
 });
 
 describe("the sidebar's utilisation card", () => {
