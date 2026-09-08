@@ -911,7 +911,8 @@ export default function Home({ mode = "demo", organizationId, organizationName =
     .sort((a, b) => a.allocation - b.allocation) : [];
   // Dated as well as unfilled (#255): a need whose end has passed stops being a
   // warning here, in the popover and in the report, all of which read this list.
-  const activeNeeds = openNeeds(workspace, currentLocalDate());
+  const todayIso = currentLocalDate();
+  const activeNeeds = openNeeds(workspace, todayIso);
   const selectedNeed = workspace.needs.find((need) => need.id === selectedNeedId);
   const candidateMatches = selectedNeed ? matchMembers(workspace, searchSceneFromNeed(selectedNeed)).slice(0, 5) : [];
   const adjustmentCount = currentOverloads.length + (overloadPlanned ? 1 : 0) + activeNeeds.length;
@@ -1136,7 +1137,6 @@ export default function Home({ mode = "demo", organizationId, organizationName =
   const rangeDistanceLabel = rangeDistance === 0
     ? ""
     : ` · ${Math.abs(rangeDistance)}${range.unit === "week" ? "週" : "か月"}${rangeDistance > 0 ? "後" : "前"}`;
-  const todayIso = currentLocalDate();
 
   const changeView = (mode: "members" | "projects") => {
     setViewMode(mode);
@@ -2874,7 +2874,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                 {activeNeeds.map((need) => (
                   <button className={"alert-card " + (need.status === "planned" ? "planned" : "")} onClick={() => openStaffingNeed(need.id)} key={need.id}>
                     <div className="alert-top"><span>{need.status === "planned" ? <CheckCircle2 size={11} /> : <Clock3 size={11} />} {need.status === "planned" ? "解消予定" : "未充足ロール"}</span><small>{formatDate(need.startDate).replace(/^\d{4}年/, "")}</small></div>
-                    <h3>{projectById(workspace, need.projectId)?.name}の{need.role}が{need.status === "planned" ? "解消予定" : "未定"}</h3><p>{need.status === "planned" ? "候補者を仮置きしました。保存後に充足へ変わります。" : need.startDate <= todayIso ? "稼働配分" + need.allocation + "%の担当者が開始日を過ぎても決まっていません。" : "稼働配分" + need.allocation + "%の担当者を開始日までに決めてください。"}</p>
+                    <h3>{projectById(workspace, need.projectId)?.name}の{need.role}が{need.status === "planned" ? "解消予定" : "未定"}</h3><p>{need.status === "planned" ? "候補者を仮置きしました。保存後に充足へ変わります。" : need.startDate < todayIso ? "稼働配分" + need.allocation + "%の担当者が開始日を過ぎても決まっていません。" : "稼働配分" + need.allocation + "%の担当者を開始日までに決めてください。"}</p>
                     <div className="skill-chips">{need.skills.map((skill) => <span key={skill}>{skill}</span>)}<ArrowRight size={13} /></div>
                   </button>
                 ))}

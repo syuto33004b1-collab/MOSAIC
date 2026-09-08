@@ -470,6 +470,8 @@ describe("role-aware workspace", () => {
         { id: "over", projectId: project.id, role: "QA Engineer", skills: ["QA"], startDate: "2026-08-10", endDate: "2026-08-18", allocation: 40, status: "open" },
         { id: "started", projectId: project.id, role: "Backend Engineer", skills: ["API"], startDate: "2026-08-17", endDate: "2026-09-04", allocation: 60, status: "open" },
         { id: "ahead", projectId: project.id, role: "Designer", skills: ["Figma"], startDate: "2026-08-24", endDate: "2026-09-11", allocation: 50, status: "open" },
+        // Starts today: not yet 「過ぎて」 (the evaluation of #255 asked for this edge).
+        { id: "today", projectId: project.id, role: "Data Analyst", skills: ["SQL"], startDate: "2026-08-19", endDate: "2026-09-05", allocation: 30, status: "open" },
       ],
     } as unknown as WorkspaceState;
     const user = userEvent.setup();
@@ -482,7 +484,8 @@ describe("role-aware workspace", () => {
     expect(panel.getByText(/Backend Engineerが未定/u)).toBeInTheDocument();
     expect(panel.getByText("稼働配分60%の担当者が開始日を過ぎても決まっていません。")).toBeInTheDocument();
     expect(panel.getByText("稼働配分50%の担当者を開始日までに決めてください。")).toBeInTheDocument();
-    expect(document.querySelector(".pulse-metric.warning")).toHaveTextContent(/^2件/u);
+    expect(panel.getByText("稼働配分30%の担当者を開始日までに決めてください。")).toBeInTheDocument();
+    expect(document.querySelector(".pulse-metric.warning")).toHaveTextContent(/^3件/u);
 
     await user.click(screen.getByRole("button", { name: "通知" }));
     expect(screen.queryByText(/QA Engineer担当が未定/u)).toBeNull();
