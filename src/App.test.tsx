@@ -459,6 +459,41 @@ describe("role-aware workspace", () => {
     expect(savedAssignment).toMatchObject({ endDate: "2026-09-18", allocation: 55, status: "confirmed" });
   });
 
+  it("stops warning about a need whose dates have passed, and says when one has started", async () => {
+    const project = { ...initialWorkspace.projects[0], id: "project", name: "期限 案件" };
+    const adapter = sharedAdapter();
+    // The clock is pinned to 2026-08-19 (tests/setup.ts): one need is over, one has
+    // started and runs on, one is still ahead.
+    adapter.initialState = {
+      members: initialWorkspace.members.slice(0, 1), projects: [project], assignments: [],
+      needs: [
+        { id: "over", projectId: project.id, role: "QA Engineer", skills: ["QA"], startDate: "2026-08-10", endDate: "2026-08-18", allocation: 40, status: "open" },
+        { id: "started", projectId: project.id, role: "Backend Engineer", skills: ["API"], startDate: "2026-08-17", endDate: "2026-09-04", allocation: 60, status: "open" },
+        { id: "ahead", projectId: project.id, role: "Designer", skills: ["Figma"], startDate: "2026-08-24", endDate: "2026-09-11", allocation: 50, status: "open" },
+      ],
+    } as unknown as WorkspaceState;
+    const user = userEvent.setup();
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
+
+    // #255: 「status !== filled」 kept the finished one on the board, asking for a
+    // person 「by the start date」 after the end had passed.
+    const panel = within(screen.getByRole("complementary", { name: "要調整" }));
+    expect(panel.queryByText(/QA Engineerが未定/u)).toBeNull();
+    expect(panel.getByText(/Backend Engineerが未定/u)).toBeInTheDocument();
+    expect(panel.getByText("稼働配分60%の担当者が開始日を過ぎても決まっていません。")).toBeInTheDocument();
+    expect(panel.getByText("稼働配分50%の担当者を開始日までに決めてください。")).toBeInTheDocument();
+    expect(document.querySelector(".pulse-metric.warning")).toHaveTextContent(/^2件/u);
+
+    await user.click(screen.getByRole("button", { name: "通知" }));
+    expect(screen.queryByText(/QA Engineer担当が未定/u)).toBeNull();
+    expect(screen.getByText(/Backend Engineer担当が未定/u)).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^レポート/u }));
+    expect(screen.queryByText(/QA Engineer 40% · 担当未定/u)).toBeNull();
+    expect(screen.getByText(/Backend Engineer 60% · 担当未定/u)).toBeInTheDocument();
+  });
+
   it("cancels a persisted assignment through the shared save payload state", async () => {
     const user = userEvent.setup();
     const adapter = sharedAdapter();

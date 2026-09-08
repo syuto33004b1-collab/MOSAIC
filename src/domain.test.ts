@@ -48,6 +48,7 @@ import {
   orgUnitArchiveBlocker,
   orgUnitLoadRows,
   orgUnitPath,
+  openNeeds,
   parseSkillInput,
   pipelineDemandForWeek,
   projectSearchText,
@@ -1019,6 +1020,20 @@ describe("search scenes", () => {
     });
     expect(scenes.at(-1)).toMatchObject({ name: "大阪バックエンド", role: "Backend Engineer", location: "大阪" });
     expect(() => addSearchScene(scenes, { name: "大阪バックエンド", role: "Backend Engineer" })).toThrow("同じ名前");
+  });
+});
+
+describe("which staffing needs still warn", () => {
+  const need = (id: string, startDate: string, endDate: string, status: StaffingNeed["status"] = "open"): StaffingNeed => ({
+    id, projectId: "p", role: "Engineer", skills: [], startDate, endDate, allocation: 40, status,
+  });
+
+  // #255: 「status !== filled」 alone kept a need whose end had passed on the board,
+  // in the popover and in the report, still asking for a person 「by the start date」.
+  it("keeps unfilled needs up to and including their last day, and drops the rest", () => {
+    const state = { needs: [need("ends-today", "2026-08-10", "2026-08-19"), need("ended", "2026-08-10", "2026-08-18"), need("ahead", "2026-08-24", "2026-09-04"), need("filled", "2026-08-24", "2026-09-04", "filled"), need("planned", "2026-08-17", "2026-09-04", "planned")] };
+    expect(openNeeds(state, "2026-08-19").map((entry) => entry.id)).toEqual(["ends-today", "ahead", "planned"]);
+    expect(openNeeds(state, "2026-08-20").map((entry) => entry.id)).toEqual(["ahead", "planned"]);
   });
 });
 

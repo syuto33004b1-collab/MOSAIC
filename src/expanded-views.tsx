@@ -59,6 +59,7 @@ import {
   buildSavedReport,
   buildSkillMap,
   canActAsProfileRequestSubject,
+  currentLocalDate,
   customValue,
   formatCustomValue,
   formatDate,
@@ -68,6 +69,7 @@ import {
   isActiveOpportunity,
   isActiveProfileRequest,
   matchMembers,
+  openNeeds,
   matchScoreMax,
   memberById,
   memberDailyLoads,
@@ -1429,7 +1431,8 @@ export function ReportsView({ state, onOpenWeek, onResolveNeed, onOpenOpportunit
       return { id: department, name: department, path: [department], depth: 0, count: people.length, average: capacity > 0 ? Math.round(load / capacity * 100) : 0, managers: [] as string[] };
     }).sort((a, b) => b.average - a.average);
   const currentOverloads = state.members.filter((member) => memberLoad(state, member.id, getWeekStart(0)) > member.capacity);
-  const activeNeeds = state.needs.filter((need) => need.status !== "filled");
+  // The same list the board warns about (#255): unfilled and not yet over.
+  const activeNeeds = openNeeds(state, currentLocalDate());
   const activeOpportunities = (state.opportunities ?? []).filter(isActiveOpportunity);
   const pipelineNeeds = (state.opportunityNeeds ?? []).filter((need) => activeOpportunities.some((opportunity) => opportunity.id === need.opportunityId));
   const reports = state.savedReports ?? [];
