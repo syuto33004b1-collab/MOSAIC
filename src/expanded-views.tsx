@@ -593,9 +593,9 @@ export function ActiveFilters({ applied, result, onClearAll }: {
           onClick={item.onClear}
           // The name carries what it does, not just what it is: 「職種: QA」 alone
           // reads as a label rather than a control (#84's lesson, one screen over).
-          aria-label={item.value ? `${item.label}の絞り込み「${item.value}」を外す` : `${item.label}の絞り込みを外す`}
+          aria-label={item.value !== undefined ? `${item.label}の絞り込み「${item.value}」を外す` : `${item.label}の絞り込みを外す`}
         >
-          <span>{item.value ? `${item.label}: ${item.value}` : item.label}</span>
+          <span>{item.value !== undefined ? `${item.label}: ${item.value}` : item.label}</span>
           <X size={12} />
         </button>
       ))}
