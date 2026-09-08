@@ -2665,11 +2665,13 @@ export default function Home({ mode = "demo", organizationId, organizationName =
       </aside>
 
       <section className="workspace" id="board" inert={drawer ? true : undefined}>
-        <header className="topbar">
+        {/* `search-open` stacks the bar below 900px while the search box is out — the
+            box is 238px the row does not have there (#256). */}
+        <header className={"topbar" + (activeNav === "board" && searchOpen ? " search-open" : "")}>
           <div>
             {/* 「8月 第3週」, not 「WEEK 34」: an ISO week number is year-wide and says nothing
                 about where in the month you are, which is the question (#194). */}
-            <p className="eyebrow">{page.eyebrow} <span>/</span> {activeNav === "board" ? boardRangeName(range) : "MOSAIC"}</p>
+            <p className="eyebrow">{page.eyebrow} <span>/</span> <span className="eyebrow-range">{activeNav === "board" ? boardRangeName(range) : "MOSAIC"}</span></p>
             <h1>{page.title}</h1>
             {/* Then how far from today, and then what the figures count.
                 The distance is empty at zero: 「今週」 is the word #146 retired from these

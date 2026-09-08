@@ -4950,6 +4950,24 @@ describe("the board narrows by more than one thing", () => {
     expect((screen.getByLabelText("上限超過のみ") as HTMLInputElement).checked).toBe(false);
     expect(document.querySelector(".toolbar-chips")).toBeNull();
   });
+
+  /**
+   * #256: with the search box out, the bar stacks below 900px instead of squeezing
+   * the title into 「第1／週」. jsdom lays nothing out, so this pins the hook the
+   * stylesheet keys on; the widths themselves are measured in the browser.
+   */
+  it("marks the bar while the search box is out", async () => {
+    const user = onWednesday();
+    render(<App />);
+    await openBoard(user);
+    const bar = document.querySelector(".topbar")!;
+    expect(bar.classList.contains("search-open")).toBe(false);
+
+    await user.click(screen.getByRole("button", { name: "検索" }));
+    expect(bar.classList.contains("search-open")).toBe(true);
+    await user.click(screen.getByRole("button", { name: "検索を閉じる" }));
+    expect(bar.classList.contains("search-open")).toBe(false);
+  });
 });
 
 /**
