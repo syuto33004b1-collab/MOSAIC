@@ -803,6 +803,9 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   line-height: 1.6;
 }
 .form-note svg { flex: 0 0 auto; margin-top: 1px; }
+/* The form's own word about an overbooking it is about to draft (#254): the alert
+   colour, so it reads as the 上限超過 card it would otherwise become. */
+.form-note.warn { background: #fdf1ee; color: var(--coral-deep); }
 .drawer-primary, .drawer-secondary, .drawer-danger {
   width: 100%;
   height: 43px;
