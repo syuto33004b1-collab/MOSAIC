@@ -481,10 +481,18 @@ export function MemberPicker({
   query,
   onQueryChange,
   disabled = false,
+  measured = true,
   chosenRef,
 }: {
   legend: string;
   hint: string;
+  /**
+   * Whether the peaks mean anything. With the form's end before its start, the load
+   * over the range is 0 for everyone, and a list of 「0% / 100%」 said 「all free」
+   * while the dates were being fixed (#253). Off, each row shows 「—」 and the hint
+   * says why.
+   */
+  measured?: boolean;
   /** The radio group's name. Distinct per form, so two of these can never share a value. */
   name: string;
   searchLabel: string;
@@ -539,7 +547,7 @@ export function MemberPicker({
             <input type="radio" name={name} value={member.id} checked={value === member.id} disabled={disabled} onChange={() => onChange(member.id)} />
             <span className={"avatar " + member.avatarTone}>{member.initials}</span>
             <span className="member-picker-copy"><strong>{label}</strong><small>{member.role} · {member.department}</small></span>
-            <span className={"member-picker-load" + (peak > member.capacity ? " over" : "")}>{peak}% / {member.capacity}%</span>
+            <span className={"member-picker-load" + (measured ? (peak > member.capacity ? " over" : "") : " unmeasured")}>{measured ? `${peak}% / ${member.capacity}%` : "—"}</span>
             {/* One cell per weekday in the range, filled to that day's share of the
                 ceiling. Decoration — the numbers beside it are what the row says out
                 loud — so past about 60 weekdays a cell is under 5px and the rail is a

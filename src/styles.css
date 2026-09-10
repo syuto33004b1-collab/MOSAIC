@@ -775,6 +775,8 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .member-picker-copy small { color: var(--muted-readable); font-size: var(--text-min); }
 .member-picker-load { font-family: var(--font-data); font-size: var(--text-min); font-weight: 700; white-space: nowrap; }
 .member-picker-load.over { color: var(--coral-deep); }
+/* 「—」 while the form's dates make no range (#253): quiet, not a warning. */
+.member-picker-load.unmeasured { color: var(--muted-readable); }
 /* One column per weekday, so the rail always fits its row rather than scrolling.
    `grid-column: 1 / -1` puts it on a second line under the copy — it is the last
    child, so nothing gets pushed past it (#189 was the other way round). */

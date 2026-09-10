@@ -326,6 +326,22 @@ function assignmentDayRange(days: WeekDay[], start: number, span: number) {
   return first === last ? label(first) : label(first) + "〜" + label(last);
 }
 
+/**
+ * Whether a form's dates make a range the loads can be measured over. With the end
+ * before the start `memberPeakLoad` returns 0 for everyone, and the picker read
+ * 「0% / 100%」 down the list — 「all free」 — while the dates were being fixed (#253).
+ */
+function formRangeMeasured(startDate: string, endDate: string) {
+  return Boolean(startDate && endDate && endDate >= startDate);
+}
+
+/** The picker's hint: what the numbers cover, or why there are none. */
+function formRangeHint(startDate: string, endDate: string, measured: string) {
+  if (!startDate || !endDate) return "開始日と終了日を入れると稼働が表示されます";
+  if (endDate < startDate) return "終了日が開始日より前です。稼働は日付を直すと表示されます";
+  return measured;
+}
+
 function cloneState(state: WorkspaceState): WorkspaceState {
   return JSON.parse(JSON.stringify(state)) as WorkspaceState;
 }
@@ -2977,7 +2993,8 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                 <div className="drawer-heading"><span className="drawer-icon cobalt"><Plus size={19} /></span><div><h2>アサインを追加</h2><p>日付と稼働配分を仮置きします。</p></div></div>
                 <MemberPicker
                   legend="メンバー"
-                  hint={`${shortDate(form.startDate)} — ${shortDate(form.endDate)} の稼働 · 空きが多い順`}
+                  hint={formRangeHint(form.startDate, form.endDate, `${shortDate(form.startDate)} — ${shortDate(form.endDate)} の稼働 · 空きが多い順`)}
+                  measured={formRangeMeasured(form.startDate, form.endDate)}
                   name="assignment-member"
                   searchLabel="アサインするメンバーを検索"
                   candidates={addCandidates}
@@ -3017,7 +3034,8 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                     that person, which is the question a swap actually asks (#219). */}
                 <MemberPicker
                   legend="メンバー"
-                  hint={`${shortDate(assignmentEditForm.startDate)} — ${shortDate(assignmentEditForm.endDate)} · 付け替えた場合の稼働 · 空きが多い順`}
+                  hint={formRangeHint(assignmentEditForm.startDate, assignmentEditForm.endDate, `${shortDate(assignmentEditForm.startDate)} — ${shortDate(assignmentEditForm.endDate)} · 付け替えた場合の稼働 · 空きが多い順`)}
+                  measured={formRangeMeasured(assignmentEditForm.startDate, assignmentEditForm.endDate)}
                   name="assignment-edit-member"
                   searchLabel="付け替え先のメンバーを検索"
                   candidates={editCandidates}

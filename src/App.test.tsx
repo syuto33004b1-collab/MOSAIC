@@ -459,6 +459,26 @@ describe("role-aware workspace", () => {
     expect(savedAssignment).toMatchObject({ endDate: "2026-09-18", allocation: 55, status: "confirmed" });
   });
 
+  it("shows no loads while the form's dates make no range", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByRole("button", { name: "アサインを追加" }));
+    const dialog = within(screen.getByRole("dialog", { name: "詳細パネル" }));
+    const loads = () => [...document.querySelectorAll(".member-picker-load")].map((el) => el.textContent ?? "");
+    expect(loads().every((text) => /^\d+% \/ \d+%$/u.test(text))).toBe(true);
+    expect(loads().some((text) => text !== "0% / 100%")).toBe(true);
+
+    // #253: with the end before the start, memberPeakLoad is 0 for everyone, and the
+    // column read 「0% / 100%」 all the way down — 「all free」 — until the date was fixed.
+    fireEvent.change(dialog.getByLabelText("終了日"), { target: { value: "2026-08-01" } });
+    expect(loads().every((text) => text === "—")).toBe(true);
+    expect(dialog.getByText(/終了日が開始日より前です/u)).toBeInTheDocument();
+
+    fireEvent.change(dialog.getByLabelText("終了日"), { target: { value: "2026-08-21" } });
+    expect(loads().every((text) => /^\d+% \/ \d+%$/u.test(text))).toBe(true);
+    expect(dialog.queryByText(/終了日が開始日より前です/u)).toBeNull();
+  });
+
   it("cancels a persisted assignment through the shared save payload state", async () => {
     const user = userEvent.setup();
     const adapter = sharedAdapter();
