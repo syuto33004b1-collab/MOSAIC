@@ -1458,6 +1458,21 @@ describe("CSV import", () => {
     expect(screen.queryByRole("button", { name: /行を仮置きする/u })).toBeNull();
   });
 
+  it("says which permission is missing, per target", async () => {
+    // A viewer has neither, and the two are different permissions — members are the
+    // owner's and the admin's, projects are anyone who can edit one. The demo grants
+    // both, so this branch is only reachable in shared mode.
+    const user = userEvent.setup();
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "閲覧 太郎", email: "viewer@example.com", role: "viewer" }} shared={sharedAdapter()} />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: "項目定義" }));
+    expect(screen.getByText("メンバーの取り込みはオーナーまたは管理者だけが実行できます。")).toBeInTheDocument();
+    expect(document.querySelector("input[type='file']")).toBeNull();
+
+    await user.selectOptions(screen.getByLabelText("CSVの対象を選ぶ"), "projects");
+    expect(screen.getByText("プロジェクトの取り込みは案件を編集できる権限が必要です。")).toBeInTheDocument();
+    expect(document.querySelector("input[type='file']")).toBeNull();
+  });
+
   it("forgets a parsed file when the target changes under it", async () => {
     // Rows parsed as members must not reach the project importer, so switching the
     // select clears what was read.

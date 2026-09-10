@@ -2589,7 +2589,15 @@ export function CsvTransferPanel({ state, organizationId, canImport = false, can
   return (
     <section className="section-view csv-view" aria-labelledby="csv-heading">
       <h2 id="csv-heading">CSV入出力</h2>
-      <p className="csv-lead">UTF-8（BOM付き）で出力します。メンバーCSVは氏名・職種・部署・勤務地があれば新規登録できます。IDがある行は更新です。</p>
+      {/* Says what each target needs, because both can now be read back in. The
+          columns are the same ones the export writes, so an empty download is the
+          template rather than a format to agree on. */}
+      <p className="csv-lead">
+        UTF-8（BOM付き）で出力します。IDがある行は更新、無い行は新規です。
+        {source === "members"
+          ? "メンバーは氏名・職種・部署・勤務地があれば新規登録できます。"
+          : "プロジェクトは案件名・責任者・開始日・終了日があれば新規登録できます。責任者は画面に出る氏名で書きます。"}
+      </p>
       <div className="csv-toolbar">
         {/* 「CSVの対象」 rather than 「対象」: the field list on this screen has a
             filter of its own, and one screen must not show the same visible
