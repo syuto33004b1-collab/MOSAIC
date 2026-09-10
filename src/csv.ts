@@ -4,16 +4,21 @@ import {
   createProjectCode,
   formatSkillInput,
   hydrateWorkspaceSkills,
+  isWeekendDate,
   makeInitials,
   matchMembers,
+  memberById,
   memberLabel,
   memberLoad,
   memberSkillLevels,
   normalizeCustomValues,
   orderedCustomFields,
   parseSkillInput,
+  projectById,
   skillInputProblems,
   searchSceneFromNeed,
+  type Assignment,
+  type AssignmentStatus,
   type AvatarTone,
   type CustomFieldDefinition,
   type Member,
@@ -25,7 +30,7 @@ import {
 export const MAX_CSV_ROWS = 500;
 export const CSV_PRESETS_KEY = "mosaic-csv-presets-v1";
 
-export type CsvSource = "members" | "projects";
+export type CsvSource = "members" | "projects" | "assignments";
 
 export type CsvColumn = {
   key: string;
@@ -61,6 +66,12 @@ export type ProjectImportAction = {
   project: Project;
 };
 
+export type AssignmentImportAction = {
+  row: number;
+  mode: "create" | "update";
+  assignment: Assignment;
+};
+
 const MEMBER_CORE_COLUMNS: CsvColumn[] = [
   { key: "id", label: "ID" },
   { key: "name", label: "氏名" },
@@ -86,6 +97,28 @@ const PROJECT_CORE_COLUMNS: CsvColumn[] = [
   { key: "demand", label: "必要人数" },
 ];
 
+/**
+ * An assignment as a row, and the reason the people and projects are named rather
+ * than identified.
+ *
+ * `app.assignments.person_id` and `.project_id` are uuids, and nobody types a uuid into
+ * a spreadsheet. So the columns carry what the screens print — and `memberName` carries
+ * `memberLabel`, which appends a distinguishing tag only when a name is shared (#123,
+ * #262). #284's owner column writes the raw name and so cannot be read back when two
+ * people answer to it; starting from the label means a file that went out comes back in.
+ */
+const ASSIGNMENT_CORE_COLUMNS: CsvColumn[] = [
+  { key: "id", label: "ID" },
+  { key: "memberName", label: "メンバー" },
+  { key: "projectName", label: "プロジェクト" },
+  { key: "startDate", label: "開始日" },
+  { key: "endDate", label: "終了日" },
+  { key: "allocation", label: "稼働配分" },
+  { key: "status", label: "状態" },
+  { key: "label", label: "表示名" },
+  { key: "weekendWorkDates", label: "稼働した週末" },
+];
+
 const AVATAR_TONES: AvatarTone[] = ["lavender", "peach", "sky", "mint", "sand", "rose"];
 const TARGET_ID_PATTERN = /^[\w:-]{1,80}$/;
 
@@ -101,6 +134,11 @@ export function projectCsvColumns(catalog: CustomFieldDefinition[] | undefined):
     ...PROJECT_CORE_COLUMNS,
     ...orderedCustomFields(catalog, "project").map((field) => ({ key: `custom:${field.key}`, label: field.label })),
   ];
+}
+
+export function assignmentCsvColumns(): CsvColumn[] {
+  // No custom fields: `customFields` covers members and projects only.
+  return [...ASSIGNMENT_CORE_COLUMNS];
 }
 
 export function parseCsv(text: string): CsvParseResult {
@@ -137,6 +175,12 @@ export function exportProjectsCsv(state: WorkspaceState, columns: string[]) {
   const available = projectCsvColumns(state.customFields);
   const selected = resolveColumns(available, columns);
   const rows = state.projects.map((project) => selected.map((column) => projectCell(state, project, column.key)));
+  return serializeCsv(selected.map((column) => column.key), rows);
+}
+
+export function exportAssignmentsCsv(state: WorkspaceState, columns: string[]) {
+  const selected = resolveColumns(assignmentCsvColumns(), columns);
+  const rows = state.assignments.map((assignment) => selected.map((column) => assignmentCell(state, assignment, column.key)));
   return serializeCsv(selected.map((column) => column.key), rows);
 }
 
@@ -277,6 +321,37 @@ export function applyProjectImport(state: WorkspaceState, actions: ProjectImport
   return { ...state, projects };
 }
 
+export function previewAssignmentImport(state: WorkspaceState, parsed: CsvParseResult, newId: () => string): {
+  issues: CsvIssue[];
+  actions: AssignmentImportAction[];
+} {
+  const issues: CsvIssue[] = [];
+  const actions: AssignmentImportAction[] = [];
+  const seenIds = new Set<string>();
+  parsed.rows.forEach((row, index) => {
+    const rowNumber = index + 2;
+    try {
+      const action = assignmentActionFromRow(state, row, rowNumber, () => newId());
+      if (seenIds.has(action.assignment.id)) throw new Error("同じIDの行が重複しています");
+      seenIds.add(action.assignment.id);
+      actions.push(action);
+    } catch (caught) {
+      issues.push({ row: rowNumber, message: caught instanceof Error ? caught.message : "行を読み込めませんでした" });
+    }
+  });
+  return { issues, actions };
+}
+
+export function applyAssignmentImport(state: WorkspaceState, actions: AssignmentImportAction[]): WorkspaceState {
+  const assignments = [...state.assignments];
+  for (const action of actions) {
+    const index = assignments.findIndex((assignment) => assignment.id === action.assignment.id);
+    if (index >= 0) assignments[index] = action.assignment;
+    else assignments.push(action.assignment);
+  }
+  return { ...state, assignments };
+}
+
 export function normalizeCsvPresets(value: unknown): CsvExportPreset[] {
   if (!Array.isArray(value)) return [];
   return value.flatMap((item) => {
@@ -332,6 +407,22 @@ function projectCell(state: WorkspaceState, project: Project, key: string) {
   return value == null ? "" : String(value);
 }
 
+function assignmentCell(state: WorkspaceState, assignment: Assignment, key: string) {
+  switch (key) {
+    case "memberName": {
+      const member = memberById(state, assignment.personId);
+      return member ? memberLabel(state, member) : "";
+    }
+    case "projectName": return projectById(state, assignment.projectId)?.name ?? "";
+    // Space-separated: a comma would need quoting in every row, and these are dates.
+    case "weekendWorkDates": return (assignment.weekendWorkDates ?? []).join(" ");
+    default: {
+      const value = assignment[key as keyof Assignment];
+      return value == null ? "" : String(value);
+    }
+  }
+}
+
 function memberActionFromRow(state: WorkspaceState, row: Record<string, string>, rowNumber: number, newId: () => string): MemberImportAction {
   const idValue = cell(row, "id");
   const existing = idValue ? state.members.find((member) => member.id === idValue) : undefined;
@@ -370,24 +461,36 @@ function memberActionFromRow(state: WorkspaceState, row: Record<string, string>,
 }
 
 /**
- * The member a `ownerName` cell names.
+ * The member a cell names, by what the screens print rather than by id.
  *
- * The export writes `ownerName`, which is the raw name, so a file that went out comes
- * back in through the second pass. The first pass is what makes namesakes writable at
- * all: `memberLabel` is what the screens print (#123, #262), so pasting what you see —
- * 「佐伯 優斗（#saeki）」 — resolves, and 「佐伯 優斗」 with two of them is refused rather
- * than silently taking the first row's owner.
+ * `memberLabel` is tried first: it is what the board and the pickers show (#123, #262),
+ * appending a tag only when a name is shared, so pasting 「佐伯 優斗（#saeki）」 resolves.
+ * A bare name comes next, because the project export writes the raw `ownerName`. A bare
+ * name two people answer to is refused rather than silently taking the first of them.
+ *
+ * `label` names the column in the message, since two of them use this.
  */
-function ownerFromCell(state: WorkspaceState, value: string) {
+function memberFromCell(state: WorkspaceState, value: string, label: string) {
   const wanted = value.trim();
   const labelled = state.members.filter((member) => memberLabel(state, member) === wanted);
   if (labelled.length === 1) return labelled[0];
   const named = state.members.filter((member) => member.name.trim() === wanted);
   if (named.length === 1) return named[0];
   if (named.length > 1) {
-    throw new Error(`責任者「${wanted}」は複数います。「${memberLabel(state, named[0])}」のように書いてください`);
+    throw new Error(`${label}「${wanted}」は複数います。「${memberLabel(state, named[0])}」のように書いてください`);
   }
-  throw new Error(`責任者「${wanted}」が見つかりません`);
+  throw new Error(`${label}「${wanted}」が見つかりません`);
+}
+
+/** The project a cell names. Both the name and the code, because either is on screen. */
+function projectFromCell(state: WorkspaceState, value: string) {
+  const wanted = value.trim();
+  const named = state.projects.filter((project) => project.name.trim() === wanted);
+  if (named.length === 1) return named[0];
+  if (named.length > 1) throw new Error(`プロジェクト「${wanted}」は複数あります。コードで指定してください`);
+  const coded = state.projects.filter((project) => project.code.trim() === wanted);
+  if (coded.length === 1) return coded[0];
+  throw new Error(`プロジェクト「${wanted}」が見つかりません`);
 }
 
 const PROJECT_STATUSES: ProjectStatus[] = ["進行中", "要注意", "準備中", "完了間近", "完了"];
@@ -432,7 +535,7 @@ function projectActionFromRow(state: WorkspaceState, row: Record<string, string>
     && (!hasColumn(row, "ownerName") || ownerCellGiven === (existing?.ownerName ?? ""));
   const owner = existing && ownerUnchanged
     ? null
-    : ownerFromCell(state, existing ? valueOr(row, "ownerName", existing.ownerName ?? "") : required(row, "ownerName", "責任者"));
+    : memberFromCell(state, existing ? valueOr(row, "ownerName", existing.ownerName ?? "") : required(row, "ownerName", "責任者"), "責任者");
 
   const statusRaw = hasColumn(row, "status") ? cell(row, "status") : existing?.status ?? "準備中";
   if (!PROJECT_STATUSES.includes(statusRaw as ProjectStatus)) {
@@ -500,6 +603,76 @@ function projectActionFromRow(state: WorkspaceState, row: Record<string, string>
     customValues: customValuesFromRow(state.customFields, "project", row, existing?.customValues),
   };
   return { row: rowNumber, mode: existing ? "update" : "create", project };
+}
+
+const ASSIGNMENT_STATUSES: AssignmentStatus[] = ["draft", "confirmed"];
+
+function assignmentActionFromRow(state: WorkspaceState, row: Record<string, string>, rowNumber: number, newId: () => string): AssignmentImportAction {
+  const idValue = cell(row, "id");
+  const existing = idValue ? state.assignments.find((assignment) => assignment.id === idValue) : undefined;
+  if (idValue && !existing) throw new Error("指定したIDのアサインが見つかりません");
+  if (idValue && !TARGET_ID_PATTERN.test(idValue)) throw new Error("IDの形式を確認してください");
+
+  const member = hasColumn(row, "memberName") || !existing
+    ? memberFromCell(state, required(row, "memberName", "メンバー"), "メンバー")
+    : memberById(state, existing.personId);
+  if (!member) throw new Error("メンバーが見つかりません");
+
+  const project = hasColumn(row, "projectName") || !existing
+    ? projectFromCell(state, required(row, "projectName", "プロジェクト"))
+    : projectById(state, existing.projectId);
+  if (!project) throw new Error("プロジェクトが見つかりません");
+
+  const startDate = isoDate(existing ? valueOr(row, "startDate", existing.startDate) : required(row, "startDate", "開始日"), "開始日");
+  const endDate = isoDate(existing ? valueOr(row, "endDate", existing.endDate) : required(row, "endDate", "終了日"), "終了日");
+  if (endDate < startDate) throw new Error("終了日は開始日以降にしてください");
+  // `handleEditProject` cancels an assignment that reaches outside its project, so one
+  // imported that way would vanish the next time anyone edited that project.
+  if (startDate < project.startDate || endDate > project.endDate) {
+    throw new Error(`プロジェクト「${project.name}」の期間（${project.startDate}〜${project.endDate}）に収まる範囲にしてください`);
+  }
+
+  const allocationRaw = existing ? valueOr(row, "allocation", String(existing.allocation)) : required(row, "allocation", "稼働配分");
+  const allocation = Number(allocationRaw);
+  // `> 0`, not `>= 0`: `allocation_percent` carries that check, unlike a project's progress.
+  if (!Number.isFinite(allocation) || allocation <= 0 || allocation > 100) {
+    throw new Error("稼働配分は0より大きく100以下で入力してください");
+  }
+
+  const statusRaw = hasColumn(row, "status") ? cell(row, "status") : existing?.status ?? "draft";
+  if (!ASSIGNMENT_STATUSES.includes(statusRaw as AssignmentStatus)) {
+    // The column accepts `cancelled` in the database, but cancelling is something the
+    // screens do to an assignment that exists — not a row a file brings in.
+    throw new Error(`状態は ${ASSIGNMENT_STATUSES.join(" または ")} にしてください`);
+  }
+
+  const labelValue = hasColumn(row, "label") ? cell(row, "label") : existing?.label ?? "";
+  if (labelValue.length > 240) throw new Error("表示名は240文字以内にしてください");
+
+  const weekendGiven = hasColumn(row, "weekendWorkDates");
+  const weekendDates = weekendGiven
+    ? cell(row, "weekendWorkDates").split(/\s+/u).filter(Boolean)
+    : existing?.weekendWorkDates ?? [];
+  for (const date of weekendDates) {
+    isoDate(date, "稼働した週末");
+    // Both halves of what the database asks: Saturday or Sunday, and inside the period.
+    if (!isWeekendDate(date)) throw new Error(`稼働した週末「${date}」は土日ではありません`);
+    if (date < startDate || date > endDate) throw new Error(`稼働した週末「${date}」がアサインの期間外です`);
+  }
+
+  const assignment: Assignment = {
+    ...(existing ?? {}),
+    id: existing?.id ?? newId(),
+    personId: member.id,
+    projectId: project.id,
+    startDate,
+    endDate,
+    allocation,
+    status: statusRaw as AssignmentStatus,
+    label: labelValue || undefined,
+    weekendWorkDates: [...new Set(weekendDates)].sort(),
+  };
+  return { row: rowNumber, mode: existing ? "update" : "create", assignment };
 }
 
 function customValuesFromRow(

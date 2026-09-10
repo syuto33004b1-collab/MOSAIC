@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyMemberImport, applyProjectImport, DEFAULT_PROPOSAL_CSV_COLUMNS, exportMembersCsv, exportProjectsCsv, exportProposalCsv, parseCsv, previewMemberImport, previewProjectImport, proposalCsvColumns, PROPOSAL_CSV_COLUMNS, serializeCsv } from "./csv";
+import { applyAssignmentImport, applyMemberImport, applyProjectImport, assignmentCsvColumns, exportAssignmentsCsv, previewAssignmentImport, DEFAULT_PROPOSAL_CSV_COLUMNS, exportMembersCsv, exportProjectsCsv, exportProposalCsv, parseCsv, previewMemberImport, previewProjectImport, proposalCsvColumns, PROPOSAL_CSV_COLUMNS, serializeCsv } from "./csv";
 import { getWeekStart, initialWorkspace, matchMembers, searchSceneFromNeed, type WorkspaceState } from "./domain";
 
 describe("csv round-trip", () => {
@@ -319,5 +319,94 @@ describe("project csv import", () => {
     // Everything the row is silent about keeps the stored value; `ownerPersonId` is the
     // one addition, resolved from the `ownerName` the seed already carried.
     expect(preview.actions[0].project).toEqual({ ...atlas, ownerPersonId: "hayashi", progress: 72 });
+  });
+});
+
+describe("assignment csv", () => {
+  const atlas = initialWorkspace.projects.find((project) => project.id === "atlas")!;
+  const inAtlas = initialWorkspace.assignments.find((assignment) => assignment.projectId === "atlas")!;
+
+  it("writes the label the board prints, so a namesake survives the round trip", () => {
+    // #284's owner column writes the raw name and cannot be read back when two people
+    // answer to it. This one starts from `memberLabel`, so it can.
+    const twins: WorkspaceState = {
+      ...initialWorkspace,
+      members: [
+        { ...initialWorkspace.members[0], id: "one", name: "林 葵", location: "東京" },
+        { ...initialWorkspace.members[1], id: "two", name: "林 葵", location: "大阪" },
+      ],
+      projects: [atlas],
+      assignments: [{ ...inAtlas, id: "a", personId: "two", projectId: atlas.id }],
+      needs: [],
+    };
+    const csv = exportAssignmentsCsv(twins, assignmentCsvColumns().map((column) => column.key));
+    expect(parseCsv(csv).rows[0].memberName).toBe("林 葵（大阪）");
+
+    const back = previewAssignmentImport(twins, parseCsv(csv), () => "x");
+    expect(back.issues).toEqual([]);
+    expect(back.actions[0].assignment.personId).toBe("two");
+    expect(applyAssignmentImport(twins, back.actions).assignments).toHaveLength(1);
+  });
+
+  it("creates from names, and keeps the weekend days it is given", () => {
+    const csv = "memberName,projectName,startDate,endDate,allocation,status,weekendWorkDates\n"
+      + `佐伯 優斗,${atlas.name},2026-08-21,2026-08-23,40,confirmed,2026-08-22 2026-08-23\n`;
+    const preview = previewAssignmentImport(initialWorkspace, parseCsv(csv), () => "fresh");
+    expect(preview.issues).toEqual([]);
+    expect(preview.actions[0]).toMatchObject({ mode: "create" });
+    expect(preview.actions[0].assignment).toMatchObject({
+      id: "fresh", personId: "saeki", projectId: "atlas", allocation: 40, status: "confirmed",
+      weekendWorkDates: ["2026-08-22", "2026-08-23"],
+    });
+    // The project can also be named by its code, which is what the export writes for it.
+    const byCode = previewAssignmentImport(initialWorkspace, parseCsv(
+      `memberName,projectName,startDate,endDate,allocation\n佐伯 優斗,${atlas.code},2026-08-21,2026-08-23,40\n`,
+    ), () => "x");
+    expect(byCode.issues).toEqual([]);
+    expect(byCode.actions[0].assignment.projectId).toBe("atlas");
+    // Nothing said about the status: a draft, like the form's own default.
+    expect(byCode.actions[0].assignment.status).toBe("draft");
+  });
+
+  it("refuses what the database and the screens refuse", () => {
+    const head = "memberName,projectName,startDate,endDate,allocation";
+    const cases: [string, string][] = [
+      // `allocation_percent` is `> 0`, unlike a project's progress.
+      [`${head}\n佐伯 優斗,${atlas.name},2026-08-21,2026-08-23,0\n`, "稼働配分は0より大きく100以下で入力してください"],
+      [`${head}\n佐伯 優斗,${atlas.name},2026-08-21,2026-08-23,140\n`, "稼働配分は0より大きく100以下で入力してください"],
+      [`${head}\n佐伯 優斗,${atlas.name},2026-08-23,2026-08-21,40\n`, "終了日は開始日以降にしてください"],
+      [`${head}\n佐伯 優斗,${atlas.name},2026-02-31,2026-08-23,40\n`, "開始日「2026-02-31」は存在しない日付です"],
+      [`${head}\n居ない 人,${atlas.name},2026-08-21,2026-08-23,40\n`, "メンバー「居ない 人」が見つかりません"],
+      [`${head}\n佐伯 優斗,無い案件,2026-08-21,2026-08-23,40\n`, "プロジェクト「無い案件」が見つかりません"],
+      // Outside the project: `handleEditProject` would cancel it at the next edit.
+      [`${head}\n佐伯 優斗,${atlas.name},2026-01-01,2026-01-05,40\n`, `プロジェクト「${atlas.name}」の期間（${atlas.startDate}〜${atlas.endDate}）に収まる範囲にしてください`],
+      [`${head},status\n佐伯 優斗,${atlas.name},2026-08-21,2026-08-23,40,cancelled\n`, "状態は draft または confirmed にしてください"],
+      // Saturday and Sunday only, and inside the assignment: both halves of what the
+      // `assignment_weekend_days` table asks.
+      [`${head},weekendWorkDates\n佐伯 優斗,${atlas.name},2026-08-21,2026-08-23,40,2026-08-21\n`, "稼働した週末「2026-08-21」は土日ではありません"],
+      [`${head},weekendWorkDates\n佐伯 優斗,${atlas.name},2026-08-21,2026-08-23,40,2026-08-29\n`, "稼働した週末「2026-08-29」がアサインの期間外です"],
+      [`id,${head}\nnope,佐伯 優斗,${atlas.name},2026-08-21,2026-08-23,40\n`, "指定したIDのアサインが見つかりません"],
+    ];
+    for (const [csv, message] of cases) {
+      const preview = previewAssignmentImport(initialWorkspace, parseCsv(csv), () => "x");
+      expect(preview.actions, message).toEqual([]);
+      expect(preview.issues[0].message, message).toBe(message);
+    }
+  });
+
+  it("leaves an updated row's untouched columns alone", () => {
+    const preview = previewAssignmentImport(initialWorkspace, parseCsv(`id,allocation\n${inAtlas.id},35\n`), () => "x");
+    expect(preview.issues).toEqual([]);
+    expect(preview.actions[0].assignment).toMatchObject({
+      id: inAtlas.id, personId: inAtlas.personId, projectId: inAtlas.projectId,
+      startDate: inAtlas.startDate, endDate: inAtlas.endDate, allocation: 35, status: inAtlas.status,
+    });
+  });
+
+  it("does not link a staffing need, leaving that to the RPC", () => {
+    const preview = previewAssignmentImport(initialWorkspace, parseCsv(
+      `memberName,projectName,startDate,endDate,allocation\n佐伯 優斗,${atlas.name},2026-08-21,2026-08-23,40\n`,
+    ), () => "x");
+    expect(preview.actions[0].assignment.staffingNeedId).toBeUndefined();
   });
 });

@@ -1458,6 +1458,31 @@ describe("CSV import", () => {
     expect(screen.queryByRole("button", { name: /行を仮置きする/u })).toBeNull();
   });
 
+  it("imports an assignment CSV, which is the last leg of a migration", async () => {
+    // #286: members and projects could be brought in, but the assignments between them
+    // had to be typed one drawer at a time.
+    const user = userEvent.setup();
+    const adapter = sharedAdapter();
+    const save = vi.fn().mockResolvedValue({ revision: 8, savedAt: "2026-08-17T10:00:00Z" });
+    adapter.save = save;
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: "項目定義" }));
+    await user.selectOptions(screen.getByLabelText("CSVの対象を選ぶ"), "assignments");
+    expect(screen.getByText("アサインCSVを取り込む")).toBeInTheDocument();
+
+    const input = document.querySelector("input[type='file']") as HTMLInputElement;
+    await user.upload(input, new File(
+      ["memberName,projectName,startDate,endDate,allocation,status\n松本 蓮,Atlas リニューアル,2026-08-24,2026-08-28,30,confirmed\n"],
+      "assignments.csv", { type: "text/csv" },
+    ));
+    await user.click(await screen.findByRole("button", { name: "1行を仮置きする" }));
+    await user.click(screen.getByRole("button", { name: "チームへ保存" }));
+    await waitFor(() => expect(save).toHaveBeenCalledOnce());
+    const saved = save.mock.calls[0][0] as WorkspaceState;
+    const added = saved.assignments.find((assignment) => assignment.startDate === "2026-08-24" && assignment.allocation === 30);
+    expect(added).toMatchObject({ personId: "matsumoto", projectId: "atlas", status: "confirmed" });
+  });
+
   it("says which permission is missing, per target", async () => {
     // A viewer has neither, and the two are different permissions — members are the
     // owner's and the admin's, projects are anyone who can edit one. The demo grants
