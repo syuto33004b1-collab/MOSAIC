@@ -497,6 +497,86 @@ describe("role-aware workspace", () => {
     expect(screen.getByText(/Backend Engineer 60% · 担当未定/u)).toBeInTheDocument();
   });
 
+  it("says what the draft would take the member to, and still lets it through", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByRole("button", { name: "アサインを追加" }));
+    const dialog = within(screen.getByRole("dialog", { name: "詳細パネル" }));
+    // 中村 美咲 is at 100% for the form's week (Atlas 80% + 運用サポート 20%); the
+    // default allocation is 40%.
+    await user.click(dialog.getByRole("radio", { name: /中村 美咲/u }));
+    // #254: nothing said this, and the 140% arrived afterwards as an 上限超過 card.
+    // By text, not by role: the page carries other status regions (the toast).
+    const warning = () => document.querySelector(".form-note.warn");
+    expect(warning()).toHaveAttribute("role", "status");
+    expect(warning()).toHaveTextContent(/140% になります（稼働上限 100%）/u);
+    expect(dialog.getByRole("button", { name: "この内容で仮置きする" })).toBeEnabled();
+
+    // The figure follows the slider, and goes away for someone with room: 松本 蓮 is
+    // at 40% that week (Atlas QA), so 10% more stays under the ceiling.
+    fireEvent.change(dialog.getByLabelText("稼働配分"), { target: { value: "70" } });
+    expect(warning()).toHaveTextContent(/170% になります/u);
+    fireEvent.change(dialog.getByLabelText("稼働配分"), { target: { value: "10" } });
+    await user.click(dialog.getByRole("radio", { name: /松本 蓮/u }));
+    expect(warning()).toBeNull();
+
+    // The swap form measures with the moved assignment in place: 佐伯's 50% onto 中村.
+    await user.keyboard("{Escape}");
+    await user.click(screen.getAllByRole("button", { name: /^Atlas リニューアルのアサイン詳細（佐伯 優斗/u })[0]);
+    const edit = within(screen.getByRole("dialog", { name: "詳細パネル" }));
+    expect(warning()).toBeNull();
+    await user.click(edit.getByRole("radio", { name: /中村 美咲/u }));
+    expect(warning()).toHaveTextContent(/150% になります（稼働上限 100%）/u);
+  });
+
+  it("counts the weekend days the draft ticks", async () => {
+    // The Saturday already carries 80%, but a weekend day counts only for the
+    // assignments that record it — so the draft's 40% lands there only once it is
+    // ticked. Measured with the draft in place, or a weekend-only overbooking would
+    // pass in silence (the evaluation of #254 caught this).
+    const project = { ...initialWorkspace.projects[0], id: "project", name: "週末案件", startDate: "2026-08-01", endDate: "2026-09-30" };
+    const member = { ...initialWorkspace.members[0], id: "w", name: "週末 太郎", capacity: 100 };
+    const adapter = sharedAdapter();
+    adapter.initialState = {
+      members: [member], projects: [project],
+      assignments: [{ id: "sat", personId: member.id, projectId: project.id, startDate: "2026-08-22", endDate: "2026-08-23", allocation: 80, status: "confirmed", weekendWorkDates: ["2026-08-22"] }],
+      needs: [],
+    } as unknown as WorkspaceState;
+    const user = userEvent.setup();
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
+    await user.click(screen.getByRole("button", { name: "アサインを追加" }));
+    const dialog = within(screen.getByRole("dialog", { name: "詳細パネル" }));
+    await user.click(dialog.getByRole("radio", { name: /週末 太郎/u }));
+    fireEvent.change(dialog.getByLabelText("終了日"), { target: { value: "2026-08-23" } });
+    const warning = () => document.querySelector(".form-note.warn");
+    expect(warning()).toBeNull();
+
+    await user.click(dialog.getByLabelText("22土"));
+    expect(warning()).toHaveTextContent(/120% になります（稼働上限 100%）/u);
+    await user.click(dialog.getByLabelText("22土"));
+    expect(warning()).toBeNull();
+  });
+
+  it("shows no loads while the form's dates make no range", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByRole("button", { name: "アサインを追加" }));
+    const dialog = within(screen.getByRole("dialog", { name: "詳細パネル" }));
+    const loads = () => [...document.querySelectorAll(".member-picker-load")].map((el) => el.textContent ?? "");
+    expect(loads().every((text) => /^\d+% \/ \d+%$/u.test(text))).toBe(true);
+    expect(loads().some((text) => text !== "0% / 100%")).toBe(true);
+
+    // #253: with the end before the start, memberPeakLoad is 0 for everyone, and the
+    // column read 「0% / 100%」 all the way down — 「all free」 — until the date was fixed.
+    fireEvent.change(dialog.getByLabelText("終了日"), { target: { value: "2026-08-01" } });
+    expect(loads().every((text) => text === "—")).toBe(true);
+    expect(dialog.getByText(/終了日が開始日より前です/u)).toBeInTheDocument();
+
+    fireEvent.change(dialog.getByLabelText("終了日"), { target: { value: "2026-08-21" } });
+    expect(loads().every((text) => /^\d+% \/ \d+%$/u.test(text))).toBe(true);
+    expect(dialog.queryByText(/終了日が開始日より前です/u)).toBeNull();
+  });
+
   it("cancels a persisted assignment through the shared save payload state", async () => {
     const user = userEvent.setup();
     const adapter = sharedAdapter();
@@ -1565,6 +1645,21 @@ describe("the member screen's scene form", () => {
     // The saved scene turns up in the toolbar's picker.
     expect(await screen.findByRole("option", { name: "バックエンド候補" })).toBeInTheDocument();
   });
+
+  it("drops the name error as soon as a name is typed", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: "メンバー" }));
+    await user.click(screen.getByText("新しい検索シーンの条件を入力"));
+
+    // #258: the error was set by a submit and cleared only by the next one, so it
+    // stayed up beside a name that had since been typed — and a submit the browser
+    // itself refuses (最小空き over its max) never reaches the code that clears it.
+    await user.click(screen.getByRole("button", { name: "検索シーンを保存" }));
+    expect(screen.getByText("検索シーン名を入力してください")).toHaveAttribute("role", "alert");
+    await user.type(screen.getByPlaceholderText("フロントエンド候補"), "テスト");
+    expect(screen.queryByText("検索シーン名を入力してください")).toBeNull();
+  });
 });
 
 describe("the sidebar's utilisation card", () => {
@@ -1953,6 +2048,30 @@ describe("one name per control on the board", () => {
 
     const days = getWeekDays(0);
     expect(screen.getByRole("button", { name: `単日 案件のアサイン詳細（単日 三郎・${days[2].month}/${days[2].date}）` })).toBeInTheDocument();
+  });
+
+  it("shows the allocation once on the projects axis", async () => {
+    const project = { ...initialWorkspace.projects[0], id: "project", name: "Atlas リニューアル" };
+    const member = { ...initialWorkspace.members[0], id: "one", name: "佐伯 優斗" };
+    const span = { startDate: weekStart, endDate: addDays(weekStart, 4) };
+    const adapter = sharedAdapter();
+    adapter.initialState = {
+      members: [member], projects: [project],
+      assignments: [{ id: "a", personId: member.id, projectId: project.id, ...span, allocation: 50, status: "confirmed" }],
+      needs: [],
+    } as unknown as WorkspaceState;
+    const user = userEvent.setup();
+    render(<App mode="shared" organizationName="Example Inc." identity={owner} shared={adapter} />);
+    await user.click(screen.getByRole("button", { name: "プロジェクト別" }));
+
+    // #251: the projects-axis row builder put 「· 50%」 into the bar's name, and the bar
+    // appends <small>50%</small> to whatever name it gets, so it read 「佐伯 優斗 · 50%50%」
+    // and its title 「佐伯 優斗 · 50% · 50%」. The members axis never had the problem.
+    const days = getWeekDays(0);
+    const range = `${days[0].month}/${days[0].date}〜${days[4].month}/${days[4].date}`;
+    const bar = screen.getByRole("button", { name: `佐伯 優斗のアサイン詳細（Atlas リニューアル・${range}）` });
+    expect(bar).toHaveTextContent(/^佐伯 優斗50%$/u);
+    expect(bar).toHaveAttribute("title", "佐伯 優斗 · 50%");
   });
 });
 
@@ -4935,6 +5054,23 @@ describe("the board narrows by more than one thing", () => {
     expect(marked.every(Boolean)).toBe(true);
   });
 
+  it("names an on-or-off condition by its label alone", async () => {
+    const user = onWednesday();
+    render(<App />);
+    await openBoard(user);
+    await openFilters(user);
+    await user.click(screen.getByLabelText("上限超過のみ"));
+    // #252: the chip read 「上限超過: のみ」, forcing 「ラベル: 値」 onto a condition
+    // that has no value. A condition with a chosen value keeps the colon.
+    expect(chips()).toEqual(["上限超過のみ"]);
+    await user.selectOptions(screen.getByLabelText("部門で絞り込み"), "org-design");
+    expect(chips()).toEqual(["部門: デザイン本部 / デザイン", "上限超過のみ"]);
+
+    await user.click(screen.getByRole("button", { name: "上限超過のみの絞り込みを外す" }));
+    expect((screen.getByLabelText("上限超過のみ") as HTMLInputElement).checked).toBe(false);
+    expect(chips()).toEqual(["部門: デザイン本部 / デザイン"]);
+  });
+
   /**
    * 「要調整」 is the pulse strip's count, which also counts unfilled roles — a
    * different set from a row's own warning. So the control is named after what
@@ -4987,6 +5123,59 @@ describe("the board narrows by more than one thing", () => {
     expect((screen.getByLabelText("部門で絞り込み") as HTMLSelectElement).value).toBe("");
     expect((screen.getByLabelText("上限超過のみ") as HTMLInputElement).checked).toBe(false);
     expect(document.querySelector(".toolbar-chips")).toBeNull();
+  });
+
+  /**
+   * #256: with the search box out, the bar stacks below 900px instead of squeezing
+   * the title into 「第1／週」. jsdom lays nothing out, so this pins the hook the
+   * stylesheet keys on; the widths themselves are measured in the browser.
+   */
+  it("marks the bar while the search box is out", async () => {
+    const user = onWednesday();
+    render(<App />);
+    await openBoard(user);
+    const bar = document.querySelector(".topbar")!;
+    expect(bar.classList.contains("search-open")).toBe(false);
+
+    await user.click(screen.getByRole("button", { name: "検索" }));
+    expect(bar.classList.contains("search-open")).toBe(true);
+    await user.click(screen.getByRole("button", { name: "検索を閉じる" }));
+    expect(bar.classList.contains("search-open")).toBe(false);
+  });
+
+  it("puts the keyboard in the search box, and hands it back on the way out", async () => {
+    const user = onWednesday();
+    render(<App />);
+    await openBoard(user);
+    const everyone = rowNames();
+
+    // #257: the box replaces the button that opens it, so focus fell to the body on
+    // the way in and on the way out, and Escape — the way out of the drawer and the
+    // popover — did nothing here.
+    await user.click(screen.getByRole("button", { name: "検索" }));
+    expect(screen.getByLabelText("メンバー・案件を検索")).toHaveFocus();
+    await user.keyboard("Atlas");
+    expect(rowNames().length).toBeLessThan(everyone.length);
+
+    await user.keyboard("{Escape}");
+    expect(screen.queryByLabelText("メンバー・案件を検索")).toBeNull();
+    expect(rowNames()).toEqual(everyone);
+    expect(screen.getByRole("button", { name: "検索" })).toHaveFocus();
+
+    await user.click(screen.getByRole("button", { name: "検索" }));
+    await user.click(screen.getByRole("button", { name: "検索を閉じる" }));
+    expect(screen.getByRole("button", { name: "検索" })).toHaveFocus();
+
+    // The window closes the popover on Escape; the box does not stop that, so with
+    // both open, one Escape from the box closes both.
+    await user.click(screen.getByRole("button", { name: "検索" }));
+    await user.click(screen.getByRole("button", { name: "通知" }));
+    expect(screen.getByRole("button", { name: "通知を閉じる" })).toBeInTheDocument();
+    await user.click(screen.getByLabelText("メンバー・案件を検索"));
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("button", { name: "通知を閉じる" })).toBeNull();
+    expect(screen.queryByLabelText("メンバー・案件を検索")).toBeNull();
+    expect(screen.getByRole("button", { name: "検索" })).toHaveFocus();
   });
 });
 
