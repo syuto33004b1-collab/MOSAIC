@@ -83,6 +83,7 @@ import {
   OPPORTUNITY_STAGE_LABELS,
   opportunityById,
   opportunityNeedsFor,
+  openNeeds,
   orgUnitTree,
   overlaps,
   parseSkillInput,
@@ -327,6 +328,22 @@ function assignmentDayRange(days: WeekDay[], start: number, span: number) {
   return first === last ? label(first) : label(first) + "〜" + label(last);
 }
 
+/**
+ * Whether a form's dates make a range the loads can be measured over. With the end
+ * before the start `memberPeakLoad` returns 0 for everyone, and the picker read
+ * 「0% / 100%」 down the list — 「all free」 — while the dates were being fixed (#253).
+ */
+function formRangeMeasured(startDate: string, endDate: string) {
+  return Boolean(startDate && endDate && endDate >= startDate);
+}
+
+/** The picker's hint: what the numbers cover, or why there are none. */
+function formRangeHint(startDate: string, endDate: string, measured: string) {
+  if (!startDate || !endDate) return "開始日と終了日を入れると稼働が表示されます";
+  if (endDate < startDate) return "終了日が開始日より前です。稼働は日付を直すと表示されます";
+  return measured;
+}
+
 function cloneState(state: WorkspaceState): WorkspaceState {
   return JSON.parse(JSON.stringify(state)) as WorkspaceState;
 }
@@ -565,6 +582,9 @@ export default function Home({ mode = "demo", organizationId, organizationName =
   const [aiActionBusy, setAiActionBusy] = useState(false);
   const drawerRef = useRef<HTMLElement>(null);
   const previousFocus = useRef<HTMLElement | null>(null);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const searchButtonRef = useRef<HTMLButtonElement | null>(null);
+  const searchWasOpen = useRef(false);
   const unsavedRef = useRef(0);
   const revisionRef = useRef(revision);
   const syncBusyRef = useRef(false);
@@ -722,6 +742,25 @@ export default function Home({ mode = "demo", organizationId, organizationName =
     window.addEventListener("keydown", closeOnEscape);
     return () => window.removeEventListener("keydown", closeOnEscape);
   }, [closeDrawer]);
+
+  /**
+   * The search box replaces the button that opened it, so focus fell to the body on
+   * the way in and again on the way out (#257). Move it into the box, and back to the
+   * button — but only back from a box that was open, or the first render would take it.
+   */
+  useEffect(() => {
+    if (searchOpen) {
+      searchWasOpen.current = true;
+      searchInputRef.current?.focus();
+    } else if (searchWasOpen.current) {
+      searchWasOpen.current = false;
+      searchButtonRef.current?.focus();
+    }
+  }, [searchOpen]);
+  const closeSearch = () => {
+    setSearchOpen(false);
+    setQuery("");
+  };
 
   useEffect(() => {
     if (mode !== "shared" || !shared) return;
@@ -909,7 +948,10 @@ export default function Home({ mode = "demo", organizationId, organizationName =
   const overloadAssignments = overloadMember ? workspace.assignments
     .filter((assignment) => assignment.personId === overloadMember.id && overloadDates.some((date) => assignment.startDate <= date && assignment.endDate >= date))
     .sort((a, b) => a.allocation - b.allocation) : [];
-  const activeNeeds = workspace.needs.filter((need) => need.status !== "filled");
+  // Dated as well as unfilled (#255): a need whose end has passed stops being a
+  // warning here, in the popover and in the report, all of which read this list.
+  const todayIso = currentLocalDate();
+  const activeNeeds = openNeeds(workspace, todayIso);
   const selectedNeed = workspace.needs.find((need) => need.id === selectedNeedId);
   const candidateMatches = selectedNeed ? matchMembers(workspace, searchSceneFromNeed(selectedNeed)).slice(0, 5) : [];
   const adjustmentCount = currentOverloads.length + (overloadPlanned ? 1 : 0) + activeNeeds.length;
@@ -986,6 +1028,41 @@ export default function Home({ mode = "demo", organizationId, organizationName =
       };
     });
   })();
+  /**
+   * What the chosen member's peak would be if the form were saved, against their
+   * ceiling (#254). Both numbers were already on the screen — the picker shows the
+   * peak beside every row — but nothing said what they add up to, so a member at 100%
+   * took 40% more in silence and the warning arrived afterwards as an 上限超過 card.
+   * Said, not enforced: drafting a knowing overbooking to adjust later is normal work,
+   * and the assistant's proposal card only says it too (#229).
+   */
+  const addOverload = (() => {
+    const member = memberById(workspace, form.personId);
+    if (!member) return null;
+    // Measured with the draft in place, the way `editCandidates` measures a swap: the
+    // picker's peak plus the allocation would miss the weekend days the form has
+    // ticked, which count only once an assignment records them.
+    const preview: WorkspaceState = {
+      ...workspace,
+      assignments: [...workspace.assignments, {
+        id: "draft-preview",
+        personId: member.id,
+        projectId: form.projectId,
+        startDate: form.startDate,
+        endDate: form.endDate,
+        allocation: Number(form.allocation) || 0,
+        status: "draft",
+        weekendWorkDates: form.weekendWorkDates,
+      }],
+    };
+    const projected = memberPeakLoad(preview, member.id, form.startDate, form.endDate);
+    return projected > member.capacity ? { projected, capacity: member.capacity } : null;
+  })();
+  const editOverload = (() => {
+    // `editCandidates` already measures with the moved assignment in place.
+    const chosen = editCandidates.find((candidate) => candidate.member.id === assignmentEditForm.personId);
+    return chosen && chosen.peak > chosen.member.capacity ? { projected: chosen.peak, capacity: chosen.member.capacity } : null;
+  })();
   const canAddAssignment = canEdit && workspace.members.length > 0 && workspace.projects.length > 0;
 
   const memberRows: ScheduleRow[] = workspace.members.map((member) => {
@@ -1037,7 +1114,9 @@ export default function Home({ mode = "demo", organizationId, organizationName =
       const member = memberById(workspace, assignment.personId);
       return [{
         id: assignment.id,
-        name: (member?.name || "担当未定") + " · " + assignment.allocation + "%",
+        // The name alone: the bar appends <small>{allocation}%</small> itself, and the
+        // title appends 「· N%」 too, so a name that carried it read 「佐伯 優斗 · 50%50%」 (#251).
+        name: member?.name || "担当未定",
         start: grid.start,
         span: grid.span,
         tone: project.tone,
@@ -1107,8 +1186,9 @@ export default function Home({ mode = "demo", organizationId, organizationName =
     ...(query.trim() ? [{ key: "query", label: "検索", value: query.trim(), onClear: () => setQuery("") }] : []),
     ...(filter !== "すべて" ? [{ key: "axis", label: boardFilterAxisLabel, value: filter, onClear: () => setFilter("すべて") }] : []),
     ...(boardOrgMemberIds ? [{ key: "org", label: "部門", value: orgUnitPath(boardOrgUnits, boardOrgFilter).join(" / "), onClear: () => setBoardOrgFilter("") }] : []),
-    ...(alertOnly ? [{ key: "alert", label: alertOnlyLabel.replace("のみ", ""), value: "のみ", onClear: () => setAlertOnly(false) }] : []),
-    ...(favoritesOnly ? [{ key: "favorites", label: "お気に入り", value: "のみ", onClear: () => setFavoritesOnly(false) }] : []),
+    // On/off filters carry no value: the chip reads 「要員不足のみ」, not 「要員不足: のみ」 (#252).
+    ...(alertOnly ? [{ key: "alert", label: alertOnlyLabel, onClear: () => setAlertOnly(false) }] : []),
+    ...(favoritesOnly ? [{ key: "favorites", label: "お気に入りのみ", onClear: () => setFavoritesOnly(false) }] : []),
   ];
 
   /**
@@ -1134,7 +1214,6 @@ export default function Home({ mode = "demo", organizationId, organizationName =
   const rangeDistanceLabel = rangeDistance === 0
     ? ""
     : ` · ${Math.abs(rangeDistance)}${range.unit === "week" ? "週" : "か月"}${rangeDistance > 0 ? "後" : "前"}`;
-  const todayIso = currentLocalDate();
 
   const changeView = (mode: "members" | "projects") => {
     setViewMode(mode);
@@ -2686,11 +2765,13 @@ export default function Home({ mode = "demo", organizationId, organizationName =
       </aside>
 
       <section className="workspace" id="board" inert={drawer ? true : undefined}>
-        <header className="topbar">
+        {/* `search-open` stacks the bar below 900px while the search box is out — the
+            box is 238px the row does not have there (#256). */}
+        <header className={"topbar" + (activeNav === "board" && searchOpen ? " search-open" : "")}>
           <div>
             {/* 「8月 第3週」, not 「WEEK 34」: an ISO week number is year-wide and says nothing
                 about where in the month you are, which is the question (#194). */}
-            <p className="eyebrow">{page.eyebrow} <span>/</span> {activeNav === "board" ? boardRangeName(range) : "MOSAIC"}</p>
+            <p className="eyebrow">{page.eyebrow} <span>/</span> <span className="eyebrow-range">{activeNav === "board" ? boardRangeName(range) : "MOSAIC"}</span></p>
             <h1>{page.title}</h1>
             {/* Then how far from today, and then what the figures count.
                 The distance is empty at zero: 「今週」 is the word #146 retired from these
@@ -2706,8 +2787,11 @@ export default function Home({ mode = "demo", organizationId, organizationName =
           </div>
           <div className="topbar-actions">
             {activeNav === "board" && (searchOpen ? (
-              <label className="search-box"><Search size={16} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="メンバー・案件を検索" aria-label="メンバー・案件を検索" /><button type="button" onClick={() => { setSearchOpen(false); setQuery(""); }} aria-label="検索を閉じる"><X size={15} /></button></label>
-            ) : <button className="icon-button" aria-label="検索" onClick={() => setSearchOpen(true)}><Search size={18} /></button>)}
+              // Escape here as well as on the window: the box is where the keyboard is,
+              // and it should close the way the drawer and the popover do (#257). The
+              // window handler still runs, so a popover open beside it closes too.
+              <label className="search-box"><Search size={16} /><input ref={searchInputRef} value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); closeSearch(); } }} placeholder="メンバー・案件を検索" aria-label="メンバー・案件を検索" /><button type="button" onClick={closeSearch} aria-label="検索を閉じる"><X size={15} /></button></label>
+            ) : <button ref={searchButtonRef} className="icon-button" aria-label="検索" onClick={() => setSearchOpen(true)}><Search size={18} /></button>)}
             <div className="notification-wrap">
               <button className="icon-button has-dot" aria-label="通知" aria-expanded={notificationsOpen} onClick={() => setNotificationsOpen((open) => !open)}><Bell size={18} /></button>
               {notificationsOpen && (
@@ -2892,7 +2976,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                 {activeNeeds.map((need) => (
                   <button className={"alert-card " + (need.status === "planned" ? "planned" : "")} onClick={() => openStaffingNeed(need.id)} key={need.id}>
                     <div className="alert-top"><span>{need.status === "planned" ? <CheckCircle2 size={11} /> : <Clock3 size={11} />} {need.status === "planned" ? "解消予定" : "未充足ロール"}</span><small>{formatDate(need.startDate).replace(/^\d{4}年/, "")}</small></div>
-                    <h3>{projectById(workspace, need.projectId)?.name}の{need.role}が{need.status === "planned" ? "解消予定" : "未定"}</h3><p>{need.status === "planned" ? "候補者を仮置きしました。保存後に充足へ変わります。" : "稼働配分" + need.allocation + "%の担当者を開始日までに決めてください。"}</p>
+                    <h3>{projectById(workspace, need.projectId)?.name}の{need.role}が{need.status === "planned" ? "解消予定" : "未定"}</h3><p>{need.status === "planned" ? "候補者を仮置きしました。保存後に充足へ変わります。" : need.startDate < todayIso ? "稼働配分" + need.allocation + "%の担当者が開始日を過ぎても決まっていません。" : "稼働配分" + need.allocation + "%の担当者を開始日までに決めてください。"}</p>
                     <div className="skill-chips">{need.skills.map((skill) => <span key={skill}>{skill}</span>)}<ArrowRight size={13} /></div>
                   </button>
                 ))}
@@ -2968,7 +3052,8 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                 <div className="drawer-heading"><span className="drawer-icon cobalt"><Plus size={19} /></span><div><h2>アサインを追加</h2><p>日付と稼働配分を仮置きします。</p></div></div>
                 <MemberPicker
                   legend="メンバー"
-                  hint={`${shortDate(form.startDate)} — ${shortDate(form.endDate)} の稼働 · 空きが多い順`}
+                  hint={formRangeHint(form.startDate, form.endDate, `${shortDate(form.startDate)} — ${shortDate(form.endDate)} の稼働 · 空きが多い順`)}
+                  measured={formRangeMeasured(form.startDate, form.endDate)}
                   name="assignment-member"
                   searchLabel="アサインするメンバーを検索"
                   candidates={addCandidates}
@@ -2994,6 +3079,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                   value={form.weekendWorkDates}
                   onChange={(weekendWorkDates) => setForm({ ...form, weekendWorkDates })}
                 />
+                {addOverload && <div className="form-note warn" role="status"><AlertTriangle size={15} /><span>この配分だと {shortDate(form.startDate)} — {shortDate(form.endDate)} の稼働が {addOverload.projected}% になります（稼働上限 {addOverload.capacity}%）。仮置きはできます。</span></div>}
                 <div className="form-note"><Sparkles size={15} /><span>保存前は斜線付きの「仮置き」で表示します。</span></div><button className="drawer-primary" type="submit" disabled={!canAddAssignment}><Check size={16} />この内容で仮置きする</button>
               </form>
             )}
@@ -3008,7 +3094,8 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                     that person, which is the question a swap actually asks (#219). */}
                 <MemberPicker
                   legend="メンバー"
-                  hint={`${shortDate(assignmentEditForm.startDate)} — ${shortDate(assignmentEditForm.endDate)} · 付け替えた場合の稼働 · 空きが多い順`}
+                  hint={formRangeHint(assignmentEditForm.startDate, assignmentEditForm.endDate, `${shortDate(assignmentEditForm.startDate)} — ${shortDate(assignmentEditForm.endDate)} · 付け替えた場合の稼働 · 空きが多い順`)}
+                  measured={formRangeMeasured(assignmentEditForm.startDate, assignmentEditForm.endDate)}
                   name="assignment-edit-member"
                   searchLabel="付け替え先のメンバーを検索"
                   candidates={editCandidates}
@@ -3033,6 +3120,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                   onChange={(weekendWorkDates) => setAssignmentEditForm({ ...assignmentEditForm, weekendWorkDates })}
                   disabled={!canEdit}
                 />
+                {canEdit && editOverload && <div className="form-note warn" role="status"><AlertTriangle size={15} /><span>この内容だと {shortDate(assignmentEditForm.startDate)} — {shortDate(assignmentEditForm.endDate)} の稼働が {editOverload.projected}% になります（稼働上限 {editOverload.capacity}%）。仮置きはできます。</span></div>}
                 <div className="form-note"><SlidersHorizontal size={15} /><span>{canEdit ? selectedAssignment.staffingNeedId ? "要員要件を満たさない変更では、元の不足ロールを再オープンします。変更は保存まで元に戻せます。" : "変更と取消は仮置きされ、チームへ保存するまで元に戻せます。" : "このアサインは閲覧のみです。変更権限があるメンバーへ依頼してください。"}</span></div>
                 {canEdit ? (
                   <div className="assignment-edit-actions">

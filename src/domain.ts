@@ -2259,6 +2259,17 @@ export function searchSceneFromNeed(need: Pick<StaffingNeed, "id" | "role" | "sk
   };
 }
 
+/**
+ * The staffing needs still worth a warning: not filled, and not over. A need whose
+ * end date has passed is nobody's decision any more, yet 「status !== filled」 kept
+ * it on the board, in the notifications and in the report, still asking for a
+ * person 「by the start date」 (#255). One place for the rule — the board and the
+ * report each had their own copy of the filter.
+ */
+export function openNeeds(state: Pick<WorkspaceState, "needs">, todayIso: string) {
+  return state.needs.filter((need) => need.status !== "filled" && need.endDate >= todayIso);
+}
+
 export function addSearchScene(scenes: SearchScene[], input: {
   id?: string;
   name: string;
