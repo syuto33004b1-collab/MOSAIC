@@ -1498,7 +1498,7 @@ export function ReportsView({ state, onOpenWeek, onResolveNeed, onOpenOpportunit
           {canManageReports && selectedReport && <button className="view-add-button" type="button" onClick={() => { onDeleteReport(selectedReport.id); setReportId(""); }}>このレポートを削除</button>}
         </div>
         {canManageReports && (
-          <form className="field-catalog-form" onSubmit={(event) => { event.preventDefault(); submitReport(); }}>
+          <form className="field-catalog-form" onSubmit={(event) => { event.preventDefault(); submitReport(); }} onChange={() => setError("")}>
             <label>レポート名<input value={reportName} onChange={(event) => setReportName(event.target.value)} placeholder="部署別人数" /></label>
             <label>対象<select aria-label="レポートの集計対象" value={source} onChange={(event) => {
               const next = event.target.value as ReportSource;
@@ -1630,7 +1630,7 @@ export function SkillsView({ state, onAddCatalogEntry, onOpenMember, onResolveNe
       </div>
 
       {canEdit && (
-        <form className="skill-catalog-form" onSubmit={(event) => { event.preventDefault(); submitCatalog(); }}>
+        <form className="skill-catalog-form" onSubmit={(event) => { event.preventDefault(); submitCatalog(); }} onChange={() => setError("")}>
           <label>名前<input value={name} onChange={(event) => setName(event.target.value)} placeholder="React または フロントエンド" /></label>
           <label>種類<select value={kind} onChange={(event) => setKind(event.target.value as SkillKind)} aria-label="スキル種類">{[{ value: "skill", label: "スキル" }, { value: "category", label: "分類" }].map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}</select></label>
           <label>親分類<select value={parentId} onChange={(event) => setParentId(event.target.value)} aria-label="親分類">
@@ -1904,7 +1904,7 @@ export function RolePermissionsPanel({
         <span>{permissions.length === 0 ? "制限なし" : `${permissions.length}ロールに制限あり`}</span>
       </div>
       <p className="role-permission-note">オーナーは常に制限されません。設定していないロールは制限なしで動作します。</p>
-      <form className="field-catalog-form role-permission-form" onSubmit={(event) => { event.preventDefault(); submit(); }}>
+      <form className="field-catalog-form role-permission-form" onSubmit={(event) => { event.preventDefault(); submit(); }} onChange={() => setError("")}>
         <label>ロール<select aria-label="権限を設定するロール" value={role} onChange={(event) => selectRole(event.target.value as RestrictableRole)}>
           {RESTRICTABLE_ROLES.map((option) => <option value={option} key={option}>{RESTRICTABLE_ROLE_LABELS[option]}</option>)}
         </select></label>
@@ -2033,7 +2033,7 @@ export function ProfileRequestsPanel({
         <span>{openCount}件未対応 · {reviewCount}件確認待ち</span>
       </div>
       {canManage && onCreateRequests && (
-        <form className="field-catalog-form profile-request-form" onSubmit={(event) => { event.preventDefault(); create(); }}>
+        <form className="field-catalog-form profile-request-form" onSubmit={(event) => { event.preventDefault(); create(); }} onChange={() => setCreateError("")}>
           <fieldset className="profile-request-members">
             <legend>対象メンバー</legend>
             {state.members.map((member) => (
@@ -2166,7 +2166,7 @@ export function FieldsView({ state, onAddField, canManage = false, canManageRequ
       </div>
 
       {canManage && (
-        <form className="field-catalog-form" onSubmit={(event) => { event.preventDefault(); submit(); }}>
+        <form className="field-catalog-form" onSubmit={(event) => { event.preventDefault(); submit(); }} onChange={() => setError("")}>
           <label>対象<select aria-label="項目の対象エンティティ" value={formEntity} onChange={(event) => setFormEntity(event.target.value as CustomFieldEntity)}><option value="member">メンバー</option><option value="project">プロジェクト</option></select></label>
           <label>項目名<input value={label} onChange={(event) => setLabel(event.target.value)} placeholder="雇用形態" /></label>
           <label>キー<input value={key} onChange={(event) => setKey(event.target.value)} placeholder="employment_type" /></label>
@@ -2303,6 +2303,16 @@ export function OrgView({ state, onAddUnit, onMoveUnit, onArchiveUnit, canManage
   const managers = new Set((state.orgMemberships ?? []).filter((item) => item.isManager).map((item) => item.personId)).size;
   const concurrent = new Set((state.orgMemberships ?? []).filter((item) => !item.isPrimary).map((item) => item.personId)).size;
 
+  /**
+   * Two operations, two messages.
+   *
+   * They shared one `error` until #271. Adding the 「clear on the next keystroke」 the
+   * other five forms got would then have wiped 「部門を移せませんでした」 the moment
+   * somebody typed a department name — and a failed move is not something typing fixes.
+   * The add form clears its own; the move keeps its own until the next move.
+   */
+  const [moveError, setMoveError] = useState("");
+
   const submit = () => {
     try {
       addOrgUnit(state.orgUnits ?? [], { name, parentId: parentId || null });
@@ -2334,7 +2344,7 @@ export function OrgView({ state, onAddUnit, onMoveUnit, onArchiveUnit, canManage
       </div>
 
       {canManage && (
-        <form className="skill-catalog-form org-catalog-form" onSubmit={(event) => { event.preventDefault(); submit(); }}>
+        <form className="skill-catalog-form org-catalog-form" onSubmit={(event) => { event.preventDefault(); submit(); }} onChange={() => setError("")}>
           <label>部門名<input value={name} onChange={(event) => setName(event.target.value)} placeholder="新規チーム" aria-label="部門名" /></label>
           <label>親部門<select value={parentId} onChange={(event) => setParentId(event.target.value)} aria-label="親部門">
             <option value="">なし（最上位）</option>
@@ -2342,6 +2352,9 @@ export function OrgView({ state, onAddUnit, onMoveUnit, onArchiveUnit, canManage
           </select></label>
           <button type="submit" className="view-add-button"><Plus size={15} />部門を追加</button>
           {error && <p className="skill-catalog-error" role="alert">{error}</p>}
+          {/* Where it has always been shown. Splitting the state was about which one a
+              keystroke clears, not about moving the message. */}
+          {moveError && <p className="skill-catalog-error" role="alert">{moveError}</p>}
         </form>
       )}
 
@@ -2386,9 +2399,9 @@ export function OrgView({ state, onAddUnit, onMoveUnit, onArchiveUnit, canManage
                           try {
                             moveOrgUnit(state.orgUnits ?? [], unit.id, event.target.value || null);
                             onMoveUnit(unit.id, event.target.value || null);
-                            setError("");
+                            setMoveError("");
                           } catch (caught) {
-                            setError(caught instanceof Error ? caught.message : "部門を移せませんでした");
+                            setMoveError(caught instanceof Error ? caught.message : "部門を移せませんでした");
                           }
                         }}
                       >

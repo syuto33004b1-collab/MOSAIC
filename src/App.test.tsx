@@ -5616,3 +5616,58 @@ describe("swapping who holds an assignment", () => {
     expect(hers()).toBe(before + 1);
   });
 });
+
+/**
+ * #258 cleared the search scene form's error on the next keystroke. Five more forms had
+ * the same shape — an error set only by a submit — and one of them shared its error with
+ * an operation a keystroke cannot fix.
+ */
+describe("inline errors that a submit set", () => {
+  const admin = { name: "管理 花子", email: "admin@example.com", role: "admin" as const };
+
+  it("clears the skill catalogue's error once the name changes", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: "スキルマップ" }));
+    const nameInput = screen.getByPlaceholderText("React または フロントエンド");
+    await user.type(nameInput, "React");
+    await user.click(screen.getByRole("button", { name: "分類またはスキルを追加" }));
+    expect(screen.getByRole("alert")).toHaveTextContent("同じ名前のスキルまたは分類がすでにあります");
+
+    await user.type(nameInput, "Native");
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("clears the profile request's error once a member is picked", async () => {
+    const user = userEvent.setup();
+    render(<App mode="shared" organizationName="Example Inc." identity={admin} shared={sharedAdapter()} />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: "項目定義" }));
+    await user.click(screen.getByRole("button", { name: "依頼を作成" }));
+    expect(screen.getByText("対象メンバーを選んでください")).toBeInTheDocument();
+
+    // A different setter from the other five (`setCreateError`), so it is worth its own check.
+    await user.click(screen.getAllByRole("checkbox", { name: /佐伯 優斗/u })[0]);
+    expect(screen.queryByText("対象メンバーを選んでください")).toBeNull();
+  });
+
+  it("keeps a failed move up while the department name is typed", async () => {
+    const user = userEvent.setup();
+    render(<App mode="shared" organizationName="Example Inc." identity={admin} shared={sharedAdapter()} />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: "組織" }));
+
+    // Adding is the form's own error, and typing clears it.
+    const nameInput = screen.getByPlaceholderText("新規チーム");
+    await user.type(nameInput, "開発本部");
+    await user.click(screen.getByRole("button", { name: "部門を追加" }));
+    expect(screen.getByText("同じ名前の部門がすでにあります")).toBeInTheDocument();
+    await user.type(nameInput, "2");
+    expect(screen.queryByText("同じ名前の部門がすでにあります")).toBeNull();
+
+    // Moving is not. #271: the two shared one slot, so this message went out the moment
+    // anybody typed — over a failure typing does not address.
+    await user.selectOptions(screen.getByLabelText("開発本部の親部門"), "org-product");
+    expect(screen.getByText("部門を自分の配下へは移せません")).toBeInTheDocument();
+    await user.type(nameInput, "3");
+    expect(screen.getByText("部門を自分の配下へは移せません")).toBeInTheDocument();
+  });
+});
