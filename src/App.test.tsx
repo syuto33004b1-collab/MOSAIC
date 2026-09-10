@@ -3940,8 +3940,16 @@ describe("a way into the proposal screen", () => {
     // rather than any subject with the right prefix.
     const role = document.querySelector(".drawer h2")!.textContent!.replace(/の候補$/u, "");
     const project = document.querySelector(".drawer .drawer-heading p")?.textContent ?? "";
-    const found = initialWorkspace.needs.find((need) => need.role === role && need.status !== "filled"
-      && project.includes(initialWorkspace.projects.find((item) => item.id === need.projectId)?.name ?? " "));
+    // No sentinel value: the old form fell back to a NUL character so `includes` could
+    // not match, because an empty string matches everything. A raw NUL made grep and
+    // ripgrep treat the largest test file in the repository as binary and print nothing
+    // for it (#304), and the escaped form would still need this comment to be read. An
+    // absent project is said as an absent project.
+    const found = initialWorkspace.needs.find((need) => {
+      if (need.role !== role || need.status === "filled") return false;
+      const name = initialWorkspace.projects.find((item) => item.id === need.projectId)?.name;
+      return name !== undefined && project.includes(name);
+    });
     expect(found, `could not identify the guided requirement from 「${role}」 / 「${project}」`).toBeDefined();
     return found!;
   };
