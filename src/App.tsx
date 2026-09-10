@@ -564,6 +564,9 @@ export default function Home({ mode = "demo", organizationId, organizationName =
   const [aiActionBusy, setAiActionBusy] = useState(false);
   const drawerRef = useRef<HTMLElement>(null);
   const previousFocus = useRef<HTMLElement | null>(null);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const searchButtonRef = useRef<HTMLButtonElement | null>(null);
+  const searchWasOpen = useRef(false);
   const unsavedRef = useRef(0);
   const revisionRef = useRef(revision);
   const syncBusyRef = useRef(false);
@@ -721,6 +724,25 @@ export default function Home({ mode = "demo", organizationId, organizationName =
     window.addEventListener("keydown", closeOnEscape);
     return () => window.removeEventListener("keydown", closeOnEscape);
   }, [closeDrawer]);
+
+  /**
+   * The search box replaces the button that opened it, so focus fell to the body on
+   * the way in and again on the way out (#257). Move it into the box, and back to the
+   * button — but only back from a box that was open, or the first render would take it.
+   */
+  useEffect(() => {
+    if (searchOpen) {
+      searchWasOpen.current = true;
+      searchInputRef.current?.focus();
+    } else if (searchWasOpen.current) {
+      searchWasOpen.current = false;
+      searchButtonRef.current?.focus();
+    }
+  }, [searchOpen]);
+  const closeSearch = () => {
+    setSearchOpen(false);
+    setQuery("");
+  };
 
   useEffect(() => {
     if (mode !== "shared" || !shared) return;
@@ -1036,7 +1058,9 @@ export default function Home({ mode = "demo", organizationId, organizationName =
       const member = memberById(workspace, assignment.personId);
       return [{
         id: assignment.id,
-        name: (member?.name || "担当未定") + " · " + assignment.allocation + "%",
+        // The name alone: the bar appends <small>{allocation}%</small> itself, and the
+        // title appends 「· N%」 too, so a name that carried it read 「佐伯 優斗 · 50%50%」 (#251).
+        name: member?.name || "担当未定",
         start: grid.start,
         span: grid.span,
         tone: project.tone,
@@ -1106,8 +1130,9 @@ export default function Home({ mode = "demo", organizationId, organizationName =
     ...(query.trim() ? [{ key: "query", label: "検索", value: query.trim(), onClear: () => setQuery("") }] : []),
     ...(filter !== "すべて" ? [{ key: "axis", label: boardFilterAxisLabel, value: filter, onClear: () => setFilter("すべて") }] : []),
     ...(boardOrgMemberIds ? [{ key: "org", label: "部門", value: orgUnitPath(boardOrgUnits, boardOrgFilter).join(" / "), onClear: () => setBoardOrgFilter("") }] : []),
-    ...(alertOnly ? [{ key: "alert", label: alertOnlyLabel.replace("のみ", ""), value: "のみ", onClear: () => setAlertOnly(false) }] : []),
-    ...(favoritesOnly ? [{ key: "favorites", label: "お気に入り", value: "のみ", onClear: () => setFavoritesOnly(false) }] : []),
+    // On/off filters carry no value: the chip reads 「要員不足のみ」, not 「要員不足: のみ」 (#252).
+    ...(alertOnly ? [{ key: "alert", label: alertOnlyLabel, onClear: () => setAlertOnly(false) }] : []),
+    ...(favoritesOnly ? [{ key: "favorites", label: "お気に入りのみ", onClear: () => setFavoritesOnly(false) }] : []),
   ];
 
   /**
@@ -2665,11 +2690,13 @@ export default function Home({ mode = "demo", organizationId, organizationName =
       </aside>
 
       <section className="workspace" id="board" inert={drawer ? true : undefined}>
-        <header className="topbar">
+        {/* `search-open` stacks the bar below 900px while the search box is out — the
+            box is 238px the row does not have there (#256). */}
+        <header className={"topbar" + (activeNav === "board" && searchOpen ? " search-open" : "")}>
           <div>
             {/* 「8月 第3週」, not 「WEEK 34」: an ISO week number is year-wide and says nothing
                 about where in the month you are, which is the question (#194). */}
-            <p className="eyebrow">{page.eyebrow} <span>/</span> {activeNav === "board" ? boardRangeName(range) : "MOSAIC"}</p>
+            <p className="eyebrow">{page.eyebrow} <span>/</span> <span className="eyebrow-range">{activeNav === "board" ? boardRangeName(range) : "MOSAIC"}</span></p>
             <h1>{page.title}</h1>
             {/* Then how far from today, and then what the figures count.
                 The distance is empty at zero: 「今週」 is the word #146 retired from these
@@ -2685,8 +2712,11 @@ export default function Home({ mode = "demo", organizationId, organizationName =
           </div>
           <div className="topbar-actions">
             {activeNav === "board" && (searchOpen ? (
-              <label className="search-box"><Search size={16} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="メンバー・案件を検索" aria-label="メンバー・案件を検索" /><button type="button" onClick={() => { setSearchOpen(false); setQuery(""); }} aria-label="検索を閉じる"><X size={15} /></button></label>
-            ) : <button className="icon-button" aria-label="検索" onClick={() => setSearchOpen(true)}><Search size={18} /></button>)}
+              // Escape here as well as on the window: the box is where the keyboard is,
+              // and it should close the way the drawer and the popover do (#257). The
+              // window handler still runs, so a popover open beside it closes too.
+              <label className="search-box"><Search size={16} /><input ref={searchInputRef} value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); closeSearch(); } }} placeholder="メンバー・案件を検索" aria-label="メンバー・案件を検索" /><button type="button" onClick={closeSearch} aria-label="検索を閉じる"><X size={15} /></button></label>
+            ) : <button ref={searchButtonRef} className="icon-button" aria-label="検索" onClick={() => setSearchOpen(true)}><Search size={18} /></button>)}
             <div className="notification-wrap">
               <button className="icon-button has-dot" aria-label="通知" aria-expanded={notificationsOpen} onClick={() => setNotificationsOpen((open) => !open)}><Bell size={18} /></button>
               {notificationsOpen && (
