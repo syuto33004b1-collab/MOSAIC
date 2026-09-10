@@ -2109,7 +2109,11 @@ describe("one name per control on the board", () => {
     const range = `${days[0].month}/${days[0].date}〜${days[4].month}/${days[4].date}`;
     const east = screen.getByRole("button", { name: `林 葵（東京）のアサイン詳細（Atlas リニューアル・${range}）` });
     const west = screen.getByRole("button", { name: `林 葵（大阪）のアサイン詳細（Atlas リニューアル・${range}）` });
-    // The title is the second consumer of the same string, and the one a mouse reaches.
+    // Three consumers, one string. They share `assignment.name` today, so any one of
+    // them would catch a regression — but the visible text is the one a sighted reader
+    // uses to pick a bar, and it is the one a future change could route separately.
+    expect(east.querySelector("span")?.textContent).toBe("林 葵（東京）");
+    expect(west.querySelector("span")?.textContent).toBe("林 葵（大阪）");
     expect(east).toHaveAttribute("title", "林 葵（東京） · 50%");
     expect(west).toHaveAttribute("title", "林 葵（大阪） · 50%");
     expectDistinctNames("two namesakes on one project");
