@@ -580,7 +580,11 @@ export function MemberPicker({
  * above the first row and this is not the place to give it back.
  */
 export function ActiveFilters({ applied, result, onClearAll }: {
-  applied: { key: string; label: string; value: string; onClear: () => void }[];
+  /**
+   * A filter with a chosen value is 「状態: 完了」; a filter that is only on or off
+   * is its label alone — 「お気に入りのみ」, not 「お気に入り: のみ」 (#252).
+   */
+  applied: { key: string; label: string; value?: string; onClear: () => void }[];
   /** What the filters left, said where it matters — including 0. */
   result: string;
   onClearAll: () => void;
@@ -597,9 +601,9 @@ export function ActiveFilters({ applied, result, onClearAll }: {
           onClick={item.onClear}
           // The name carries what it does, not just what it is: 「職種: QA」 alone
           // reads as a label rather than a control (#84's lesson, one screen over).
-          aria-label={`${item.label}の絞り込み「${item.value}」を外す`}
+          aria-label={item.value !== undefined ? `${item.label}の絞り込み「${item.value}」を外す` : `${item.label}の絞り込みを外す`}
         >
-          <span>{item.label}: {item.value}</span>
+          <span>{item.value !== undefined ? `${item.label}: ${item.value}` : item.label}</span>
           <X size={12} />
         </button>
       ))}
@@ -684,7 +688,7 @@ export function ProjectsView({
           applied={[
             ...(searchValue.trim() ? [{ key: "query", label: "検索", value: searchValue.trim(), onClear: () => setSearchValue("") }] : []),
             ...(status !== "すべて" ? [{ key: "status", label: "状態", value: status, onClear: () => setStatus("すべて") }] : []),
-            ...(favoritesOnly ? [{ key: "favorites", label: "お気に入り", value: "のみ", onClear: () => onFavoritesOnlyChange?.(false) }] : []),
+            ...(favoritesOnly ? [{ key: "favorites", label: "お気に入りのみ", onClear: () => onFavoritesOnlyChange?.(false) }] : []),
           ]}
           result={`${filtered.length}件`}
           onClearAll={() => { setSearchValue(""); setStatus("すべて"); onFavoritesOnlyChange?.(false); }}
@@ -1022,7 +1026,7 @@ export function MembersView({
             ...(role !== "すべて" ? [{ key: "role", label: "職種", value: role, onClear: () => setRole("すべて") }] : []),
             ...(orgFilter ? [{ key: "org", label: "部門", value: orgUnitPath(state.orgUnits, orgFilter).join(" / "), onClear: () => setOrgFilter("") }] : []),
             ...(selectedScene ? [{ key: "scene", label: "シーン", value: selectedScene.name, onClear: () => setSceneId("") }] : []),
-            ...(favoritesOnly ? [{ key: "favorites", label: "お気に入り", value: "のみ", onClear: () => onFavoritesOnlyChange?.(false) }] : []),
+            ...(favoritesOnly ? [{ key: "favorites", label: "お気に入りのみ", onClear: () => onFavoritesOnlyChange?.(false) }] : []),
           ]}
           result={`${filtered.length}名`}
           onClearAll={() => { setSearchValue(""); setRole("すべて"); setOrgFilter(""); setSceneId(""); onFavoritesOnlyChange?.(false); }}
@@ -1040,7 +1044,12 @@ export function MembersView({
       {canManageScenes && (
         <details className="search-scene-disclosure">
           <summary>新しい検索シーンの条件を入力</summary>
-          <form className="field-catalog-form search-scene-form" onSubmit={(event) => { event.preventDefault(); submitScene(); }}>
+          {/* The error clears on the next keystroke anywhere in the form, not only on the
+              next submit: a submit the browser itself refuses (最小空き over its max) never
+              reaches submitScene, and 「シーン名を入力してください」 stayed up beside a
+              name that had been typed (#258). One handler on the form, since every input's
+              change bubbles here. */}
+          <form className="field-catalog-form search-scene-form" onSubmit={(event) => { event.preventDefault(); submitScene(); }} onChange={() => setError("")}>
           <label>シーン名<input value={sceneName} onChange={(event) => setSceneName(event.target.value)} placeholder="フロントエンド候補" /></label>
           <label>職種<input value={sceneRole} onChange={(event) => setSceneRole(event.target.value)} placeholder="Frontend Engineer" /></label>
           <label>勤務地<input value={sceneLocation} onChange={(event) => setSceneLocation(event.target.value)} placeholder="東京" /></label>
@@ -1092,7 +1101,10 @@ export function MembersView({
                   <td><span className={"load-ring " + (load > member.capacity ? "over" : member.capacity > 0 && load <= member.capacity * .6 ? "open" : "")} style={{ "--load": Math.min(100, loadRatio) } as React.CSSProperties}><strong>{load}%</strong></span><small className="capacity-limit">稼働上限 {member.capacity}%</small></td>
                   <td><div className="member-week-rail">{weeklyLoads.map((value, index) => { const ratio = member.capacity > 0 ? value / member.capacity * 100 : value > 0 ? 100 : 0; /* The label is a sibling of the bar, not a child: it belongs to its own grid track so it cannot overlap the next week's. */ return <Fragment key={index}><i className={value > member.capacity ? "over" : member.capacity > 0 && value <= member.capacity * .6 ? "open" : ""}><b style={{ height: Math.max(12, Math.min(100, ratio)) + "%" }} /></i><small>{value}%</small></Fragment>; })}</div></td>
                   <td><span className="next-open">{member.capacity === 0 ? "稼働不可 · 稼働上限0%" : nextOpen === -1 ? "4週間で該当なし" : nextOpen === 0 ? weekName + " 空き" + Math.max(0, member.capacity - load) + "%" : (nextOpen + 1) + "週後"}<small>{member.location}</small></span></td>
-                  <td className="member-row-actions">{onAddToProposal && <button className="quick-assign quiet" onClick={() => onAddToProposal(member.id)}><Sparkles size={14} />提案へ</button>}{canEdit ? <button className="quick-assign" onClick={() => onAssign(member.id)}><UserRoundPlus size={14} />アサイン</button> : <span className="read-only-label">閲覧のみ</span>}</td>
+                  {/* The flex box is the div, not the td: a flex td is no longer a table cell,
+                      so it stopped at its content's height and the sticky column let the
+                      scrolled columns show through beneath the buttons (#261). */}
+                  <td className="member-row-actions"><div className="member-row-actions-inner">{onAddToProposal && <button className="quick-assign quiet" onClick={() => onAddToProposal(member.id)}><Sparkles size={14} />提案へ</button>}{canEdit ? <button className="quick-assign" onClick={() => onAssign(member.id)}><UserRoundPlus size={14} />アサイン</button> : <span className="read-only-label">閲覧のみ</span>}</div></td>
                 </tr>
               );
             })}

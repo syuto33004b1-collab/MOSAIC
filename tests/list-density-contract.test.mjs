@@ -113,7 +113,7 @@ function minWidthBlocks(css) {
 }
 
 const NOWRAPS = [
-  [".member-row-actions", /\.member-row-actions[^{}]*\{[^}]*flex-wrap:\s*nowrap/u],
+  [".member-row-actions-inner", /\.member-row-actions-inner\s*\{[^}]*flex-wrap:\s*nowrap/u],
   [".capacity-limit", /\.capacity-limit[^{}]*\{[^}]*white-space:\s*nowrap/u],
 ];
 

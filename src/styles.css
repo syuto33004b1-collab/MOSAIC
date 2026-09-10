@@ -64,13 +64,20 @@ button { color: inherit; }
 .topbar { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; margin-bottom: 24px; }
 .eyebrow { margin: 0 0 8px; color: #8a92a5; font-family: var(--font-data); font-size: 9px; font-weight: 800; letter-spacing: .16em; }
 .eyebrow span { margin: 0 5px; color: #c2c7d2; }
+/* The range name is one word: 「9月 第1／週」 was the line breaking inside it (#256).
+   Breaking before it, after the slash, is fine. The colour is the eyebrow's own, not
+   the slash's. */
+.eyebrow .eyebrow-range { margin: 0; color: inherit; white-space: nowrap; }
 h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-weight: 800; letter-spacing: -.055em; line-height: 1.18; }
 .date-range { margin: 7px 0 0; color: var(--muted); font-size: var(--text-min); }
 .topbar-actions { display: flex; align-items: center; gap: 9px; padding-top: 9px; }
 .icon-button, .primary-button, .toolbar-actions button, .view-tabs button { border: 1px solid var(--line); background: var(--paper); cursor: pointer; }
 .icon-button { position: relative; width: 39px; height: 39px; border-radius: 11px; color: #626b7e; font-family: var(--font-data); font-size: 19px; }
 .icon-button.has-dot::after { content: ""; position: absolute; top: 9px; right: 9px; width: 5px; height: 5px; border: 2px solid #fff; border-radius: 50%; background: var(--coral); }
-.primary-button { height: 40px; padding: 0 16px; border-color: var(--cobalt); border-radius: 11px; background: var(--cobalt); color: #fff; font-size: var(--text-min); font-weight: 700; box-shadow: 0 8px 18px rgba(86,104,232,.2); }
+/* Never shrinks, never wraps: with the search box open the topbar squeezed it into
+   「アサインを追／加」 (#256). The room comes from stacking the bar while the box is
+   out (the `search-open` rule below); this only rules out breaking inside the label. */
+.primary-button { flex-shrink: 0; height: 40px; padding: 0 16px; border-color: var(--cobalt); border-radius: 11px; background: var(--cobalt); color: #fff; font-size: var(--text-min); font-weight: 700; white-space: nowrap; box-shadow: 0 8px 18px rgba(86,104,232,.2); }
 .primary-button span { margin-right: 5px; font-size: var(--text-lg); font-weight: 400; }
 
 /* No min-height, like `.member-ribbon` above it: the theme layer decides the box, and it
@@ -219,6 +226,14 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 @media (max-width: 1280px) { .board-layout { grid-template-columns: minmax(0, 1fr); }.attention-panel { display: grid; grid-template-columns: auto 1fr 1fr; gap: 10px; }.attention-title { align-self: start; margin: 0 8px 0 0; }.all-alerts { display: none; } }
 @media (max-width: 820px) { .app-shell { grid-template-columns: 74px minmax(0,1fr); }.sidebar { padding-inline: 13px; }.brand { padding-inline: 10px; }.brand > span:last-child { display: none; }.nav-item { justify-content: center; padding: 0; font-size: 0; }.nav-icon { font-size: 18px; }.nav-count, .month-card, .profile-row > span:not(.avatar), .profile-row button { display: none; }.profile-row { justify-content: center; }.workspace { padding: 24px 18px; }.board-layout { overflow-x: auto; }.schedule-card { min-width: 720px; } }
 @media (max-width: 620px) { .topbar { flex-direction: column; }.topbar-actions { width: 100%; }.primary-button { margin-left: auto; }.pulse-strip { gap: 16px; }.pulse-heading { width: 100%; }.pulse-rule { display: none; }.attention-panel { display: block; }.alert-card { margin-bottom: 10px; } }
+/* The board's open search box adds 238px to the actions, and a flex row pays for it
+   out of the title: measured at 816px the eyebrow broke inside 「第1週」 and the button
+   inside 「アサインを追加」; at 700px the button's label stood 66px tall in a 44px box
+   (#256). The row cannot shrink the box instead — a definite width counts as the box's
+   minimum, and a flex basis does not count towards the actions' width at all — so
+   while the box is open, the bar stacks the way it already does below 620px. Above
+   900px the row has room (title 259px + actions 439px, measured at 935px). */
+@media (max-width: 900px) { .topbar.search-open { flex-direction: column; align-items: stretch; }.topbar.search-open .topbar-actions { width: 100%; }.topbar.search-open .primary-button { margin-left: auto; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; animation: none !important; } }
 
 /* Interaction layer */
@@ -1105,6 +1120,14 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 @media (max-width: 1280px) {
   .attention-panel { display: grid; grid-template-columns: 145px 1fr 1fr; align-items: stretch; }
   .attention-panel .alert-card { margin: 0; }
+  /* The title is the first child and owns the 145px column; the cards take the other
+     two. Left to auto-placement, a third card fell into the title's column of the next
+     row — 145px wide, breaking 「未充足ロ／ール」 (#260). Even and odd children land in
+     the second and third columns; a column set with the row left auto steps down a row
+     whenever the column is smaller than the last one placed, so any number of cards
+     fills (1,2) (1,3) (2,2) (2,3) … and never the first column. */
+  .attention-panel > .alert-card:nth-child(even) { grid-column: 2; }
+  .attention-panel > .alert-card:nth-child(odd) { grid-column: 3; }
   .attention-title { align-items: flex-start; }
 }
 @media (max-width: 820px) {
@@ -1509,8 +1532,12 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
    makes the table wider than its wrapper at every width, so refusing to wrap here buys
    row height at the price of sideways scroll: rows 92 → 67 at 1425px, 83 → 67 at 605px.
    Take the floor away and this does the opposite — the squeeze moves onto the name and
-   skills cells and the rows grow, which is the measurement #136 stopped at (#132). */
-.member-row-actions { display: flex; flex-wrap: nowrap; gap: 6px; justify-content: flex-end; }
+   skills cells and the rows grow, which is the measurement #136 stopped at (#132).
+   The flex box is a div inside the cell, not the cell: a `td` made flex stops being a
+   table cell, sits at its content's height (49px in a 67px row) and paints its
+   background only that far, so the columns scrolled under the sticky actions showed
+   through the bottom 18px (#261). */
+.member-row-actions-inner { display: flex; flex-wrap: nowrap; gap: 6px; justify-content: flex-end; }
 .quick-assign.quiet { color: #687285; }
 .proposal-layout {
   display: grid;
@@ -1769,10 +1796,9 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
    neighbours out of the table. */
 .portfolio-table .col-custom,
 .member-table .col-custom { min-width: 88px; max-width: 150px; }
-/* This cell is display: flex, which turns the shared td height into a definite
-   height rather than a minimum — so when the two buttons wrapped, the flex
-   lines were squeezed into 68px and overlapped by 4px. Let the row grow. */
-.member-table td.member-row-actions { height: auto; align-content: center; }
+/* The actions cell used to be display: flex and needed `height: auto` here so its
+   wrapped buttons could grow the row. It is a table cell again (#261): the row's
+   height is the cell's, and `.member-table td`'s vertical-align centres the inner box. */
 .portfolio-table th,
 .member-table th {
   /* 32px: the label is one 12px line, so 40 was 24px of padding (#136). */
