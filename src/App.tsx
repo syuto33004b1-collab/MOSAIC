@@ -1116,7 +1116,12 @@ export default function Home({ mode = "demo", organizationId, organizationName =
         id: assignment.id,
         // The name alone: the bar appends <small>{allocation}%</small> itself, and the
         // title appends 「· N%」 too, so a name that carried it read 「佐伯 優斗 · 50%50%」 (#251).
-        name: member?.name || "担当未定",
+        // Labelled, like the member axis's row heading (#123): on this axis the row is
+        // the project, so the bar is the only thing that says who — and two namesakes on
+        // one project made the bar's text, its title and its accessible name identical
+        // (#262). The tag is empty unless someone shares the name, so nothing moves for
+        // the usual data.
+        name: member ? memberLabel(workspace, member) : "担当未定",
         start: grid.start,
         span: grid.span,
         tone: project.tone,
