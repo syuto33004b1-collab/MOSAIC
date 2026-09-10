@@ -2080,6 +2080,41 @@ describe("one name per control on the board", () => {
     expectDistinctNames("two rows on the same project and days");
   });
 
+  it("tells two namesakes apart on the projects axis, where the row cannot", async () => {
+    // #262: the member axis carries the label in its row heading (#123), but here the
+    // row is the project — the bar is the only thing that says who. Both bars read
+    // 「林 葵」 in their text, their title and their accessible name, so the only way to
+    // tell which one to open was to open it.
+    const project = { ...initialWorkspace.projects[0], id: "project", name: "Atlas リニューアル" };
+    const tokyo = { ...initialWorkspace.members[0], id: "tokyo", name: "林 葵", location: "東京" };
+    const osaka = { ...initialWorkspace.members[1], id: "osaka", name: "林 葵", location: "大阪" };
+    const span = { startDate: weekStart, endDate: addDays(weekStart, 4) };
+    const adapter = sharedAdapter();
+    adapter.initialState = {
+      members: [tokyo, osaka],
+      projects: [project],
+      assignments: [
+        { id: "a", personId: tokyo.id, projectId: project.id, ...span, allocation: 50, status: "confirmed" },
+        { id: "b", personId: osaka.id, projectId: project.id, ...span, allocation: 50, status: "confirmed" },
+      ],
+      needs: [],
+    } as unknown as WorkspaceState;
+    const user = userEvent.setup();
+    render(<App mode="shared" organizationName="Example Inc." identity={owner} shared={adapter} />);
+    await user.click(screen.getByRole("button", { name: "プロジェクト別" }));
+
+    // Distinct locations, so `memberLabels` tags by place rather than by id tail —
+    // the branch a reader of the board can actually act on.
+    const days = getWeekDays(0);
+    const range = `${days[0].month}/${days[0].date}〜${days[4].month}/${days[4].date}`;
+    const east = screen.getByRole("button", { name: `林 葵（東京）のアサイン詳細（Atlas リニューアル・${range}）` });
+    const west = screen.getByRole("button", { name: `林 葵（大阪）のアサイン詳細（Atlas リニューアル・${range}）` });
+    // The title is the second consumer of the same string, and the one a mouse reaches.
+    expect(east).toHaveAttribute("title", "林 葵（東京） · 50%");
+    expect(west).toHaveAttribute("title", "林 葵（大阪） · 50%");
+    expectDistinctNames("two namesakes on one project");
+  });
+
   it("names a single day without a range", async () => {
     const project = { ...initialWorkspace.projects[0], id: "project", name: "単日 案件" };
     const member = { ...initialWorkspace.members[0], id: "one-day", name: "単日 三郎" };
