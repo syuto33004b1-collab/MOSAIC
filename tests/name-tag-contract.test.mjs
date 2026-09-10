@@ -133,12 +133,23 @@ test("the member row renders the name and the tag as separate boxes", async () =
  * | 「（東京）」                 | 48px  |
  *
  * So the cut landed inside the name and took the tag with it: both namesakes read
- * 「佐伯 …」, which is the state #262 was supposed to have ended. Splitting the box gives
- * the place tag whole and clips the id tag instead of dropping it — 「（#e04」 against
- * 「（#sae」 still tells them apart.
+ * 「佐伯 …」, which is the state #262 was supposed to have ended. Splitting the box makes
+ * the surviving part the one that distinguishes: a place tag fits whole, and an id tag is
+ * clipped rather than dropped.
  *
- * The string is untouched, so the visible text stays a prefix of the accessible name.
- * jsdom has no layout; the widths above are browser measurements, in the PR.
+ * ## What it does not do
+ *
+ * Guarantee it. The bar clips at its right edge and `idTail` picks the shortest unique
+ * *suffix*, so the clip runs opposite to where the uniqueness lives — measured at 375px,
+ * 「（#ad3e）」 loses 17px and reads 「（#ad3」. Two ids differing only in their last
+ * character would still read alike. 39px does not hold a name and a bounded identifier;
+ * the guarantee is in the accessible name, the `title` and the drawer. #282 is where the
+ * remaining decision is written down.
+ *
+ * So this test pins the arrangement, not the outcome: it cannot see an ellipsis, and it
+ * would pass for a bar too narrow to distinguish anything. The string is untouched, so
+ * the visible text stays a fragment of the accessible name. jsdom has no layout; the
+ * widths above are browser measurements, in the PR.
  */
 test("the bar's tag survives the ellipsis too", async () => {
   const css = withoutComments(await readCss());

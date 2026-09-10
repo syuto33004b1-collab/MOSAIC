@@ -1133,6 +1133,8 @@ export default function Home({ mode = "demo", organizationId, organizationName =
       // accessible name identical. #282 is what the label then ran into: the whole of
       // 「佐伯 優斗（#e04a）」 is 107px and a one-day bar shows 52px, so the ellipsis landed
       // inside the name and took the tag — the one part that was doing the telling apart.
+      // The split makes the tag the part that survives; it does not make a 39px bar hold
+      // both a name and a bounded identifier, and #282 keeps that half open.
       // Both are empty of a tag unless someone shares a name, so nothing moves for the
       // usual data.
       const parts = member ? memberLabelParts(workspace, member) : { name: "担当未定", tag: "" };
