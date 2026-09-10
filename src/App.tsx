@@ -2989,8 +2989,16 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                             {/* One line per column, from the range rather than a
                                 hard-coded five (#139). */}
                             <div className="day-grid" aria-hidden="true">{days.map((day) => <i className={day.weekend ? (row.weekendWorked.has(day.iso) ? "weekend worked" : "weekend") : ""} key={day.iso} />)}</div>
+                            {/* The bracket holds what this bar is: whose row it sits in,
+                                which days it covers, and how much of them it takes. The
+                                figure is on screen in the `<small>` and in the `title`,
+                                but the aria-label replaces the content for a reader, so
+                                without it the allocation was unreachable by ear (#263).
+                                It carries the same `> 0` condition as the `<small>` so
+                                the two say the same thing; 稼働 is the word #82 settled
+                                on for a load. */}
                             {row.assignments.map((assignment) => (
-                              <button className={"assignment " + assignment.tone + (assignment.status === "draft" ? " provisional" : "")} style={{ gridColumn: assignment.start + " / span " + assignment.span }} onClick={() => openAssignment(assignment.id)} aria-label={assignment.name + "のアサイン詳細（" + row.name + "・" + assignmentDayRange(days, assignment.start, assignment.span) + "）"} title={assignment.name + " · " + assignment.allocation + "%"} key={assignment.id}>
+                              <button className={"assignment " + assignment.tone + (assignment.status === "draft" ? " provisional" : "")} style={{ gridColumn: assignment.start + " / span " + assignment.span }} onClick={() => openAssignment(assignment.id)} aria-label={assignment.name + "のアサイン詳細（" + row.name + "・" + assignmentDayRange(days, assignment.start, assignment.span) + (assignment.allocation > 0 ? "・稼働" + assignment.allocation + "%" : "") + "）"} title={assignment.name + " · " + assignment.allocation + "%"} key={assignment.id}>
                                 <span>{assignment.name}</span>{assignment.allocation > 0 && <small>{assignment.allocation}%</small>}
                               </button>
                             ))}
