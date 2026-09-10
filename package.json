@@ -14,7 +14,8 @@
     "lint": "eslint . --ignore-pattern dist",
     "test": "npm run test:unit && npm run test:static",
     "test:unit": "vitest run",
-    "test:static": "npm run build && node --test tests/*.test.mjs"
+    "test:static": "npm run build && node --test tests/*.test.mjs",
+    "test:render": "npm run build && node scripts/check-rendering.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "2.115.0",
@@ -38,6 +39,7 @@
     "eslint-plugin-react-hooks": "7.1.1",
     "globals": "17.12.0",
     "jsdom": "30.0.1",
+    "puppeteer-core": "25.10.0",
     "supabase": "2.116.0",
     "typescript": "6.0.3",
     "typescript-eslint": "8.69.0",
