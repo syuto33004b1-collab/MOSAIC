@@ -39,6 +39,9 @@ import {
   exportProposalCsv,
   memberCsvColumns,
   parseCsv,
+  assignmentCsvColumns,
+  exportAssignmentsCsv,
+  previewAssignmentImport,
   previewMemberImport,
   previewProjectImport,
   projectCsvColumns,
@@ -48,6 +51,7 @@ import {
   type CsvExportPreset,
   type CsvIssue,
   type CsvSource,
+  type AssignmentImportAction,
   type MemberImportAction,
   type ProjectImportAction,
   CSV_PRESETS_KEY,
@@ -2490,6 +2494,7 @@ type CsvTransferPanelProps = {
   canImportProjects?: boolean;
   onImportMembers: (actions: MemberImportAction[]) => void;
   onImportProjects: (actions: ProjectImportAction[]) => void;
+  onImportAssignments: (actions: AssignmentImportAction[]) => void;
 };
 
 /**
@@ -2501,12 +2506,23 @@ type CsvTransferPanelProps = {
  */
 type PendingImport =
   | { source: "members"; actions: MemberImportAction[] }
-  | { source: "projects"; actions: ProjectImportAction[] };
+  | { source: "projects"; actions: ProjectImportAction[] }
+  | { source: "assignments"; actions: AssignmentImportAction[] };
 
-export function CsvTransferPanel({ state, organizationId, canImport = false, canImportProjects = false, onImportMembers, onImportProjects }: CsvTransferPanelProps) {
+/** The columns each target offers, and the words the panel says about it. */
+const CSV_TARGETS = {
+  members: { label: "メンバー", needs: "メンバーは氏名・職種・部署・勤務地があれば新規登録できます。" },
+  projects: { label: "プロジェクト", needs: "プロジェクトは案件名・責任者・開始日・終了日があれば新規登録できます。責任者は画面に出る氏名で書きます。" },
+  assignments: { label: "アサイン", needs: "アサインはメンバー・プロジェクト・開始日・終了日・稼働配分があれば新規登録できます。メンバーとプロジェクトは画面に出る名前で書きます。" },
+} as const;
+
+export function CsvTransferPanel({ state, organizationId, canImport = false, canImportProjects = false, onImportMembers, onImportProjects, onImportAssignments }: CsvTransferPanelProps) {
   const storageKey = `${CSV_PRESETS_KEY}:${organizationId ?? "demo"}`;
   const [source, setSource] = useState<CsvSource>("members");
-  const available = source === "members" ? memberCsvColumns(state.customFields) : projectCsvColumns(state.customFields);
+  const columnsFor = (target: CsvSource) => target === "members" ? memberCsvColumns(state.customFields)
+    : target === "projects" ? projectCsvColumns(state.customFields)
+    : assignmentCsvColumns();
+  const available = columnsFor(source);
   const [columns, setColumns] = useState<string[]>(() => memberCsvColumns(state.customFields).map((column) => column.key));
   const [presets, setPresets] = useState<CsvExportPreset[]>(() => readCsvPresets(storageKey));
   const [presetName, setPresetName] = useState("");
@@ -2520,7 +2536,7 @@ export function CsvTransferPanel({ state, organizationId, canImport = false, can
 
   const changeSource = (next: CsvSource) => {
     setSource(next);
-    setColumns((next === "members" ? memberCsvColumns(state.customFields) : projectCsvColumns(state.customFields)).map((column) => column.key));
+    setColumns(columnsFor(next).map((column) => column.key));
     // A file read under the old target is not a file for the new one. Clearing here is
     // what keeps the button from offering rows that were parsed as something else, and
     // the bump is what stops a read still in flight from putting them back.
@@ -2556,11 +2572,16 @@ export function CsvTransferPanel({ state, organizationId, canImport = false, can
   };
 
   const exportNow = () => {
-    const csv = source === "members" ? exportMembersCsv(state, columns) : exportProjectsCsv(state, columns);
+    const csv = source === "members" ? exportMembersCsv(state, columns)
+      : source === "projects" ? exportProjectsCsv(state, columns)
+      : exportAssignmentsCsv(state, columns);
     downloadCsv(`mosaic-${source}.csv`, csv);
   };
 
+  // Projects and assignments are both 「anyone who can edit a project」; members are the
+  // owner's and the admin's alone.
   const importable = source === "members" ? canImport : canImportProjects;
+  const target = CSV_TARGETS[source];
 
   /**
    * Which read the panel is still waiting for.
@@ -2591,10 +2612,15 @@ export function CsvTransferPanel({ state, organizationId, canImport = false, can
         setIssues(found);
         setPending(actions.length ? { source: "members", actions } : null);
         setImportMessage(actions.length ? `${actions.length}行を仮置きできます` : "適用できる行がありません");
-      } else {
+      } else if (source === "projects") {
         const { issues: found, actions } = previewProjectImport(state, parsed, newId);
         setIssues(found);
         setPending(actions.length ? { source: "projects", actions } : null);
+        setImportMessage(actions.length ? `${actions.length}行を仮置きできます` : "適用できる行がありません");
+      } else {
+        const { issues: found, actions } = previewAssignmentImport(state, parsed, newId);
+        setIssues(found);
+        setPending(actions.length ? { source: "assignments", actions } : null);
         setImportMessage(actions.length ? `${actions.length}行を仮置きできます` : "適用できる行がありません");
       }
     } catch (caught) {
@@ -2609,12 +2635,7 @@ export function CsvTransferPanel({ state, organizationId, canImport = false, can
       {/* Says what each target needs, because both can now be read back in. The
           columns are the same ones the export writes, so an empty download is the
           template rather than a format to agree on. */}
-      <p className="csv-lead">
-        UTF-8（BOM付き）で出力します。IDがある行は更新、無い行は新規です。
-        {source === "members"
-          ? "メンバーは氏名・職種・部署・勤務地があれば新規登録できます。"
-          : "プロジェクトは案件名・責任者・開始日・終了日があれば新規登録できます。責任者は画面に出る氏名で書きます。"}
-      </p>
+      <p className="csv-lead">UTF-8（BOM付き）で出力します。IDがある行は更新、無い行は新規です。{target.needs}</p>
       <div className="csv-toolbar">
         {/* 「CSVの対象」 rather than 「対象」: the field list on this screen has a
             filter of its own, and one screen must not show the same visible
@@ -2623,6 +2644,7 @@ export function CsvTransferPanel({ state, organizationId, canImport = false, can
           <select aria-label="CSVの対象を選ぶ" value={source} onChange={(event) => changeSource(event.target.value as CsvSource)}>
             <option value="members">メンバー</option>
             <option value="projects">プロジェクト</option>
+            <option value="assignments">アサイン</option>
           </select>
         </label>
         <button className="view-add-button" type="button" onClick={exportNow} disabled={columns.length === 0}><Download size={15} />CSVをダウンロード</button>
@@ -2647,7 +2669,7 @@ export function CsvTransferPanel({ state, organizationId, canImport = false, can
       </div>
       {importable && (
         <div className="csv-import">
-          <strong>{source === "members" ? "メンバー" : "プロジェクト"}CSVを取り込む</strong>
+          <strong>{target.label}CSVを取り込む</strong>
           <label className="view-add-button ghost">
             <Upload size={15} />ファイルを選択
             <input className="sr-only" type="file" accept=".csv,text/csv" onChange={(event) => void onFile(event.target.files?.[0])} />
@@ -2661,7 +2683,8 @@ export function CsvTransferPanel({ state, organizationId, canImport = false, can
           {pending && (
             <button className="view-add-button" type="button" onClick={() => {
               if (pending.source === "members") onImportMembers(pending.actions);
-              else onImportProjects(pending.actions);
+              else if (pending.source === "projects") onImportProjects(pending.actions);
+              else onImportAssignments(pending.actions);
               setPending(null);
               setImportMessage("仮置きしました。チームへ保存すると確定します。");
             }}>
@@ -2676,7 +2699,7 @@ export function CsvTransferPanel({ state, organizationId, canImport = false, can
         <p className="csv-lead">
           {source === "members"
             ? "メンバーの取り込みはオーナーまたは管理者だけが実行できます。"
-            : "プロジェクトの取り込みは案件を編集できる権限が必要です。"}
+            : `${target.label}の取り込みは案件を編集できる権限が必要です。`}
         </p>
       )}
     </section>
