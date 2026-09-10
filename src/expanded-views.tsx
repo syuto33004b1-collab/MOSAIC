@@ -40,6 +40,7 @@ import {
   memberCsvColumns,
   parseCsv,
   previewMemberImport,
+  previewProjectImport,
   projectCsvColumns,
   proposalCsvColumns,
   readCsvPresets,
@@ -48,6 +49,7 @@ import {
   type CsvIssue,
   type CsvSource,
   type MemberImportAction,
+  type ProjectImportAction,
   CSV_PRESETS_KEY,
 } from "./csv";
 import {
@@ -2485,10 +2487,23 @@ type CsvTransferPanelProps = {
   state: WorkspaceState;
   organizationId?: string;
   canImport?: boolean;
+  canImportProjects?: boolean;
   onImportMembers: (actions: MemberImportAction[]) => void;
+  onImportProjects: (actions: ProjectImportAction[]) => void;
 };
 
-export function CsvTransferPanel({ state, organizationId, canImport = false, onImportMembers }: CsvTransferPanelProps) {
+/**
+ * What a file has been read into, and which kind it is.
+ *
+ * One field rather than two lists, because the kind has to travel with the rows: the
+ * 「CSVの対象」 select can move after a file is read, and applying member rows to the
+ * project importer is the mistake that shape makes impossible rather than unlikely.
+ */
+type PendingImport =
+  | { source: "members"; actions: MemberImportAction[] }
+  | { source: "projects"; actions: ProjectImportAction[] };
+
+export function CsvTransferPanel({ state, organizationId, canImport = false, canImportProjects = false, onImportMembers, onImportProjects }: CsvTransferPanelProps) {
   const storageKey = `${CSV_PRESETS_KEY}:${organizationId ?? "demo"}`;
   const [source, setSource] = useState<CsvSource>("members");
   const available = source === "members" ? memberCsvColumns(state.customFields) : projectCsvColumns(state.customFields);
@@ -2496,7 +2511,7 @@ export function CsvTransferPanel({ state, organizationId, canImport = false, onI
   const [presets, setPresets] = useState<CsvExportPreset[]>(() => readCsvPresets(storageKey));
   const [presetName, setPresetName] = useState("");
   const [issues, setIssues] = useState<CsvIssue[]>([]);
-  const [pending, setPending] = useState<MemberImportAction[]>([]);
+  const [pending, setPending] = useState<PendingImport | null>(null);
   const [importMessage, setImportMessage] = useState("");
 
   const toggleColumn = (key: string) => {
@@ -2506,6 +2521,11 @@ export function CsvTransferPanel({ state, organizationId, canImport = false, onI
   const changeSource = (next: CsvSource) => {
     setSource(next);
     setColumns((next === "members" ? memberCsvColumns(state.customFields) : projectCsvColumns(state.customFields)).map((column) => column.key));
+    // A file read under the old target is not a file for the new one. Clearing here is
+    // what keeps the button from offering rows that were parsed as something else.
+    setPending(null);
+    setIssues([]);
+    setImportMessage("");
   };
 
   const savePreset = () => {
@@ -2538,17 +2558,29 @@ export function CsvTransferPanel({ state, organizationId, canImport = false, onI
     downloadCsv(`mosaic-${source}.csv`, csv);
   };
 
+  const importable = source === "members" ? canImport : canImportProjects;
+
   const onFile = async (file: File | undefined) => {
-    if (!file || !canImport) return;
+    if (!file || !importable) return;
     setImportMessage("");
     setIssues([]);
-    setPending([]);
+    setPending(null);
     try {
       const parsed = parseCsv(await file.text());
-      const preview = previewMemberImport(state, parsed, () => crypto.randomUUID());
-      setIssues(preview.issues);
-      setPending(preview.actions);
-      setImportMessage(preview.actions.length ? `${preview.actions.length}行を仮置きできます` : "適用できる行がありません");
+      const newId = () => crypto.randomUUID();
+      // Written out twice rather than cast: `source` is what picked the parser, and
+      // spelling that out is what lets the compiler pair the rows with their kind.
+      if (source === "members") {
+        const { issues: found, actions } = previewMemberImport(state, parsed, newId);
+        setIssues(found);
+        setPending(actions.length ? { source: "members", actions } : null);
+        setImportMessage(actions.length ? `${actions.length}行を仮置きできます` : "適用できる行がありません");
+      } else {
+        const { issues: found, actions } = previewProjectImport(state, parsed, newId);
+        setIssues(found);
+        setPending(actions.length ? { source: "projects", actions } : null);
+        setImportMessage(actions.length ? `${actions.length}行を仮置きできます` : "適用できる行がありません");
+      }
     } catch (caught) {
       setImportMessage(caught instanceof Error ? caught.message : "CSVを読み込めませんでした");
     }
@@ -2588,9 +2620,9 @@ export function CsvTransferPanel({ state, organizationId, canImport = false, onI
           </span>
         ))}
       </div>
-      {canImport && (
+      {importable && (
         <div className="csv-import">
-          <strong>メンバーCSVを取り込む</strong>
+          <strong>{source === "members" ? "メンバー" : "プロジェクト"}CSVを取り込む</strong>
           <label className="view-add-button ghost">
             <Upload size={15} />ファイルを選択
             <input className="sr-only" type="file" accept=".csv,text/csv" onChange={(event) => void onFile(event.target.files?.[0])} />
@@ -2601,14 +2633,27 @@ export function CsvTransferPanel({ state, organizationId, canImport = false, onI
               {issues.map((issue) => <li key={`${issue.row}-${issue.message}`}>{issue.row}行目: {issue.message}</li>)}
             </ul>
           )}
-          {pending.length > 0 && (
-            <button className="view-add-button" type="button" onClick={() => { onImportMembers(pending); setPending([]); setImportMessage("仮置きしました。チームへ保存すると確定します。"); }}>
-              {pending.length}行を仮置きする
+          {pending && (
+            <button className="view-add-button" type="button" onClick={() => {
+              if (pending.source === "members") onImportMembers(pending.actions);
+              else onImportProjects(pending.actions);
+              setPending(null);
+              setImportMessage("仮置きしました。チームへ保存すると確定します。");
+            }}>
+              {pending.actions.length}行を仮置きする
             </button>
           )}
         </div>
       )}
-      {!canImport && <p className="csv-lead">取り込みはオーナーまたは管理者だけが実行できます。</p>}
+      {/* Said per target, because the two are different permissions: members are the
+          owner's and the admin's, projects are anyone who can edit a project. */}
+      {!importable && (
+        <p className="csv-lead">
+          {source === "members"
+            ? "メンバーの取り込みはオーナーまたは管理者だけが実行できます。"
+            : "プロジェクトの取り込みは案件を編集できる権限が必要です。"}
+        </p>
+      )}
     </section>
   );
 }

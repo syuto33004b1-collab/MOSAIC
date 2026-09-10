@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { applyMemberImport, DEFAULT_PROPOSAL_CSV_COLUMNS, exportMembersCsv, exportProposalCsv, parseCsv, previewMemberImport, proposalCsvColumns, PROPOSAL_CSV_COLUMNS, serializeCsv } from "./csv";
-import { getWeekStart, initialWorkspace, matchMembers, searchSceneFromNeed } from "./domain";
+import { applyMemberImport, applyProjectImport, DEFAULT_PROPOSAL_CSV_COLUMNS, exportMembersCsv, exportProjectsCsv, exportProposalCsv, parseCsv, previewMemberImport, previewProjectImport, proposalCsvColumns, PROPOSAL_CSV_COLUMNS, serializeCsv } from "./csv";
+import { getWeekStart, initialWorkspace, matchMembers, searchSceneFromNeed, type WorkspaceState } from "./domain";
 
 describe("csv round-trip", () => {
   it("parses quoted commas and serializes a BOM", () => {
@@ -156,5 +156,110 @@ describe("writing a proposal out", () => {
       memberIds: ["saeki"], columns: ["4週間の稼働率", "職種"], anonymous: false, weekStart,
     });
     expect(rows(csv)[0]).toEqual(["候補", "職種", "4週間の稼働率"]);
+  });
+});
+
+describe("project csv import", () => {
+  const rowsOf = (csv: string) => parseCsv(csv).rows;
+
+  it("takes back the file it wrote, and creates what has no id", () => {
+    // The export is the template: nothing has to agree on a format because the
+    // importer reads exactly what `exportProjectsCsv` produced.
+    const exported = exportProjectsCsv(initialWorkspace, ["id", "name", "ownerName", "status", "startDate", "endDate", "progress", "demand"]);
+    const withNewRow = exported.trimEnd() + "\r\n,新規 案件,林 葵,準備中,2026-10-01,2026-12-31,0,2\r\n";
+    const preview = previewProjectImport(initialWorkspace, parseCsv(withNewRow), () => "brand-new");
+
+    expect(preview.issues).toEqual([]);
+    expect(preview.actions.at(-1)?.mode).toBe("create");
+    expect(preview.actions.filter((action) => action.mode === "update")).toHaveLength(initialWorkspace.projects.length);
+
+    const next = applyProjectImport(initialWorkspace, preview.actions);
+    expect(next.projects).toHaveLength(initialWorkspace.projects.length + 1);
+    const created = next.projects.find((project) => project.id === "brand-new");
+    expect(created).toMatchObject({ name: "新規 案件", status: "準備中", demand: 2, tone: "blue" });
+    // Derived from the name and the id, never read from the file. 「新規 案件」 has no
+    // A-Za-z0-9 in it, so `createProjectCode` falls back to its `PJ` prefix.
+    expect(created?.code).toBe("PJ-BRANDNEW");
+
+    // A round-tripped row comes back as it went out, with one addition: the seed
+    // carries `ownerName` and `ownerInitials` but no `ownerPersonId`, and resolving
+    // the owner fills that link in.
+    const atlas = initialWorkspace.projects.find((project) => project.id === "atlas")!;
+    expect(atlas.ownerPersonId).toBeUndefined();
+    expect(next.projects.find((project) => project.id === "atlas")).toEqual({ ...atlas, ownerPersonId: "hayashi" });
+  });
+
+  it("resolves the owner by the name on screen, and refuses one two people answer to", () => {
+    const twins: WorkspaceState = {
+      ...initialWorkspace,
+      members: [
+        { ...initialWorkspace.members[0], id: "one", name: "林 葵", location: "東京" },
+        { ...initialWorkspace.members[1], id: "two", name: "林 葵", location: "大阪" },
+      ],
+    };
+    const ambiguous = previewProjectImport(twins, parseCsv("name,ownerName,startDate,endDate\n案件,林 葵,2026-10-01,2026-12-31\n"), () => "x");
+    expect(ambiguous.actions).toEqual([]);
+    expect(ambiguous.issues[0].message).toContain("複数います");
+    // The label the board prints (#123, #262) is what makes the row writable.
+    expect(ambiguous.issues[0].message).toContain("林 葵（東京）");
+
+    const labelled = previewProjectImport(twins, parseCsv("name,ownerName,startDate,endDate\n案件,林 葵（大阪）,2026-10-01,2026-12-31\n"), () => "x");
+    expect(labelled.issues).toEqual([]);
+    expect(labelled.actions[0].project.ownerPersonId).toBe("two");
+    // Stored as the raw name, which is what the export writes back out.
+    expect(labelled.actions[0].project.ownerName).toBe("林 葵");
+
+    const missing = previewProjectImport(initialWorkspace, parseCsv("name,ownerName,startDate,endDate\n案件,居ない 人,2026-10-01,2026-12-31\n"), () => "x");
+    expect(missing.issues[0].message).toContain("見つかりません");
+  });
+
+  it("refuses a shortened period instead of cancelling what falls outside it", () => {
+    // `handleEditProject` cancels those assignments and needs. A file cannot show
+    // which ones, so the row is refused and the count says what it would have cost.
+    const atlas = initialWorkspace.projects.find((project) => project.id === "atlas")!;
+    const stranded = initialWorkspace.assignments.filter((assignment) => assignment.projectId === "atlas").length
+      + initialWorkspace.needs.filter((need) => need.projectId === "atlas").length;
+    expect(stranded).toBeGreaterThan(0);
+
+    // The milestone moves with the period, as it would in the form: leaving it at the
+    // seed's 2026-08-28 would fall outside the new range and refuse the row for that
+    // instead, which is `handleEditProject`'s own rule and not what is under test here.
+    const shrunk = "id,name,ownerName,startDate,endDate,nextMilestoneDate\n"
+      + `atlas,${atlas.name},${atlas.ownerName},2026-10-01,2026-10-31,2026-10-05\n`;
+    const preview = previewProjectImport(initialWorkspace, parseCsv(shrunk), () => "x");
+    expect(preview.actions).toEqual([]);
+    expect(preview.issues[0].message).toContain("先に画面で調整してください");
+
+    // Widening the period strands nothing, so it goes through.
+    const widened = previewProjectImport(initialWorkspace, parseCsv(`id,name,ownerName,startDate,endDate\natlas,${atlas.name},${atlas.ownerName},2026-01-01,2026-12-31\n`), () => "x");
+    expect(widened.issues).toEqual([]);
+    expect(widened.actions[0].project.endDate).toBe("2026-12-31");
+  });
+
+  it("refuses the values the project form refuses", () => {
+    const cases: [string, string][] = [
+      ["name,ownerName,startDate,endDate,status\n案件,林 葵,2026-10-01,2026-12-31,着手前\n", "状態は"],
+      ["name,ownerName,startDate,endDate\n案件,林 葵,2026-12-31,2026-10-01\n", "終了日は開始日以降"],
+      ["name,ownerName,startDate,endDate,nextMilestoneDate\n案件,林 葵,2026-10-01,2026-12-31,2027-03-01\n", "節目日はプロジェクト期間内"],
+      ["name,ownerName,startDate,endDate,progress\n案件,林 葵,2026-10-01,2026-12-31,140\n", "進捗は0〜100"],
+      ["name,ownerName,startDate,endDate,demand\n案件,林 葵,2026-10-01,2026-12-31,2.5\n", "必要人数は0〜10000名の整数"],
+      ["id,name,ownerName,startDate,endDate\nnope,案件,林 葵,2026-10-01,2026-12-31\n", "指定したIDのプロジェクトが見つかりません"],
+      ["name,ownerName,startDate,endDate\n,林 葵,2026-10-01,2026-12-31\n", "案件名は必須です"],
+    ];
+    for (const [csv, message] of cases) {
+      const preview = previewProjectImport(initialWorkspace, parseCsv(csv), () => "x");
+      expect(preview.actions, message).toEqual([]);
+      expect(preview.issues[0].message, message).toContain(message);
+    }
+    expect(rowsOf(cases[0][0])).toHaveLength(1);
+  });
+
+  it("leaves the columns a row omits alone", () => {
+    const atlas = initialWorkspace.projects.find((project) => project.id === "atlas")!;
+    const preview = previewProjectImport(initialWorkspace, parseCsv("id,progress\natlas,72\n"), () => "x");
+    expect(preview.issues).toEqual([]);
+    // Everything the row is silent about keeps the stored value; `ownerPersonId` is the
+    // one addition, resolved from the `ownerName` the seed already carried.
+    expect(preview.actions[0].project).toEqual({ ...atlas, ownerPersonId: "hayashi", progress: 72 });
   });
 });

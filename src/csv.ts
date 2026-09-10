@@ -1,6 +1,7 @@
 import { anonymousCandidateLabel } from "./collaboration";
 import {
   addDays,
+  createProjectCode,
   formatSkillInput,
   hydrateWorkspaceSkills,
   makeInitials,
@@ -17,6 +18,7 @@ import {
   type CustomFieldDefinition,
   type Member,
   type Project,
+  type ProjectStatus,
   type WorkspaceState,
 } from "./domain";
 
@@ -51,6 +53,12 @@ export type MemberImportAction = {
   row: number;
   mode: "create" | "update";
   member: Member;
+};
+
+export type ProjectImportAction = {
+  row: number;
+  mode: "create" | "update";
+  project: Project;
 };
 
 const MEMBER_CORE_COLUMNS: CsvColumn[] = [
@@ -237,6 +245,38 @@ export function applyMemberImport(state: WorkspaceState, actions: MemberImportAc
   return hydrateWorkspaceSkills({ ...state, members });
 }
 
+export function previewProjectImport(state: WorkspaceState, parsed: CsvParseResult, newId: () => string): {
+  issues: CsvIssue[];
+  actions: ProjectImportAction[];
+} {
+  const issues: CsvIssue[] = [];
+  const actions: ProjectImportAction[] = [];
+  const seenIds = new Set<string>();
+  parsed.rows.forEach((row, index) => {
+    const rowNumber = index + 2;
+    try {
+      const action = projectActionFromRow(state, row, rowNumber, () => newId());
+      if (seenIds.has(action.project.id)) throw new Error("同じIDの行が重複しています");
+      seenIds.add(action.project.id);
+      actions.push(action);
+    } catch (caught) {
+      issues.push({ row: rowNumber, message: caught instanceof Error ? caught.message : "行を読み込めませんでした" });
+    }
+  });
+  return { issues, actions };
+}
+
+export function applyProjectImport(state: WorkspaceState, actions: ProjectImportAction[]): WorkspaceState {
+  const projects = [...state.projects];
+  for (const action of actions) {
+    const index = projects.findIndex((project) => project.id === action.project.id);
+    if (index >= 0) projects[index] = action.project;
+    else projects.push(action.project);
+  }
+  // No `hydrateWorkspaceSkills`: that walks members' skill levels, and a project has none.
+  return { ...state, projects };
+}
+
 export function normalizeCsvPresets(value: unknown): CsvExportPreset[] {
   if (!Array.isArray(value)) return [];
   return value.flatMap((item) => {
@@ -327,6 +367,103 @@ function memberActionFromRow(state: WorkspaceState, row: Record<string, string>,
     workHistory: existing?.workHistory ?? [],
   };
   return { row: rowNumber, mode: existing ? "update" : "create", member };
+}
+
+/**
+ * The member a `ownerName` cell names.
+ *
+ * The export writes `ownerName`, which is the raw name, so a file that went out comes
+ * back in through the second pass. The first pass is what makes namesakes writable at
+ * all: `memberLabel` is what the screens print (#123, #262), so pasting what you see —
+ * 「佐伯 優斗（#saeki）」 — resolves, and 「佐伯 優斗」 with two of them is refused rather
+ * than silently taking the first row's owner.
+ */
+function ownerFromCell(state: WorkspaceState, value: string) {
+  const wanted = value.trim();
+  const labelled = state.members.filter((member) => memberLabel(state, member) === wanted);
+  if (labelled.length === 1) return labelled[0];
+  const named = state.members.filter((member) => member.name.trim() === wanted);
+  if (named.length === 1) return named[0];
+  if (named.length > 1) {
+    throw new Error(`責任者「${wanted}」は複数います。「${memberLabel(state, named[0])}」のように書いてください`);
+  }
+  throw new Error(`責任者「${wanted}」が見つかりません`);
+}
+
+const PROJECT_STATUSES: ProjectStatus[] = ["進行中", "要注意", "準備中", "完了間近", "完了"];
+
+function projectActionFromRow(state: WorkspaceState, row: Record<string, string>, rowNumber: number, newId: () => string): ProjectImportAction {
+  const idValue = cell(row, "id");
+  const existing = idValue ? state.projects.find((project) => project.id === idValue) : undefined;
+  if (idValue && !existing) throw new Error("指定したIDのプロジェクトが見つかりません");
+  if (idValue && !TARGET_ID_PATTERN.test(idValue)) throw new Error("IDの形式を確認してください");
+
+  const name = existing ? valueOr(row, "name", existing.name) : required(row, "name", "案件名");
+  const ownerCell = existing ? valueOr(row, "ownerName", existing.ownerName ?? "") : required(row, "ownerName", "責任者");
+  const owner = ownerFromCell(state, ownerCell);
+
+  const statusRaw = hasColumn(row, "status") ? cell(row, "status") : existing?.status ?? "準備中";
+  if (!PROJECT_STATUSES.includes(statusRaw as ProjectStatus)) {
+    throw new Error(`状態は ${PROJECT_STATUSES.join(" / ")} のいずれかにしてください`);
+  }
+  const status = statusRaw as ProjectStatus;
+
+  const startDate = existing ? valueOr(row, "startDate", existing.startDate) : required(row, "startDate", "開始日");
+  const endDate = existing ? valueOr(row, "endDate", existing.endDate) : required(row, "endDate", "終了日");
+  if (endDate < startDate) throw new Error("終了日は開始日以降にしてください");
+
+  const milestoneDate = hasColumn(row, "nextMilestoneDate")
+    ? cell(row, "nextMilestoneDate")
+    : existing?.nextMilestoneDate ?? "";
+  if (milestoneDate && (milestoneDate < startDate || milestoneDate > endDate)) {
+    throw new Error("節目日はプロジェクト期間内にしてください");
+  }
+
+  const progressRaw = hasColumn(row, "progress") ? cell(row, "progress") : existing ? String(existing.progress) : "0";
+  const progress = Number(progressRaw);
+  if (!Number.isFinite(progress) || progress < 0 || progress > 100) throw new Error("進捗は0〜100で入力してください");
+
+  const demandRaw = hasColumn(row, "demand") ? cell(row, "demand") : existing ? String(existing.demand) : "1";
+  const demand = Number(demandRaw);
+  if (!Number.isInteger(demand) || demand < 0 || demand > 10000) throw new Error("必要人数は0〜10000名の整数で入力してください");
+
+  // `handleEditProject` cancels the assignments and needs a shortened period leaves
+  // outside it, and reopens the needs those assignments filled. A file of 500 rows
+  // cannot show which of them would go, so the row is refused instead and the count
+  // says what it would have cost.
+  if (existing && (startDate !== existing.startDate || endDate !== existing.endDate)) {
+    const strandedAssignments = state.assignments
+      .filter((assignment) => assignment.projectId === existing.id && (assignment.startDate < startDate || assignment.endDate > endDate)).length;
+    const strandedNeeds = state.needs
+      .filter((need) => need.projectId === existing.id && (need.startDate < startDate || need.endDate > endDate)).length;
+    if (strandedAssignments + strandedNeeds > 0) {
+      throw new Error(`この期間にすると範囲外になるアサインが${strandedAssignments}件、要員要件が${strandedNeeds}件あります。先に画面で調整してください`);
+    }
+  }
+
+  const id = existing?.id ?? newId();
+  const project: Project = {
+    ...(existing ?? {}),
+    id,
+    // Derived from the name and the id, so a `code` cell is read past rather than
+    // trusted: rewriting it in a spreadsheet would only decouple it from both.
+    code: existing?.code ?? createProjectCode(name, id),
+    name,
+    summary: hasColumn(row, "summary") ? cell(row, "summary") : existing?.summary ?? "",
+    status,
+    tone: existing?.tone ?? "blue",
+    ownerPersonId: owner.id,
+    ownerName: owner.name,
+    ownerInitials: owner.initials,
+    startDate,
+    endDate,
+    nextMilestone: hasColumn(row, "nextMilestone") ? cell(row, "nextMilestone") : existing?.nextMilestone ?? "",
+    nextMilestoneDate: milestoneDate || null,
+    progress,
+    demand,
+    customValues: customValuesFromRow(state.customFields, "project", row, existing?.customValues),
+  };
+  return { row: rowNumber, mode: existing ? "update" : "create", project };
 }
 
 function customValuesFromRow(
