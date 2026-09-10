@@ -1416,6 +1416,80 @@ describe("CSV import", () => {
     await waitFor(() => expect(save).toHaveBeenCalledOnce());
     expect((save.mock.calls[0][0] as WorkspaceState).members.some((member) => member.name === "CSV 花子" && member.capacity === 90)).toBe(true);
   });
+
+  it("imports a project CSV once the target says projects", async () => {
+    // #284: the panel had the target select already, but the file was always read as
+    // members, so choosing プロジェクト and uploading produced member rows.
+    const user = userEvent.setup();
+    const adapter = sharedAdapter();
+    const save = vi.fn().mockResolvedValue({ revision: 8, savedAt: "2026-08-17T10:00:00Z" });
+    adapter.save = save;
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: "項目定義" }));
+    await user.selectOptions(screen.getByLabelText("CSVの対象を選ぶ"), "projects");
+    expect(screen.getByText("プロジェクトCSVを取り込む")).toBeInTheDocument();
+
+    const input = document.querySelector("input[type='file']") as HTMLInputElement;
+    await user.upload(input, new File(
+      ["name,ownerName,status,startDate,endDate,demand\nCSV 案件,林 葵,準備中,2026-10-01,2026-12-31,3\n"],
+      "projects.csv", { type: "text/csv" },
+    ));
+    await user.click(await screen.findByRole("button", { name: "1行を仮置きする" }));
+    await user.click(screen.getByRole("button", { name: "チームへ保存" }));
+    await waitFor(() => expect(save).toHaveBeenCalledOnce());
+    const saved = save.mock.calls[0][0] as WorkspaceState;
+    expect(saved.projects.some((project) => project.name === "CSV 案件" && project.demand === 3)).toBe(true);
+    expect(saved.members.some((member) => member.name === "CSV 案件")).toBe(false);
+  });
+
+  it("drops rows the project form would have refused, and says why", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: "項目定義" }));
+    await user.selectOptions(screen.getByLabelText("CSVの対象を選ぶ"), "projects");
+    const input = document.querySelector("input[type='file']") as HTMLInputElement;
+    await user.upload(input, new File(
+      ["name,ownerName,startDate,endDate\n期間逆転,林 葵,2026-12-31,2026-10-01\n担当不明,居ない 人,2026-10-01,2026-12-31\n"],
+      "projects.csv", { type: "text/csv" },
+    ));
+    expect(await screen.findByText("適用できる行がありません")).toBeInTheDocument();
+    expect(screen.getByText(/2行目: 終了日は開始日以降にしてください/u)).toBeInTheDocument();
+    expect(screen.getByText(/3行目: 責任者「居ない 人」が見つかりません/u)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /行を仮置きする/u })).toBeNull();
+  });
+
+  it("says which permission is missing, per target", async () => {
+    // A viewer has neither, and the two are different permissions — members are the
+    // owner's and the admin's, projects are anyone who can edit one. The demo grants
+    // both, so this branch is only reachable in shared mode.
+    const user = userEvent.setup();
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "閲覧 太郎", email: "viewer@example.com", role: "viewer" }} shared={sharedAdapter()} />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: "項目定義" }));
+    expect(screen.getByText("メンバーの取り込みはオーナーまたは管理者だけが実行できます。")).toBeInTheDocument();
+    expect(document.querySelector("input[type='file']")).toBeNull();
+
+    await user.selectOptions(screen.getByLabelText("CSVの対象を選ぶ"), "projects");
+    expect(screen.getByText("プロジェクトの取り込みは案件を編集できる権限が必要です。")).toBeInTheDocument();
+    expect(document.querySelector("input[type='file']")).toBeNull();
+  });
+
+  it("forgets a parsed file when the target changes under it", async () => {
+    // Rows parsed as members must not reach the project importer, so switching the
+    // select clears what was read.
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: "項目定義" }));
+    const input = document.querySelector("input[type='file']") as HTMLInputElement;
+    await user.upload(input, new File(
+      ["name,role,department,location,capacity\nCSV 花子,Frontend Engineer,プロダクト開発,東京,90\n"],
+      "members.csv", { type: "text/csv" },
+    ));
+    expect(await screen.findByRole("button", { name: "1行を仮置きする" })).toBeInTheDocument();
+
+    await user.selectOptions(screen.getByLabelText("CSVの対象を選ぶ"), "projects");
+    expect(screen.queryByRole("button", { name: /行を仮置きする/u })).toBeNull();
+    expect(screen.queryByText("1行を仮置きできます")).toBeNull();
+  });
 });
 
 describe("four-week capacity rail", () => {

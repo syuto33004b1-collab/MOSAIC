@@ -137,7 +137,7 @@ import {
   type Favorite,
   type FavoriteKind,
 } from "./collaboration";
-import { applyMemberImport, type MemberImportAction } from "./csv";
+import { applyMemberImport, applyProjectImport, type MemberImportAction, type ProjectImportAction } from "./csv";
 
 export type OrganizationRole = "owner" | "admin" | "planner" | "viewer";
 
@@ -2669,6 +2669,23 @@ export default function Home({ mode = "demo", organizationId, organizationName =
   };
 
   /**
+   * Projects from a file, on the same terms as members (#284).
+   *
+   * `canEdit`, not `canManageMembers`: a planner edits projects on every other screen,
+   * so gating the file behind the member permission would take that away here alone.
+   * The row-level refusals — a period that would strand assignments, an owner two
+   * people answer to — are `previewProjectImport`'s, and have already run.
+   */
+  const handleImportProjects = (actions: ProjectImportAction[]) => {
+    if (!canEdit || actions.length === 0) return;
+    setWorkspace((current) => applyProjectImport(current, actions));
+    markUnsaved();
+    const created = actions.filter((action) => action.mode === "create").length;
+    const updated = actions.filter((action) => action.mode === "update").length;
+    setToast(`CSVから${created}件追加、${updated}件更新を仮置きしました`);
+  };
+
+  /**
    * The header's primary slot means one thing: the main action that completes on
    * this screen. Four screens add something, the proposal screen copies its
    * share link and the skills screen opens an unfilled role — all of them finish
@@ -3011,7 +3028,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
         {activeNav === "fields" && (
           <>
             <FieldsView state={workspace} onAddField={handleAddCustomField} canManage={canManageMembers} canManageRequests={canManageMembers && featureEnabled("profileRequests")} canManageAdminPermissions={mode === "demo" || role === "owner"} onSaveRolePermission={handleSaveRolePermission} identity={identity} onCreateRequests={handleCreateProfileRequests} onSubmitRequest={handleSubmitProfileRequest} onCompleteRequest={handleCompleteProfileRequest} onCancelRequest={handleCancelProfileRequest} />
-            <CsvTransferPanel state={workspace} organizationId={organizationId} canImport={canManageMembers} onImportMembers={handleImportMembers} />
+            <CsvTransferPanel state={workspace} organizationId={organizationId} canImport={canManageMembers} canImportProjects={canEdit} onImportMembers={handleImportMembers} onImportProjects={handleImportProjects} />
           </>
         )}
         {activeNav === "reports" && <ReportsView state={workspace} onOpenWeek={openWeekFromReport} onResolveNeed={openStaffingNeed} onOpenOpportunity={openOpportunity} onAddReport={handleAddSavedReport} onDeleteReport={handleDeleteSavedReport} canEdit={canEdit} canManageReports={canManageMembers && featureEnabled("savedReports")} />}
