@@ -11,6 +11,7 @@ import {
   normalizeCustomValues,
   orderedCustomFields,
   parseSkillInput,
+  skillInputProblems,
   searchSceneFromNeed,
   type AvatarTone,
   type CustomFieldDefinition,
@@ -305,6 +306,10 @@ function memberActionFromRow(state: WorkspaceState, row: Record<string, string>,
   const capacity = Number(capacityRaw);
   if (!Number.isFinite(capacity) || capacity < 0 || capacity > 100) throw new Error("稼働上限は0〜100で入力してください");
   const skillInput = hasColumn(row, "skills") ? cell(row, "skills") : existing ? formatSkillInput(memberSkillLevels(existing)) : "";
+  // The same check the forms make (#259): a row is refused for 「React:abc」 rather
+  // than importing a skill named that.
+  const skillProblems = skillInputProblems(skillInput);
+  if (skillProblems.length > 0) throw new Error(skillProblems[0]);
   const skillLevels = parseSkillInput(skillInput);
   const customValues = customValuesFromRow(state.customFields, "member", row, existing?.customValues);
   const member: Member = {

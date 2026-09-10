@@ -1646,6 +1646,52 @@ describe("the member screen's scene form", () => {
     expect(await screen.findByRole("option", { name: "バックエンド候補" })).toBeInTheDocument();
   });
 
+  it("refuses a skill whose level is not a number, instead of saving it as a name", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: "メンバー" }));
+    await user.click(screen.getByText("新しい検索シーンの条件を入力"));
+    await user.type(screen.getByPlaceholderText("フロントエンド候補"), "書式 検証");
+
+    // #259: the parser forgave 「React:abc」 as a skill named that, and the scene it
+    // saved matched nobody without a word about why.
+    const must = screen.getByPlaceholderText("React:3, TypeScript:3");
+    await user.type(must, "React:abc");
+    await user.click(screen.getByRole("button", { name: "検索シーンを保存" }));
+    expect(screen.getByRole("alert")).toHaveTextContent("「React:abc」の習熟度は 1〜5 の数字にしてください");
+    expect(screen.queryByRole("option", { name: "書式 検証" })).toBeNull();
+
+    await user.clear(must);
+    await user.type(must, "React:3");
+    await user.click(screen.getByRole("button", { name: "検索シーンを保存" }));
+    expect(await screen.findByRole("option", { name: "書式 検証" })).toBeInTheDocument();
+  });
+
+  it("refuses the same skill in the member form, by toast, and keeps the form open", async () => {
+    // The App-side forms guard with a toast rather than an inline error; one of the
+    // four stands for them (the evaluation of #259 asked for a direct check).
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: "メンバー" }));
+    const rows = () => document.querySelectorAll(".member-table tbody tr").length;
+    const before = rows();
+    await user.click(screen.getAllByRole("button", { name: "メンバーを追加" }).find((button) => !button.hasAttribute("disabled"))!);
+    const dialog = within(screen.getByRole("dialog", { name: "詳細パネル" }));
+    await user.type(dialog.getByLabelText("氏名"), "書式 花子");
+    const skills = dialog.getByLabelText("スキル（カンマ区切り）");
+    await user.type(skills, "React:abc:3");
+    await user.click(dialog.getByRole("button", { name: "メンバーを追加" }));
+    expect(screen.getByText("「React:abc:3」のスキル名にコロンは使えません")).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "詳細パネル" })).toBeInTheDocument();
+    expect(rows()).toBe(before);
+
+    await user.clear(skills);
+    await user.type(skills, "React:3");
+    await user.click(dialog.getByRole("button", { name: "メンバーを追加" }));
+    expect(rows()).toBe(before + 1);
+    expect(screen.getByText("書式 花子")).toBeInTheDocument();
+  });
+
   it("drops the name error as soon as a name is typed", async () => {
     const user = userEvent.setup();
     render(<App />);

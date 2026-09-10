@@ -50,6 +50,7 @@ import {
   orgUnitPath,
   openNeeds,
   parseSkillInput,
+  skillInputProblems,
   pipelineDemandForWeek,
   projectSearchText,
   addSearchScene,
@@ -482,6 +483,24 @@ describe("skill taxonomy and matching", () => {
       { name: "A11y", proficiency: 2 },
     ]);
     expect(formatSkillInput(parseSkillInput("React:4"))).toBe("React:4");
+  });
+
+  // #259: the parser forgave a malformed level — 「React:abc」 became a skill named
+  // that, 「:3」 was dropped, 「TypeScript:9」 was rounded to 3 — so the forms ask
+  // this first and refuse in the field's own words. The parser itself is unchanged.
+  it("names the parts of a skills field that cannot mean what was typed", () => {
+    expect(skillInputProblems("")).toEqual([]);
+    expect(skillInputProblems("React:4, TypeScript, A11y:2")).toEqual([]);
+    expect(skillInputProblems("React:abc")).toEqual(["「React:abc」の習熟度は 1〜5 の数字にしてください"]);
+    expect(skillInputProblems("TypeScript:9")).toEqual(["「TypeScript:9」の習熟度は 1〜5 の数字にしてください"]);
+    expect(skillInputProblems("React:")).toEqual(["「React:」の習熟度は 1〜5 の数字にしてください"]);
+    expect(skillInputProblems(":3")).toEqual(["「:3」のスキル名が空です"]);
+    // Only the last colon can be the level's; the evaluation found 「React:abc:3」 slipping through.
+    expect(skillInputProblems("React:abc:3")).toEqual(["「React:abc:3」のスキル名にコロンは使えません"]);
+    expect(skillInputProblems("Kubernetes: Helm:3")).toEqual(["「Kubernetes: Helm:3」のスキル名にコロンは使えません"]);
+    expect(skillInputProblems("React:abc, :3")).toHaveLength(2);
+    // What the parser would have made of the same input, for the record.
+    expect(parseSkillInput("React:abc, :3, TypeScript:9")).toEqual([{ name: "React:abc", proficiency: 3 }, { name: "TypeScript", proficiency: 3 }]);
   });
 
   it("requires every staffing-need skill at or above the minimum proficiency", () => {

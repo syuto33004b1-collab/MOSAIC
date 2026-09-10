@@ -1222,6 +1222,33 @@ export function parseSkillInput(value: string, defaultProficiency: SkillProficie
   });
 }
 
+/**
+ * Why a skills field cannot be saved as typed, in the form's own words — or nothing.
+ *
+ * `parseSkillInput` forgives: 「React:abc」 became a skill named 「React:abc」, 「:3」 was
+ * dropped and 「TypeScript:9」 was rounded to 3 in silence, so one typo saved a
+ * requirement nobody could match (#259). Kept apart from the parser, which the
+ * assistant's proposals still lean on; the forms and the CSV import ask here first.
+ * A colon therefore always means 「:習熟度」 — a skill cannot be named with one.
+ */
+export function skillInputProblems(value: string): string[] {
+  return value.split(",").flatMap((part) => {
+    const trimmed = part.trim();
+    if (!trimmed) return [];
+    const separator = trimmed.lastIndexOf(":");
+    if (separator < 0) return [];
+    const name = trimmed.slice(0, separator).trim();
+    const level = trimmed.slice(separator + 1).trim();
+    if (!name) return [`「${trimmed}」のスキル名が空です`];
+    // The last colon is the level's; any other colon is a name the parser would keep
+    // — 「React:abc:3」 as a skill called 「React:abc」 — which is the silence this
+    // function exists to end.
+    if (name.includes(":")) return [`「${trimmed}」のスキル名にコロンは使えません`];
+    if (!/^[1-5]$/u.test(level)) return [`「${trimmed}」の習熟度は 1〜5 の数字にしてください`];
+    return [];
+  });
+}
+
 export function formatSkillInput(levels: SkillLevel[]): string {
   return levels.map((level) => `${level.name}:${level.proficiency}`).join(", ");
 }

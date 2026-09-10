@@ -69,6 +69,7 @@ import {
   isActiveOpportunity,
   isActiveProfileRequest,
   matchMembers,
+  skillInputProblems,
   openNeeds,
   matchScoreMax,
   memberById,
@@ -953,6 +954,10 @@ export function MembersView({
 
   const submitScene = () => {
     try {
+      // Before the lenient parser gets it: 「React:abc」 would otherwise be saved as a
+      // skill nobody has (#259).
+      const skillProblems = [...skillInputProblems(mustSkills), ...skillInputProblems(niceSkills)];
+      if (skillProblems.length > 0) throw new Error(skillProblems[0]);
       const minAvailable = sceneMinAvailable.trim() === "" ? undefined : Number(sceneMinAvailable);
       onAddScene({
         name: sceneName,

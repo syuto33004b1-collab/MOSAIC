@@ -37,6 +37,14 @@ describe("csv round-trip", () => {
     expect(preview.actions).toEqual([]);
     expect(preview.issues[0]).toMatchObject({ row: 2, message: "氏名は必須です" });
   });
+
+  it("refuses a row whose skill level is not a number, like the forms do", () => {
+    // #259: the lenient parser would have imported a skill named 「React:abc」.
+    const parsed = parseCsv("name,role,department,location,capacity,skills\n山田 花子,Frontend Engineer,開発,東京,100,React:abc\n");
+    const preview = previewMemberImport(initialWorkspace, parsed, () => "new");
+    expect(preview.actions).toEqual([]);
+    expect(preview.issues[0]).toMatchObject({ row: 2, message: "「React:abc」の習熟度は 1〜5 の数字にしてください" });
+  });
 });
 
 /**
