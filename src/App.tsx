@@ -1108,8 +1108,9 @@ export default function Home({ mode = "demo", organizationId, organizationName =
     ...(query.trim() ? [{ key: "query", label: "検索", value: query.trim(), onClear: () => setQuery("") }] : []),
     ...(filter !== "すべて" ? [{ key: "axis", label: boardFilterAxisLabel, value: filter, onClear: () => setFilter("すべて") }] : []),
     ...(boardOrgMemberIds ? [{ key: "org", label: "部門", value: orgUnitPath(boardOrgUnits, boardOrgFilter).join(" / "), onClear: () => setBoardOrgFilter("") }] : []),
-    ...(alertOnly ? [{ key: "alert", label: alertOnlyLabel.replace("のみ", ""), value: "のみ", onClear: () => setAlertOnly(false) }] : []),
-    ...(favoritesOnly ? [{ key: "favorites", label: "お気に入り", value: "のみ", onClear: () => setFavoritesOnly(false) }] : []),
+    // On/off filters carry no value: the chip reads 「要員不足のみ」, not 「要員不足: のみ」 (#252).
+    ...(alertOnly ? [{ key: "alert", label: alertOnlyLabel, onClear: () => setAlertOnly(false) }] : []),
+    ...(favoritesOnly ? [{ key: "favorites", label: "お気に入りのみ", onClear: () => setFavoritesOnly(false) }] : []),
   ];
 
   /**
