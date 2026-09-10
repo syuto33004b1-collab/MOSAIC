@@ -42,6 +42,12 @@ jobs:
         run: npm test
       - name: Production build
         run: npm run build
+      # After the build, against `dist/`, in the Chrome the runner already carries. jsdom
+      # computes no colour, so the four `axe.run` calls in the unit tests all disable
+      # `color-contrast` — this is where contrast is measured (#305). Not part of
+      # `npm test`, which the Pages workflow also runs: publishing does not need a browser.
+      - name: Accessibility sweep
+        run: node scripts/check-rendering.mjs
       - name: Audit dependencies
         run: npm audit --audit-level=high
 
