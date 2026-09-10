@@ -1036,7 +1036,9 @@ export default function Home({ mode = "demo", organizationId, organizationName =
       const member = memberById(workspace, assignment.personId);
       return [{
         id: assignment.id,
-        name: (member?.name || "担当未定") + " · " + assignment.allocation + "%",
+        // The name alone: the bar appends <small>{allocation}%</small> itself, and the
+        // title appends 「· N%」 too, so a name that carried it read 「佐伯 優斗 · 50%50%」 (#251).
+        name: member?.name || "担当未定",
         start: grid.start,
         span: grid.span,
         tone: project.tone,

@@ -1916,6 +1916,30 @@ describe("one name per control on the board", () => {
     const days = getWeekDays(0);
     expect(screen.getByRole("button", { name: `単日 案件のアサイン詳細（単日 三郎・${days[2].month}/${days[2].date}）` })).toBeInTheDocument();
   });
+
+  it("shows the allocation once on the projects axis", async () => {
+    const project = { ...initialWorkspace.projects[0], id: "project", name: "Atlas リニューアル" };
+    const member = { ...initialWorkspace.members[0], id: "one", name: "佐伯 優斗" };
+    const span = { startDate: weekStart, endDate: addDays(weekStart, 4) };
+    const adapter = sharedAdapter();
+    adapter.initialState = {
+      members: [member], projects: [project],
+      assignments: [{ id: "a", personId: member.id, projectId: project.id, ...span, allocation: 50, status: "confirmed" }],
+      needs: [],
+    } as unknown as WorkspaceState;
+    const user = userEvent.setup();
+    render(<App mode="shared" organizationName="Example Inc." identity={owner} shared={adapter} />);
+    await user.click(screen.getByRole("button", { name: "プロジェクト別" }));
+
+    // #251: the projects-axis row builder put 「· 50%」 into the bar's name, and the bar
+    // appends <small>50%</small> to whatever name it gets, so it read 「佐伯 優斗 · 50%50%」
+    // and its title 「佐伯 優斗 · 50% · 50%」. The members axis never had the problem.
+    const days = getWeekDays(0);
+    const range = `${days[0].month}/${days[0].date}〜${days[4].month}/${days[4].date}`;
+    const bar = screen.getByRole("button", { name: `佐伯 優斗のアサイン詳細（Atlas リニューアル・${range}）` });
+    expect(bar).toHaveTextContent(/^佐伯 優斗50%$/u);
+    expect(bar).toHaveAttribute("title", "佐伯 優斗 · 50%");
+  });
 });
 
 /**
