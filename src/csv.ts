@@ -30,7 +30,9 @@ import {
 export const MAX_CSV_ROWS = 500;
 export const CSV_PRESETS_KEY = "mosaic-csv-presets-v1";
 
-export type CsvSource = "members" | "projects" | "assignments";
+export const CSV_SOURCES = ["members", "projects", "assignments"] as const;
+
+export type CsvSource = typeof CSV_SOURCES[number];
 
 export type CsvColumn = {
   key: string;
@@ -359,7 +361,9 @@ export function normalizeCsvPresets(value: unknown): CsvExportPreset[] {
     const record = item as { id?: unknown; name?: unknown; source?: unknown; columns?: unknown };
     const id = typeof record.id === "string" ? record.id : "";
     const name = typeof record.name === "string" ? record.name.trim() : "";
-    const source: CsvSource | "" = record.source === "projects" ? "projects" : record.source === "members" ? "members" : "";
+    // Every target, checked against the list rather than spelled out: leaving
+    // 「assignments」 off dropped its saved column sets on the next read (#286).
+    const source: CsvSource | "" = CSV_SOURCES.includes(record.source as CsvSource) ? record.source as CsvSource : "";
     const columns = Array.isArray(record.columns) ? record.columns.filter((column): column is string => typeof column === "string" && column.trim().length > 0) : [];
     if (!TARGET_ID_PATTERN.test(id) || !name || !source || columns.length === 0) return [];
     return [{ id, name: name.slice(0, 40), source, columns: [...new Set(columns)].slice(0, 40) }];
@@ -413,7 +417,10 @@ function assignmentCell(state: WorkspaceState, assignment: Assignment, key: stri
       const member = memberById(state, assignment.personId);
       return member ? memberLabel(state, member) : "";
     }
-    case "projectName": return projectById(state, assignment.projectId)?.name ?? "";
+    case "projectName": {
+      const project = projectById(state, assignment.projectId);
+      return project ? projectCsvName(state, project) : "";
+    }
     // Space-separated: a comma would need quoting in every row, and these are dates.
     case "weekendWorkDates": return (assignment.weekendWorkDates ?? []).join(" ");
     default: {
@@ -480,6 +487,17 @@ function memberFromCell(state: WorkspaceState, value: string, label: string) {
     throw new Error(`${label}「${wanted}」は複数います。「${memberLabel(state, named[0])}」のように書いてください`);
   }
   throw new Error(`${label}「${wanted}」が見つかりません`);
+}
+
+/**
+ * What to write for a project so the row can be read back.
+ *
+ * The name, unless two projects share it — then the code, which is unique. Same shape as
+ * `memberLabel`: write whatever distinguishes, so an export is always re-importable.
+ */
+function projectCsvName(state: Pick<WorkspaceState, "projects">, project: Project) {
+  const sameName = state.projects.filter((other) => other.name.trim() === project.name.trim());
+  return sameName.length > 1 ? project.code : project.name;
 }
 
 /** The project a cell names. Both the name and the code, because either is on screen. */
@@ -613,15 +631,18 @@ function assignmentActionFromRow(state: WorkspaceState, row: Record<string, stri
   if (idValue && !existing) throw new Error("指定したIDのアサインが見つかりません");
   if (idValue && !TARGET_ID_PATTERN.test(idValue)) throw new Error("IDの形式を確認してください");
 
-  const member = hasColumn(row, "memberName") || !existing
-    ? memberFromCell(state, required(row, "memberName", "メンバー"), "メンバー")
-    : memberById(state, existing.personId);
-  if (!member) throw new Error("メンバーが見つかりません");
+  // Resolved only when the file says something new, the same rule #284 arrived at for a
+  // project's owner: re-resolving a name that has not changed would refuse the row the
+  // moment a namesake appeared, over a person the row never meant to touch.
+  const heldMember = existing ? memberById(state, existing.personId) : undefined;
+  const member = heldMember && (!hasColumn(row, "memberName") || cell(row, "memberName") === memberLabel(state, heldMember))
+    ? heldMember
+    : memberFromCell(state, existing ? valueOr(row, "memberName", "") : required(row, "memberName", "メンバー"), "メンバー");
 
-  const project = hasColumn(row, "projectName") || !existing
-    ? projectFromCell(state, required(row, "projectName", "プロジェクト"))
-    : projectById(state, existing.projectId);
-  if (!project) throw new Error("プロジェクトが見つかりません");
+  const heldProject = existing ? projectById(state, existing.projectId) : undefined;
+  const project = heldProject && (!hasColumn(row, "projectName") || cell(row, "projectName") === projectCsvName(state, heldProject))
+    ? heldProject
+    : projectFromCell(state, existing ? valueOr(row, "projectName", "") : required(row, "projectName", "プロジェクト"));
 
   const startDate = isoDate(existing ? valueOr(row, "startDate", existing.startDate) : required(row, "startDate", "開始日"), "開始日");
   const endDate = isoDate(existing ? valueOr(row, "endDate", existing.endDate) : required(row, "endDate", "終了日"), "終了日");
@@ -634,9 +655,12 @@ function assignmentActionFromRow(state: WorkspaceState, row: Record<string, stri
 
   const allocationRaw = existing ? valueOr(row, "allocation", String(existing.allocation)) : required(row, "allocation", "稼働配分");
   const allocation = Number(allocationRaw);
-  // `> 0`, not `>= 0`: `allocation_percent` carries that check, unlike a project's progress.
-  if (!Number.isFinite(allocation) || allocation <= 0 || allocation > 100) {
-    throw new Error("稼働配分は0より大きく100以下で入力してください");
+  // Whole percents, which is all the screens can make: the range in the add form steps by
+  // 10 and the edit form's number input by 1. The column is `numeric(5,2)` with a
+  // `> 0` check, so 「0.001」 would round to 0.00 on the way in and violate it — refusing
+  // it here says so, rather than letting the whole save fail on a constraint name.
+  if (!Number.isInteger(allocation) || allocation < 1 || allocation > 100) {
+    throw new Error("稼働配分は1〜100の整数で入力してください");
   }
 
   const statusRaw = hasColumn(row, "status") ? cell(row, "status") : existing?.status ?? "draft";
@@ -647,12 +671,13 @@ function assignmentActionFromRow(state: WorkspaceState, row: Record<string, stri
   }
 
   const labelValue = hasColumn(row, "label") ? cell(row, "label") : existing?.label ?? "";
-  if (labelValue.length > 240) throw new Error("表示名は240文字以内にしてください");
+  // Code points, like Postgres's `char_length`. `String.length` counts UTF-16 units, so a
+  // label of 240 characters that the column accepts would be refused here for containing
+  // an emoji.
+  if ([...labelValue].length > 240) throw new Error("表示名は240文字以内にしてください");
 
   const weekendGiven = hasColumn(row, "weekendWorkDates");
-  const weekendDates = weekendGiven
-    ? cell(row, "weekendWorkDates").split(/\s+/u).filter(Boolean)
-    : existing?.weekendWorkDates ?? [];
+  const weekendDates = weekendGiven ? cell(row, "weekendWorkDates").split(/\s+/u).filter(Boolean) : [];
   for (const date of weekendDates) {
     isoDate(date, "稼働した週末");
     // Both halves of what the database asks: Saturday or Sunday, and inside the period.
@@ -670,8 +695,19 @@ function assignmentActionFromRow(state: WorkspaceState, row: Record<string, stri
     allocation,
     status: statusRaw as AssignmentStatus,
     label: labelValue || undefined,
-    weekendWorkDates: [...new Set(weekendDates)].sort(),
   };
+  // Only when the column is there. `weekendWorkDates` distinguishes absent from `[]` in
+  // the save payload — absent leaves the stored days alone, `[]` clears them — so
+  // writing one unconditionally would erase a Saturday over a row about the allocation.
+  if (weekendGiven) assignment.weekendWorkDates = [...new Set(weekendDates)].sort();
+  // The RPC links an assignment to a need with the same project, person, period and
+  // allocation. Changing any of those leaves the stored link pointing at a need this
+  // assignment no longer answers, and omitting the key would preserve it, so it is
+  // detached: the need goes back to being visibly unfilled.
+  if (existing && (member.id !== existing.personId || project.id !== existing.projectId
+    || startDate !== existing.startDate || endDate !== existing.endDate || allocation !== existing.allocation)) {
+    assignment.staffingNeedId = null;
+  }
   return { row: rowNumber, mode: existing ? "update" : "create", assignment };
 }
 

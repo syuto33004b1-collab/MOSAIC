@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyAssignmentImport, applyMemberImport, applyProjectImport, assignmentCsvColumns, exportAssignmentsCsv, previewAssignmentImport, DEFAULT_PROPOSAL_CSV_COLUMNS, exportMembersCsv, exportProjectsCsv, exportProposalCsv, parseCsv, previewMemberImport, previewProjectImport, proposalCsvColumns, PROPOSAL_CSV_COLUMNS, serializeCsv } from "./csv";
+import { normalizeCsvPresets, applyAssignmentImport, applyMemberImport, applyProjectImport, assignmentCsvColumns, exportAssignmentsCsv, previewAssignmentImport, DEFAULT_PROPOSAL_CSV_COLUMNS, exportMembersCsv, exportProjectsCsv, exportProposalCsv, parseCsv, previewMemberImport, previewProjectImport, proposalCsvColumns, PROPOSAL_CSV_COLUMNS, serializeCsv } from "./csv";
 import { getWeekStart, initialWorkspace, matchMembers, searchSceneFromNeed, type WorkspaceState } from "./domain";
 
 describe("csv round-trip", () => {
@@ -372,8 +372,8 @@ describe("assignment csv", () => {
     const head = "memberName,projectName,startDate,endDate,allocation";
     const cases: [string, string][] = [
       // `allocation_percent` is `> 0`, unlike a project's progress.
-      [`${head}\n佐伯 優斗,${atlas.name},2026-08-21,2026-08-23,0\n`, "稼働配分は0より大きく100以下で入力してください"],
-      [`${head}\n佐伯 優斗,${atlas.name},2026-08-21,2026-08-23,140\n`, "稼働配分は0より大きく100以下で入力してください"],
+      [`${head}\n佐伯 優斗,${atlas.name},2026-08-21,2026-08-23,0\n`, "稼働配分は1〜100の整数で入力してください"],
+      [`${head}\n佐伯 優斗,${atlas.name},2026-08-21,2026-08-23,140\n`, "稼働配分は1〜100の整数で入力してください"],
       [`${head}\n佐伯 優斗,${atlas.name},2026-08-23,2026-08-21,40\n`, "終了日は開始日以降にしてください"],
       [`${head}\n佐伯 優斗,${atlas.name},2026-02-31,2026-08-23,40\n`, "開始日「2026-02-31」は存在しない日付です"],
       [`${head}\n居ない 人,${atlas.name},2026-08-21,2026-08-23,40\n`, "メンバー「居ない 人」が見つかりません"],
@@ -408,5 +408,93 @@ describe("assignment csv", () => {
       `memberName,projectName,startDate,endDate,allocation\n佐伯 優斗,${atlas.name},2026-08-21,2026-08-23,40\n`,
     ), () => "x");
     expect(preview.actions[0].assignment.staffingNeedId).toBeUndefined();
+  });
+});
+
+/** The four the evaluation of #286 found, each one a save that would have failed or lied. */
+describe("assignment csv, after review", () => {
+  const atlas = initialWorkspace.projects.find((project) => project.id === "atlas")!;
+  const linked = initialWorkspace.assignments.find((assignment) => assignment.staffingNeedId)
+    ?? { ...initialWorkspace.assignments[0], staffingNeedId: "need-1" };
+  const withLink: WorkspaceState = {
+    ...initialWorkspace,
+    assignments: [{ ...linked, id: "a", projectId: atlas.id, staffingNeedId: "need-1", weekendWorkDates: ["2026-08-22"], startDate: "2026-08-21", endDate: "2026-08-23" }],
+  };
+
+  it("detaches the need when the row changes what the RPC matches on", () => {
+    // The RPC links on project, person, period and allocation. Keep the stale link and
+    // the assignment answers a need it no longer fills.
+    const moved = previewAssignmentImport(withLink, parseCsv("id,allocation\na,55\n"), () => "x");
+    expect(moved.issues).toEqual([]);
+    expect(moved.actions[0].assignment.staffingNeedId).toBeNull();
+
+    // A row that changes nothing it matches on keeps the link.
+    const untouched = previewAssignmentImport(withLink, parseCsv("id,label\na,特別対応\n"), () => "x");
+    expect(untouched.actions[0].assignment.staffingNeedId).toBe("need-1");
+  });
+
+  it("does not erase a weekend day over a row about the allocation", () => {
+    // `weekendWorkDates` tells absent from `[]` in the save payload: absent leaves the
+    // stored days alone, `[]` clears them.
+    const preview = previewAssignmentImport(withLink, parseCsv("id,allocation\na,55\n"), () => "x");
+    expect(preview.actions[0].assignment.weekendWorkDates).toEqual(["2026-08-22"]);
+    // Naming the column with nothing in it is how you clear them.
+    const cleared = previewAssignmentImport(withLink, parseCsv("id,weekendWorkDates\na,\n"), () => "x");
+    expect(cleared.actions[0].assignment.weekendWorkDates).toEqual([]);
+  });
+
+  it("keeps the member a row does not change, even once a namesake turns up", () => {
+    const twins: WorkspaceState = {
+      ...withLink,
+      members: [
+        { ...initialWorkspace.members[0], id: "one", name: "林 葵", location: "東京" },
+        { ...initialWorkspace.members[1], id: "two", name: "林 葵", location: "大阪" },
+      ],
+      assignments: [{ ...withLink.assignments[0], personId: "two" }],
+    };
+    const preview = previewAssignmentImport(twins, parseCsv("id,allocation\na,55\n"), () => "x");
+    expect(preview.issues).toEqual([]);
+    expect(preview.actions[0].assignment.personId).toBe("two");
+  });
+
+  it("writes a project's code when two share a name, so the row can come back", () => {
+    const twoAtlas: WorkspaceState = {
+      ...initialWorkspace,
+      projects: [atlas, { ...atlas, id: "atlas2", code: "ATL2", name: atlas.name }],
+      assignments: [{ ...initialWorkspace.assignments[0], id: "a", projectId: "atlas2" }],
+      needs: [],
+    };
+    const csv = exportAssignmentsCsv(twoAtlas, ["id", "memberName", "projectName", "startDate", "endDate", "allocation"]);
+    expect(parseCsv(csv).rows[0].projectName).toBe("ATL2");
+    const back = previewAssignmentImport(twoAtlas, parseCsv(csv), () => "x");
+    expect(back.issues).toEqual([]);
+    expect(back.actions[0].assignment.projectId).toBe("atlas2");
+  });
+
+  it("refuses an allocation the numeric(5,2) column would round to zero", () => {
+    const head = "memberName,projectName,startDate,endDate,allocation";
+    for (const value of ["0.001", "0", "40.5", "abc"]) {
+      const preview = previewAssignmentImport(initialWorkspace, parseCsv(`${head}\n佐伯 優斗,${atlas.name},2026-08-21,2026-08-23,${value}\n`), () => "x");
+      expect(preview.issues[0].message, value).toBe("稼働配分は1〜100の整数で入力してください");
+    }
+  });
+
+  it("counts the label in characters, like char_length does", () => {
+    const head = "memberName,projectName,startDate,endDate,allocation,label";
+    const row = (label: string) => `${head}\n佐伯 優斗,${atlas.name},2026-08-21,2026-08-23,40,${label}\n`;
+    // 240 emoji are 480 UTF-16 units and 240 characters: the column takes them.
+    const ok = previewAssignmentImport(initialWorkspace, parseCsv(row("🙂".repeat(240))), () => "x");
+    expect(ok.issues).toEqual([]);
+    const tooLong = previewAssignmentImport(initialWorkspace, parseCsv(row("あ".repeat(241))), () => "x");
+    expect(tooLong.issues[0].message).toBe("表示名は240文字以内にしてください");
+  });
+
+  it("keeps a saved column set for every target, assignments included", () => {
+    // The normaliser named two of the three, so an assignment preset was dropped on read.
+    const presets = normalizeCsvPresets([
+      { id: "p1", name: "アサイン用", source: "assignments", columns: ["memberName", "projectName"] },
+      { id: "p2", name: "壊れた", source: "nonsense", columns: ["x"] },
+    ]);
+    expect(presets.map((preset) => preset.source)).toEqual(["assignments"]);
   });
 });
