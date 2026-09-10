@@ -2996,7 +2996,21 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                                 without it the allocation was unreachable by ear (#263).
                                 It carries the same `> 0` condition as the `<small>` so
                                 the two say the same thing; 稼働 is the word #82 settled
-                                on for a load. */}
+                                on for a load.
+
+                                `title` stays, and is measured to reach the same reader:
+                                with an aria-label present Chrome publishes it as the
+                                description, so the tree reads
+
+                                  button "…（佐伯 優斗・9/7〜9/11・稼働50%）"
+                                         description="Atlas リニューアル · 50%"
+
+                                and a reader set to announce descriptions hears the name
+                                and the figure twice. Kept anyway — on a one-day bar the
+                                visible text is ellipsised and `title` is the only way a
+                                sighted mouse reaches the whole label (#282, measured at
+                                65px wide against 108px of text). Verbose beats
+                                unreachable. */}
                             {row.assignments.map((assignment) => (
                               <button className={"assignment " + assignment.tone + (assignment.status === "draft" ? " provisional" : "")} style={{ gridColumn: assignment.start + " / span " + assignment.span }} onClick={() => openAssignment(assignment.id)} aria-label={assignment.name + "のアサイン詳細（" + row.name + "・" + assignmentDayRange(days, assignment.start, assignment.span) + (assignment.allocation > 0 ? "・稼働" + assignment.allocation + "%" : "") + "）"} title={assignment.name + " · " + assignment.allocation + "%"} key={assignment.id}>
                                 <span>{assignment.name}</span>{assignment.allocation > 0 && <small>{assignment.allocation}%</small>}
