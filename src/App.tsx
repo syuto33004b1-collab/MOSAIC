@@ -1023,6 +1023,41 @@ export default function Home({ mode = "demo", organizationId, organizationName =
       };
     });
   })();
+  /**
+   * What the chosen member's peak would be if the form were saved, against their
+   * ceiling (#254). Both numbers were already on the screen — the picker shows the
+   * peak beside every row — but nothing said what they add up to, so a member at 100%
+   * took 40% more in silence and the warning arrived afterwards as an 上限超過 card.
+   * Said, not enforced: drafting a knowing overbooking to adjust later is normal work,
+   * and the assistant's proposal card only says it too (#229).
+   */
+  const addOverload = (() => {
+    const member = memberById(workspace, form.personId);
+    if (!member) return null;
+    // Measured with the draft in place, the way `editCandidates` measures a swap: the
+    // picker's peak plus the allocation would miss the weekend days the form has
+    // ticked, which count only once an assignment records them.
+    const preview: WorkspaceState = {
+      ...workspace,
+      assignments: [...workspace.assignments, {
+        id: "draft-preview",
+        personId: member.id,
+        projectId: form.projectId,
+        startDate: form.startDate,
+        endDate: form.endDate,
+        allocation: Number(form.allocation) || 0,
+        status: "draft",
+        weekendWorkDates: form.weekendWorkDates,
+      }],
+    };
+    const projected = memberPeakLoad(preview, member.id, form.startDate, form.endDate);
+    return projected > member.capacity ? { projected, capacity: member.capacity } : null;
+  })();
+  const editOverload = (() => {
+    // `editCandidates` already measures with the moved assignment in place.
+    const chosen = editCandidates.find((candidate) => candidate.member.id === assignmentEditForm.personId);
+    return chosen && chosen.peak > chosen.member.capacity ? { projected: chosen.peak, capacity: chosen.member.capacity } : null;
+  })();
   const canAddAssignment = canEdit && workspace.members.length > 0 && workspace.projects.length > 0;
 
   const memberRows: ScheduleRow[] = workspace.members.map((member) => {
@@ -3020,6 +3055,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                   value={form.weekendWorkDates}
                   onChange={(weekendWorkDates) => setForm({ ...form, weekendWorkDates })}
                 />
+                {addOverload && <div className="form-note warn" role="status"><AlertTriangle size={15} /><span>この配分だと {shortDate(form.startDate)} — {shortDate(form.endDate)} の稼働が {addOverload.projected}% になります（稼働上限 {addOverload.capacity}%）。仮置きはできます。</span></div>}
                 <div className="form-note"><Sparkles size={15} /><span>保存前は斜線付きの「仮置き」で表示します。</span></div><button className="drawer-primary" type="submit" disabled={!canAddAssignment}><Check size={16} />この内容で仮置きする</button>
               </form>
             )}
@@ -3060,6 +3096,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                   onChange={(weekendWorkDates) => setAssignmentEditForm({ ...assignmentEditForm, weekendWorkDates })}
                   disabled={!canEdit}
                 />
+                {canEdit && editOverload && <div className="form-note warn" role="status"><AlertTriangle size={15} /><span>この内容だと {shortDate(assignmentEditForm.startDate)} — {shortDate(assignmentEditForm.endDate)} の稼働が {editOverload.projected}% になります（稼働上限 {editOverload.capacity}%）。仮置きはできます。</span></div>}
                 <div className="form-note"><SlidersHorizontal size={15} /><span>{canEdit ? selectedAssignment.staffingNeedId ? "要員要件を満たさない変更では、元の不足ロールを再オープンします。変更は保存まで元に戻せます。" : "変更と取消は仮置きされ、チームへ保存するまで元に戻せます。" : "このアサインは閲覧のみです。変更権限があるメンバーへ依頼してください。"}</span></div>
                 {canEdit ? (
                   <div className="assignment-edit-actions">

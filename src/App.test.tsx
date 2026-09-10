@@ -459,6 +459,66 @@ describe("role-aware workspace", () => {
     expect(savedAssignment).toMatchObject({ endDate: "2026-09-18", allocation: 55, status: "confirmed" });
   });
 
+  it("says what the draft would take the member to, and still lets it through", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByRole("button", { name: "アサインを追加" }));
+    const dialog = within(screen.getByRole("dialog", { name: "詳細パネル" }));
+    // 中村 美咲 is at 100% for the form's week (Atlas 80% + 運用サポート 20%); the
+    // default allocation is 40%.
+    await user.click(dialog.getByRole("radio", { name: /中村 美咲/u }));
+    // #254: nothing said this, and the 140% arrived afterwards as an 上限超過 card.
+    // By text, not by role: the page carries other status regions (the toast).
+    const warning = () => document.querySelector(".form-note.warn");
+    expect(warning()).toHaveAttribute("role", "status");
+    expect(warning()).toHaveTextContent(/140% になります（稼働上限 100%）/u);
+    expect(dialog.getByRole("button", { name: "この内容で仮置きする" })).toBeEnabled();
+
+    // The figure follows the slider, and goes away for someone with room: 松本 蓮 is
+    // at 40% that week (Atlas QA), so 10% more stays under the ceiling.
+    fireEvent.change(dialog.getByLabelText("稼働配分"), { target: { value: "70" } });
+    expect(warning()).toHaveTextContent(/170% になります/u);
+    fireEvent.change(dialog.getByLabelText("稼働配分"), { target: { value: "10" } });
+    await user.click(dialog.getByRole("radio", { name: /松本 蓮/u }));
+    expect(warning()).toBeNull();
+
+    // The swap form measures with the moved assignment in place: 佐伯's 50% onto 中村.
+    await user.keyboard("{Escape}");
+    await user.click(screen.getAllByRole("button", { name: /^Atlas リニューアルのアサイン詳細（佐伯 優斗/u })[0]);
+    const edit = within(screen.getByRole("dialog", { name: "詳細パネル" }));
+    expect(warning()).toBeNull();
+    await user.click(edit.getByRole("radio", { name: /中村 美咲/u }));
+    expect(warning()).toHaveTextContent(/150% になります（稼働上限 100%）/u);
+  });
+
+  it("counts the weekend days the draft ticks", async () => {
+    // The Saturday already carries 80%, but a weekend day counts only for the
+    // assignments that record it — so the draft's 40% lands there only once it is
+    // ticked. Measured with the draft in place, or a weekend-only overbooking would
+    // pass in silence (the evaluation of #254 caught this).
+    const project = { ...initialWorkspace.projects[0], id: "project", name: "週末案件", startDate: "2026-08-01", endDate: "2026-09-30" };
+    const member = { ...initialWorkspace.members[0], id: "w", name: "週末 太郎", capacity: 100 };
+    const adapter = sharedAdapter();
+    adapter.initialState = {
+      members: [member], projects: [project],
+      assignments: [{ id: "sat", personId: member.id, projectId: project.id, startDate: "2026-08-22", endDate: "2026-08-23", allocation: 80, status: "confirmed", weekendWorkDates: ["2026-08-22"] }],
+      needs: [],
+    } as unknown as WorkspaceState;
+    const user = userEvent.setup();
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
+    await user.click(screen.getByRole("button", { name: "アサインを追加" }));
+    const dialog = within(screen.getByRole("dialog", { name: "詳細パネル" }));
+    await user.click(dialog.getByRole("radio", { name: /週末 太郎/u }));
+    fireEvent.change(dialog.getByLabelText("終了日"), { target: { value: "2026-08-23" } });
+    const warning = () => document.querySelector(".form-note.warn");
+    expect(warning()).toBeNull();
+
+    await user.click(dialog.getByLabelText("22土"));
+    expect(warning()).toHaveTextContent(/120% になります（稼働上限 100%）/u);
+    await user.click(dialog.getByLabelText("22土"));
+    expect(warning()).toBeNull();
+  });
+
   it("shows no loads while the form's dates make no range", async () => {
     const user = userEvent.setup();
     render(<App />);
