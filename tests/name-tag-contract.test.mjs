@@ -56,6 +56,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 const readCss = async () => (await readFile(path.join(root, "src", "styles.css"), "utf8")).replaceAll("\r\n", "\n");
 const readTsx = () => readFile(path.join(root, "src", "expanded-views.tsx"), "utf8");
+const readAppTsx = () => readFile(path.join(root, "src", "App.tsx"), "utf8");
 const withoutComments = (source) => source.replace(/\/\*[\s\S]*?\*\//gu, "");
 
 /** The last declaration of `property` in the rule for exactly `selector`. */
@@ -112,4 +113,83 @@ test("the member row renders the name and the tag as separate boxes", async () =
   const boxes = (name) => [...tsx.matchAll(new RegExp(`className="${name}"`, "gu"))].length;
   assert.equal(boxes("row-name-main"), 1, "the name box belongs to the member list's cell alone");
   assert.equal(boxes("row-name-tag"), 1, "the tag box belongs to the member list's cell alone");
+});
+
+/**
+ * #282: the same decision, one screen later. #262 put the label on the assignment bar —
+ * on the projects axis the row is the project, so the bar is the only thing that says who
+ * — and the bar ellipsises exactly as the member cell did.
+ *
+ * Measured on a one-day bar at a 1182px viewport, with canvas at the bar's own font
+ * (bold 12px):
+ *
+ * | | width |
+ * | -------------------------- | ----- |
+ * | bar                        | 75px  |
+ * | inside its padding         | 52px  |
+ * | 「佐伯 優斗（#e04a）」        | 107px |
+ * | 「佐伯 優斗」                | 51px  |
+ * | 「（#e04a）」                | 56px  |
+ * | 「（東京）」                 | 48px  |
+ *
+ * So the cut landed inside the name and took the tag with it: both namesakes read
+ * 「佐伯 …」, which is the state #262 was supposed to have ended. Splitting the box makes
+ * the surviving part the one that distinguishes: a place tag fits whole, and an id tag is
+ * clipped rather than dropped.
+ *
+ * ## What it does not do
+ *
+ * Guarantee it. The bar clips at its right edge and `idTail` picks the shortest unique
+ * *suffix*, so the clip runs opposite to where the uniqueness lives — measured at 375px,
+ * 「（#ad3e）」 loses 17px and reads 「（#ad3」. Two ids differing only in their last
+ * character would still read alike. 39px does not hold a name and a bounded identifier;
+ * the guarantee is in the accessible name, the `title` and the drawer. #282 is where the
+ * remaining decision is written down.
+ *
+ * So this test pins the arrangement, not the outcome: it cannot see an ellipsis, and it
+ * would pass for a bar too narrow to distinguish anything. The string is untouched, so
+ * the visible text stays a fragment of the accessible name. jsdom has no layout; the
+ * widths above are browser measurements, in the PR.
+ */
+test("the bar's tag survives the ellipsis too", async () => {
+  const css = withoutComments(await readCss());
+
+  assert.equal(declaration(css, ".assignment .assignment-label", "display"), "flex",
+    "the bar holds two boxes now, and only a flex line lets one of them shrink alone (#282)");
+  assert.equal(declaration(css, ".assignment .assignment-label", "overflow"), "hidden",
+    "the bar's own box is what clips a tag too wide to fit; without it the tag would spill "
+    + "over the next day's column (#282)");
+
+  for (const [property, value] of [["overflow", "hidden"], ["text-overflow", "ellipsis"], ["white-space", "nowrap"]]) {
+    assert.equal(declaration(css, ".assignment .assignment-name", property), value,
+      `.assignment-name needs ${property}: ${value} — the truncation lives on the name now (#282)`);
+  }
+  assert.equal(declaration(css, ".assignment .assignment-name", "min-width"), "0",
+    "a flex item defaults to min-width: auto and refuses to shrink below its text, so it would "
+    + "push the tag out of the bar instead of ellipsising (#282)");
+
+  assert.equal(declaration(css, ".assignment .assignment-tag", "flex"), "none",
+    "the tag must not shrink: it is the only part of the label that distinguishes (#282)");
+  assert.equal(declaration(css, ".assignment .assignment-tag", "white-space"), "nowrap",
+    "a tag broken across lines would grow the bar past its row (#282)");
+
+  // #188 decided a narrow bar drops the percentage and keeps the name. That rule still
+  // has to name `small` alone — hiding the label would undo this fix and that one.
+  const container = css.match(/@container[^{]*\{([\s\S]*?)\n\}/u);
+  assert.ok(container, "the narrow-bar container query should still be there (#188)");
+  assert.doesNotMatch(container[1], /\.assignment (?:span|\.assignment-label|\.assignment-tag)\s*\{[^}]*display:\s*none/u,
+    "the narrow-bar rule may hide the percentage, never the label or its tag (#188, #282)");
+});
+
+test("the bar renders the name and the tag as separate boxes", async () => {
+  const app = await readAppTsx();
+  assert.match(app, /<span className="assignment-label"><span className="assignment-name">\{assignment\.nameMain\}<\/span>\{assignment\.tag && <span className="assignment-tag">\{assignment\.tag\}<\/span>\}<\/span>/u,
+    "the bar has to render the two parts as two elements, or the CSS above has nothing to "
+    + "size separately (#282)");
+  // The whole label still reaches the accessible name and the title, so the visible text
+  // stays a prefix of what a reader is told.
+  assert.match(app, /aria-label=\{assignment\.name \+ "のアサイン詳細（"/u,
+    "the accessible name reads the joined label, not the split halves (#262, #263)");
+  assert.match(app, /title=\{assignment\.name \+ " · " \+ assignment\.allocation \+ "%"\}/u,
+    "the title reads the joined label too (#251)");
 });

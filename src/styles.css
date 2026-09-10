@@ -436,6 +436,30 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* #163's split, applied to a bar (#282). The label may carry a tag that tells a namesake
+   from theirs — 「（大阪）」 or 「（#e04a）」 — and the tag sits at the end, which is exactly
+   what an ellipsis eats. Measured on a one-day bar at a 1182px viewport: the bar is 75px,
+   52px of it inside the padding, and 「佐伯 優斗（#e04a）」 wants 107px — so the cut landed
+   inside the name and both namesakes read 「佐伯 …」.
+   Two boxes rather than one. The name shrinks and ellipsises; the tag does not shrink at
+   all, so the box that survives is the one doing the telling apart. A place tag fits
+   whole (「（東京）」 is 48px).
+
+   What this does not do is guarantee it. The bar still clips at its right edge, and
+   `idTail` picks the shortest *suffix* that is unique — so the clip runs the opposite way
+   from where the uniqueness lives. Measured at 375px, where a one-day bar is 62px and the
+   label box 39px: 「（#ad3e）」 loses 17px and reads 「（#ad3」. Two ids differing only in
+   their last character would still read alike there. 39px does not hold a name and a
+   bounded-length identifier, and no arrangement of these boxes changes that — the
+   guarantee is in the accessible name, the `title` and the drawer behind the bar. What
+   this rule buys is that the part on screen is the distinguishing part rather than the
+   part everyone shares (#282 records what is left).
+
+   The string itself is untouched: `aria-label` and `title` carry the whole label, so the
+   visible text stays a fragment of the accessible name. */
+.assignment .assignment-label { display: flex; align-items: baseline; min-width: 0; overflow: hidden; }
+.assignment .assignment-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.assignment .assignment-tag { flex: none; white-space: nowrap; }
 .assignment small {
   flex: 0 0 auto;
   opacity: .72;
