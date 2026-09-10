@@ -1058,7 +1058,9 @@ export default function Home({ mode = "demo", organizationId, organizationName =
       const member = memberById(workspace, assignment.personId);
       return [{
         id: assignment.id,
-        name: (member?.name || "担当未定") + " · " + assignment.allocation + "%",
+        // The name alone: the bar appends <small>{allocation}%</small> itself, and the
+        // title appends 「· N%」 too, so a name that carried it read 「佐伯 優斗 · 50%50%」 (#251).
+        name: member?.name || "担当未定",
         start: grid.start,
         span: grid.span,
         tone: project.tone,
@@ -1128,8 +1130,9 @@ export default function Home({ mode = "demo", organizationId, organizationName =
     ...(query.trim() ? [{ key: "query", label: "検索", value: query.trim(), onClear: () => setQuery("") }] : []),
     ...(filter !== "すべて" ? [{ key: "axis", label: boardFilterAxisLabel, value: filter, onClear: () => setFilter("すべて") }] : []),
     ...(boardOrgMemberIds ? [{ key: "org", label: "部門", value: orgUnitPath(boardOrgUnits, boardOrgFilter).join(" / "), onClear: () => setBoardOrgFilter("") }] : []),
-    ...(alertOnly ? [{ key: "alert", label: alertOnlyLabel.replace("のみ", ""), value: "のみ", onClear: () => setAlertOnly(false) }] : []),
-    ...(favoritesOnly ? [{ key: "favorites", label: "お気に入り", value: "のみ", onClear: () => setFavoritesOnly(false) }] : []),
+    // On/off filters carry no value: the chip reads 「要員不足のみ」, not 「要員不足: のみ」 (#252).
+    ...(alertOnly ? [{ key: "alert", label: alertOnlyLabel, onClear: () => setAlertOnly(false) }] : []),
+    ...(favoritesOnly ? [{ key: "favorites", label: "お気に入りのみ", onClear: () => setFavoritesOnly(false) }] : []),
   ];
 
   /**

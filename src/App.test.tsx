@@ -1916,6 +1916,30 @@ describe("one name per control on the board", () => {
     const days = getWeekDays(0);
     expect(screen.getByRole("button", { name: `単日 案件のアサイン詳細（単日 三郎・${days[2].month}/${days[2].date}）` })).toBeInTheDocument();
   });
+
+  it("shows the allocation once on the projects axis", async () => {
+    const project = { ...initialWorkspace.projects[0], id: "project", name: "Atlas リニューアル" };
+    const member = { ...initialWorkspace.members[0], id: "one", name: "佐伯 優斗" };
+    const span = { startDate: weekStart, endDate: addDays(weekStart, 4) };
+    const adapter = sharedAdapter();
+    adapter.initialState = {
+      members: [member], projects: [project],
+      assignments: [{ id: "a", personId: member.id, projectId: project.id, ...span, allocation: 50, status: "confirmed" }],
+      needs: [],
+    } as unknown as WorkspaceState;
+    const user = userEvent.setup();
+    render(<App mode="shared" organizationName="Example Inc." identity={owner} shared={adapter} />);
+    await user.click(screen.getByRole("button", { name: "プロジェクト別" }));
+
+    // #251: the projects-axis row builder put 「· 50%」 into the bar's name, and the bar
+    // appends <small>50%</small> to whatever name it gets, so it read 「佐伯 優斗 · 50%50%」
+    // and its title 「佐伯 優斗 · 50% · 50%」. The members axis never had the problem.
+    const days = getWeekDays(0);
+    const range = `${days[0].month}/${days[0].date}〜${days[4].month}/${days[4].date}`;
+    const bar = screen.getByRole("button", { name: `佐伯 優斗のアサイン詳細（Atlas リニューアル・${range}）` });
+    expect(bar).toHaveTextContent(/^佐伯 優斗50%$/u);
+    expect(bar).toHaveAttribute("title", "佐伯 優斗 · 50%");
+  });
 });
 
 /**
@@ -4895,6 +4919,23 @@ describe("the board narrows by more than one thing", () => {
     const marked = [...document.querySelectorAll(".schedule-row")]
       .map((row) => row.querySelector(".load")!.classList.contains("over"));
     expect(marked.every(Boolean)).toBe(true);
+  });
+
+  it("names an on-or-off condition by its label alone", async () => {
+    const user = onWednesday();
+    render(<App />);
+    await openBoard(user);
+    await openFilters(user);
+    await user.click(screen.getByLabelText("上限超過のみ"));
+    // #252: the chip read 「上限超過: のみ」, forcing 「ラベル: 値」 onto a condition
+    // that has no value. A condition with a chosen value keeps the colon.
+    expect(chips()).toEqual(["上限超過のみ"]);
+    await user.selectOptions(screen.getByLabelText("部門で絞り込み"), "org-design");
+    expect(chips()).toEqual(["部門: デザイン本部 / デザイン", "上限超過のみ"]);
+
+    await user.click(screen.getByRole("button", { name: "上限超過のみの絞り込みを外す" }));
+    expect((screen.getByLabelText("上限超過のみ") as HTMLInputElement).checked).toBe(false);
+    expect(chips()).toEqual(["部門: デザイン本部 / デザイン"]);
   });
 
   /**
