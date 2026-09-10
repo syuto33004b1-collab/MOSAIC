@@ -58,6 +58,7 @@ import {
   formatDate,
   formatSkillInput,
   memberLabel,
+  memberLabelParts,
   weekLabel,
   currentLocalDate,
   getWeekStart,
@@ -247,7 +248,16 @@ type OpportunityNeedForm = {
 
 type ScheduleItem = {
   id: string;
+  /** The whole label. The accessible name, the `title` and the board's search read this. */
   name: string;
+  /**
+   * The same label in the two pieces the bar draws separately (#163's split, applied to a
+   * bar by #282): `nameMain` may be ellipsised, `tag` may not. On the member axis the bar
+   * is a project and has no namesake to tell apart, so `tag` is empty and `nameMain` is
+   * the whole of it.
+   */
+  nameMain: string;
+  tag: string;
   start: number;
   span: number;
   tone: Tone;
@@ -1076,9 +1086,14 @@ export default function Home({ mode = "demo", organizationId, organizationName =
       const grid = assignmentSpan(assignment, range);
       if (!grid) return [];
       const project = projectById(workspace, assignment.projectId);
+      const label = assignment.label || project?.name || "プロジェクト未登録";
       return [{
         id: assignment.id,
-        name: assignment.label || project?.name || "プロジェクト未登録",
+        name: label,
+        // A project carries no namesake tag, so there is nothing here to protect from the
+        // ellipsis and the whole label is the shrinking part.
+        nameMain: label,
+        tag: "",
         start: grid.start,
         span: grid.span,
         tone: projectById(workspace, assignment.projectId)?.tone || projectTone[assignment.projectId] || "plum",
@@ -1112,16 +1127,22 @@ export default function Home({ mode = "demo", organizationId, organizationName =
       const grid = assignmentSpan(assignment, range);
       if (!grid) return [];
       const member = memberById(workspace, assignment.personId);
+      // In two pieces, because the bar draws them under different rules. #262 put the
+      // label here at all — on this axis the row is the project, so the bar is the only
+      // thing that says who, and two namesakes made its text, its title and its
+      // accessible name identical. #282 is what the label then ran into: the whole of
+      // 「佐伯 優斗（#e04a）」 is 107px and a one-day bar shows 52px, so the ellipsis landed
+      // inside the name and took the tag — the one part that was doing the telling apart.
+      // Both are empty of a tag unless someone shares a name, so nothing moves for the
+      // usual data.
+      const parts = member ? memberLabelParts(workspace, member) : { name: "担当未定", tag: "" };
       return [{
         id: assignment.id,
         // The name alone: the bar appends <small>{allocation}%</small> itself, and the
         // title appends 「· N%」 too, so a name that carried it read 「佐伯 優斗 · 50%50%」 (#251).
-        // Labelled, like the member axis's row heading (#123): on this axis the row is
-        // the project, so the bar is the only thing that says who — and two namesakes on
-        // one project made the bar's text, its title and its accessible name identical
-        // (#262). The tag is empty unless someone shares the name, so nothing moves for
-        // the usual data.
-        name: member ? memberLabel(workspace, member) : "担当未定",
+        name: parts.name + parts.tag,
+        nameMain: parts.name,
+        tag: parts.tag,
         start: grid.start,
         span: grid.span,
         tone: project.tone,
@@ -3013,7 +3034,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                                 unreachable. */}
                             {row.assignments.map((assignment) => (
                               <button className={"assignment " + assignment.tone + (assignment.status === "draft" ? " provisional" : "")} style={{ gridColumn: assignment.start + " / span " + assignment.span }} onClick={() => openAssignment(assignment.id)} aria-label={assignment.name + "のアサイン詳細（" + row.name + "・" + assignmentDayRange(days, assignment.start, assignment.span) + (assignment.allocation > 0 ? "・稼働" + assignment.allocation + "%" : "") + "）"} title={assignment.name + " · " + assignment.allocation + "%"} key={assignment.id}>
-                                <span>{assignment.name}</span>{assignment.allocation > 0 && <small>{assignment.allocation}%</small>}
+                                <span className="assignment-label"><span className="assignment-name">{assignment.nameMain}</span>{assignment.tag && <span className="assignment-tag">{assignment.tag}</span>}</span>{assignment.allocation > 0 && <small>{assignment.allocation}%</small>}
                               </button>
                             ))}
                           </div>
