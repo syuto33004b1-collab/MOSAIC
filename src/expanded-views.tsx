@@ -1,4 +1,4 @@
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useMemo, useRef, useState } from "react";
 import {
   ArrowRight,
   BriefcaseBusiness,
@@ -2522,7 +2522,9 @@ export function CsvTransferPanel({ state, organizationId, canImport = false, can
     setSource(next);
     setColumns((next === "members" ? memberCsvColumns(state.customFields) : projectCsvColumns(state.customFields)).map((column) => column.key));
     // A file read under the old target is not a file for the new one. Clearing here is
-    // what keeps the button from offering rows that were parsed as something else.
+    // what keeps the button from offering rows that were parsed as something else, and
+    // the bump is what stops a read still in flight from putting them back.
+    readGeneration.current += 1;
     setPending(null);
     setIssues([]);
     setImportMessage("");
@@ -2560,13 +2562,27 @@ export function CsvTransferPanel({ state, organizationId, canImport = false, can
 
   const importable = source === "members" ? canImport : canImportProjects;
 
+  /**
+   * Which read the panel is still waiting for.
+   *
+   * `file.text()` is a promise, so the 「CSVの対象」 select can move — or a second file
+   * can be chosen — while the first is in flight. Clearing on the switch is not enough:
+   * the earlier read lands afterwards and puts its rows back. Only the newest read is
+   * allowed to write, so a stale one resolves into nothing.
+   */
+  const readGeneration = useRef(0);
+
   const onFile = async (file: File | undefined) => {
     if (!file || !importable) return;
+    const generation = ++readGeneration.current;
+    const stale = () => generation !== readGeneration.current;
     setImportMessage("");
     setIssues([]);
     setPending(null);
     try {
-      const parsed = parseCsv(await file.text());
+      const text = await file.text();
+      if (stale()) return;
+      const parsed = parseCsv(text);
       const newId = () => crypto.randomUUID();
       // Written out twice rather than cast: `source` is what picked the parser, and
       // spelling that out is what lets the compiler pair the rows with their kind.
@@ -2582,6 +2598,7 @@ export function CsvTransferPanel({ state, organizationId, canImport = false, can
         setImportMessage(actions.length ? `${actions.length}行を仮置きできます` : "適用できる行がありません");
       }
     } catch (caught) {
+      if (stale()) return;
       setImportMessage(caught instanceof Error ? caught.message : "CSVを読み込めませんでした");
     }
   };

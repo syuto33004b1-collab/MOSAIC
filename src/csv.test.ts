@@ -254,6 +254,64 @@ describe("project csv import", () => {
     expect(rowsOf(cases[0][0])).toHaveLength(1);
   });
 
+  it("refuses a date no calendar has, which the form's date input could not produce", () => {
+    // Every comparison here is a string comparison, so 「2026-02-31」 sorts where a real
+    // date would and reaches a `date` column that rejects it at save time.
+    const cases: [string, string][] = [
+      ["name,ownerName,startDate,endDate\n案件,林 葵,2026-02-31,2026-12-31\n", "開始日「2026-02-31」は存在しない日付です"],
+      ["name,ownerName,startDate,endDate\n案件,林 葵,2026-10-01,2026-13-01\n", "終了日「2026-13-01」は存在しない日付です"],
+      ["name,ownerName,startDate,endDate\n案件,林 葵,きのう,2026-12-31\n", "開始日は YYYY-MM-DD の形式で入力してください"],
+      ["name,ownerName,startDate,endDate\n案件,林 葵,2026-1-1,2026-12-31\n", "開始日は YYYY-MM-DD の形式で入力してください"],
+      ["name,ownerName,startDate,endDate,nextMilestoneDate\n案件,林 葵,2026-10-01,2026-12-31,2026-11-31\n", "節目日「2026-11-31」は存在しない日付です"],
+    ];
+    for (const [csv, message] of cases) {
+      const preview = previewProjectImport(initialWorkspace, parseCsv(csv), () => "x");
+      expect(preview.actions, message).toEqual([]);
+      expect(preview.issues[0].message, message).toBe(message);
+    }
+    // A leap day that exists still goes through.
+    const leap = previewProjectImport(initialWorkspace, parseCsv("name,ownerName,startDate,endDate\n案件,林 葵,2028-02-29,2028-03-01\n"), () => "x");
+    expect(leap.issues).toEqual([]);
+  });
+
+  it("keeps the owner a row does not mention, even when the name is shared", () => {
+    // The export writes the raw name, so re-resolving on every update would refuse
+    // 「id,progress」 for a project whose owner has a namesake — a change that never
+    // mentioned the owner at all.
+    const twins: WorkspaceState = {
+      ...initialWorkspace,
+      members: [
+        { ...initialWorkspace.members[0], id: "one", name: "林 葵", location: "東京" },
+        { ...initialWorkspace.members[1], id: "two", name: "林 葵", location: "大阪" },
+      ],
+      projects: [{ ...initialWorkspace.projects[0], id: "p", ownerPersonId: "two", ownerName: "林 葵", ownerInitials: "AH" }],
+      assignments: [],
+      needs: [],
+    };
+
+    const omitted = previewProjectImport(twins, parseCsv("id,progress\np,64\n"), () => "x");
+    expect(omitted.issues).toEqual([]);
+    expect(omitted.actions[0].project).toMatchObject({ ownerPersonId: "two", progress: 64 });
+
+    // The same name written back out is the same owner, not an ambiguous one.
+    const roundTripped = previewProjectImport(twins, parseCsv("id,ownerName,progress\np,林 葵,64\n"), () => "x");
+    expect(roundTripped.issues).toEqual([]);
+    expect(roundTripped.actions[0].project.ownerPersonId).toBe("two");
+
+    // Naming the other one is a change, so it resolves — and is refused when ambiguous.
+    const moved = previewProjectImport(twins, parseCsv("id,ownerName\np,林 葵（東京）\n"), () => "x");
+    expect(moved.actions[0].project.ownerPersonId).toBe("one");
+    const unlinked: WorkspaceState = { ...twins, projects: [{ ...twins.projects[0], ownerPersonId: undefined }] };
+    expect(previewProjectImport(unlinked, parseCsv("id,progress\np,64\n"), () => "x").issues[0].message).toContain("複数います");
+  });
+
+  it("names the stored milestone when a period-only row falls foul of it", () => {
+    const atlas = initialWorkspace.projects.find((project) => project.id === "atlas")!;
+    expect(atlas.nextMilestoneDate).toBe("2026-08-28");
+    const preview = previewProjectImport(initialWorkspace, parseCsv(`id,startDate,endDate\natlas,2026-09-01,2026-09-30\n`), () => "x");
+    expect(preview.issues[0].message).toBe("保存済みの節目日「2026-08-28」が変更後の期間の外です。nextMilestoneDate も指定してください");
+  });
+
   it("leaves the columns a row omits alone", () => {
     const atlas = initialWorkspace.projects.find((project) => project.id === "atlas")!;
     const preview = previewProjectImport(initialWorkspace, parseCsv("id,progress\natlas,72\n"), () => "x");

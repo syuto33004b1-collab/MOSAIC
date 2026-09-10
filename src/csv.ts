@@ -392,6 +392,27 @@ function ownerFromCell(state: WorkspaceState, value: string) {
 
 const PROJECT_STATUSES: ProjectStatus[] = ["進行中", "要注意", "準備中", "完了間近", "完了"];
 
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/u;
+
+/**
+ * A date the rest of the app can do arithmetic on.
+ *
+ * The forms get this from `input[type=date]`, which cannot produce 「2026-02-31」 or
+ * 「きのう」. A file can, and every comparison here is a string comparison, so
+ * 「2026-02-31」 sorts after 「2026-02-01」 and passes the period check on its way to a
+ * `date` column that will reject it — at save time, with a Postgres error, long after
+ * the row could have been pointed at.
+ */
+function isoDate(value: string, label: string) {
+  if (!ISO_DATE.test(value)) throw new Error(`${label}は YYYY-MM-DD の形式で入力してください`);
+  const [year, month, day] = value.split("-").map(Number);
+  const parsed = new Date(Date.UTC(year, month - 1, day));
+  if (parsed.getUTCFullYear() !== year || parsed.getUTCMonth() !== month - 1 || parsed.getUTCDate() !== day) {
+    throw new Error(`${label}「${value}」は存在しない日付です`);
+  }
+  return value;
+}
+
 function projectActionFromRow(state: WorkspaceState, row: Record<string, string>, rowNumber: number, newId: () => string): ProjectImportAction {
   const idValue = cell(row, "id");
   const existing = idValue ? state.projects.find((project) => project.id === idValue) : undefined;
@@ -399,8 +420,19 @@ function projectActionFromRow(state: WorkspaceState, row: Record<string, string>
   if (idValue && !TARGET_ID_PATTERN.test(idValue)) throw new Error("IDの形式を確認してください");
 
   const name = existing ? valueOr(row, "name", existing.name) : required(row, "name", "案件名");
-  const ownerCell = existing ? valueOr(row, "ownerName", existing.ownerName ?? "") : required(row, "ownerName", "責任者");
-  const owner = ownerFromCell(state, ownerCell);
+
+  // Resolved only when the file actually says something new about the owner. An update
+  // that omits the column — 「id,progress」 — keeps the link the project already has, and
+  // so does a round-tripped row that names the same person: re-resolving either would
+  // refuse the row whenever that name is shared, which is a namesake breaking a change
+  // that never mentioned them. The export writes the raw name, so this is the ordinary
+  // case, not the corner one.
+  const ownerCellGiven = hasColumn(row, "ownerName") ? cell(row, "ownerName") : "";
+  const ownerUnchanged = Boolean(existing?.ownerPersonId)
+    && (!hasColumn(row, "ownerName") || ownerCellGiven === (existing?.ownerName ?? ""));
+  const owner = existing && ownerUnchanged
+    ? null
+    : ownerFromCell(state, existing ? valueOr(row, "ownerName", existing.ownerName ?? "") : required(row, "ownerName", "責任者"));
 
   const statusRaw = hasColumn(row, "status") ? cell(row, "status") : existing?.status ?? "準備中";
   if (!PROJECT_STATUSES.includes(statusRaw as ProjectStatus)) {
@@ -408,15 +440,19 @@ function projectActionFromRow(state: WorkspaceState, row: Record<string, string>
   }
   const status = statusRaw as ProjectStatus;
 
-  const startDate = existing ? valueOr(row, "startDate", existing.startDate) : required(row, "startDate", "開始日");
-  const endDate = existing ? valueOr(row, "endDate", existing.endDate) : required(row, "endDate", "終了日");
+  const startDate = isoDate(existing ? valueOr(row, "startDate", existing.startDate) : required(row, "startDate", "開始日"), "開始日");
+  const endDate = isoDate(existing ? valueOr(row, "endDate", existing.endDate) : required(row, "endDate", "終了日"), "終了日");
   if (endDate < startDate) throw new Error("終了日は開始日以降にしてください");
 
-  const milestoneDate = hasColumn(row, "nextMilestoneDate")
-    ? cell(row, "nextMilestoneDate")
-    : existing?.nextMilestoneDate ?? "";
+  const milestoneGiven = hasColumn(row, "nextMilestoneDate");
+  const milestoneRaw = milestoneGiven ? cell(row, "nextMilestoneDate") : existing?.nextMilestoneDate ?? "";
+  const milestoneDate = milestoneRaw ? isoDate(milestoneRaw, "節目日") : "";
   if (milestoneDate && (milestoneDate < startDate || milestoneDate > endDate)) {
-    throw new Error("節目日はプロジェクト期間内にしてください");
+    // Names the value when the row never mentioned it: a file that only moves the period
+    // is otherwise refused over a column the writer did not type.
+    throw new Error(milestoneGiven
+      ? "節目日はプロジェクト期間内にしてください"
+      : `保存済みの節目日「${milestoneDate}」が変更後の期間の外です。nextMilestoneDate も指定してください`);
   }
 
   const progressRaw = hasColumn(row, "progress") ? cell(row, "progress") : existing ? String(existing.progress) : "0";
@@ -452,9 +488,9 @@ function projectActionFromRow(state: WorkspaceState, row: Record<string, string>
     summary: hasColumn(row, "summary") ? cell(row, "summary") : existing?.summary ?? "",
     status,
     tone: existing?.tone ?? "blue",
-    ownerPersonId: owner.id,
-    ownerName: owner.name,
-    ownerInitials: owner.initials,
+    ownerPersonId: owner ? owner.id : existing?.ownerPersonId,
+    ownerName: owner ? owner.name : existing?.ownerName ?? null,
+    ownerInitials: owner ? owner.initials : existing?.ownerInitials ?? null,
     startDate,
     endDate,
     nextMilestone: hasColumn(row, "nextMilestone") ? cell(row, "nextMilestone") : existing?.nextMilestone ?? "",
