@@ -2174,8 +2174,8 @@ describe("one name per control on the board", () => {
     // so the name carries it — and the day range too, for two bars in one row.
     const days = getWeekDays(0);
     const range = `${days[0].month}/${days[0].date}〜${days[4].month}/${days[4].date}`;
-    expect(screen.getByRole("button", { name: `Atlas リニューアルのアサイン詳細（同日 一郎・${range}）` })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: `Atlas リニューアルのアサイン詳細（同日 二郎・${range}）` })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: `Atlas リニューアルのアサイン詳細（同日 一郎・${range}・稼働50%）` })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: `Atlas リニューアルのアサイン詳細（同日 二郎・${range}・稼働50%）` })).toBeInTheDocument();
     expectDistinctNames("two rows on the same project and days");
   });
 
@@ -2206,8 +2206,8 @@ describe("one name per control on the board", () => {
     // the branch a reader of the board can actually act on.
     const days = getWeekDays(0);
     const range = `${days[0].month}/${days[0].date}〜${days[4].month}/${days[4].date}`;
-    const east = screen.getByRole("button", { name: `林 葵（東京）のアサイン詳細（Atlas リニューアル・${range}）` });
-    const west = screen.getByRole("button", { name: `林 葵（大阪）のアサイン詳細（Atlas リニューアル・${range}）` });
+    const east = screen.getByRole("button", { name: `林 葵（東京）のアサイン詳細（Atlas リニューアル・${range}・稼働50%）` });
+    const west = screen.getByRole("button", { name: `林 葵（大阪）のアサイン詳細（Atlas リニューアル・${range}・稼働50%）` });
     // Three consumers, one string. They share `assignment.name` today, so any one of
     // them would catch a regression — but the visible text is the one a sighted reader
     // uses to pick a bar, and it is the one a future change could route separately.
@@ -2231,7 +2231,7 @@ describe("one name per control on the board", () => {
     render(<App mode="shared" organizationName="Example Inc." identity={owner} shared={adapter} />);
 
     const days = getWeekDays(0);
-    expect(screen.getByRole("button", { name: `単日 案件のアサイン詳細（単日 三郎・${days[2].month}/${days[2].date}）` })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: `単日 案件のアサイン詳細（単日 三郎・${days[2].month}/${days[2].date}・稼働30%）` })).toBeInTheDocument();
   });
 
   it("shows the allocation once on the projects axis", async () => {
@@ -2253,7 +2253,7 @@ describe("one name per control on the board", () => {
     // and its title 「佐伯 優斗 · 50% · 50%」. The members axis never had the problem.
     const days = getWeekDays(0);
     const range = `${days[0].month}/${days[0].date}〜${days[4].month}/${days[4].date}`;
-    const bar = screen.getByRole("button", { name: `佐伯 優斗のアサイン詳細（Atlas リニューアル・${range}）` });
+    const bar = screen.getByRole("button", { name: `佐伯 優斗のアサイン詳細（Atlas リニューアル・${range}・稼働50%）` });
     expect(bar).toHaveTextContent(/^佐伯 優斗50%$/u);
     expect(bar).toHaveAttribute("title", "佐伯 優斗 · 50%");
   });
