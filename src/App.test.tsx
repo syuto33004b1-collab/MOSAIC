@@ -3948,7 +3948,9 @@ describe("a way into the proposal screen", () => {
     const found = initialWorkspace.needs.find((need) => {
       if (need.role !== role || need.status === "filled") return false;
       const name = initialWorkspace.projects.find((item) => item.id === need.projectId)?.name;
-      return name !== undefined && project.includes(name);
+      // `typeof`, not `!== undefined`: the type says `string | undefined`, and a null
+      // slipping past it would search for the text "null" rather than failing to match.
+      return typeof name === "string" && project.includes(name);
     });
     expect(found, `could not identify the guided requirement from 「${role}」 / 「${project}」`).toBeDefined();
     return found!;

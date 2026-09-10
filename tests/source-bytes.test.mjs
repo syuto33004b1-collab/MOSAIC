@@ -28,45 +28,63 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
  * about `axe`'s coverage in the session that found it, and AGENTS.md asks for the code to
  * be read before a design is fixed — which for an agent and for a person starts at grep.
  *
- * ## What it checks, and what it does not
+ * ## Two rules, not one
  *
- * Every byte of every source file, against tab, newline and carriage return. Nothing about
- * what the characters mean: a file may hold any text it likes, in any language, including
- * escaped control characters, which is what an escape is for. Only the raw bytes that make
- * a text file look binary are refused.
+ * NUL is what makes the tools give up on a file. The rest of the C0 range is refused as
+ * hygiene rather than as a repeat of #304: an escape says the same thing and can be read.
  *
- * It reads whole files rather than streaming them — the largest here is around 240 KB, and
- * the whole sweep is a few dozen files.
+ * ## What it covers
+ *
+ * The four source extensions under `src/` and `tests/` — not `supabase/`, `.github/` or
+ * `scripts/`, which have no control bytes today and no history of this. Widening it to a
+ * repository-wide rule would mean deciding about generated files, binaries and deliberate
+ * control characters, which is its own decision.
+ *
+ * It says nothing about what the characters mean: a file may hold any text it likes, in
+ * any language, including escaped control characters, which is what an escape is for.
  */
 
 const DIRECTORIES = ["src", "tests"];
 const EXTENSIONS = new Set([".ts", ".tsx", ".mjs", ".css"]);
 /** Tab, newline, carriage return: the control bytes a text file is allowed. */
 const ALLOWED = new Set([0x09, 0x0a, 0x0d]);
+const NUL = 0x00;
 
 async function sourceFiles(directory) {
   const entries = await readdir(path.join(root, directory), { withFileTypes: true, recursive: true });
   return entries
     .filter((entry) => entry.isFile() && EXTENSIONS.has(path.extname(entry.name)))
-    .map((entry) => path.relative(root, path.join(entry.parentPath ?? entry.path, entry.name)));
+    .map((entry) => path.relative(root, path.join(entry.parentPath, entry.name)));
 }
 
-test("no source file carries a raw control byte", async () => {
-  const files = (await Promise.all(DIRECTORIES.map(sourceFiles))).flat();
-  // A wrong glob that matched nothing would pass this file silently, which is the same
-  // class of quiet failure #304 was.
-  assert.ok(files.length > 20, `expected to sweep the sources, found ${files.length} files`);
+test("the sweep reaches the sources it is for", async () => {
+  // A count would pass on twenty unrelated files while missing the one this is about, and
+  // would need revisiting every time files merge. Name what has to be in it instead.
+  for (const directory of DIRECTORIES) {
+    const files = await sourceFiles(directory);
+    assert.ok(files.length > 0, `${directory} contributed no files to the sweep`);
+  }
+  const all = (await Promise.all(DIRECTORIES.map(sourceFiles))).flat().map((file) => file.replaceAll("\\", "/"));
+  assert.ok(all.includes("src/App.test.tsx"), "the file #304 was about has to be in the sweep");
+  assert.ok(all.includes("src/styles.css"), "the stylesheet has to be in the sweep");
+});
 
-  const offenders = [];
+test("no NUL, and no other C0 byte, in the swept sources", async () => {
+  const files = (await Promise.all(DIRECTORIES.map(sourceFiles))).flat();
+  const nuls = [];
+  const others = [];
   for (const file of files) {
     const bytes = await readFile(path.join(root, file));
     for (const [index, byte] of bytes.entries()) {
       if (byte >= 0x20 || ALLOWED.has(byte)) continue;
       const line = bytes.subarray(0, index).reduce((count, value) => value === 0x0a ? count + 1 : count, 1);
-      offenders.push(`${file}:${line} has 0x${byte.toString(16).padStart(2, "0")} at byte ${index}`);
+      const where = `${file}:${line} has 0x${byte.toString(16).padStart(2, "0")} at byte ${index}`;
+      (byte === NUL ? nuls : others).push(where);
     }
   }
-  assert.deepEqual(offenders, [],
-    "a raw control byte makes grep and ripgrep treat the file as binary and print nothing for it "
-    + "(#304). Write it as an escape, or say what you mean without a control character.");
+  assert.deepEqual(nuls, [],
+    "a raw NUL makes grep and ripgrep treat the file as binary and print nothing for it (#304). "
+    + "Write it as an escape, or say what you mean without a control character.");
+  assert.deepEqual(others, [],
+    "a raw C0 byte is unreadable in the source even where the tools cope with it. Write it as an escape.");
 });
