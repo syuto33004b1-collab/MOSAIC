@@ -1527,6 +1527,21 @@ describe("the member screen's scene form", () => {
     // The saved scene turns up in the toolbar's picker.
     expect(await screen.findByRole("option", { name: "バックエンド候補" })).toBeInTheDocument();
   });
+
+  it("drops the name error as soon as a name is typed", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: "メンバー" }));
+    await user.click(screen.getByText("新しい検索シーンの条件を入力"));
+
+    // #258: the error was set by a submit and cleared only by the next one, so it
+    // stayed up beside a name that had since been typed — and a submit the browser
+    // itself refuses (最小空き over its max) never reaches the code that clears it.
+    await user.click(screen.getByRole("button", { name: "検索シーンを保存" }));
+    expect(screen.getByText("検索シーン名を入力してください")).toHaveAttribute("role", "alert");
+    await user.type(screen.getByPlaceholderText("フロントエンド候補"), "テスト");
+    expect(screen.queryByText("検索シーン名を入力してください")).toBeNull();
+  });
 });
 
 describe("the sidebar's utilisation card", () => {

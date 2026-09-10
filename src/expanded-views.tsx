@@ -1036,7 +1036,12 @@ export function MembersView({
       {canManageScenes && (
         <details className="search-scene-disclosure">
           <summary>新しい検索シーンの条件を入力</summary>
-          <form className="field-catalog-form search-scene-form" onSubmit={(event) => { event.preventDefault(); submitScene(); }}>
+          {/* The error clears on the next keystroke anywhere in the form, not only on the
+              next submit: a submit the browser itself refuses (最小空き over its max) never
+              reaches submitScene, and 「シーン名を入力してください」 stayed up beside a
+              name that had been typed (#258). One handler on the form, since every input's
+              change bubbles here. */}
+          <form className="field-catalog-form search-scene-form" onSubmit={(event) => { event.preventDefault(); submitScene(); }} onChange={() => setError("")}>
           <label>シーン名<input value={sceneName} onChange={(event) => setSceneName(event.target.value)} placeholder="フロントエンド候補" /></label>
           <label>職種<input value={sceneRole} onChange={(event) => setSceneRole(event.target.value)} placeholder="Frontend Engineer" /></label>
           <label>勤務地<input value={sceneLocation} onChange={(event) => setSceneLocation(event.target.value)} placeholder="東京" /></label>
