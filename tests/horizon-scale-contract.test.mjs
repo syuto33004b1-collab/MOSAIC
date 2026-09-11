@@ -86,7 +86,14 @@ function fraction(value) {
 
 /** The scale the chart draws: the top of the bar is 120%, the bottom is 0. */
 const CEILING = 120;
-const TICKS = [120, 100, 60, 0];
+/**
+ * The ceiling has no tick. 120% is where the bars top out, not a number the reader acts
+ * on, and hanging 「120%」 from the top while 「100%」 centres a sixth of the way down put
+ * one 16.2px line box 7px into the other. A sixth of the track is 17.2px in the 103px
+ * column measured at 1189px, and 12px in the 72px one at 805px, so the two only clear
+ * each other in a column 146px tall — half again the tallest the chart gets (#294).
+ */
+const TICKS = [100, 60, 0];
 const expected = (value) => (CEILING - value) / CEILING;
 
 test("every tick sits where its own value does on the bar's track", async () => {
@@ -103,22 +110,35 @@ test("every tick sits where its own value does on the bar's track", async () => 
 });
 
 /**
- * Which side of its own offset each tick's box sits on. The interior ticks are centred,
- * because being centred on the line is the pairing the issue was about. The two at the
- * ends turn inward: centred, half of 「120%」 sat above the plot and was cut by
- * `overflow-y: hidden` — 8.1px of a 16.2px line box, measured. So the ceiling label
- * hangs from its line and the baseline label sits on it, and both stay legible.
+ * Which side of its own offset each tick's box sits on. Centred on the line is the
+ * pairing the issue was about. The baseline turns inward: centred it would straddle the
+ * bottom of the plot, and `overflow-y: hidden` takes the half below — the same cut that
+ * took 8.1px of a 16.2px line box off the top when the ceiling still had a tick.
  */
-test("the end ticks turn inward so nothing is clipped", async () => {
+test("the baseline tick turns inward so nothing is clipped", async () => {
   const css = withoutComments(await readCss());
   const transform = (value) => declaration(css, `.horizon-y-labels .t${value}`, "transform")
     ?? declaration(css, ".horizon-y-labels span", "transform");
-  assert.equal(transform(120), "none", "the ceiling tick hangs from its line, or its top half is clipped");
   assert.equal(transform(0), "translateY(-100%)", "the baseline tick sits on the baseline rather than straddling it");
   for (const value of [100, 60]) {
     assert.equal(transform(value), "translateY(-50%)",
       `the ${value}% tick has to be centred on its line — that pairing is the whole of #133`);
   }
+});
+
+/**
+ * The ceiling stays unlabelled. Putting the tick back reopens #294 without also making
+ * the column half again as tall, and a line with no tick beside it is a gridline the
+ * reader cannot name.
+ */
+test("the ceiling has neither a tick nor a line", async () => {
+  const css = withoutComments(await readCss());
+  assert.equal(declaration(css, ".horizon-y-labels .t120", "top"), null,
+    "the 120% tick overlaps the 100% one at every height this chart has (#294)");
+  assert.equal(declaration(css, ".horizon-guide.g120", "top"), null,
+    "a line at the top of the plot with no tick beside it is the frame, not a gridline (#294)");
+  const tsx = await readTsx();
+  assert.ok(!/t120|g120/u.test(tsx), "the markup still carries the ceiling tick or its line (#294)");
 });
 
 test("each grid line names the same offset as its tick", async () => {
@@ -147,7 +167,7 @@ test("each label carries the class its offset is keyed on", async () => {
   assert.ok(block, "expected the tick labels");
   const written = [...block[1].matchAll(/<span className="(t\d+)">([^<]+)<\/span>/gu)]
     .map(([, className, text]) => [className, text.trim()]);
-  assert.deepEqual(written, [["t120", "120%"], ["t100", "100%"], ["t60", "60%"], ["t0", "0"]],
+  assert.deepEqual(written, [["t100", "100%"], ["t60", "60%"], ["t0", "0"]],
     "each tick's class has to name the value it labels (#133)");
 });
 
