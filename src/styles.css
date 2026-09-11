@@ -138,10 +138,14 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
    separators and the weekend tint stopped partway across every row while the dates
    above them carried on (#290). `auto` does not help; `overflow: hidden` on the cell
    takes its automatic minimum to zero. `max-content` fixes the month and breaks the
-   week, where `1fr` collapses to its 72px floor and six days fall out of step with
-   their labels — measured.
-   Column 1 is `.person-cell` and the rest is `.week-cell`. Anything added between them
-   lands on top of the days; place it explicitly. */
+   week: measured there, `1fr` resolved to its 72px floor and six days fell out of step
+   with their labels.
+   Column 1 is `.person-cell` and the rest is `.week-cell`. A third child placed by
+   auto-flow breaks that, so place any new one explicitly.
+   The row's own border box still ends at the scrollport, not at the last day — measured
+   before and after, both 725px against a last day at 1145px. Whatever the row paints on
+   itself, `border-bottom` included, still stops there. That is untouched by this, not
+   fixed by it. */
 .schedule-row { min-height: 78px; display: grid; grid-template-columns: var(--schedule-label-col) var(--schedule-day-tracks); border-bottom: 1px solid var(--line); }
 .schedule-row:last-child { border-bottom: 0; }
 /* 10px, not 14px: the row's height is its content now, so the padding is the whole of what
