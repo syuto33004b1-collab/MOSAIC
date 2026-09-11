@@ -201,7 +201,14 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .assignment { z-index: 1; min-width: 0; margin: 0 4px; padding: 6px 9px; border-radius: 7px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #4351aa; font-size: 8px; font-weight: 700; line-height: 1.4; }
 .assignment.blue { background: #e6e9ff; }.assignment.mint { background: #dcf2ea; color: #317463; }.assignment.orange { background: #ffeadf; color: #a75e3f; }
 
-.attention-panel { padding: 19px; }
+.attention-panel { padding: 19px; transition: box-shadow .2s ease; }
+/* Where the 要調整 button lands (#292). `box-shadow` rather than `outline`: the panel is
+   rounded — 17px here, 4px under the theme below — and an outline would sit square outside
+   both. It replaces the resting shadow for the moment it shows, which is nothing to see:
+   that shadow is 4% black under this rule and `none` under the theme. Not a `:focus` rule,
+   because `styles.css` keeps one `:focus-visible` rule on purpose and a ring would stay
+   until the next click. `--cobalt` is whichever accent the theme in force defines. */
+.attention-panel[data-landed] { box-shadow: 0 0 0 2px var(--cobalt); }
 .attention-title { margin-bottom: 15px; display: flex; align-items: center; justify-content: space-between; }
 .attention-title small { color: #9aa2b2; font-family: var(--font-data); font-size: 7px; font-weight: 800; letter-spacing: .16em; }
 .attention-title h2 { margin: 3px 0 0; font-size: 17px; letter-spacing: -.04em; }

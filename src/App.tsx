@@ -879,6 +879,17 @@ export default function Home({ mode = "demo", organizationId, organizationName =
    * tall, so that button is the only way in, and it reached one of the three (#197).
    */
   const attentionPanelRef = useRef<HTMLElement | null>(null);
+  /**
+   * The mark that says the press landed somewhere.
+   *
+   * Focus alone was the answer in #197, and for a keyboard it still is. A mouse never
+   * sees it: `:focus-visible` is false for a pointer, so at 1281px and up — where the
+   * panel is already beside the board and there is nothing to scroll — pressing the
+   * button changed nothing anyone could see, at one item as much as at none (#292).
+   */
+  const [attentionLanded, setAttentionLanded] = useState(false);
+  const attentionLandedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (attentionLandedTimer.current) clearTimeout(attentionLandedTimer.current); }, []);
   useEffect(() => {
     const bringIntoView = () => {
       if (!window.matchMedia("(max-width: 620px)").matches) return;
@@ -1394,6 +1405,11 @@ export default function Home({ mode = "demo", organizationId, organizationName =
     if (!panel) return;
     panel.scrollIntoView({ block: "nearest" });
     panel.focus();
+    // A class rather than an animation: `prefers-reduced-motion` turns every animation
+    // off, and the mark has to survive that — without it the press is silent again.
+    setAttentionLanded(true);
+    if (attentionLandedTimer.current) clearTimeout(attentionLandedTimer.current);
+    attentionLandedTimer.current = setTimeout(() => setAttentionLanded(false), 1200);
   };
 
   const openStaffingNeed = (needId: string) => {
@@ -3060,7 +3076,10 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                 </div>
               </section>
 
-              <aside className="attention-panel" ref={attentionPanelRef} tabIndex={-1} aria-labelledby="attention-heading">
+              {/* `data-landed` rather than a class, because `attention-grid-contract`
+                  finds this panel by the literal `className="attention-panel"` to check
+                  the order of its children, and a template would hide it from that. */}
+              <aside className="attention-panel" data-landed={attentionLanded ? "" : undefined} ref={attentionPanelRef} tabIndex={-1} aria-labelledby="attention-heading">
                 <div className="attention-title"><div><small>NEEDS ATTENTION</small><h2 id="attention-heading">要調整</h2></div><span>{adjustmentCount}</span></div>
                 {(currentOverloads.length > 0 || overloadPlanned) && overloadMember && (
                   <button className={"alert-card urgent " + (overloadPlanned ? "planned" : "")} onClick={() => setDrawer("overload")}>
