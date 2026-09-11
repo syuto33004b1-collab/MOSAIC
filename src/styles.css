@@ -132,14 +132,18 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .day-label.today::after { content: ""; position: absolute; bottom: -1px; left: 26%; right: 26%; height: 2px; border-radius: 2px; background: var(--cobalt); }
 .day-label.today strong { color: var(--cobalt); }
 /*
- * `min-width: max-content` is what lets the row reach the end of the month. Without it the
- * row's box is the scrollport's, so `minmax(0, 1fr)` resolved to 633px of a 1020px day
- * grid, `.week-cell` clipped the rest, and everything past the 19th went blank — day
- * boundaries, weekend shading, and the assignment bars, which lost up to 382px (#290).
- * Not `min-content`: the cell's `overflow: hidden` zeroes its automatic minimum, so the
- * row's min-content collapses to the label column and nothing changes.
+ * The `min-width` is what lets the row reach the end of the month. Without it the row's box
+ * is the scrollport's, so `minmax(0, 1fr)` resolved to 633px of a 1020px day grid,
+ * `.week-cell` clipped the rest, and everything past the 19th went blank — day boundaries,
+ * weekend shading, and the assignment bars, which lost up to 382px (#290).
+ *
+ * The floor is the days' own, handed down beside the track list. Not an intrinsic keyword:
+ * `min-content` collapses to the label column, because the cell's `overflow: hidden` zeroes
+ * its automatic minimum; and `max-content` would measure whatever is in the cell, so one
+ * row with a wide thing in it would grow past the others and stop dividing the box the way
+ * the header does, which is the drift #106 removed.
  */
-.schedule-row { min-height: 78px; min-width: max-content; display: grid; grid-template-columns: var(--schedule-label-col) minmax(0, 1fr); border-bottom: 1px solid var(--line); }
+.schedule-row { min-height: 78px; min-width: calc(var(--schedule-label-col) + var(--schedule-days-min-width)); display: grid; grid-template-columns: var(--schedule-label-col) minmax(0, 1fr); border-bottom: 1px solid var(--line); }
 .schedule-row:last-child { border-bottom: 0; }
 /* 10px, not 14px: the row's height is its content now, so the padding is the whole of what
    is spare. 8px was measured too — 4px a row, against a legible gutter (#192). */
