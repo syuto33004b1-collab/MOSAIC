@@ -254,3 +254,71 @@ test("a schedule row takes its height from its content", async () => {
   assert.ok(alignments.includes("start"),
     "`.week-cell` needs `align-content: start`, or one assignment is drawn as tall as the row (#192)");
 });
+
+/**
+ * The row's floor comes from the days, and no grid takes its width from its contents.
+ *
+ * The row's second track is `minmax(0, 1fr)`, which resolves against the row's own box. On
+ * main that box was the scrollport's, so in a 30-day month it came out 633px against 1020px
+ * of day tracks and `.week-cell` clipped the difference: from the 19th on there were no day
+ * boundaries, no weekend shading, and the assignment bars were cut, one of them by 382px
+ * (#290).
+ *
+ * Neither intrinsic keyword is the answer. `min-content` collapses to the label column,
+ * because the cell's `overflow: hidden` zeroes its automatic minimum — measured at 878px
+ * and still clipping. `max-content` measures the cell's contents, so a row holding a wide
+ * thing would grow past the others and stop dividing the box the way the header does; and
+ * on `.schedule-head` it grows each `minmax(34px, 1fr)` to its date label, measured at
+ * 1311px against the row's 1265px. Both are the drift #106 removed.
+ *
+ * ## What this proves
+ *
+ * That the CSS still names the tokens, and that no grid here sizes itself from its content.
+ * Not the used widths, not the rendered boundaries, and not the cascade — a later rule
+ * could still set `min-width: 0` on a row. The rendered evidence is in #290: after this,
+ * rows measured 1265px at 30 days, 1299px at 31, and 1314px where the label column becomes
+ * 260px, with the header's day boundaries matching to 0px at each.
+ */
+test("a schedule row takes its floor from the days, not from its contents", async () => {
+  const css = withoutComments(await read()).replaceAll("\r\n", "\n");
+  const INTRINSIC = /\b(?:max-content|min-content|fit-content)\b/u;
+
+  const rowWidths = allRules(css, "schedule-row").flatMap(({ body }) => declarations(body, "min-width"));
+  assert.ok(rowWidths.some((value) => value.includes("--schedule-days-min-width")),
+    "`.schedule-row` needs a min-width built from `--schedule-days-min-width`, or the week cell clips the days past the scrollport (#290)");
+  assert.deepEqual(rowWidths.filter((value) => INTRINSIC.test(value)), [],
+    "an intrinsic min-width makes one row's width depend on what is in it, and rows that differ do not divide the box the way the header does (#106)");
+
+  // The header takes the same box from the same token. Sizing it from its own contents is
+  // the specific thing that breaks the pair; a plain `min-width: 0` would not.
+  const headWidths = allRules(css, "schedule-head").flatMap(({ selector, body }) => declarations(body, "min-width").map((value) => `${selector.trim()} → ${value}`));
+  assert.deepEqual(headWidths.filter((entry) => INTRINSIC.test(entry)), [],
+    "intrinsic sizing on `.schedule-head` grows its day tracks to the date labels — 1311px against the row's 1265px (#106)");
+
+  // And the day tracks stay off the row. Declaring them here as well would put `.week-cell`
+  // in one 34px column, and it is the row's second track that has to hold all of them.
+  const rowColumns = allRules(css, "schedule-row").flatMap(({ selector, body }) => declarations(body, "grid-template-columns").map((value) => ({ selector: selector.trim(), value })));
+  const dayTracksOnRow = rowColumns.filter(({ value }) => value.includes("--schedule-day-tracks"));
+  assert.deepEqual(dayTracksOnRow.map(({ selector, value }) => `${selector} → ${value}`), [],
+    "the row spans the days with one `minmax(0, 1fr)` track; naming the day tokens here splits it (#290)");
+});
+
+/** The floor and the track list are one number, so they cannot drift apart (#290). */
+test("the days' floor is handed down beside the track list", async () => {
+  const tsx = (await readFile(path.join(root, "src", "App.tsx"), "utf8")).replaceAll("\r\n", "\n");
+  const setters = [...tsx.matchAll(/--schedule-days-min-width/gu)];
+  assert.equal(setters.length, 1, `expected exactly one inline setter in App.tsx, found ${setters.length}`);
+
+  const at = tsx.indexOf("--schedule-days-min-width");
+  const tag = tsx.slice(tsx.lastIndexOf("<", at), at);
+  assert.match(tag, /className="schedule-card"/u,
+    "the floor belongs on .schedule-card beside the track count, so both are read from one element");
+
+  // Both are built from `scheduleDayFloor`. Two literals would let the track's floor and the
+  // row's floor disagree, and the row would clip again without anything looking wrong.
+  const floors = [...tsx.matchAll(/const scheduleDayFloor = [^;]+;/gu)];
+  assert.equal(floors.length, 1, "expected one `scheduleDayFloor`, the single source for both");
+  const style = tsx.slice(at - 400, at + 200);
+  assert.match(style, /--schedule-day-tracks[^;]*scheduleDayFloor/u, "the track list must be built from `scheduleDayFloor`");
+  assert.match(style, /--schedule-days-min-width[^;]*scheduleDayFloor/u, "the floor must be built from `scheduleDayFloor`");
+});

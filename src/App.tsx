@@ -919,6 +919,14 @@ export default function Home({ mode = "demo", organizationId, organizationName =
   const range = useMemo(() => boardRange(boardUnit, weekOffset), [boardUnit, weekOffset]);
   const days = range.days;
   /**
+   * The narrowest a day column is allowed to get.
+   *
+   * One number, because the schedule card hands out two things made from it: the track
+   * list the header and the cells divide the box by, and the floor a row has to be at
+   * least as wide as (#290). Read them from one place and they cannot disagree.
+   */
+  const scheduleDayFloor = range.unit === "week" ? 72 : 34;
+  /**
    * The one week everything week-scoped works from: the attention panel, the
    * drawers, the labels that name it, and the offset the other screens receive.
    *
@@ -2938,8 +2946,17 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                    on their common ancestor, rather than by each of them. It is
                    inline because the column count is data: five in week mode, 20
                    to 23 in a month. 34px because 23 columns at the week's 72px
-                   would be 1656px of grid and 835px of sideways scroll (#139). */
-                style={{ "--schedule-day-tracks": `repeat(${days.length}, minmax(${range.unit === "week" ? 72 : 34}px, 1fr))` } as CSSProperties}
+                   would be 1656px of grid and 835px of sideways scroll (#139).
+
+                   The floor those tracks add up to travels with them, because a
+                   row has to be at least that wide or its cell clips the days it
+                   is drawing (#290). Measured, not intrinsic: `max-content` would
+                   read whatever sits in the cell, and one row growing past the
+                   others is the drift #106 removed. */
+                style={{
+                  "--schedule-day-tracks": `repeat(${days.length}, minmax(${scheduleDayFloor}px, 1fr))`,
+                  "--schedule-days-min-width": `${days.length * scheduleDayFloor}px`,
+                } as CSSProperties}
               >
                 <div className="schedule-toolbar">
                   {/* 「メンバー別」 not 「メンバー」: the sidebar has a nav button
