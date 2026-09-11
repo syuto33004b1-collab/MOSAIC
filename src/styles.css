@@ -1042,7 +1042,10 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
      the left column with the right half empty (#296). Written the other way round, the
      lone ones keep the `1 / -1` above and nothing needs an exception. */
   .drawer .drawer-content > .drawer-primary:has(+ .drawer-secondary),
-  .drawer .drawer-content > .drawer-primary + .drawer-secondary { grid-column: auto; margin-top: 0; }
+  .drawer .drawer-content > .drawer-primary + .drawer-secondary { grid-column: auto; }
+  /* The secondary's 8px is the gap under whatever it follows. Beside a primary there is
+     nothing above it, so it goes; on its own it stays. */
+  .drawer .drawer-content > .drawer-primary + .drawer-secondary { margin-top: 0; }
   /* And the tallest single blocks go two-up inside themselves. Each is a list of
      short, uniform rows — a person and a percentage, a week and a bar — so
      halving the rows costs no legibility.
@@ -1730,7 +1733,11 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .proposal-empty { border: 1px solid #dfe4ed; border-radius: 17px; background: #fff; }
 /* The star is an icon and nothing else, so it takes the width of one: in the project
    drawer it was holding down half a 834px row with a single ☆ in the middle (#296).
-   44px square, which is the floor every other tap target here uses. */
+   44px square. The buttons it sits beside measure 44px tall — the row stretches them
+   past the 43px they ask for — so this matches what is already there.
+   It keeps the pair side by side below 620px too, where `.entity-action-row` otherwise
+   goes to one column. Deliberate: stacking would hand the star a full-width row of its
+   own, which is the thing being fixed. Measured at 375px, the row is `44px 285px`. */
 .entity-action-row:has(> .favorite-star:first-child) { grid-template-columns: auto 1fr; }
 .entity-action-row .favorite-star {
   width: auto;
