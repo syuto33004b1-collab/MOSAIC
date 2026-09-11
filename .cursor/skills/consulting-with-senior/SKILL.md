@@ -1,17 +1,19 @@
 ---
 name: consulting-with-senior
-description: Use when stuck on a judgment call, when a second opinion or multi-sided view would help, or when the user asks to consult Opus or Sol. Timing is the implementing agent's call. Do not use for final review or routine one-line edits.
+description: Use before fixing a minimal design in an Issue comment — that one is mandatory, once per Issue, before any code is written. Also use when stuck on a judgment call, when a second opinion or multi-sided view would help, or when the user asks to consult Opus or Sol. Do not use for final review or routine one-line edits.
 ---
 
 # 相談者（senior consultant）
 
-順序は [AGENTS.md](../../../AGENTS.md) が唯一の出典。相談は任意で、実装前に行う。評価は PR 前。役割を混ぜない。
+順序は [AGENTS.md](../../../AGENTS.md) が唯一の出典。相談は実装前、評価は PR 前。役割を混ぜない。
 
-設計の第二意見を、readonly の相談者 Subagent に聞く。実装は主エージェントのまま。使うタイミングは主エージェントに任せる。
+設計の第二意見を、readonly の相談者 Subagent に聞く。実装は主エージェントのまま。
+
+**最小設計を固定する前の1回は必須である**（AGENTS.md の 4）。義務と理由はそちらに書いてあるのでここには再掲しない。それとは別に、判断に迷ったときは何度でも使ってよい。
 
 ## When to Use
 
-判断に困ったとき、意見が欲しいとき、多面的に見たいときに使う。必須ではない。
+必須の1回は手順4 で行う。それ以外は、判断に困ったとき、意見が欲しいとき、多面的に見たいときに使う。
 
 - 判断に困る（方針が複数あり、どれでもよさそう）
 - 意見が欲しい（自分の案に穴がないか聞きたい）
