@@ -1174,6 +1174,25 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   .schedule-card { min-width: 0; }
   .schedule-table { min-width: 740px; }
 }
+/* Two card columns need about 178px each before the heading row fits on one line:
+   at 685px the card is 173px and both 「未充足ロール」 and 「8月24日」 split in two,
+   at 695px the card is 178px and neither does (#268). Below 620px the panel is already
+   a block and the cards are full width, so the break only shows in between. 720px is
+   the width at which the card reaches 190px, which is the measured 178 plus room for a
+   label a little longer than the longest one we render.
+   Both nth-child rules have to point at column 2. Leaving the column 3 rule in place
+   while only two are declared creates an implicit third column, so the layout would
+   not be the two columns it claims to be. That is not what #260 was — there a card
+   reached the title's column through auto-placement — but it is the same habit of
+   letting the grid invent a track nobody asked for.
+   `nth-child` counts every element sibling, not just the cards, and the panel ends
+   with a `.all-alerts` button that is `display: none` here. It sits after the cards,
+   so it does not shift their parity; inserting anything between them would. */
+@media (max-width: 720px) {
+  .attention-panel { grid-template-columns: 145px 1fr; }
+  .attention-panel > .alert-card:nth-child(even),
+  .attention-panel > .alert-card:nth-child(odd) { grid-column: 2; }
+}
 @media (max-width: 620px) {
   .workspace { padding: 21px 14px 32px; }
   .topbar { margin-bottom: 18px; }
