@@ -571,6 +571,35 @@ describe("what an assignment file would do to a ceiling", () => {
     expect(result.actions).toHaveLength(1);
   });
 
+  it("keeps rows that do not touch apart, so a gap is not measured", () => {
+    // 佐伯 優斗 is over their ceiling in October, from something the file never mentions.
+    const overloaded: WorkspaceState = {
+      ...initialWorkspace,
+      assignments: [...initialWorkspace.assignments, {
+        id: "october", personId: "saeki", projectId: "nimbus",
+        startDate: "2026-10-05", endDate: "2026-10-09", allocation: 130, status: "confirmed",
+      }],
+    };
+    // Nimbus runs 2026-04-01 — 2027-03-31, so both rows fit it and neither reaches October.
+    const csv = ["memberName,projectName,startDate,endDate,allocation",
+      "佐伯 優斗,Nimbus 運用保守,2026-09-21,2026-09-25,10",
+      "佐伯 優斗,Nimbus 運用保守,2026-11-02,2026-11-06,10"].join("\n") + "\n";
+    const result = previewAssignmentImport(overloaded, parseCsv(csv), () => crypto.randomUUID());
+    expect(result.issues).toEqual([]);
+    expect(result.actions).toHaveLength(2);
+    // Read as one span from September to November it would have found the 130%.
+    expect(result.warnings).toEqual([]);
+  });
+
+  it("names only the rows of the stretch that went over", () => {
+    const apart = "佐伯 優斗,Atlas リニューアル,2026-10-19,2026-10-23,10";
+    const result = preview(clear(60), clear(60), apart);
+    expect(result.warnings).toEqual([
+      "2・3行目: 佐伯 優斗さんの稼働が120%になります（稼働上限100%）。仮置きはできます。",
+    ]);
+    expect(result.actions).toHaveLength(3);
+  });
+
   it("says nothing when the file fits, and does not count a row it refused", () => {
     expect(preview(clear(60)).warnings).toEqual([]);
     // The refused row carries a usable 60%; counting it would push the pair to 120%.

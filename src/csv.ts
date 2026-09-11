@@ -359,33 +359,53 @@ export function previewAssignmentImport(state: WorkspaceState, parsed: CsvParseR
  */
 function overloadWarnings(state: WorkspaceState, actions: AssignmentImportAction[]): string[] {
   const applied = applyAssignmentImport(state, actions);
-  // Per person rather than per row: an overload is a property of a member and a span, and
-  // several rows can make one. The rows are named in the message instead, so no row is
-  // pointed at that did not contribute and none that did is hidden.
-  const spans = new Map<string, { rows: number[]; start: string; end: string }>();
+  // Per person rather than per row: an overload is a property of a member and a stretch of
+  // days, and several rows can make one. The rows are named in the message instead, so no
+  // row is pointed at that did not contribute and none that did is hidden.
+  const byPerson = new Map<string, { row: number; start: string; end: string }[]>();
   for (const action of actions) {
     const { personId, startDate, endDate } = action.assignment;
-    const span = spans.get(personId);
-    if (!span) spans.set(personId, { rows: [action.row], start: startDate, end: endDate });
-    else {
-      span.rows.push(action.row);
-      if (startDate < span.start) span.start = startDate;
-      if (endDate > span.end) span.end = endDate;
-    }
+    const rows = byPerson.get(personId) ?? [];
+    rows.push({ row: action.row, start: startDate, end: endDate });
+    byPerson.set(personId, rows);
   }
   const warnings: string[] = [];
   // Insertion order, so the warnings follow the file.
-  for (const [personId, span] of spans) {
+  for (const [personId, rows] of byPerson) {
     const member = memberById(state, personId);
     if (!member) continue;
-    // The peak over the days this import touches, the same measure `addOverload` takes of
-    // the assignment form. Whether the file caused the overload is not asked, because the
-    // form does not ask it either.
-    const projected = memberPeakLoad(applied, personId, span.start, span.end);
-    if (projected <= member.capacity) continue;
-    warnings.push(`${span.rows.join("・")}行目: ${memberLabel(state, member)}さんの稼働が${projected}%になります（稼働上限${member.capacity}%）。仮置きはできます。`);
+    for (const stretch of mergedStretches(rows)) {
+      // The peak over days the file actually reaches, the same measure `addOverload` takes
+      // of the assignment form. Whether the file caused the overload is not asked, because
+      // the form does not ask it either.
+      const projected = memberPeakLoad(applied, personId, stretch.start, stretch.end);
+      if (projected <= member.capacity) continue;
+      warnings.push(`${stretch.rows.sort((left, right) => left - right).join("・")}行目: ${memberLabel(state, member)}さんの稼働が${projected}%になります（稼働上限${member.capacity}%）。仮置きはできます。`);
+    }
   }
   return warnings;
+}
+
+/**
+ * One person's rows, folded into the stretches of days they actually cover.
+ *
+ * Measuring the whole span from the earliest start to the latest end would read days no
+ * row touches: a file holding a September row and a December row would be told about an
+ * October overload it had nothing to do with, and both rows would be named for it.
+ * Overlapping rows still merge, because a peak they share must be reported once.
+ */
+function mergedStretches(rows: { row: number; start: string; end: string }[]) {
+  const stretches: { rows: number[]; start: string; end: string }[] = [];
+  for (const row of [...rows].sort((left, right) => left.start < right.start ? -1 : left.start > right.start ? 1 : 0)) {
+    const open = stretches[stretches.length - 1];
+    if (open && row.start <= open.end) {
+      open.rows.push(row.row);
+      if (row.end > open.end) open.end = row.end;
+    } else {
+      stretches.push({ rows: [row.row], start: row.start, end: row.end });
+    }
+  }
+  return stretches;
 }
 
 export function applyAssignmentImport(state: WorkspaceState, actions: AssignmentImportAction[]): WorkspaceState {

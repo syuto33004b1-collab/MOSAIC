@@ -2715,6 +2715,9 @@ export function CsvTransferPanel({ state, organizationId, canImport = false, can
               else if (pending.source === "projects") onImportProjects(pending.actions);
               else onImportAssignments(pending.actions);
               setPending(null);
+              // 「仮置きはできます」 stops being true the moment it has been; the board's
+              // 上限超過 card is what carries the overload from here.
+              setWarnings([]);
               setImportMessage("仮置きしました。チームへ保存すると確定します。");
             }}>
               {pending.actions.length}行を仮置きする
