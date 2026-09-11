@@ -42,10 +42,11 @@ jobs:
         run: npm test
       # Against the `dist/` that `npm test` just produced: `test:static` runs the same
       # `tsc --noEmit && vite build` a separate build step would, and the Pages workflow
-      # already uploads that `dist/`. Run in the Chrome the runner already carries. jsdom
-      # computes no colour, so the four `axe.run` calls in the unit tests all disable
-      # `color-contrast` — this is where contrast is measured (#305). Not part of
-      # `npm test`, which the Pages workflow also runs: publishing does not need a browser.
+      # likewise uploads the `dist/` its own `npm test` leaves behind. Run in the Chrome
+      # the runner already carries. jsdom computes no colour, so the four `axe.run` calls
+      # in the unit tests all disable `color-contrast` — this is where contrast is
+      # measured (#305). Not part of `npm test`, which the Pages workflow also runs:
+      # publishing does not need a browser.
       - name: Accessibility sweep
         run: node scripts/check-rendering.mjs
       - name: Audit dependencies
