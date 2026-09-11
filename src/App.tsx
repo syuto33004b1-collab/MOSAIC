@@ -1,4 +1,4 @@
-import { type CSSProperties, type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type CSSProperties, type FormEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   ArrowRight,
@@ -130,13 +130,16 @@ import {
 import {
   buildShareHref,
   isFavorited,
+  nextHistoryAction,
   parseShareSearch,
   readDemoFavorites,
   retainedMemberIds,
+  shareLocationFor,
   toggleFavorite,
   writeDemoFavorites,
   type Favorite,
   type FavoriteKind,
+  type ShareLink,
 } from "./collaboration";
 import { applyAssignmentImport, applyMemberImport, applyProjectImport, type AssignmentImportAction, type MemberImportAction, type ProjectImportAction } from "./csv";
 
@@ -621,6 +624,94 @@ export default function Home({ mode = "demo", organizationId, organizationName =
     clearFormDraft();
     setDrawer(null);
   }, [clearFormDraft]);
+
+  /**
+   * The share link for what is on screen now.
+   *
+   * `open` only when the drawer showing is one a link can name — `selectedMemberId` holds
+   * the first member from the moment the app starts, so reading it on its own would put an
+   * `open=` on a plain list (#309).
+   */
+  const currentShareLink = useMemo((): ShareLink => {
+    const link: ShareLink = { nav: activeNav };
+    if (activeNav === "members") {
+      if (drawer === "member" && selectedMemberId) link.open = selectedMemberId;
+      if (memberQuery.trim()) link.q = memberQuery.trim();
+    }
+    if (activeNav === "projects") {
+      if (drawer === "project" && selectedProjectId) link.open = selectedProjectId;
+      if (projectQuery.trim()) link.q = projectQuery.trim();
+    }
+    if (activeNav === "proposal") {
+      if (proposalMemberIds.length) link.memberIds = proposalMemberIds;
+      if (proposalAnonymous) link.anonymous = true;
+      if (proposalNeedId) link.needId = proposalNeedId;
+    }
+    return link;
+  }, [activeNav, drawer, memberQuery, projectQuery, proposalAnonymous, proposalMemberIds, proposalNeedId, selectedMemberId, selectedProjectId]);
+
+  /**
+   * Everything a share link says, put back.
+   *
+   * `drawerFromShare` answers only the drawer; the screen, the search boxes and the
+   * proposal's picks are read once at startup and never again, so coming back through
+   * history needs the rest of it too. A link that says nothing is the board with nothing
+   * open — applying only the parts that are present would leave the last screen's search
+   * term behind (#309).
+   */
+  const applyShareLink = useCallback((link: ShareLink | null, state: WorkspaceState) => {
+    clearFormDraft();
+    setActiveNav(link?.nav ?? "board");
+    setMemberQuery(link?.nav === "members" ? link.q ?? "" : "");
+    setProjectQuery(link?.nav === "projects" ? link.q ?? "" : "");
+    setProposalMemberIds(link?.nav === "proposal" ? link.memberIds ?? [] : []);
+    setProposalNeedId(link?.nav === "proposal" ? link.needId ?? "" : "");
+    setProposalAnonymous(link?.nav === "proposal" ? Boolean(link.anonymous) : false);
+    const restored = drawerFromShare(link, state);
+    if (restored.memberId) setSelectedMemberId(restored.memberId);
+    if (restored.projectId) setSelectedProjectId(restored.projectId);
+    setDrawer(restored.drawer);
+    if (restored.toast) setToast(restored.toast);
+  }, [clearFormDraft]);
+
+  /**
+   * The address bar follows the screen, and the screen is what Back undoes.
+   *
+   * Nothing wrote here before, so every screen the reader moved to left the address where
+   * they started: Back left the app, a reload returned to whatever the link had said, and
+   * a closed drawer kept its `open=` and opened again (#309).
+   *
+   * The decision is taken off the two addresses rather than off the state, in
+   * `nextHistoryAction`. Equal means equal — including on the first pass, where pushing
+   * would put a second copy of the landing in the history and make the first Back do
+   * nothing. That comparison is also what stops the loop: coming back through history sets
+   * state, this runs, and the address it would write is the one already there.
+   */
+  useLayoutEffect(() => {
+    const next = shareLocationFor(window.location, currentShareLink);
+    const previous = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+    const action = nextHistoryAction(previous, next);
+    if (action === "noop") return;
+    // Before the paint, so a Back or a reload in the moment after a screen changes finds
+    // the address it changed to. And `history.state` is carried over rather than dropped:
+    // nothing here puts anything in it, but the auth code is free to.
+    if (action === "push") window.history.pushState(window.history.state, "", next);
+    else window.history.replaceState(window.history.state, "", next);
+  }, [currentShareLink]);
+
+  // Read by the popstate listener, which must not be rebound every time the workspace does.
+  // Written before the paint, so a Back landing in the same frame reads the one on screen.
+  const workspaceRef = useRef(workspace);
+  useLayoutEffect(() => { workspaceRef.current = workspace; }, [workspace]);
+
+  useEffect(() => {
+    const onPopState = () => {
+      // Reads only. The browser has already moved the address; writing here would fight it.
+      applyShareLink(parseShareSearch(window.location.search), workspaceRef.current);
+    };
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, [applyShareLink]);
 
   const drainPendingRefresh = useCallback(() => {
     if (syncBusyRef.current || saveBusyRef.current) return;

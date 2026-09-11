@@ -4,10 +4,12 @@ import {
   buildShareHref,
   isFavorited,
   normalizeFavorites,
+  nextHistoryAction,
   parseMemberIds,
   parseShareSearch,
   readDemoFavorites,
   serializeShareSearch,
+  shareLocationFor,
   toggleFavorite,
   DEMO_FAVORITES_KEY,
   DEMO_SEEDED_FAVORITES,
@@ -92,5 +94,60 @@ describe("share links", () => {
       { origin: "https://example.test", pathname: "/MOSAIC/", search: "?invitation=abc&nav=board" },
       { nav: "projects", open: "atlas" },
     )).toBe("https://example.test/MOSAIC/?invitation=abc&nav=projects&open=atlas");
+  });
+});
+
+/**
+ * #309: nothing wrote the address bar, so Back left the app, a reload returned to whatever
+ * the link had said, and a drawer kept its `open=` after it closed. These two decide what
+ * gets written and whether it is somewhere to come back from.
+ */
+describe("the address the reader is standing in", () => {
+  const at = (search: string, hash = "") => ({ pathname: "/MOSAIC/", search, hash });
+
+  it("keeps the path, and everything the share link has no opinion about", () => {
+    // The deployed site is under a path, and `serializeShareSearch` says "" for the board.
+    expect(shareLocationFor(at("?nav=members"), { nav: "board" })).toBe("/MOSAIC/");
+    // An invitation is the reader's, and so is a fragment; only the share keys are ours.
+    expect(shareLocationFor(at("?invitation=abc&nav=members&open=saeki", "#top"), { nav: "projects", open: "atlas" }))
+      .toBe("/MOSAIC/?invitation=abc&nav=projects&open=atlas#top");
+    expect(shareLocationFor(at("?invitation=abc&nav=members"), { nav: "board" })).toBe("/MOSAIC/?invitation=abc");
+  });
+
+  it("drops the drawer and the search box from the address when they close", () => {
+    expect(shareLocationFor(at("?nav=members&open=saeki"), { nav: "members" })).toBe("/MOSAIC/?nav=members");
+    expect(shareLocationFor(at("?nav=members&q=%E4%BD%90"), { nav: "members" })).toBe("/MOSAIC/?nav=members");
+  });
+
+  it("comes back from a screen, and from nothing else", () => {
+    // The screen is what Back should undo.
+    expect(nextHistoryAction("/MOSAIC/", "/MOSAIC/?nav=members")).toBe("push");
+    expect(nextHistoryAction("/MOSAIC/?nav=members", "/MOSAIC/")).toBe("push");
+    expect(nextHistoryAction("/MOSAIC/?nav=members", "/MOSAIC/?nav=projects")).toBe("push");
+
+    // Opening a row, typing, picking a candidate: the same screen showing something else.
+    // Twenty rows read in a list would otherwise bury the screen the reader wants back.
+    expect(nextHistoryAction("/MOSAIC/?nav=members", "/MOSAIC/?nav=members&open=saeki")).toBe("replace");
+    expect(nextHistoryAction("/MOSAIC/?nav=members&open=saeki", "/MOSAIC/?nav=members")).toBe("replace");
+    expect(nextHistoryAction("/MOSAIC/?nav=members&q=a", "/MOSAIC/?nav=members&q=ab")).toBe("replace");
+    expect(nextHistoryAction("/MOSAIC/?nav=proposal", "/MOSAIC/?nav=proposal&members=saeki")).toBe("replace");
+
+    // And equal is equal, which is what the first pass sees when a link is followed. A push
+    // there would put a second copy of the landing in the history and make Back do nothing.
+    expect(nextHistoryAction("/MOSAIC/?nav=members&open=saeki", "/MOSAIC/?nav=members&open=saeki")).toBe("noop");
+    expect(nextHistoryAction("/MOSAIC/", "/MOSAIC/")).toBe("noop");
+  });
+
+  it("reads a screen the way the parser does, and not out of the fragment", () => {
+    // A nav nobody recognises is the board — that is what `parseShareSearch` returns for it,
+    // so the address that replaces it is the same screen and must not be pushed. Otherwise
+    // following such a link pushes on the first pass and Back lands between the two.
+    expect(parseShareSearch("?nav=typo")).toBeNull();
+    expect(nextHistoryAction("/MOSAIC/?nav=typo", "/MOSAIC/")).toBe("replace");
+    expect(nextHistoryAction("/MOSAIC/?nav=typo", "/MOSAIC/?nav=members")).toBe("push");
+
+    // And a fragment is a fragment, whatever it has in it.
+    expect(nextHistoryAction("/MOSAIC/#/help?nav=members", "/MOSAIC/?nav=members")).toBe("push");
+    expect(nextHistoryAction("/MOSAIC/?nav=members#top", "/MOSAIC/?nav=members&open=saeki#top")).toBe("replace");
   });
 });

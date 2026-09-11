@@ -850,6 +850,10 @@ describe("role-aware workspace", () => {
     expect(save.mock.calls[0][0].needs).toEqual([]);
 
     unmount();
+    // The address follows the screen now (#309), so the first half left `?nav=projects`
+    // and the drawer it opened. This second render is a fresh visit, and without this it
+    // would restore that drawer and find 「Atlas リニューアル」 in the list and the heading.
+    window.history.replaceState({}, "", "/");
     const archiveAdapter = sharedAdapter();
     const archiveSave = vi.fn().mockResolvedValue({ revision: 8, savedAt: "2026-08-17T10:00:00Z" });
     archiveAdapter.initialState = linkedStaffingWorkspace();
@@ -5818,5 +5822,111 @@ describe("what the notification bell promises", () => {
     await user.click(bell());
     expect(screen.getByText("上限超過は解消予定")).toBeInTheDocument();
     expect(screen.queryByText("通知はありません")).toBeNull();
+  });
+});
+
+/**
+ * #309: nothing wrote the address bar. Measured on the deployed site, four screens in a row
+ * left `history.length` at 3 and the address unchanged, so Back left the app; a reload came
+ * back to whatever the link had said rather than where the reader was; and a drawer kept
+ * its `open=` after closing, then opened again on the next load.
+ */
+describe("coming back to the screen before", () => {
+  const goBack = async (expected: string) => {
+    // jsdom moves the address for `history.back()` but does not always fire the event a
+    // browser does. Wait for the address to arrive first, then supply the event only if
+    // nothing came with it — dispatching regardless would deliver two on the engines that
+    // do fire, and hide a listener that never ran on the ones that do not.
+    let fired = false;
+    const seen = () => { fired = true; };
+    window.addEventListener("popstate", seen);
+    window.history.back();
+    await waitFor(() => expect(window.location.search).toBe(expected));
+    window.removeEventListener("popstate", seen);
+    if (!fired) window.dispatchEvent(new PopStateEvent("popstate"));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  };
+  const navigation = () => within(screen.getByRole("navigation", { name: "メインナビゲーション" }));
+  const renderApp = () => render(<App mode="shared" organizationName="Example Inc." identity={{ name: "計画 花子", email: "planner@example.com", role: "planner" }} shared={sharedAdapter()} />);
+
+  it("puts the screen in the address, and takes Back to the one before", async () => {
+    const user = userEvent.setup();
+    renderApp();
+    expect(window.location.search).toBe("");
+
+    await user.click(navigation().getByRole("button", { name: "メンバー" }));
+    expect(window.location.search).toBe("?nav=members");
+    await user.click(navigation().getByRole("button", { name: /^スキルマップ( |$)/u }));
+    expect(window.location.search).toBe("?nav=skills");
+
+    await goBack("?nav=members");
+    expect(await screen.findByRole("heading", { name: "メンバーと空き状況" })).toBeInTheDocument();
+  });
+
+  /** Back restores what the address holds, not just which screen it names. */
+  it("brings back the search box and the row the address was holding", async () => {
+    const user = userEvent.setup();
+    renderApp();
+    await user.click(navigation().getByRole("button", { name: "メンバー" }));
+    await user.type(screen.getByLabelText("メンバーを検索"), "佐伯");
+    await user.click(memberRowButton("佐伯 優斗"));
+    expect(window.location.search).toBe("?nav=members&open=saeki&q=%E4%BD%90%E4%BC%AF");
+
+    // Moving screens leaves the address holding only the new one — `open` and `q` belong to
+    // members, and the drawer a screen change does not close is not a members drawer now.
+    await user.click(navigation().getByRole("button", { name: /^スキルマップ( |$)/u }));
+    expect(window.location.search).toBe("?nav=skills");
+
+    await goBack("?nav=members&open=saeki&q=%E4%BD%90%E4%BC%AF");
+    expect((screen.getByLabelText("メンバーを検索") as HTMLInputElement).value).toBe("佐伯");
+    expect(await screen.findByRole("heading", { name: "佐伯 優斗" })).toBeInTheDocument();
+
+    // And going back past it clears both, rather than leaving the last screen's behind.
+    await goBack("");
+    expect(await screen.findByRole("heading", { name: "チーム編成" })).toBeInTheDocument();
+    await user.click(navigation().getByRole("button", { name: "メンバー" }));
+    expect((screen.getByLabelText("メンバーを検索") as HTMLInputElement).value).toBe("");
+  });
+
+  it("does not make a row worth coming back from", async () => {
+    const user = userEvent.setup();
+    renderApp();
+    await user.click(navigation().getByRole("button", { name: "メンバー" }));
+    const entries = window.history.length;
+
+    await user.click(memberRowButton("佐伯 優斗"));
+    expect(window.location.search).toBe("?nav=members&open=saeki");
+    // A list read through twenty rows would otherwise bury the screen the reader wants back.
+    expect(window.history.length).toBe(entries);
+
+    await user.click(screen.getByRole("button", { name: "詳細パネルを閉じる" }));
+    // And the address lets go of it, so a reload does not open it again.
+    expect(window.location.search).toBe("?nav=members");
+    expect(window.history.length).toBe(entries);
+  });
+
+  it("leaves a followed link's history alone when its drawer closes", async () => {
+    const user = userEvent.setup();
+    window.history.replaceState({}, "", "/?nav=members&open=saeki");
+    renderApp();
+    expect(await screen.findByRole("heading", { name: "佐伯 優斗" })).toBeInTheDocument();
+    const entries = window.history.length;
+
+    await user.click(screen.getByRole("button", { name: "詳細パネルを閉じる" }));
+    expect(window.location.search).toBe("?nav=members");
+    // The landing is one entry. Adding another here would make the first Back reopen the
+    // drawer, and the one after that leave the app.
+    expect(window.history.length).toBe(entries);
+  });
+
+  it("does not make every keystroke worth coming back from", async () => {
+    const user = userEvent.setup();
+    renderApp();
+    await user.click(navigation().getByRole("button", { name: "メンバー" }));
+    const entries = window.history.length;
+
+    await user.type(screen.getByLabelText("メンバーを検索"), "佐伯");
+    expect(window.location.search).toBe("?nav=members&q=%E4%BD%90%E4%BC%AF");
+    expect(window.history.length).toBe(entries);
   });
 });

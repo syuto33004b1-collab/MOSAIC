@@ -178,3 +178,62 @@ export function retainedMemberIds(ids: string[], availableIds: Iterable<string>)
   const available = new Set(availableIds);
   return parseMemberIds(ids.filter((id) => available.has(id)).join(","));
 }
+
+/**
+ * The address bar for a link, keeping everything the link has no opinion about.
+ *
+ * `buildShareHref` is for handing someone a URL and takes only origin, pathname and
+ * search, so it drops the fragment. This one is for writing the address bar the reader is
+ * standing in: an invitation parameter or a fragment is theirs, and only the share keys
+ * are ours to replace (#309).
+ */
+export function shareLocationFor(
+  location: Pick<Location, "pathname" | "search" | "hash">,
+  link: ShareLink | null,
+) {
+  const params = new URLSearchParams(location.search);
+  for (const key of SHARE_PARAM_KEYS) params.delete(key);
+  if (link) {
+    new URLSearchParams(serializeShareSearch(link).replace(/^\?/u, "")).forEach((value, key) => params.set(key, value));
+  }
+  const query = params.toString();
+  // Always the pathname: on the deployed site that is `/MOSAIC/`, and a bare `?…` or `""`
+  // would be resolved against the current document rather than kept.
+  return `${location.pathname}${query ? `?${query}` : ""}${location.hash}`;
+}
+
+/**
+ * Whether moving from one address to another is a place the reader can come back from.
+ *
+ * The screen is; everything else is the same screen with something else showing. Opening
+ * a row, typing in the search box, picking a candidate — each would be its own entry
+ * otherwise, and a list read through twenty rows would bury the screen the reader wants
+ * back. It also decides the first press after a shared link is followed: the landing is
+ * one entry, so closing its drawer must not add another, or Back reopens it (#309).
+ *
+ * Read off the addresses rather than the state that produced them, so a change the share
+ * link cannot express moves nothing.
+ */
+export function nextHistoryAction(previous: string, next: string): "push" | "replace" | "noop" {
+  if (previous === next) return "noop";
+  return screenOf(previous) === screenOf(next) ? "replace" : "push";
+}
+
+/**
+ * The screen an address is on.
+ *
+ * Through the same gate as `parseShareSearch`, or the two disagree about what an address
+ * means. A `?nav=typo` is the board to the reader, and to anything that reads it back; if
+ * it were a screen of its own here, following such a link would push on the first pass —
+ * the one case that has to move nothing — and Back would land between the typo and the
+ * address that replaced it. Absent is the board too, which is what `serializeShareSearch`
+ * writes for it.
+ *
+ * The fragment comes off first: `#/help?nav=members` is a fragment, not a query.
+ */
+function screenOf(href: string) {
+  const withoutHash = href.split("#")[0];
+  const query = withoutHash.includes("?") ? withoutHash.slice(withoutHash.indexOf("?") + 1) : "";
+  const nav = new URLSearchParams(query).get("nav");
+  return isShareNav(nav) ? nav : "board";
+}
