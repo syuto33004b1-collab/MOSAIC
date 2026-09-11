@@ -254,3 +254,39 @@ test("a schedule row takes its height from its content", async () => {
   assert.ok(alignments.includes("start"),
     "`.week-cell` needs `align-content: start`, or one assignment is drawn as tall as the row (#192)");
 });
+
+/**
+ * A row has to be as wide as the days it draws, not as wide as the window showing them.
+ *
+ * The row's second track is `minmax(0, 1fr)`, which resolves against the row's own box. On
+ * main that box was the scrollport's, so in a 30-day month it came out 633px against 1020px
+ * of day tracks and `.week-cell` clipped the difference: from the 19th on there were no day
+ * boundaries, no weekend shading, and the assignment bars were cut, one of them by 382px
+ * (#290).
+ *
+ * `min-content` does not do it. `.week-cell` has `overflow: hidden`, which zeroes its
+ * automatic minimum size, so the row's min-content is the label column alone — measured at
+ * 878px and still clipping. Only `max-content` reaches the tracks' floor.
+ *
+ * The header must not take the same declaration. Measured, `min-width: max-content` on
+ * `.schedule-head` lets each `minmax(34px, 1fr)` grow to its date label — 1311px against the
+ * row's 1265px — and the two halves stop dividing the same box, which is #106.
+ */
+test("a schedule row is as wide as the days it draws", async () => {
+  const css = withoutComments(await read()).replaceAll("\r\n", "\n");
+
+  const rowWidths = allRules(css, "schedule-row").flatMap(({ body }) => declarations(body, "min-width"));
+  assert.ok(rowWidths.includes("max-content"),
+    "`.schedule-row` needs `min-width: max-content`, or the week cell clips the days past the scrollport (#290)");
+
+  const headWidths = allRules(css, "schedule-head").flatMap(({ selector, body }) => declarations(body, "min-width").map((value) => `${selector.trim()} → ${value}`));
+  assert.deepEqual(headWidths, [],
+    "`.schedule-head` must not take a min-width: intrinsic sizing grows its day tracks past the row's and the two stop agreeing (#106)");
+
+  // And the day tracks stay off the row. Declaring them here as well would put `.week-cell`
+  // in one 34px column, and it is the row's second track that has to hold all of them.
+  const rowColumns = allRules(css, "schedule-row").flatMap(({ selector, body }) => declarations(body, "grid-template-columns").map((value) => ({ selector: selector.trim(), value })));
+  const dayTracksOnRow = rowColumns.filter(({ value }) => value.includes("--schedule-day-tracks"));
+  assert.deepEqual(dayTracksOnRow.map(({ selector, value }) => `${selector} → ${value}`), [],
+    "the row spans the days with one `minmax(0, 1fr)` track; naming the day tokens here splits it (#290)");
+});
