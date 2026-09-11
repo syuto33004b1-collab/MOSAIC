@@ -1,4 +1,4 @@
-import { type CSSProperties, type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type CSSProperties, type FormEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   ArrowRight,
@@ -660,6 +660,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
    * term behind (#309).
    */
   const applyShareLink = useCallback((link: ShareLink | null, state: WorkspaceState) => {
+    clearFormDraft();
     setActiveNav(link?.nav ?? "board");
     setMemberQuery(link?.nav === "members" ? link.q ?? "" : "");
     setProjectQuery(link?.nav === "projects" ? link.q ?? "" : "");
@@ -669,7 +670,6 @@ export default function Home({ mode = "demo", organizationId, organizationName =
     const restored = drawerFromShare(link, state);
     if (restored.memberId) setSelectedMemberId(restored.memberId);
     if (restored.projectId) setSelectedProjectId(restored.projectId);
-    clearFormDraft();
     setDrawer(restored.drawer);
     if (restored.toast) setToast(restored.toast);
   }, [clearFormDraft]);
@@ -687,18 +687,22 @@ export default function Home({ mode = "demo", organizationId, organizationName =
    * nothing. That comparison is also what stops the loop: coming back through history sets
    * state, this runs, and the address it would write is the one already there.
    */
-  useEffect(() => {
+  useLayoutEffect(() => {
     const next = shareLocationFor(window.location, currentShareLink);
     const previous = `${window.location.pathname}${window.location.search}${window.location.hash}`;
     const action = nextHistoryAction(previous, next);
     if (action === "noop") return;
-    if (action === "push") window.history.pushState(null, "", next);
-    else window.history.replaceState(null, "", next);
+    // Before the paint, so a Back or a reload in the moment after a screen changes finds
+    // the address it changed to. And `history.state` is carried over rather than dropped:
+    // nothing here puts anything in it, but the auth code is free to.
+    if (action === "push") window.history.pushState(window.history.state, "", next);
+    else window.history.replaceState(window.history.state, "", next);
   }, [currentShareLink]);
 
   // Read by the popstate listener, which must not be rebound every time the workspace does.
+  // Written before the paint, so a Back landing in the same frame reads the one on screen.
   const workspaceRef = useRef(workspace);
-  useEffect(() => { workspaceRef.current = workspace; }, [workspace]);
+  useLayoutEffect(() => { workspaceRef.current = workspace; }, [workspace]);
 
   useEffect(() => {
     const onPopState = () => {

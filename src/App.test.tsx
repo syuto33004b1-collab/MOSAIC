@@ -5832,15 +5832,16 @@ describe("what the notification bell promises", () => {
  * its `open=` after closing, then opened again on the next load.
  */
 describe("coming back to the screen before", () => {
-  const goBack = async () => {
-    // jsdom moves the address for `history.back()` but does not always fire the event that
-    // a browser does, so the listener is given one either way. Same helper everywhere, so
-    // no test quietly asserts against an address that moved with nothing listening.
+  const goBack = async (expected: string) => {
+    // jsdom moves the address for `history.back()` but does not always fire the event a
+    // browser does. Wait for the address to arrive first, then supply the event only if
+    // nothing came with it — dispatching regardless would deliver two on the engines that
+    // do fire, and hide a listener that never ran on the ones that do not.
     let fired = false;
     const seen = () => { fired = true; };
     window.addEventListener("popstate", seen);
     window.history.back();
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await waitFor(() => expect(window.location.search).toBe(expected));
     window.removeEventListener("popstate", seen);
     if (!fired) window.dispatchEvent(new PopStateEvent("popstate"));
     await new Promise((resolve) => setTimeout(resolve, 0));
@@ -5858,9 +5859,33 @@ describe("coming back to the screen before", () => {
     await user.click(navigation().getByRole("button", { name: /^スキルマップ( |$)/u }));
     expect(window.location.search).toBe("?nav=skills");
 
-    await goBack();
-    expect(window.location.search).toBe("?nav=members");
+    await goBack("?nav=members");
     expect(await screen.findByRole("heading", { name: "メンバーと空き状況" })).toBeInTheDocument();
+  });
+
+  /** Back restores what the address holds, not just which screen it names. */
+  it("brings back the search box and the row the address was holding", async () => {
+    const user = userEvent.setup();
+    renderApp();
+    await user.click(navigation().getByRole("button", { name: "メンバー" }));
+    await user.type(screen.getByLabelText("メンバーを検索"), "佐伯");
+    await user.click(memberRowButton("佐伯 優斗"));
+    expect(window.location.search).toBe("?nav=members&open=saeki&q=%E4%BD%90%E4%BC%AF");
+
+    // Moving screens leaves the address holding only the new one — `open` and `q` belong to
+    // members, and the drawer a screen change does not close is not a members drawer now.
+    await user.click(navigation().getByRole("button", { name: /^スキルマップ( |$)/u }));
+    expect(window.location.search).toBe("?nav=skills");
+
+    await goBack("?nav=members&open=saeki&q=%E4%BD%90%E4%BC%AF");
+    expect((screen.getByLabelText("メンバーを検索") as HTMLInputElement).value).toBe("佐伯");
+    expect(await screen.findByRole("heading", { name: "佐伯 優斗" })).toBeInTheDocument();
+
+    // And going back past it clears both, rather than leaving the last screen's behind.
+    await goBack("");
+    expect(await screen.findByRole("heading", { name: "チーム編成" })).toBeInTheDocument();
+    await user.click(navigation().getByRole("button", { name: "メンバー" }));
+    expect((screen.getByLabelText("メンバーを検索") as HTMLInputElement).value).toBe("");
   });
 
   it("does not make a row worth coming back from", async () => {

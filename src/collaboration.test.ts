@@ -137,4 +137,17 @@ describe("the address the reader is standing in", () => {
     expect(nextHistoryAction("/MOSAIC/?nav=members&open=saeki", "/MOSAIC/?nav=members&open=saeki")).toBe("noop");
     expect(nextHistoryAction("/MOSAIC/", "/MOSAIC/")).toBe("noop");
   });
+
+  it("reads a screen the way the parser does, and not out of the fragment", () => {
+    // A nav nobody recognises is the board — that is what `parseShareSearch` returns for it,
+    // so the address that replaces it is the same screen and must not be pushed. Otherwise
+    // following such a link pushes on the first pass and Back lands between the two.
+    expect(parseShareSearch("?nav=typo")).toBeNull();
+    expect(nextHistoryAction("/MOSAIC/?nav=typo", "/MOSAIC/")).toBe("replace");
+    expect(nextHistoryAction("/MOSAIC/?nav=typo", "/MOSAIC/?nav=members")).toBe("push");
+
+    // And a fragment is a fragment, whatever it has in it.
+    expect(nextHistoryAction("/MOSAIC/#/help?nav=members", "/MOSAIC/?nav=members")).toBe("push");
+    expect(nextHistoryAction("/MOSAIC/?nav=members#top", "/MOSAIC/?nav=members&open=saeki#top")).toBe("replace");
+  });
 });

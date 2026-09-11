@@ -219,8 +219,21 @@ export function nextHistoryAction(previous: string, next: string): "push" | "rep
   return screenOf(previous) === screenOf(next) ? "replace" : "push";
 }
 
-/** The screen an address is on. Absent means the board, which `serializeShareSearch` omits. */
+/**
+ * The screen an address is on.
+ *
+ * Through the same gate as `parseShareSearch`, or the two disagree about what an address
+ * means. A `?nav=typo` is the board to the reader, and to anything that reads it back; if
+ * it were a screen of its own here, following such a link would push on the first pass —
+ * the one case that has to move nothing — and Back would land between the typo and the
+ * address that replaced it. Absent is the board too, which is what `serializeShareSearch`
+ * writes for it.
+ *
+ * The fragment comes off first: `#/help?nav=members` is a fragment, not a query.
+ */
 function screenOf(href: string) {
-  const query = href.includes("?") ? href.slice(href.indexOf("?") + 1) : "";
-  return new URLSearchParams(query.split("#")[0]).get("nav") ?? "board";
+  const withoutHash = href.split("#")[0];
+  const query = withoutHash.includes("?") ? withoutHash.slice(withoutHash.indexOf("?") + 1) : "";
+  const nav = new URLSearchParams(query).get("nav");
+  return isShareNav(nav) ? nav : "board";
 }
