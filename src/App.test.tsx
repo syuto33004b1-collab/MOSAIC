@@ -2834,6 +2834,48 @@ describe("the 要調整 count takes you to the list", () => {
     expect(panel.scrollIntoView).toHaveBeenCalled();
   });
 
+  /**
+   * #292: focus was the whole of the answer, and a pointer never sees it — at 1281px and
+   * up the panel is already beside the board, so there was nothing to scroll either and
+   * the press was silent. The mark is a class, because `prefers-reduced-motion` turns
+   * animations off and jsdom's `:focus-visible` does not behave like a real mouse.
+   */
+  it("marks the panel so the press is visible where there is nothing to scroll", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^アサインボード( |$)/u }));
+    const panel = document.querySelector(".attention-panel") as HTMLElement;
+    expect(panel).not.toHaveAttribute("data-landed");
+
+    await user.click(countButton());
+    expect(panel).toHaveAttribute("data-landed");
+
+    // And it goes again, rather than staying until the next click somewhere else.
+    await waitFor(() => expect(panel).not.toHaveAttribute("data-landed"), { timeout: 3000 });
+  });
+
+  /**
+   * Not disabled at zero, which was the other half of #292's proposal. The empty panel
+   * still carries 「レポートで見通しを確認」, and that button only exists above 1280px —
+   * the same widths where the count button has nothing to scroll to.
+   */
+  it("still answers at zero, rather than going dead", async () => {
+    const user = userEvent.setup();
+    const adapter = sharedAdapter();
+    adapter.initialState = { assignments: [], members: [], needs: [], projects: [] };
+    adapter.reload = vi.fn().mockResolvedValue({ state: adapter.initialState, revision: 7 });
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
+
+    const button = countButton();
+    expect(button).not.toBeDisabled();
+    expect(button.textContent).toContain("0件");
+
+    const panel = document.querySelector(".attention-panel") as HTMLElement;
+    await user.click(button);
+    expect(panel).toHaveAttribute("data-landed");
+    expect(panel).toHaveFocus();
+  });
+
   /** And each card still opens its own item, so nothing lost a way in. */
   it("keeps each card as the way into its own item", async () => {
     const user = userEvent.setup();
