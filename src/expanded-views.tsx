@@ -1539,9 +1539,9 @@ export function ReportsView({ state, onOpenWeek, onResolveNeed, onOpenOpportunit
             independently computed heights, so the label reading 100% sat 31px below the
             line drawn at 100% and a reader pairing them read a different value (#133). */}
         <div className="horizon-plot">
-          <div className="horizon-y-labels"><span className="t120">120%</span><span className="t100">100%</span><span className="t60">60%</span><span className="t0">0</span></div>
+          <div className="horizon-y-labels"><span className="t100">100%</span><span className="t60">60%</span><span className="t0">0</span></div>
           <div className="horizon-grid">
-            <div className="horizon-guide g120" /><div className="horizon-guide g100" /><div className="horizon-guide g60" />
+            <div className="horizon-guide g100" /><div className="horizon-guide g60" />
             {horizon.map((week) => (
             <button className="horizon-week" onClick={() => onOpenWeek(week.offset)} key={week.weekStart}>
               <span className="horizon-bar"><i className={week.average > 100 ? "over" : ""} style={{ height: Math.min(100, week.average / 120 * 100) + "%" }} />{week.draft > 0 && <b style={{ bottom: Math.min(100, week.average / 120 * 100) + "%" }} />}</span>

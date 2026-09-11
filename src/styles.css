@@ -2207,14 +2207,17 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 }
 /* Each tick at its own share of the bar's track, the same fraction the line for that
    value uses: (120−v)/120. Named rather than positional, so reordering the labels
-   cannot move every tick.
-   The interior ticks are centred on their line, which is the pairing #133 was about.
-   The two at the ends turn inward instead: centred, half of 「120%」 sat above the plot
-   and `overflow-y: hidden` cut it — measured, 8.1px of a 16.2px line box. So the ceiling
-   label hangs from its line and the baseline label sits on it, which is what a chart's
-   end ticks normally do and is where they were before this change. */
+   cannot move every tick. The ticks are centred on their line, which is the pairing
+   #133 was about; only the baseline turns inward, because centred it would straddle
+   the bottom of the plot.
+   There is no tick for the scale's ceiling. 120% is where the bars top out, not a
+   number the reader acts on: 100% is the load they must not pass and 60% is the floor
+   they should clear. Hanging 「120%」
+   from the top and centring 「100%」 a sixth of the way down put a 16.2px line box 7px
+   into another, and the two are only a sixth of the track apart, so nothing short of a
+   146px column separates them (#294). The bar carries its own percentage underneath and
+   turns colour above 100%, so the height the chart tops out at reads without a label. */
 .horizon-y-labels span { position: absolute; right: 0; transform: translateY(-50%); }
-.horizon-y-labels .t120 { top: 0; transform: none; }
 .horizon-y-labels .t100 { top: calc(100% / 6); }
 .horizon-y-labels .t60 { top: 50%; }
 .horizon-y-labels .t0 { top: 100%; transform: translateY(-100%); }
@@ -2239,7 +2242,7 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
    表さなくなる（100% の線が 32px、バーの 100% は 17px という状態だった）。
    `.horizon-grid` は position: relative なので、行を指定すればその行が包含ブロック */
 .horizon-guide { position: absolute; grid-row: bar; grid-column: 1 / -1; left: 0; right: 0; height: 1px; background: #edf0f4; }
-.horizon-guide.g120 { top: 0; }.horizon-guide.g100 { top: calc(100% / 6); border-top: 1px dashed #d9dee8; background: transparent; }.horizon-guide.g60 { top: 50%; }
+.horizon-guide.g100 { top: calc(100% / 6); border-top: 1px dashed #d9dee8; background: transparent; }.horizon-guide.g60 { top: 50%; }
 /* バーに固定の高さを持たせると、文字を上げるたびに枠から溢れる。12px 化で
    必要な高さが 168 → 170px になり、`.horizon-grid` は 188px 固定で
    overflow-y: hidden なので週ラベル9件が枠外に出た。ラベル3行を先に取って
