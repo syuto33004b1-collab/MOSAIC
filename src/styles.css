@@ -1174,8 +1174,13 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
    the width at which the card reaches 190px, which is the measured 178 plus room for a
    label a little longer than the longest one we render.
    Both nth-child rules have to point at column 2. Leaving the column 3 rule in place
-   with only two columns creates an implicit third one, which is how a card landed in
-   the title's column in the first place (#260). */
+   while only two are declared creates an implicit third column, so the layout would
+   not be the two columns it claims to be. That is not what #260 was — there a card
+   reached the title's column through auto-placement — but it is the same habit of
+   letting the grid invent a track nobody asked for.
+   `nth-child` counts every element sibling, not just the cards, and the panel ends
+   with a `.all-alerts` button that is `display: none` here. It sits after the cards,
+   so it does not shift their parity; inserting anything between them would. */
 @media (max-width: 720px) {
   .attention-panel { grid-template-columns: 145px 1fr; }
   .attention-panel > .alert-card:nth-child(even),
