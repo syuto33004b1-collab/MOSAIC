@@ -2285,7 +2285,7 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .department-list { display: grid; grid-template-columns: minmax(100px, max-content) minmax(48px, 1fr) 32px; align-items: center; gap: 11px 8px; }
 .department-list > div { display: contents; }
 /* The empty state is a sibling of the rows, so it would land in the name column. */
-.department-list > p { grid-column: 1 / -1; }
+.department-list > .view-empty { grid-column: 1 / -1; }
 .department-list strong, .department-list small { display: block; }
 .department-list strong { font-size: 8px; }.department-list small { margin-top: 2px; color: #9aa2b0; font-size: 6px; }
 .department-list i { height: 6px; border-radius: 99px; background: #edf0f4; overflow: hidden; }
