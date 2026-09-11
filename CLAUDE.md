@@ -13,7 +13,7 @@
 - 差分が描画に影響するなら、**画面を実際に見る。** テストが通っていることは省略の理由にならない
 - squash merge のみ
 
-スキルは `.claude/skills/` にある。評価は `evaluating-before-pr`、UI 確認は `verifying-ui-changes`。相談は `ask-codex`。
+スキルは `.claude/skills/` にある。評価は `evaluating-before-pr`、UI 確認は `verifying-ui-changes`。相談は `ask-grok`（これだけ利用者階層にあり、リポジトリには無い）。
 
 ## このリポジトリについて
 
