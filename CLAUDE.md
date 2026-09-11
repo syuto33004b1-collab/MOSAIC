@@ -21,4 +21,4 @@
 
 - 業務データは非公開の `app` schema に置き、ブラウザは `public` の限定 RPC だけを使う
 - 認可の正典は DB。Web UI・AI秘書・外部API・MCP は同じ RPC を通るので、経路ごとに実装しない
-- 詳細は [docs/](docs/) 配下。認可と secret の境界は [docs/SECURITY.md](docs/SECURITY.md)
+- 詳細は [docs/](docs/) 配下。認可・secret・アカウントの境界は [docs/SECURITY.md](docs/SECURITY.md)

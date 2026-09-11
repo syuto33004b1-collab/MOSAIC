@@ -36,6 +36,42 @@ MOSAICのsourceと静的フロントエンドはpublicです。source、schema�
 - 社外MCPの参照可否はrole別権限の`externalMcp`で制御する。拒否は`begin_mcp_call`が接続先の解決前かつ監査行の作成前に行い、`list_mcp_tools`が空を返すのでモデルへtoolを見せない。ownerは常に無制限。
 - 外部連携資格は発行した利用者としてだけ動く。発行者がactiveなowner/admin/plannerを外れた資格は、別の管理者へ昇格させず`42501`で停止する。停止理由は保有者へ返さず、owner/adminだけが`list_integration_clients`の`actorEligible`で判別する。失効と再発行はowner/adminの判断とし、自動失効はしない。
 
+## アカウント境界
+
+MOSAICが書き込む外部サービスは次のとおりです。**これ以外の接続先へ書き込みません。**
+
+| サービス | 書き込み先として正とするもの | 照合 |
+| --- | --- | --- |
+| GitHub | `syuto33004b1-collab/MOSAIC` | `gh repo view --json nameWithOwner` |
+| Supabase | project ref `ivsauhjnoiurpsriskqe` | 書き込みコマンドへ`--project-ref`を明示する |
+| Cloudflare | 未使用 | 導入時に決める |
+
+いずれも業務用として承認済みです。**アカウント名が個人名に見えることは、個人アカウントであることを意味しません。**
+
+### 照合するのは接続先であって、ログイン中の利用者ではない
+
+`supabase projects list`が返すのは、そのtokenから見えるproject一覧です。次のコマンドの書き込み先ではありません。実際、同じログインからVercel連携由来の別organizationのprojectも見えています。**正は`ivsauhjnoiurpsriskqe`だけです。見えることは触ってよいことではありません。**
+
+`gh api user`が返すのはtokenの所有者です。owner以外の実行者、Actionsの`GITHUB_TOKEN`、将来のbotでは、正しいリポジトリを操作していても一致しません。
+
+- **書き込む前に、上の表の識別子と一致することを照合する。** 読み取りだけなら照合は要らない
+- Supabaseの書き込みは`--project-ref`を明示する。linkされたprojectや、引数なしの`db push`を正にしない
+- 一致しないなら止めて利用者に確認する。**自分でログインし直さない。** `gh auth login`、`supabase login`、`wrangler login`を自動実行しない
+
+### ここに書く識別子
+
+**GitHubのownerとSupabaseのproject refだけを書きます。** どちらも既に公開値です。ownerはリポジトリURLに、project refはブラウザへ配る`VITE_SUPABASE_URL`とCIのSupabase Previewチェックのリンクに現れます。
+
+organizationの識別子、Cloudflareのaccount ID、publishable keyは書きません。**公開値でないものをここへ足すと、この文書が公開範囲を広げる側になります。**
+
+他の文書とFunction READMEの`PROJECT_REF`はプレースホルダのまま維持します。**解決先はこの節です。**
+
+GeminiのAPIキーはSupabase Edge Function Secretsにあり、操作経路は`supabase secrets`です。**Supabaseの行に含まれます。** Google側のアカウント識別子は公開値でないので書きません。
+
+### Secret管理との違い
+
+[Secret管理](#secret管理)が決めているのは**値の置き場所**です。この節が決めているのは**その値がどのアカウントの配下にあるか**です。正しいsecretを別のprojectへ向けても、secret管理の規則には違反しません。
+
 ## Secret管理
 
 - ブラウザへ渡せるのはSupabase URL、publishable key、公開monitoring IDだけです。
