@@ -727,7 +727,7 @@ export function ProjectsView({
                   <td>{onToggleFavorite ? <FavoriteStar name={project.name} pressed={isFavorited(favorites, "project", project.id)} onToggle={() => onToggleFavorite(project.id)} /> : null}</td>
                   <td>
                     <button className="project-name-cell" onClick={() => onOpen(project.id)}>
-                      <span className={"project-code " + project.tone}>{project.code}</span>
+                      <span className={"project-code " + project.tone}><span>{project.code}</span></span>
                       <span className="row-name-copy"><strong>{project.name}</strong><small>{project.summary}</small></span>
                     </button>
                   </td>
@@ -821,7 +821,7 @@ export function OpportunitiesView({ state, onOpen }: OpportunitiesViewProps) {
               <header><span>{OPPORTUNITY_STAGE_LABELS[column]}</span><strong>{items.length}</strong></header>
               {items.map((opportunity) => (
                 <button className="pipeline-card" onClick={() => onOpen(opportunity.id)} key={opportunity.id}>
-                  <span className={"project-code " + opportunity.tone}>{opportunity.code}</span>
+                  <span className={"project-code " + opportunity.tone}><span>{opportunity.code}</span></span>
                   <strong>{opportunity.name}</strong>
                   <small>{opportunity.summary}</small>
                   <em>{opportunity.demand}名 · {opportunityNeedsFor(state, opportunity.id).length}ロール · {ownerLabel(state, opportunity) ?? "責任者未設定"}</em>
@@ -844,7 +844,7 @@ export function OpportunitiesView({ state, onOpen }: OpportunitiesViewProps) {
                 <tr key={opportunity.id}>
                   <td>
                     <button className="project-name-cell" onClick={() => onOpen(opportunity.id)}>
-                      <span className={"project-code " + opportunity.tone}>{opportunity.code}</span>
+                      <span className={"project-code " + opportunity.tone}><span>{opportunity.code}</span></span>
                       <span className="row-name-copy"><strong>{opportunity.name}</strong><small>{opportunity.summary}</small></span>
                     </button>
                   </td>

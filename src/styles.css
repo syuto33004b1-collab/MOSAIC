@@ -1867,16 +1867,35 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   gap: 10px;
   text-align: left;
 }
+/*
+ * A swatch in a list, the whole code in a drawer. `createProjectCode` writes up to 20
+ * characters and the bulk rule below puts them at `--text-min`, which is 151px of
+ * monospace in a 35px square — it used to wrap to two lines and run over the project's
+ * name (#289).
+ *
+ * `minmax(0, 1fr)` is what holds the track to the square: an implicit `auto` track grows
+ * to the content's min-content width, so the row would otherwise keep the overflow and
+ * only the square's own clip would hide it — silently, which is the part that misleads.
+ * The inner span ends in an ellipsis instead, so a shortened code cannot be read as a
+ * whole one, and a code that fits is still centred.
+ */
 .project-code {
   width: 35px;
   height: 35px;
   flex: 0 0 35px;
   border-radius: 10px;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   place-items: center;
   font-family: var(--font-data);
   font-size: 8px;
   font-weight: 800;
+}
+.project-code > span {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .project-code.blue { background: #e6e9ff; color: #5262cb; }
 .project-code.mint { background: #dff3ec; color: #377966; }
@@ -2285,7 +2304,10 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .report-insight p { margin: 4px 0 0; color: #7883b6; font-size: 8px; }
 .report-insight button { border: 0; background: transparent; color: #5362b8; cursor: pointer; display: inline-flex; align-items: center; gap: 5px; font-size: 8px; font-weight: 700; }
 
-.drawer-code { width: 43px; height: 43px; flex: 0 0 43px; border-radius: 13px; }
+/* The one place the whole code is readable: a heading has room the row has not, so the
+   square grows into a pill and nothing is shortened (#289). `width` and `flex` both have
+   to go — the square's own rule sets them and this one wins only where it says so. */
+.drawer-code { width: auto; min-width: 43px; height: 43px; flex: 0 0 auto; padding: 0 12px; border-radius: 13px; }
 .detail-facts {
   margin-bottom: 22px;
   padding: 13px;
