@@ -3247,7 +3247,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
 
             {drawer === "project" && selectedProject && (
               <div className="drawer-content">
-                <div className="drawer-heading"><span className={"project-code drawer-code " + selectedProject.tone}>{selectedProject.code}</span><div><h2>{selectedProject.name}</h2><p>{selectedProject.summary}</p></div></div>
+                <div className="drawer-heading"><span className={"project-code drawer-code " + selectedProject.tone}><span>{selectedProject.code}</span></span><div><h2>{selectedProject.name}</h2><p>{selectedProject.summary}</p></div></div>
                 <div className="detail-facts"><div><span>状態</span><strong>{selectedProject.status}</strong></div><div><span>進捗</span><strong>{selectedProject.progress}%</strong></div><div><span>責任者</span><strong>{ownerLabel(workspace, selectedProject) ?? "未設定"}</strong></div><div><span>完了予定</span><strong>{formatDate(selectedProject.endDate).replace(/^\d{4}年/, "")}</strong></div></div>
                 <CustomFieldFacts fields={visibleCustomFields(workspace.customFields, "project", "detail")} values={selectedProject.customValues} />
                 {(workspace.opportunities ?? []).some((opportunity) => opportunity.convertedProjectId === selectedProject.id) && (
@@ -3349,7 +3349,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
 
             {drawer === "opportunity" && selectedOpportunity && (
               <div className="drawer-content">
-                <div className="drawer-heading"><span className={"project-code drawer-code " + selectedOpportunity.tone}>{selectedOpportunity.code}</span><div><h2>{selectedOpportunity.name}</h2><p>{selectedOpportunity.summary}</p></div></div>
+                <div className="drawer-heading"><span className={"project-code drawer-code " + selectedOpportunity.tone}><span>{selectedOpportunity.code}</span></span><div><h2>{selectedOpportunity.name}</h2><p>{selectedOpportunity.summary}</p></div></div>
                 <div className="detail-facts">
                   <div><span>段階</span><strong>{OPPORTUNITY_STAGE_LABELS[selectedOpportunity.stage]}</strong></div>
                   <div><span>想定人数</span><strong>{selectedOpportunity.demand}名</strong></div>
