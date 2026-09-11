@@ -131,7 +131,18 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .day-label strong { color: #566073; font-family: var(--font-data); font-size: var(--text-min); }
 .day-label.today::after { content: ""; position: absolute; bottom: -1px; left: 26%; right: 26%; height: 2px; border-radius: 2px; background: var(--cobalt); }
 .day-label.today strong { color: var(--cobalt); }
-.schedule-row { min-height: 78px; display: grid; grid-template-columns: var(--schedule-label-col) minmax(0, 1fr); border-bottom: 1px solid var(--line); }
+/* The same columns as the header, because the row has to be as wide as the days are,
+   not as wide as the scrollport. `minmax(0, 1fr)` resolved against the port: at 1189px
+   in a 30-day month the header laid out 1265px of tracks while the row's second track
+   came to 600px, and `.week-cell` clipped the 420px of day tracks past it — so the
+   separators and the weekend tint stopped partway across every row while the dates
+   above them carried on (#290). `auto` does not help; `overflow: hidden` on the cell
+   takes its automatic minimum to zero. `max-content` fixes the month and breaks the
+   week, where `1fr` collapses to its 72px floor and six days fall out of step with
+   their labels — measured.
+   Column 1 is `.person-cell` and the rest is `.week-cell`. Anything added between them
+   lands on top of the days; place it explicitly. */
+.schedule-row { min-height: 78px; display: grid; grid-template-columns: var(--schedule-label-col) var(--schedule-day-tracks); border-bottom: 1px solid var(--line); }
 .schedule-row:last-child { border-bottom: 0; }
 /* 10px, not 14px: the row's height is its content now, so the padding is the whole of what
    is spare. 8px was measured too — 4px a row, against a legible gutter (#192). */
@@ -181,7 +192,7 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
    goes from 8+5=13px to 5px, while the gap between two days stays 5+5=10px.
    Every bar is now inset 5px from its own day boundary; before, the first and
    last were 13px in from the cell edge and so did not line up at all. */
-.week-cell { position: relative; padding: 10px 0; display: grid; grid-template-columns: var(--schedule-day-tracks); grid-auto-rows: 23px; gap: 4px 0; overflow: hidden; }
+.week-cell { grid-column: 2 / -1; position: relative; padding: 10px 0; display: grid; grid-template-columns: var(--schedule-day-tracks); grid-auto-rows: 23px; gap: 4px 0; overflow: hidden; }
 /* The same day tracks as the header and the cell. This was `repeat(5, 1fr)`
    over the cell's padding box, which agreed with the header by coincidence —
    that is why the boundary lines looked right while the bars did not. */
