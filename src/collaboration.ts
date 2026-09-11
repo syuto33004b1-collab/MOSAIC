@@ -178,3 +178,49 @@ export function retainedMemberIds(ids: string[], availableIds: Iterable<string>)
   const available = new Set(availableIds);
   return parseMemberIds(ids.filter((id) => available.has(id)).join(","));
 }
+
+/**
+ * The address bar for a link, keeping everything the link has no opinion about.
+ *
+ * `buildShareHref` is for handing someone a URL and takes only origin, pathname and
+ * search, so it drops the fragment. This one is for writing the address bar the reader is
+ * standing in: an invitation parameter or a fragment is theirs, and only the share keys
+ * are ours to replace (#309).
+ */
+export function shareLocationFor(
+  location: Pick<Location, "pathname" | "search" | "hash">,
+  link: ShareLink | null,
+) {
+  const params = new URLSearchParams(location.search);
+  for (const key of SHARE_PARAM_KEYS) params.delete(key);
+  if (link) {
+    new URLSearchParams(serializeShareSearch(link).replace(/^\?/u, "")).forEach((value, key) => params.set(key, value));
+  }
+  const query = params.toString();
+  // Always the pathname: on the deployed site that is `/MOSAIC/`, and a bare `?…` or `""`
+  // would be resolved against the current document rather than kept.
+  return `${location.pathname}${query ? `?${query}` : ""}${location.hash}`;
+}
+
+/**
+ * Whether moving from one address to another is a place the reader can come back from.
+ *
+ * The screen is; everything else is the same screen with something else showing. Opening
+ * a row, typing in the search box, picking a candidate — each would be its own entry
+ * otherwise, and a list read through twenty rows would bury the screen the reader wants
+ * back. It also decides the first press after a shared link is followed: the landing is
+ * one entry, so closing its drawer must not add another, or Back reopens it (#309).
+ *
+ * Read off the addresses rather than the state that produced them, so a change the share
+ * link cannot express moves nothing.
+ */
+export function nextHistoryAction(previous: string, next: string): "push" | "replace" | "noop" {
+  if (previous === next) return "noop";
+  return screenOf(previous) === screenOf(next) ? "replace" : "push";
+}
+
+/** The screen an address is on. Absent means the board, which `serializeShareSearch` omits. */
+function screenOf(href: string) {
+  const query = href.includes("?") ? href.slice(href.indexOf("?") + 1) : "";
+  return new URLSearchParams(query.split("#")[0]).get("nav") ?? "board";
+}
