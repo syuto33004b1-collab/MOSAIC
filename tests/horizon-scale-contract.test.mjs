@@ -89,8 +89,9 @@ const CEILING = 120;
 /**
  * The ceiling has no tick. 120% is where the bars top out, not a number the reader acts
  * on, and hanging 「120%」 from the top while 「100%」 centres a sixth of the way down put
- * one 16.2px line box 7px into the other. A sixth of the track is 17.2px, so the two
- * only clear each other in a column 146px tall — half again what the chart has (#294).
+ * one 16.2px line box 7px into the other. A sixth of the track is 17.2px in the 103px
+ * column measured at 1189px, and 12px in the 72px one at 805px, so the two only clear
+ * each other in a column 146px tall — half again the tallest the chart gets (#294).
  */
 const TICKS = [100, 60, 0];
 const expected = (value) => (CEILING - value) / CEILING;

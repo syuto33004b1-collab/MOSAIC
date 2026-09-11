@@ -2210,8 +2210,9 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
    cannot move every tick. The ticks are centred on their line, which is the pairing
    #133 was about; only the baseline turns inward, because centred it would straddle
    the bottom of the plot.
-   There is no tick for the ceiling. 120% is where the bars top out, not a number the
-   reader acts on: 100% is the ceiling they act on and 60% is the floor. Hanging 「120%」
+   There is no tick for the scale's ceiling. 120% is where the bars top out, not a
+   number the reader acts on: 100% is the load they must not pass and 60% is the floor
+   they should clear. Hanging 「120%」
    from the top and centring 「100%」 a sixth of the way down put a 16.2px line box 7px
    into another, and the two are only a sixth of the track apart, so nothing short of a
    146px column separates them (#294). The bar carries its own percentage underneath and
