@@ -5681,3 +5681,35 @@ describe("inline errors that a submit set", () => {
     expect(screen.getByText("部門を自分の配下へは移せません")).toBeInTheDocument();
   });
 });
+
+/**
+ * #291: the dot was a string literal, so it was on whether or not the popover had
+ * anything, and the popover had no empty state to show when it did not. Both sides are
+ * read off one count now, so the pair is pinned together rather than one at a time.
+ */
+describe("what the notification bell promises", () => {
+  const bell = () => screen.getByRole("button", { name: "通知" });
+
+  it("carries no dot and says so when nothing is waiting", async () => {
+    const user = userEvent.setup();
+    const adapter = sharedAdapter();
+    adapter.initialState = { assignments: [], members: [], needs: [], projects: [] };
+    render(<App mode="shared" organizationName="New Org" identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
+
+    expect(bell()).not.toHaveClass("has-dot");
+    await user.click(bell());
+    expect(screen.getByText("通知はありません")).toBeInTheDocument();
+  });
+
+  it("carries the dot and no empty state when something is", async () => {
+    const user = userEvent.setup();
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={sharedAdapter()} />);
+
+    expect(bell()).toHaveClass("has-dot");
+    await user.click(bell());
+    expect(screen.queryByText("通知はありません")).toBeNull();
+    // Not a fixed count: the demo's unfilled roles are dated, so how many are still open
+    // moves with the day. What the dot claims is that there is at least one.
+    expect(document.querySelectorAll(".notification-popover > button").length).toBeGreaterThan(0);
+  });
+});
