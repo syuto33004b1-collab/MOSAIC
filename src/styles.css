@@ -1364,15 +1364,15 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 }
 .ribbon-lead strong { font-size: 11px; }
 /* `min-width` is a floor for short labels, not a ceiling. When the row did not fit,
-   flex shrank every stat to that floor, and Japanese breaks between any two
+   flex shrank every stat to that floor, and Japanese can generally break between
    characters, so `登録メンバー` (73px) and `稼働率60%以下` (83px) each left one
    character alone on a second line (#293). Sizing the item to its content and
    refusing to shrink it keeps the label out of the wrap, and the label itself cannot
    wrap either. The pressure moves to the legend, which already gives way and is
    hidden below 1120px. Measured at 1121px, the tightest width that still shows the
    legend: every label one line, the legend down to 97px without being cut, nothing
-   clipped. The floor still applies to labels shorter than it, so the three boxes stay
-   even. */
+   clipped. The floor still applies to labels shorter than it, so a short stat keeps
+   its width and the spacing holds; the boxes are not all one width (73, 83, 72). */
 .ribbon-stat { min-width: 72px; width: max-content; flex-shrink: 0; text-align: center; }
 .ribbon-stat strong { display: block; font-family: var(--font-data); font-size: 23px; line-height: 1; }
 .ribbon-stat span { margin-top: 6px; display: block; color: #8b94a5; font-size: 8px; white-space: nowrap; }
