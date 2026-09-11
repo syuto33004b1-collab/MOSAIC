@@ -431,10 +431,7 @@ function assignmentCell(state: WorkspaceState, assignment: Assignment, key: stri
 }
 
 function memberActionFromRow(state: WorkspaceState, row: Record<string, string>, rowNumber: number, newId: () => string): MemberImportAction {
-  const idValue = cell(row, "id");
-  const existing = idValue ? state.members.find((member) => member.id === idValue) : undefined;
-  if (idValue && !existing) throw new Error("指定したIDのメンバーが見つかりません");
-  if (idValue && !TARGET_ID_PATTERN.test(idValue)) throw new Error("IDの形式を確認してください");
+  const existing = existingById(cell(row, "id"), state.members, "メンバー");
 
   const name = existing ? valueOr(row, "name", existing.name) : required(row, "name", "氏名");
   const role = existing ? valueOr(row, "role", existing.role) : required(row, "role", "職種");
@@ -535,10 +532,7 @@ function isoDate(value: string, label: string) {
 }
 
 function projectActionFromRow(state: WorkspaceState, row: Record<string, string>, rowNumber: number, newId: () => string): ProjectImportAction {
-  const idValue = cell(row, "id");
-  const existing = idValue ? state.projects.find((project) => project.id === idValue) : undefined;
-  if (idValue && !existing) throw new Error("指定したIDのプロジェクトが見つかりません");
-  if (idValue && !TARGET_ID_PATTERN.test(idValue)) throw new Error("IDの形式を確認してください");
+  const existing = existingById(cell(row, "id"), state.projects, "プロジェクト");
 
   const name = existing ? valueOr(row, "name", existing.name) : required(row, "name", "案件名");
 
@@ -626,10 +620,7 @@ function projectActionFromRow(state: WorkspaceState, row: Record<string, string>
 const ASSIGNMENT_STATUSES: AssignmentStatus[] = ["draft", "confirmed"];
 
 function assignmentActionFromRow(state: WorkspaceState, row: Record<string, string>, rowNumber: number, newId: () => string): AssignmentImportAction {
-  const idValue = cell(row, "id");
-  const existing = idValue ? state.assignments.find((assignment) => assignment.id === idValue) : undefined;
-  if (idValue && !existing) throw new Error("指定したIDのアサインが見つかりません");
-  if (idValue && !TARGET_ID_PATTERN.test(idValue)) throw new Error("IDの形式を確認してください");
+  const existing = existingById(cell(row, "id"), state.assignments, "アサイン");
 
   // Resolved only when the file says something new, the same rule #284 arrived at for a
   // project's owner: re-resolving a name that has not changed would refuse the row the
@@ -724,6 +715,22 @@ function customValuesFromRow(
     next[field.id] = cell(row, key) || cell(row, field.key);
   });
   return normalizeCustomValues(catalog, entityType, next);
+}
+
+/**
+ * The row a given `id` names, or `undefined` when the column is empty and the row creates.
+ *
+ * The format comes first. A saved id is a uuid or a demo slug, so it always matches
+ * `TARGET_ID_PATTERN`; checking existence first meant a malformed id missed the `find` and
+ * was reported as 「見つかりません」, which reads as “that row is gone” rather than “you wrote
+ * the id wrong” — and left the format message unreachable on all three paths (#302).
+ */
+function existingById<T extends { id: string }>(idValue: string, items: readonly T[], noun: string) {
+  if (!idValue) return undefined;
+  if (!TARGET_ID_PATTERN.test(idValue)) throw new Error("IDの形式を確認してください");
+  const found = items.find((item) => item.id === idValue);
+  if (!found) throw new Error(`指定したIDの${noun}が見つかりません`);
+  return found;
 }
 
 function required(row: Record<string, string>, key: string, label: string) {

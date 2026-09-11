@@ -498,3 +498,42 @@ describe("assignment csv, after review", () => {
     expect(presets.map((preset) => preset.source)).toEqual(["assignments"]);
   });
 });
+
+/**
+ * #302: all three imports read the `id` column the same way, so the order of its two
+ * checks is pinned once, in both directions. Existence first made the format message
+ * unreachable — a saved id always matches the pattern, so a malformed one missed the
+ * `find` and came back as 「見つかりません」, which reads as a row that is gone.
+ */
+describe("the id column a file writes back", () => {
+  const atlas = initialWorkspace.projects.find((project) => project.id === "atlas")!;
+  const paths: { noun: string; preview: (id: string) => { issues: { message: string }[] } }[] = [
+    {
+      noun: "メンバー",
+      preview: (id) => previewMemberImport(initialWorkspace, parseCsv(`id,name,role,department,location,capacity\n${id},山田 花子,Frontend Engineer,開発,東京,100\n`), () => "x"),
+    },
+    {
+      noun: "プロジェクト",
+      preview: (id) => previewProjectImport(initialWorkspace, parseCsv(`id,name,ownerName,startDate,endDate\n${id},案件,林 葵,2026-10-01,2026-12-31\n`), () => "x"),
+    },
+    {
+      noun: "アサイン",
+      preview: (id) => previewAssignmentImport(initialWorkspace, parseCsv(`id,memberName,projectName,startDate,endDate,allocation\n${id},佐伯 優斗,${atlas.name},2026-08-21,2026-08-23,40\n`), () => "x"),
+    },
+  ];
+
+  it("says the id is malformed, rather than missing, on every path", () => {
+    // Both limbs of `/^[\w:-]{1,80}$/`: a character it does not allow, and one too many.
+    for (const malformed of ["abc def", "a".repeat(81)]) {
+      for (const { noun, preview } of paths) {
+        expect(preview(malformed).issues[0].message, `${noun} / ${malformed.slice(0, 12)}`).toBe("IDの形式を確認してください");
+      }
+    }
+  });
+
+  it("still says the row is absent when the id is well formed and nothing has it", () => {
+    for (const { noun, preview } of paths) {
+      expect(preview("nope").issues[0].message, noun).toBe(`指定したIDの${noun}が見つかりません`);
+    }
+  });
+});
