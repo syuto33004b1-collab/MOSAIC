@@ -1,5 +1,6 @@
 import { Fragment, useMemo, useRef, useState } from "react";
 import {
+  AlertTriangle,
   ArrowRight,
   BriefcaseBusiness,
   Building2,
@@ -2540,6 +2541,8 @@ export function CsvTransferPanel({ state, organizationId, canImport = false, can
   const [presets, setPresets] = useState<CsvExportPreset[]>(() => readCsvPresets(storageKey));
   const [presetName, setPresetName] = useState("");
   const [issues, setIssues] = useState<CsvIssue[]>([]);
+  // Kept apart from `issues`: a warned row is still placed, so it must not read as refused.
+  const [warnings, setWarnings] = useState<string[]>([]);
   const [pending, setPending] = useState<PendingImport | null>(null);
   const [importMessage, setImportMessage] = useState("");
 
@@ -2556,6 +2559,7 @@ export function CsvTransferPanel({ state, organizationId, canImport = false, can
     readGeneration.current += 1;
     setPending(null);
     setIssues([]);
+    setWarnings([]);
     setImportMessage("");
   };
 
@@ -2612,6 +2616,7 @@ export function CsvTransferPanel({ state, organizationId, canImport = false, can
     const stale = () => generation !== readGeneration.current;
     setImportMessage("");
     setIssues([]);
+    setWarnings([]);
     setPending(null);
     try {
       const text = await file.text();
@@ -2631,8 +2636,9 @@ export function CsvTransferPanel({ state, organizationId, canImport = false, can
         setPending(actions.length ? { source: "projects", actions } : null);
         setImportMessage(actions.length ? `${actions.length}行を仮置きできます` : "適用できる行がありません");
       } else {
-        const { issues: found, actions } = previewAssignmentImport(state, parsed, newId);
+        const { issues: found, actions, warnings: overloads } = previewAssignmentImport(state, parsed, newId);
         setIssues(found);
+        setWarnings(overloads);
         setPending(actions.length ? { source: "assignments", actions } : null);
         setImportMessage(actions.length ? `${actions.length}行を仮置きできます` : "適用できる行がありません");
       }
@@ -2693,12 +2699,25 @@ export function CsvTransferPanel({ state, organizationId, canImport = false, can
               {issues.map((issue) => <li key={`${issue.row}-${issue.message}`}>{issue.row}行目: {issue.message}</li>)}
             </ul>
           )}
+          {/* The form's own overload note (#254), reused whole. Measured against a plain
+              list beside the refusals above, the two colours were 180 35 24 and 185 71 44
+              and could not be told apart; the tinted box and the icon are what say these
+              rows are going in and those ones are not (#303). */}
+          {warnings.length > 0 && (
+            <div className="form-note warn csv-warnings" role="status">
+              <AlertTriangle size={15} />
+              <ul>{warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul>
+            </div>
+          )}
           {pending && (
             <button className="view-add-button" type="button" onClick={() => {
               if (pending.source === "members") onImportMembers(pending.actions);
               else if (pending.source === "projects") onImportProjects(pending.actions);
               else onImportAssignments(pending.actions);
               setPending(null);
+              // 「仮置きはできます」 stops being true the moment it has been; the board's
+              // 上限超過 card is what carries the overload from here.
+              setWarnings([]);
               setImportMessage("仮置きしました。チームへ保存すると確定します。");
             }}>
               {pending.actions.length}行を仮置きする
