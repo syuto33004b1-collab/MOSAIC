@@ -1,5 +1,6 @@
 import { Fragment, useMemo, useRef, useState } from "react";
 import {
+  AlertTriangle,
   ArrowRight,
   BriefcaseBusiness,
   Building2,
@@ -2698,12 +2699,15 @@ export function CsvTransferPanel({ state, organizationId, canImport = false, can
               {issues.map((issue) => <li key={`${issue.row}-${issue.message}`}>{issue.row}行目: {issue.message}</li>)}
             </ul>
           )}
-          {/* Below the refusals and in the alert colour rather than the danger one: these
-              rows are going in, and the file should say so before the 上限超過 card does. */}
+          {/* The form's own overload note (#254), reused whole. Measured against a plain
+              list beside the refusals above, the two colours were 180 35 24 and 185 71 44
+              and could not be told apart; the tinted box and the icon are what say these
+              rows are going in and those ones are not (#303). */}
           {warnings.length > 0 && (
-            <ul className="csv-warnings">
-              {warnings.map((warning) => <li key={warning}>{warning}</li>)}
-            </ul>
+            <div className="form-note warn csv-warnings" role="status">
+              <AlertTriangle size={15} />
+              <ul>{warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul>
+            </div>
           )}
           {pending && (
             <button className="view-add-button" type="button" onClick={() => {

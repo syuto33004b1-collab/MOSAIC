@@ -1996,11 +1996,11 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .csv-preset { display: inline-flex; align-items: center; border: 1px solid #dce2eb; border-radius: 999px; overflow: hidden; }
 .csv-preset button { height: 32px; padding: 0 10px; border: 0; background: #f7f8ff; color: #5663b2; cursor: pointer; font-size: var(--text-min); font-weight: 700; }
 .csv-preset button + button { border-left: 1px solid #dce2eb; background: #fff; color: #687285; }
-.csv-issues, .csv-warnings { margin: 0; padding-left: 18px; font-size: var(--text-min); }
-.csv-issues { color: #b42318; }
-/* The alert colour `.form-note.warn` gives the form's own overload word (#254), not the
-   danger one: these rows are placed, the refused ones above are not (#303). */
-.csv-warnings { color: var(--coral-deep); }
+.csv-issues { margin: 0; padding-left: 18px; color: #b42318; font-size: var(--text-min); }
+/* `.form-note.warn` carries the colour and the box; this only gives it the whole row of
+   the wrapping flex parent, so it sits under the refusals instead of beside them (#303). */
+.csv-warnings { flex: 1 0 100%; margin: 4px 0 0; }
+.csv-warnings ul { margin: 0; padding-left: 18px; }
 .csv-import { padding-top: 8px; border-top: 1px solid #eef1f6; }
 /* No cursor here: the base rule already sets pointer, and repeating it at this
    specificity out-ranked .view-add-button:disabled, so a disabled ghost showed
