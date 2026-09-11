@@ -11,6 +11,6 @@ Thumbs.db
 
 # Claude Code のローカル設定（スキルと launch 設定は追跡する）
 .claude/settings.local.json
-# エージェントが作るワークツリー。`EnterWorktree` がここに置く。追跡されないままだと
-# 「評価の前に git status --short が空であること」（AGENTS.md 手順7）が成立しなくなる。
+# エージェントが作るワークツリー。`EnterWorktree` がここに置く。無視しないと未追跡として
+# 出て、「評価の前に git status --short が空であること」（AGENTS.md 手順7）が成立しない。
 /.claude/worktrees/
