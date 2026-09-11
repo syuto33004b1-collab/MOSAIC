@@ -1,11 +1,11 @@
 ---
 name: evaluating-before-pr
-description: Use before creating a pull request in this repository — every time, whether through `gh pr create`, the GitHub web UI, or the API — after implementation and mechanical verification are finished. Also use when the user asks to evaluate, review, or double-check a change before it is merged, or when spec drift, missing tests, or a risky change is suspected. Do not use for design brainstorming (use ask-codex), for a second evaluation of the same diff after applying the first one, or for work that will not become a pull request.
+description: Use before creating a pull request in this repository — every time, whether through `gh pr create`, the GitHub web UI, or the API — after implementation and mechanical verification are finished. Also use when the user asks to evaluate, review, or double-check a change before it is merged, or when spec drift, missing tests, or a risky change is suspected. The evaluator is always a different model from whoever wrote the diff, so read the evaluator section before starting. Do not use for design brainstorming (that is the consulting skill), for a second evaluation of the same diff after applying the first one, or for work that will not become a pull request.
 ---
 
 # PR前の独立評価（必須ゲート）
 
-完了主張を、codex（別モデル）に独立検証させる。実装は Claude のまま。**評価者は助言専用**で、ファイル変更もコマンド実行もさせない。
+完了主張を、**その差分を書いた者とは別のモデル**に独立検証させる。**評価者は助言専用**で、ファイル変更もコマンド実行もさせない。誰が評価者になるかは差分を書いた**モデル**で決まる。[評価者](#評価者)を先に読む。
 
 このゲートが無い状態で PR を出していた期間に、実際に品質問題が出ている。#53 では `create_mcp_server` の引数個数を `comment on` / `revoke` / `grant` の3箇所で間違え、migration が適用時に失敗して CI を1往復無駄にした。
 
@@ -67,16 +67,43 @@ npm exec supabase -- test db supabase/tests --local
 
 ## 評価者
 
-codex の `gpt-5.6-sol`。`.cursor/skills/evaluating-with-senior` が定める既定モデルと同じなので、規約の上書きにはならない。
+**評価者は、その差分を実装した者と別のモデルにする。** ここが規則で、以下は今いるモデルへの当てはめにすぎない。
+
+**分岐の鍵はモデルである。** 「この呼び出しが書いたか」は自己レビューかどうかの判定には使えるが、**評価者の選択には使えない。** セッションが切れても、担当が代わっても、別の worktree であっても、Claude が書いた差分は Claude が書いた差分である。呼び出しで分けると、別の Claude 呼び出しが書いた差分が Claude 評価へ落ちて、モデル分離が消える。
+
+git の author でも判定しない。コミットは人の名前で残る。
+
+| その差分を書いたモデル | 評価者 | 手順 |
+| --- | --- | --- |
+| Claude（この呼び出しか、別の Claude 呼び出しかを問わない） | codex の `gpt-5.6-sol` | 以下すべて。**走ったことがある唯一の経路** |
+| codex | Claude | 起動手順がまだ無い。[評価できない差分](#評価できない差分)へ |
+| 混在 | — | 同上 |
+| **分からない** | — | 同上。**推測で埋めない** |
+
+エフォートは評価者が codex の場合。
 
 | エフォート | 使う場面 |
 | --- | --- |
 | `high` | 既定 |
 | `xhigh` | `supabase/migrations/**`、認可・権限、外部連携、破壊的変更、削除を含む差分 |
 
-相談者役（設計の壁打ち）はこのスキルではなく `ask-codex` を使う。役割を混ぜない。grok は使わない。
+`gpt-5.6-sol` は `.cursor/skills/evaluating-with-senior` が定める既定モデルと同じなので、規約の上書きにはならない。
 
 事前に `codex login status` で認証を確認する。**`codex login` を自動実行しない。**
+
+### 評価できない差分
+
+差分を書いたモデルが codex のとき、混在しているとき、分からないとき。
+
+**PR を作らない。** 利用者へ、差分を書いたのが誰で、なぜ評価を起動できないかを伝え、判断を仰ぐ。
+
+- codex が書いた差分の起動手順は #320 の実測のあとに書く。**未走行の手順をここへ書き足さない**
+- **混在は領域で分けて評価しない。** 境界をまたぐ統合部分、領域間で食い違う前提、相互作用は、どちらの側からも独立に評価できない。差分全文を1つのモデルが読むという前提が崩れる
+- **grok を評価へ回さない。** 相談者と役割が混ざる
+
+### 相談者
+
+相談者役（設計の壁打ち、手順4 の必須の1回を含む）はこのスキルではない。**役割を混ぜない。** 相談は実装前、評価は PR 前。使うスキルとモデルは `CLAUDE.md` が指す相談スキル側が正典で、ここには書かない。
 
 ## ブリーフ
 
@@ -216,5 +243,6 @@ codex の回答は**助言テキスト**として扱う。
 モデルが使えない、認証が切れている、応答が返らない場合。
 
 - **自分で評価者を演じない**
+- **別のモデルへ落ちたときも成功扱いにしない。** 指定したモデルが使えず別系統へフォールバックすると、実装者とのモデル分離そのものが消える。返ってきた文章の有無で判断しない
 - **PR を作らない。** 利用者へ「指定モデルで評価を起動できなかった」と伝え、判断を仰ぐ
 - 利用者が明示的に「評価なしで出してよい」と指示した場合のみ PR を作る。その事実を PR 本文へ明記する
