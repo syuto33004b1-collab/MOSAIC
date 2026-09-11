@@ -2280,8 +2280,19 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
    in one place. `min-height` rather than `height`, so that if the text floor
    rises (#100) the chip grows instead of spilling again. */
 .card-heading > span { min-height: 24px; background: #fff0ee; color: #ce6259; display: grid; place-items: center; font-family: var(--font-data); font-size: 8px; font-weight: 800; }
-.department-list { display: flex; flex-direction: column; gap: 11px; }
-.department-list > div { display: grid; grid-template-columns: 100px 1fr 32px; align-items: center; gap: 8px; }
+/* One grid for the whole list, not one per row. The name column was a fixed 100px,
+   so `プロフェッショナルサービス部` (170px) split as `プロフェッショナ` / `ルサービス部`
+   at every width (#295). Letting the column grow to its content fixes that, but doing
+   it per row moves the bars: only the long row's column grows, and the bars start at
+   108px and 178px instead of one line (measured). The bars are a comparison, so the
+   column has to be shared. The floor on the bar is the guard for a name longer than
+   the row can hold: `1fr` would otherwise resolve to zero, since the bar's track is an
+   empty groove. 48px because the bar is 6px tall and only has to separate 0, 50 and
+   100. It does not bind at any width we render: the narrowest, 375px, leaves 99px. */
+.department-list { display: grid; grid-template-columns: minmax(100px, max-content) minmax(48px, 1fr) 32px; align-items: center; gap: 11px 8px; }
+.department-list > div { display: contents; }
+/* The empty state is a sibling of the rows, so it would land in the name column. */
+.department-list > .view-empty { grid-column: 1 / -1; }
 .department-list strong, .department-list small { display: block; }
 .department-list strong { font-size: 8px; }.department-list small { margin-top: 2px; color: #9aa2b0; font-size: 6px; }
 .department-list i { height: 6px; border-radius: 99px; background: #edf0f4; overflow: hidden; }
