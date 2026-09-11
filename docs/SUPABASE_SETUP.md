@@ -85,13 +85,13 @@ hosted Functionには`SUPABASE_URL`と`SUPABASE_SERVICE_ROLE_KEY`が自動で入
 | `SUPABASE_PROJECT_REF` | 対象projectの識別 |
 | `SUPABASE_DB_PASSWORD` | link/db pushで必要な場合のみ |
 
-適用前に対象project refを読み上げ確認し、dry runとmigration一覧を保存します。
+適用前に対象project refを読み上げ確認し、dry runとmigration一覧を保存します。`PROJECT_REF`の実値は[セキュリティ方針のアカウント境界](SECURITY.md#アカウント境界)にあります。linkした先に任せず、**書き込みコマンドごとに`--project-ref`を明示します。**
 
 ```powershell
 npm exec supabase -- link --project-ref PROJECT_REF
-npm exec supabase -- db push --dry-run
-npm exec supabase -- db push
-npm exec supabase -- migration list
+npm exec supabase -- db push --project-ref PROJECT_REF --dry-run
+npm exec supabase -- db push --project-ref PROJECT_REF
+npm exec supabase -- migration list --project-ref PROJECT_REF
 ```
 
 対話入力や環境変数からsecretを渡し、コマンドライン、workflowの`echo`、artifactへsecretを出力しません。Supabase未接続の現在は、上記の本番コマンドを実行してはいけません。

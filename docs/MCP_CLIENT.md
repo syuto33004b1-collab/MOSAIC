@@ -27,7 +27,7 @@ owner / admin が運用パネルで登録します。
 **MOSAICのDBには保存しません。** サーバーキー `acme_hr` なら、chat Function の secret に `MCP_SECRET_ACME_HR` を設定します。未設定なら `Authorization` ヘッダーを付けずに接続します。OAuth Authorization Server は今段の対象外です。
 
 ```bash
-npm exec supabase -- secrets set MCP_SECRET_ACME_HR=...
+npm exec supabase -- secrets set --project-ref PROJECT_REF MCP_SECRET_ACME_HR=...
 ```
 
 ## AI秘書からの利用
