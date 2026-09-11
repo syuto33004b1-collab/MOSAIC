@@ -38,35 +38,43 @@ MOSAICのsourceと静的フロントエンドはpublicです。source、schema�
 
 ## アカウント境界
 
-MOSAICが書き込む外部サービスは次のとおりです。**これ以外の接続先へ書き込みません。**
+この節が対象にするのは、**開発者と運用者がCLIから状態を変える管理対象**です。MOSAICの全outbound通信ではありません。実行時にMOSAICが話す相手（Gemini、外部API、外部MCP）は[認証と認可](#認証と認可)と[アプリケーション安全性](#アプリケーション安全性)が扱います。
 
-| サービス | 書き込み先として正とするもの | 照合 |
+| サービス | 書き込み先として正とするもの | 書き込み時の指定 |
 | --- | --- | --- |
-| GitHub | `syuto33004b1-collab/MOSAIC` | `gh repo view --json nameWithOwner` |
-| Supabase | project ref `ivsauhjnoiurpsriskqe` | 書き込みコマンドへ`--project-ref`を明示する |
+| GitHub | `syuto33004b1-collab/MOSAIC` | `-R syuto33004b1-collab/MOSAIC`。`git push`は`git remote get-url`で照合する |
+| Supabase | project ref `ivsauhjnoiurpsriskqe` | `--project-ref ivsauhjnoiurpsriskqe` |
 | Cloudflare | 未使用 | 導入時に決める |
 
-いずれも業務用として承認済みです。**アカウント名が個人名に見えることは、個人アカウントであることを意味しません。**
+GitHubのowner `syuto33004b1-collab`はOrganizationではなくUser accountです。**個人用途ではなく、業務利用として承認済みです。** Supabaseのorganization表示名がこのアカウント名を含むのも同じ理由で、個人所有を意味しません。
 
 ### 照合するのは接続先であって、ログイン中の利用者ではない
 
 `supabase projects list`が返すのは、そのtokenから見えるproject一覧です。次のコマンドの書き込み先ではありません。実際、同じログインからVercel連携由来の別organizationのprojectも見えています。**正は`ivsauhjnoiurpsriskqe`だけです。見えることは触ってよいことではありません。**
 
-`gh api user`が返すのはtokenの所有者です。owner以外の実行者、Actionsの`GITHUB_TOKEN`、将来のbotでは、正しいリポジトリを操作していても一致しません。
+`gh api user`が返すのは認証主体であって、対象リポジトリではありません。Actionsの`GITHUB_TOKEN`はGitHub App installation access tokenなので、そもそも`/user`で利用者を返すとは限りません。
 
-- **書き込む前に、上の表の識別子と一致することを照合する。** 読み取りだけなら照合は要らない
-- Supabaseの書き込みは`--project-ref`を明示する。linkされたprojectや、引数なしの`db push`を正にしない
+引数なしの`gh repo view`が示すのは**カレントディレクトリのリポジトリ**です。そのあと`-R`や`GH_REPO`で別のリポジトリへ書けます。**確認した時点と書き込む時点が同じ接続先である保証はありません。**
+
+- **書き込みコマンド自身に接続先を明示する。** 上の表の「書き込み時の指定」がそれ
+- 明示できない操作は、そのコマンドが使う実効の接続先を直前に照合する（`git push`なら対象remoteのURL）
+- Supabaseは`--project-ref`を明示する。linkされたprojectに任せない
+- **非公開データを返しうる読み取りにも、同じ照合を要求する。** 誤ったアカウントのprivateリポジトリ、DB、ログを読んだ結果がCI logや会話へ出れば、外部の状態を変えていなくても事故になる。照合が要らないのは、既に公開されている値だけを読むときに限る
 - 一致しないなら止めて利用者に確認する。**自分でログインし直さない。** `gh auth login`、`supabase login`、`wrangler login`を自動実行しない
 
 ### ここに書く識別子
 
-**GitHubのownerとSupabaseのproject refだけを書きます。** どちらも既に公開値です。ownerはリポジトリURLに、project refはブラウザへ配る`VITE_SUPABASE_URL`とCIのSupabase Previewチェックのリンクに現れます。
+**GitHubのownerとSupabaseのproject refだけを書きます。** どちらも既に公開値です。ownerはリポジトリURLに、project refはブラウザへ配る`VITE_SUPABASE_URL`とCIのSupabase Previewチェックのリンクに現れます。この2つは書き込み先の照合に使うので、ここに無いと照合できません。
 
-organizationの識別子、Cloudflareのaccount ID、publishable keyは書きません。**公開値でないものをここへ足すと、この文書が公開範囲を広げる側になります。**
+organizationの識別子とCloudflareのaccount IDは書きません。**公開値でないものをここへ足すと、この文書が公開範囲を広げる側になります。** publishable keyはブラウザへ配る公開値ですが、**照合に使わないので載せません**（扱いは[Secret管理](#secret管理)）。
 
 他の文書とFunction READMEの`PROJECT_REF`はプレースホルダのまま維持します。**解決先はこの節です。**
 
-GeminiのAPIキーはSupabase Edge Function Secretsにあり、操作経路は`supabase secrets`です。**Supabaseの行に含まれます。** Google側のアカウント識別子は公開値でないので書きません。
+### 対象に含むもの、含まないもの
+
+GeminiのAPIキーを**Supabase Edge Function Secretsへ設定する操作**は、接続先がSupabaseなので上の表に含まれます。**Google側でのキーの発行・失効はこの台帳では承認しません。** 必要になったら利用者に確認します。
+
+SMTP、監視providerは現在実体がありません。使い始めるときにこの表へ足します。
 
 ### Secret管理との違い
 
