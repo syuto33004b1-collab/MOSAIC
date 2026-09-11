@@ -2837,7 +2837,7 @@ describe("the 要調整 count takes you to the list", () => {
   /**
    * #292: focus was the whole of the answer, and a pointer never sees it — at 1281px and
    * up the panel is already beside the board, so there was nothing to scroll either and
-   * the press was silent. The mark is a class, because `prefers-reduced-motion` turns
+   * the press was silent. The mark is an attribute, because `prefers-reduced-motion` turns
    * animations off and jsdom's `:focus-visible` does not behave like a real mouse.
    */
   it("marks the panel so the press is visible where there is nothing to scroll", async () => {
