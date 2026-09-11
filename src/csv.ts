@@ -10,6 +10,7 @@ import {
   memberById,
   memberLabel,
   memberLoad,
+  memberPeakLoad,
   memberSkillLevels,
   normalizeCustomValues,
   orderedCustomFields,
@@ -326,6 +327,7 @@ export function applyProjectImport(state: WorkspaceState, actions: ProjectImport
 export function previewAssignmentImport(state: WorkspaceState, parsed: CsvParseResult, newId: () => string): {
   issues: CsvIssue[];
   actions: AssignmentImportAction[];
+  warnings: string[];
 } {
   const issues: CsvIssue[] = [];
   const actions: AssignmentImportAction[] = [];
@@ -341,7 +343,49 @@ export function previewAssignmentImport(state: WorkspaceState, parsed: CsvParseR
       issues.push({ row: rowNumber, message: caught instanceof Error ? caught.message : "行を読み込めませんでした" });
     }
   });
-  return { issues, actions };
+  return { issues, actions, warnings: overloadWarnings(state, actions) };
+}
+
+/**
+ * What the file would do to someone's ceiling, said before it is placed (#303).
+ *
+ * The form has said this since #254; this path did not, and it is the one that takes 500
+ * rows at once. Measured on the state the import would produce, not row by row: each row
+ * is read against the workspace as it stands, so three 60% rows for the same person never
+ * saw each other and 180% arrived afterwards as an 上限超過 card.
+ *
+ * Said, not enforced — the same choice #254 made. A row that warns still goes into
+ * `actions`; drafting a knowing overbooking to adjust later is ordinary work.
+ */
+function overloadWarnings(state: WorkspaceState, actions: AssignmentImportAction[]): string[] {
+  const applied = applyAssignmentImport(state, actions);
+  // Per person rather than per row: an overload is a property of a member and a span, and
+  // several rows can make one. The rows are named in the message instead, so no row is
+  // pointed at that did not contribute and none that did is hidden.
+  const spans = new Map<string, { rows: number[]; start: string; end: string }>();
+  for (const action of actions) {
+    const { personId, startDate, endDate } = action.assignment;
+    const span = spans.get(personId);
+    if (!span) spans.set(personId, { rows: [action.row], start: startDate, end: endDate });
+    else {
+      span.rows.push(action.row);
+      if (startDate < span.start) span.start = startDate;
+      if (endDate > span.end) span.end = endDate;
+    }
+  }
+  const warnings: string[] = [];
+  // Insertion order, so the warnings follow the file.
+  for (const [personId, span] of spans) {
+    const member = memberById(state, personId);
+    if (!member) continue;
+    // The peak over the days this import touches, the same measure `addOverload` takes of
+    // the assignment form. Whether the file caused the overload is not asked, because the
+    // form does not ask it either.
+    const projected = memberPeakLoad(applied, personId, span.start, span.end);
+    if (projected <= member.capacity) continue;
+    warnings.push(`${span.rows.join("・")}行目: ${memberLabel(state, member)}さんの稼働が${projected}%になります（稼働上限${member.capacity}%）。仮置きはできます。`);
+  }
+  return warnings;
 }
 
 export function applyAssignmentImport(state: WorkspaceState, actions: AssignmentImportAction[]): WorkspaceState {

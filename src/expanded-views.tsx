@@ -2540,6 +2540,8 @@ export function CsvTransferPanel({ state, organizationId, canImport = false, can
   const [presets, setPresets] = useState<CsvExportPreset[]>(() => readCsvPresets(storageKey));
   const [presetName, setPresetName] = useState("");
   const [issues, setIssues] = useState<CsvIssue[]>([]);
+  // Kept apart from `issues`: a warned row is still placed, so it must not read as refused.
+  const [warnings, setWarnings] = useState<string[]>([]);
   const [pending, setPending] = useState<PendingImport | null>(null);
   const [importMessage, setImportMessage] = useState("");
 
@@ -2556,6 +2558,7 @@ export function CsvTransferPanel({ state, organizationId, canImport = false, can
     readGeneration.current += 1;
     setPending(null);
     setIssues([]);
+    setWarnings([]);
     setImportMessage("");
   };
 
@@ -2612,6 +2615,7 @@ export function CsvTransferPanel({ state, organizationId, canImport = false, can
     const stale = () => generation !== readGeneration.current;
     setImportMessage("");
     setIssues([]);
+    setWarnings([]);
     setPending(null);
     try {
       const text = await file.text();
@@ -2631,8 +2635,9 @@ export function CsvTransferPanel({ state, organizationId, canImport = false, can
         setPending(actions.length ? { source: "projects", actions } : null);
         setImportMessage(actions.length ? `${actions.length}行を仮置きできます` : "適用できる行がありません");
       } else {
-        const { issues: found, actions } = previewAssignmentImport(state, parsed, newId);
+        const { issues: found, actions, warnings: overloads } = previewAssignmentImport(state, parsed, newId);
         setIssues(found);
+        setWarnings(overloads);
         setPending(actions.length ? { source: "assignments", actions } : null);
         setImportMessage(actions.length ? `${actions.length}行を仮置きできます` : "適用できる行がありません");
       }
@@ -2691,6 +2696,13 @@ export function CsvTransferPanel({ state, organizationId, canImport = false, can
           {issues.length > 0 && (
             <ul className="csv-issues">
               {issues.map((issue) => <li key={`${issue.row}-${issue.message}`}>{issue.row}行目: {issue.message}</li>)}
+            </ul>
+          )}
+          {/* Below the refusals and in the alert colour rather than the danger one: these
+              rows are going in, and the file should say so before the 上限超過 card does. */}
+          {warnings.length > 0 && (
+            <ul className="csv-warnings">
+              {warnings.map((warning) => <li key={warning}>{warning}</li>)}
             </ul>
           )}
           {pending && (

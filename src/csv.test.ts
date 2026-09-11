@@ -537,3 +537,46 @@ describe("the id column a file writes back", () => {
     }
   });
 });
+
+/**
+ * #303: the assignment form has warned about an overbooking since #254; the path that
+ * takes 500 rows at once said nothing. Each row was read against the workspace as it
+ * stands, so rows in one file never saw each other and the overload arrived afterwards
+ * as an 上限超過 card. Warned, not refused — the warned rows still go in.
+ */
+describe("what an assignment file would do to a ceiling", () => {
+  const atlas = initialWorkspace.projects.find((project) => project.id === "atlas")!;
+  const head = "memberName,projectName,startDate,endDate,allocation";
+  // 2026-09-21 — 09-25 is a clear Monday-to-Friday for 佐伯 優斗: the demo assignments
+  // that reach them end on 09-11 and 08-28. So the sums below are the file's own.
+  const clear = (allocation: number) => `佐伯 優斗,${atlas.name},2026-09-21,2026-09-25,${allocation}`;
+  const preview = (...rows: string[]) => previewAssignmentImport(initialWorkspace, parseCsv([head, ...rows].join("\n") + "\n"), () => crypto.randomUUID());
+
+  it("adds up the rows of one file, which none of them could see alone", () => {
+    const result = preview(clear(60), clear(60), clear(60));
+    expect(result.warnings).toEqual([
+      "2・3・4行目: 佐伯 優斗さんの稼働が180%になります（稼働上限100%）。仮置きはできます。",
+    ]);
+    // Said, not enforced: every row is still placed.
+    expect(result.issues).toEqual([]);
+    expect(result.actions).toHaveLength(3);
+  });
+
+  it("adds the file to what the workspace already holds", () => {
+    // 佐伯 優斗 is at 80% across 08-21 — 08-23 already (50% on Atlas, 30% on 採用サイト).
+    const result = preview(`佐伯 優斗,${atlas.name},2026-08-21,2026-08-23,100`);
+    expect(result.warnings).toEqual([
+      "2行目: 佐伯 優斗さんの稼働が180%になります（稼働上限100%）。仮置きはできます。",
+    ]);
+    expect(result.actions).toHaveLength(1);
+  });
+
+  it("says nothing when the file fits, and does not count a row it refused", () => {
+    expect(preview(clear(60)).warnings).toEqual([]);
+    // The refused row carries a usable 60%; counting it would push the pair to 120%.
+    const withRefused = preview(clear(60), `佐伯 優斗,${atlas.name},2026-02-31,2026-09-25,60`);
+    expect(withRefused.issues).toHaveLength(1);
+    expect(withRefused.actions).toHaveLength(1);
+    expect(withRefused.warnings).toEqual([]);
+  });
+});
