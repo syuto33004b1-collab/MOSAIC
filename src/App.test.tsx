@@ -4,7 +4,7 @@ import axe from "axe-core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import App, { type SharedWorkspaceAdapter } from "./App";
 import { DEMO_FAVORITES_KEY } from "./collaboration";
-import { addDays, boardRange, getWeekDays, getWeekStart, initialWorkspace, memberDailyLoads, memberLoad, memberPeakLoad, type WorkspaceState } from "./domain";
+import { addDays, boardRange, getWeekDays, getWeekStart, initialWorkspace, memberDailyLoads, memberLoad, memberPeakLoad, type StaffingNeed, type WorkspaceState } from "./domain";
 import type { ChatTransport } from "./lib/ai/chatClient";
 
 function sharedAdapter(): SharedWorkspaceAdapter {
@@ -5679,5 +5679,102 @@ describe("inline errors that a submit set", () => {
     expect(screen.getByText("部門を自分の配下へは移せません")).toBeInTheDocument();
     await user.type(nameInput, "3");
     expect(screen.getByText("部門を自分の配下へは移せません")).toBeInTheDocument();
+  });
+});
+
+/**
+ * #291: the dot was a string literal, so it was on whether or not the popover had
+ * anything, and the popover had no empty state to show when it did not. Both sides are
+ * read off one count now, so the pair is pinned together rather than one at a time.
+ */
+describe("what the notification bell promises", () => {
+  const bell = () => screen.getByRole("button", { name: "通知" });
+  const owner = { name: "管理 花子", email: "owner@example.com", role: "owner" as const };
+
+  /**
+   * Built rather than taken from the demo: the demo's unfilled roles are dated, so which
+   * of them is still open moves with the day, and a notice the test needs could go away
+   * on its own.
+   */
+  function workspaceWith(over: { capacity: number; allocation: number } | null, needs: StaffingNeed[]): WorkspaceState {
+    const member = initialWorkspace.members[0];
+    const project = initialWorkspace.projects[0];
+    const startDate = getWeekStart(0);
+    return {
+      ...initialWorkspace,
+      members: [{ ...member, capacity: over ? over.capacity : 100 }],
+      projects: [project],
+      needs,
+      assignments: over ? [{
+        id: "over", personId: member.id, projectId: project.id,
+        startDate, endDate: addDays(startDate, 4), allocation: over.allocation, status: "confirmed",
+      }] : [],
+    };
+  }
+
+  function openNeed(): StaffingNeed {
+    return {
+      id: "waiting", projectId: initialWorkspace.projects[0].id, role: "QA Engineer",
+      skills: ["QA"], startDate: getWeekStart(0), endDate: "2099-12-31", allocation: 40, status: "open",
+    };
+  }
+
+  function renderWith(state: WorkspaceState) {
+    const adapter = sharedAdapter();
+    adapter.initialState = state;
+    adapter.reload = vi.fn().mockResolvedValue({ state, revision: 7 });
+    render(<App mode="shared" organizationName="Example Inc." identity={owner} shared={adapter} />);
+  }
+
+  it("carries no dot and says so when nothing is waiting", async () => {
+    const user = userEvent.setup();
+    renderWith(workspaceWith(null, []));
+
+    expect(bell()).not.toHaveClass("has-dot");
+    await user.click(bell());
+    expect(screen.getByText("通知はありません")).toBeInTheDocument();
+    expect(document.querySelectorAll(".notification-popover > button")).toHaveLength(0);
+  });
+
+  it("carries the dot for an unfilled role, and no empty state", async () => {
+    const user = userEvent.setup();
+    renderWith(workspaceWith(null, [openNeed()]));
+
+    expect(bell()).toHaveClass("has-dot");
+    await user.click(bell());
+    expect(screen.queryByText("通知はありません")).toBeNull();
+    expect(screen.getByText("QA Engineer担当が未定")).toBeInTheDocument();
+    expect(document.querySelectorAll(".notification-popover > button")).toHaveLength(1);
+  });
+
+  it("carries the dot for an overload alone, which is the branch the count gates", async () => {
+    const user = userEvent.setup();
+    renderWith(workspaceWith({ capacity: 50, allocation: 100 }, []));
+
+    expect(bell()).toHaveClass("has-dot");
+    await user.click(bell());
+    expect(screen.queryByText("通知はありません")).toBeNull();
+    expect(screen.getByText("上限超過を検知")).toBeInTheDocument();
+    expect(document.querySelectorAll(".notification-popover > button")).toHaveLength(1);
+
+    // The row is the way into the drawer, which is what the dot is for.
+    await user.click(screen.getByText("上限超過を検知"));
+    expect(screen.getByRole("dialog", { name: "詳細パネル" })).toBeInTheDocument();
+  });
+
+  it("keeps the dot once the overload is only planned away", async () => {
+    const user = userEvent.setup();
+    renderWith(workspaceWith({ capacity: 50, allocation: 100 }, []));
+
+    await user.click(bell());
+    await user.click(screen.getByText("上限超過を検知"));
+    await user.click(screen.getByRole("button", { name: "推奨配分へ調整" }));
+
+    // Nobody is over any more, but the saved workspace still is: the notice has to stay
+    // until it is saved, and so does the dot.
+    expect(bell()).toHaveClass("has-dot");
+    await user.click(bell());
+    expect(screen.getByText("上限超過は解消予定")).toBeInTheDocument();
+    expect(screen.queryByText("通知はありません")).toBeNull();
   });
 });

@@ -965,6 +965,16 @@ export default function Home({ mode = "demo", organizationId, organizationName =
   const selectedNeed = workspace.needs.find((need) => need.id === selectedNeedId);
   const candidateMatches = selectedNeed ? matchMembers(workspace, searchSceneFromNeed(selectedNeed)).slice(0, 5) : [];
   const adjustmentCount = currentOverloads.length + (overloadPlanned ? 1 : 0) + activeNeeds.length;
+  /**
+   * What the bell's popover would actually list.
+   *
+   * Derived once because the dot and the panel used to be written apart: the dot was a
+   * string literal and was always on, so it promised something the panel often did not
+   * have (#291). Not `adjustmentCount` — that counts every overloaded member, and the
+   * panel shows one.
+   */
+  const overloadNotice = (currentOverloads.length > 0 || overloadPlanned) && overloadMember ? overloadMember : null;
+  const notificationCount = (overloadNotice ? 1 : 0) + activeNeeds.length;
   const page = pageMeta[activeNav];
   const selectedProject = projectById(workspace, selectedProjectId);
   const selectedProjectNeeds = selectedProject ? workspace.needs.filter((need) => need.projectId === selectedProject.id) : [];
@@ -2854,12 +2864,15 @@ export default function Home({ mode = "demo", organizationId, organizationName =
               <label className="search-box"><Search size={16} /><input ref={searchInputRef} value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); closeSearch(); } }} placeholder="メンバー・案件を検索" aria-label="メンバー・案件を検索" /><button type="button" onClick={closeSearch} aria-label="検索を閉じる"><X size={15} /></button></label>
             ) : <button ref={searchButtonRef} className="icon-button" aria-label="検索" onClick={() => setSearchOpen(true)}><Search size={18} /></button>)}
             <div className="notification-wrap">
-              <button className="icon-button has-dot" aria-label="通知" aria-expanded={notificationsOpen} onClick={() => setNotificationsOpen((open) => !open)}><Bell size={18} /></button>
+              <button className={"icon-button" + (notificationCount > 0 ? " has-dot" : "")} aria-label="通知" aria-expanded={notificationsOpen} onClick={() => setNotificationsOpen((open) => !open)}><Bell size={18} /></button>
               {notificationsOpen && (
                 <div className="notification-popover">
                   <div className="popover-head"><strong>通知</strong><button aria-label="通知を閉じる" onClick={() => setNotificationsOpen(false)}><X size={15} /></button></div>
-                  {(currentOverloads.length > 0 || overloadPlanned) && overloadMember && <button onClick={() => { setDrawer("overload"); setNotificationsOpen(false); }}><span className={"notice-icon " + (overloadPlanned ? "planned" : "danger")}><AlertTriangle size={14} /></span><span><strong>{overloadPlanned ? "上限超過は解消予定" : "上限超過を検知"}</strong><small>{overloadMember.name}さん · {measuredWeekLabel}</small></span></button>}
+                  {overloadNotice && <button onClick={() => { setDrawer("overload"); setNotificationsOpen(false); }}><span className={"notice-icon " + (overloadPlanned ? "planned" : "danger")}><AlertTriangle size={14} /></span><span><strong>{overloadPlanned ? "上限超過は解消予定" : "上限超過を検知"}</strong><small>{overloadNotice.name}さん · {measuredWeekLabel}</small></span></button>}
                   {activeNeeds.map((need) => <button onClick={() => openStaffingNeed(need.id)} key={need.id}><span className={"notice-icon " + (need.status === "planned" ? "planned" : "info")}><UserRoundPlus size={14} /></span><span><strong>{need.status === "planned" ? `${need.role}は解消予定` : `${need.role}担当が未定`}</strong><small>{projectById(workspace, need.projectId)?.name} · {formatDate(need.startDate)}</small></span></button>)}
+                  {/* A bell that opens onto a heading and nothing else says less than no
+                      bell at all. The dot above is off in this state, so the two agree. */}
+                  {notificationCount === 0 && <div className="candidate-empty"><Bell size={18} /><span><strong>通知はありません</strong><small>上限超過と未充足ロールが出るとここに並びます。</small></span></div>}
                 </div>
               )}
             </div>
