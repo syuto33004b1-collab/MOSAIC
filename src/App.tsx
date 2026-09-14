@@ -2951,6 +2951,10 @@ export default function Home({ mode = "demo", organizationId, organizationName =
       </aside>
 
       <section className="workspace" id="board" inert={drawer ? true : undefined}>
+        {/* The accent bar, as an element rather than `.workspace::before`, so that the
+            contrast of the text below it can be measured at all. `src/styles.css` has the
+            reason next to the rule (#312). */}
+        <i className="workspace-accent" aria-hidden="true" />
         {/* `search-open` stacks the bar below 900px while the search box is out — the
             box is 238px the row does not have there (#256). */}
         <header className={"topbar" + (activeNav === "board" && searchOpen ? " search-open" : "")}>

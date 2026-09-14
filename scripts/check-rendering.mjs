@@ -16,12 +16,15 @@
  * ## What it does not decide
  *
  * `color-contrast` comes back partly as `incomplete` — axe ran the rule and could not
- * reach an answer, mostly because a decorative pseudo-element sits behind the text. On the
- * board that is 64 nodes decided against 54 undecided. **A low-contrast element hiding
- * among the undecided ones would pass this check.** So the counts are printed, and a
- * *reason* that has not been seen before fails: a new kind of undecidable is worth
- * knowing about, while one more node of a known kind is content moving. #312 carries the
- * gap itself.
+ * reach an answer. A low-contrast element hiding among the undecided ones would pass this
+ * check, so how much goes undecided is itself a failure: `CONTRAST_COVERAGE_FLOOR` below.
+ * A *reason* that has not been seen before fails too — a new kind of undecidable is worth
+ * knowing about, while one more node of a known kind is content moving.
+ *
+ * #312 is where this was 62%: axe stops deciding for text whose area is under four times a
+ * filled, absolutely positioned pseudo-element on it or on any ancestor, comparing areas
+ * and never asking whether the two overlap. One 88x4px bar on the workspace took 636 nodes
+ * out, and five real contrast failures were sitting among them.
  *
  * ## Why every step proves itself
  *
@@ -73,6 +76,18 @@ const KNOWN_INCOMPLETE = [
   "Element content is too short to determine if it is actual text content",
   "",
 ];
+
+/**
+ * How much of the text `color-contrast` has to actually reach.
+ *
+ * A share rather than a count, because the count moves with the data while the share does
+ * not: what changes it is a decoration axe cannot see past, not one more row. Before #312
+ * this was 62% — a single 88x4px bar drawn as `.workspace::before` put 636 nodes out of
+ * reach, and five real failures were sitting among them. Measured after: 97.9%. The
+ * remaining 2% is the load ring's disc, the today underline, two overlaps and the
+ * one-character weekday names, each known and local.
+ */
+const CONTRAST_COVERAGE_FLOOR = 0.95;
 
 const MIME = {
   ".html": "text/html; charset=utf-8",
@@ -159,7 +174,12 @@ async function scan(page, state) {
       target: String(node.target[0] ?? "").slice(0, 90),
       message: (node.any?.[0]?.message ?? node.all?.[0]?.message ?? "").slice(0, 160),
     })));
-    return { violations: flatten(outcome.violations), incomplete: flatten(outcome.incomplete) };
+    // Decided nodes, so the sweep can say what share of the text it actually measured
+    // rather than only what it found wrong (#312).
+    const contrastPasses = outcome.passes
+      .filter((rule) => rule.id === "color-contrast")
+      .reduce((total, rule) => total + rule.nodes.length, 0);
+    return { violations: flatten(outcome.violations), incomplete: flatten(outcome.incomplete), contrastPasses };
   });
   return { state, ...result };
 }
@@ -305,7 +325,8 @@ async function main() {
   console.log(`\naxe over ${results.length} states at 1440x900`);
   for (const result of results) {
     console.log(`  ${result.violations.length === 0 ? "ok" : "FAIL"}  ${result.state}`
-      + `  violations=${result.violations.length} incomplete=${result.incomplete.length}`);
+      + `  violations=${result.violations.length} incomplete=${result.incomplete.length}`
+      + `  contrast decided=${result.contrastPasses}`);
   }
 
   const reasons = new Map();
@@ -316,10 +337,23 @@ async function main() {
     for (const [message, count] of reasons) console.log(`  ${count}x ${message || "(no message)"}`);
   }
 
+  const decided = results.reduce((total, result) => total + result.contrastPasses, 0);
+  const undecided = incomplete.filter((item) => item.id === "color-contrast").length;
+  const coverage = decided + undecided === 0 ? 1 : decided / (decided + undecided);
+  console.log(`\ncolor-contrast decided ${decided} of ${decided + undecided} nodes`
+    + ` (${(coverage * 100).toFixed(1)}%, floor ${CONTRAST_COVERAGE_FLOOR * 100}%)`);
+
   const failures = [];
   const unknown = [...reasons.keys()].filter((message) => !KNOWN_INCOMPLETE.includes(message));
   if (unknown.length > 0) {
     failures.push(`axe could not decide for a reason it has not given before:\n  ${unknown.join("\n  ")}`);
+  }
+  if (coverage < CONTRAST_COVERAGE_FLOOR) {
+    failures.push(`color-contrast reached only ${(coverage * 100).toFixed(1)}% of the text`
+      + ` (${decided} of ${decided + undecided} nodes), under the ${CONTRAST_COVERAGE_FLOOR * 100}% floor.`
+      + " A filled, absolutely positioned pseudo-element on a container makes every smaller"
+      + " piece of text under it undecidable, whether or not it is anywhere near it. Draw the"
+      + " decoration as an element instead — see `.workspace-accent` in src/styles.css (#312).");
   }
   if (missing.length > 0) failures.push(`the built site asked for files that are not there: ${[...new Set(missing)].join(", ")}`);
   if (consoleErrors.length > 0) failures.push(`the console carried errors:\n  ${[...new Set(consoleErrors)].join("\n  ")}`);

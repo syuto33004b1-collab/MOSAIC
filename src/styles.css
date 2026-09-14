@@ -203,8 +203,13 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
    measured over weekdays, so a weekend column is background rather than a day
    with room in it — the tint is what stops a bar crossing one from reading as
    five days of work in a row (#207). */
-.day-label.weekend { background: var(--paper-deep); color: #9aa2b2; }
-.day-label.weekend strong { color: #8a93a5; }
+/* The tokens, not the two cool greys that were here: `:root` was rebuilt for the warm
+   palette further down the file, and `.day-label.weekend` outranks the themed `.day-label`
+   so it kept its pre-theme values. On `--paper-deep` they measured 2.18 and 2.62 against
+   the 4.5 small text owes; these measure 4.97 and 7.56, and keep the weekday name below
+   the date (#312). */
+.day-label.weekend { background: var(--paper-deep); color: var(--muted-readable); }
+.day-label.weekend strong { color: var(--muted-readable-dark); }
 .day-grid i.weekend { background: var(--paper-deep); }
 /* A weekend that was actually worked. Without this a bar crossing a Saturday looks
    the same whether anyone was there or not, which is the one thing the tint exists
@@ -482,9 +487,14 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .assignment .assignment-label { display: flex; align-items: baseline; min-width: 0; overflow: hidden; }
 .assignment .assignment-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .assignment .assignment-tag { flex: none; white-space: nowrap; }
+/* No `opacity`. It was .72, which dissolves the bar's own colour into the bar's own
+   background: on plum that made #715b91 into #9483ae for 2.88 against the 4.5 small text
+   owes, and sky needs a full 1.0 to clear it because its colour has only 4.51 to give. So
+   no value below 1 works for every bar. The percentage stays subordinate by placement
+   rather than by weight — the name is first, `--font-data` sets the figures apart, and the
+   container query below drops the percentage entirely when the bar is narrow (#312). */
 .assignment small {
   flex: 0 0 auto;
-  opacity: .72;
   font-family: var(--font-data);
   font-size: 7px;
 }
@@ -3408,8 +3418,15 @@ body {
   height: calc(var(--fab-inset-raised) + var(--fab-size) + var(--fab-clearance));
 }
 
-.workspace::before {
-  content: "";
+/* A real element rather than `.workspace::before`, and the only reason is that contrast
+   can be measured around it. axe gives up on `color-contrast` for any text whose own area
+   is under four times a filled, absolutely positioned pseudo-element found on it or on any
+   ancestor — it compares areas and never asks whether the two overlap. This bar is 88x4 =
+   352px² and `.workspace` is the ancestor of every screen, so it made 636 of the app's 662
+   undecided nodes: labels, cells and badges, none of them anywhere near it. A real element
+   is composited into the background axe reads off the page, so text under it would be
+   measured correctly and text elsewhere is simply measured (#312). */
+.workspace-accent {
   position: absolute;
   top: 0;
   left: clamp(28px, 3.5vw, 58px);
@@ -4059,7 +4076,7 @@ h1 {
   .profile-row .profile-actions,
   .profile-row .profile-actions button { display: inline-flex; }
   .workspace { padding-inline: 24px; }
-  .workspace::before { left: 24px; }
+  .workspace-accent { left: 24px; }
 }
 
 @media (max-width: 620px) {
@@ -4135,7 +4152,7 @@ h1 {
     color: var(--ink);
   }
   .app-shell:not(.production-shell) > .workspace { padding: 24px 14px 34px; }
-  .workspace::before { left: 14px; width: 58px; }
+  .workspace-accent { left: 14px; width: 58px; }
   /* The theme sets `align-items: center` on `.topbar`, which is vertical while
      the bar is a row and horizontal once it stacks below 620px. That centred the
      title block at 72px while every other block sat at 14px (#83). */
