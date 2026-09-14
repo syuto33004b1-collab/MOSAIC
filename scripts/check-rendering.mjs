@@ -78,14 +78,18 @@ const KNOWN_INCOMPLETE = [
 ];
 
 /**
- * How much of the text `color-contrast` has to actually reach.
+ * How much of each state's showing text `color-contrast` has to actually reach.
  *
  * A share rather than a count, because the count moves with the data while the share does
- * not: what changes it is a decoration axe cannot see past, not one more row. Before #312
- * this was 62% — a single 88x4px bar drawn as `.workspace::before` put 636 nodes out of
- * reach, and five real failures were sitting among them. Measured after: 97.9%. The
- * remaining 2% is the load ring's disc, the today underline, two overlaps and the
- * one-character weekday names, each known and local.
+ * not: what changes it is a decoration axe cannot see past, not one more row. Per state
+ * rather than over the sweep, because a screen going dark is twenty-odd nodes against
+ * seventeen hundred and would still total 96%.
+ *
+ * Before #312 the board was at 62% — a single 88x4px bar drawn as `.workspace::before` put
+ * 636 nodes out of reach, and five real failures were sitting among them. Measured after,
+ * the worst state is 96.3% and the rest run to 100%; what is left is the load ring's disc
+ * (9), the today underline and the one-character weekday names. The margin is thin on
+ * paper and wide in practice: what this catches arrives thirty points down, not one.
  */
 const CONTRAST_COVERAGE_FLOOR = 0.95;
 
@@ -182,6 +186,39 @@ async function scan(page, state) {
     return { violations: flatten(outcome.violations), incomplete: flatten(outcome.incomplete), contrastPasses };
   });
   return { state, ...result };
+}
+
+/**
+ * What share of this state's *showing* text `color-contrast` reached.
+ *
+ * A node it failed is a node it decided, so violations count with the passes — those fail
+ * on their own account, and leaving them out would make the reach look worse the more it
+ * found.
+ *
+ * Text another element covers is left out of the question entirely. Those three reasons
+ * are what an overlay is: with the assistant panel open, axe cannot resolve the background
+ * of the board behind it and says so for 18 nodes. That is not text this sweep failed to
+ * measure, it is text nobody is reading, and no amount of fixing would drive it to zero.
+ * Everything else counts against the share, decoration and one-character labels alike.
+ *
+ * Zero on both sides is not full coverage but a rule that did not run: axe renaming it, a
+ * configuration change, a different result shape. That reads as "nothing undecided", which
+ * is the failure this number exists to catch, so it is reported as no reach at all (#312).
+ */
+const COVERED_BY_SOMETHING_ELSE = [
+  "Element's background color could not be determined because it is overlapped by another element",
+  "Element's background color could not be determined because it partially overlaps other elements",
+  "Element's background color could not be determined because it's partially obscured by another element",
+];
+
+function contrastReach(result) {
+  const decided = result.contrastPasses
+    + result.violations.filter((item) => item.id === "color-contrast").length;
+  const undecided = result.incomplete.filter((item) => item.id === "color-contrast");
+  const covered = undecided.filter((item) => COVERED_BY_SOMETHING_ELSE.includes(item.message)).length;
+  const unreached = undecided.length - covered;
+  const total = decided + unreached;
+  return { decided, unreached, covered, total, share: total === 0 ? 0 : decided / total };
 }
 
 async function main() {
@@ -337,23 +374,33 @@ async function main() {
     for (const [message, count] of reasons) console.log(`  ${count}x ${message || "(no message)"}`);
   }
 
-  const decided = results.reduce((total, result) => total + result.contrastPasses, 0);
-  const undecided = incomplete.filter((item) => item.id === "color-contrast").length;
-  const coverage = decided + undecided === 0 ? 1 : decided / (decided + undecided);
-  console.log(`\ncolor-contrast decided ${decided} of ${decided + undecided} nodes`
-    + ` (${(coverage * 100).toFixed(1)}%, floor ${CONTRAST_COVERAGE_FLOOR * 100}%)`);
+  // Per state, not over the whole sweep: a screen that goes entirely undecidable is 20-odd
+  // nodes against seventeen hundred, and a total would still read as 96%. The thing this
+  // number is for is a screen dropping out, so each screen answers for itself (#312).
+  const reach = results.map((result) => ({ state: result.state, ...contrastReach(result) }));
+  const decided = reach.reduce((total, item) => total + item.decided, 0);
+  const nodes = reach.reduce((total, item) => total + item.total, 0);
+  console.log(`\ncolor-contrast decided ${decided} of ${nodes} nodes, floor ${CONTRAST_COVERAGE_FLOOR * 100}% per state`);
+  for (const item of reach) {
+    console.log(`  ${item.share >= CONTRAST_COVERAGE_FLOOR ? "ok" : "FAIL"}  ${item.state}`
+      + `  ${(item.share * 100).toFixed(1)}%  decided=${item.decided} unreached=${item.unreached}`
+      + `  (${item.covered} behind something else)`);
+  }
 
   const failures = [];
   const unknown = [...reasons.keys()].filter((message) => !KNOWN_INCOMPLETE.includes(message));
   if (unknown.length > 0) {
     failures.push(`axe could not decide for a reason it has not given before:\n  ${unknown.join("\n  ")}`);
   }
-  if (coverage < CONTRAST_COVERAGE_FLOOR) {
-    failures.push(`color-contrast reached only ${(coverage * 100).toFixed(1)}% of the text`
-      + ` (${decided} of ${decided + undecided} nodes), under the ${CONTRAST_COVERAGE_FLOOR * 100}% floor.`
-      + " A filled, absolutely positioned pseudo-element on a container makes every smaller"
-      + " piece of text under it undecidable, whether or not it is anywhere near it. Draw the"
-      + " decoration as an element instead — see `.workspace-accent` in src/styles.css (#312).");
+  const short = reach.filter((item) => item.share < CONTRAST_COVERAGE_FLOOR);
+  if (short.length > 0) {
+    failures.push(`color-contrast did not reach ${CONTRAST_COVERAGE_FLOOR * 100}% of the text on:\n`
+      + short.map((item) => `  ${item.state}  ${(item.share * 100).toFixed(1)}%`
+        + `  decided=${item.decided} unreached=${item.unreached}`
+        + (item.total === 0 ? "  (the rule produced no nodes at all — did it still run?)" : "")).join("\n")
+      + "\nA filled, absolutely positioned pseudo-element on a container makes every smaller piece"
+      + " of text under it undecidable, whether or not it is anywhere near it. Draw the decoration"
+      + " as an element instead — see `.workspace-accent` in src/styles.css (#312).");
   }
   if (missing.length > 0) failures.push(`the built site asked for files that are not there: ${[...new Set(missing)].join(", ")}`);
   if (consoleErrors.length > 0) failures.push(`the console carried errors:\n  ${[...new Set(consoleErrors)].join("\n  ")}`);

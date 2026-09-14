@@ -56,17 +56,24 @@ test("a weekend column reads its colours from the theme", () => {
   assert.ok(weekend && strong, "the weekend day label lost a rule");
   // The two cool greys that were here predate the warm `:root` and measured 2.18 and 2.62
   // on `--paper-deep`; `.day-label.weekend` outranks the themed `.day-label`, so nothing
-  // else was going to correct them.
-  for (const [name, rule] of [["the weekday name", weekend[1]], ["the date", strong[1]]]) {
-    assert.ok(/color:\s*var\(--muted-readable/u.test(rule),
-      `${name} on a weekend column is back to a literal colour (#312)`);
-  }
+  // else was going to correct them. Each token named to its closing bracket, or
+  // `--muted-readable` matches `--muted-readable-dark` and the two could swap, or collapse
+  // into one, with this still passing.
+  assert.match(weekend[1], /color:\s*var\(--muted-readable\)/u,
+    "the weekday name on a weekend column is not `var(--muted-readable)` (4.97 on --paper-deep) (#312)");
+  assert.match(strong[1], /color:\s*var\(--muted-readable-dark\)/u,
+    "the date on a weekend column is not `var(--muted-readable-dark)` (7.56, and darker than"
+    + " the weekday name so the two keep their order) (#312)");
 });
 
-test("the sweep fails when it cannot reach most of the text", () => {
+test("the sweep fails when it cannot reach most of one state's text", () => {
   const floor = /const CONTRAST_COVERAGE_FLOOR = (0\.\d+);/u.exec(sweep);
   assert.ok(floor, "the sweep lost its coverage floor (#312)");
   assert.ok(Number(floor[1]) >= 0.95, `the floor dropped to ${floor[1]}`);
-  assert.ok(/coverage < CONTRAST_COVERAGE_FLOOR/u.test(sweep),
-    "the floor is declared but nothing fails against it");
+  assert.ok(/reach\.filter\(\(item\) => item\.share < CONTRAST_COVERAGE_FLOOR\)/u.test(sweep),
+    "the floor is declared but no state is failed against it. Summing the sweep hides a"
+    + " screen going dark: twenty nodes against seventeen hundred still totals 96% (#312).");
+  // Nothing to decide means the rule did not run, which is the failure this number is for.
+  assert.ok(/total === 0 \? 0 :/u.test(sweep),
+    "a state with no color-contrast nodes reads as full coverage again (#312)");
 });
