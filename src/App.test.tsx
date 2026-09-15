@@ -1140,7 +1140,7 @@ describe("role-aware workspace", () => {
 
     await user.click(navigation.getByRole("button", { name: "メンバー" }));
     await user.click(screen.getAllByRole("button", { name: /佐伯 優斗/ }).find((button) => button.classList.contains("member-name-cell"))!);
-    expect(screen.getAllByText("Studio North").length).toBeGreaterThan(0);
+    expect(within(screen.getByRole("dialog", { name: "詳細パネル" })).getByText("Studio North")).toBeInTheDocument();
     expect(screen.getAllByText("ビジネス").length).toBeGreaterThan(0);
     await user.click(document.querySelector(".close-button") as HTMLButtonElement);
 
@@ -6612,11 +6612,13 @@ describe("printing a skill sheet", () => {
     window.print = print;
     try {
       await user.click(screen.getByRole("button", { name: "スキルシートを印刷" }));
+      expect(print).toHaveBeenCalledOnce();
+      expect(document.documentElement.getAttribute("data-print-document")).toBe("skill-sheet");
+      window.dispatchEvent(new Event("afterprint"));
+      expect(document.documentElement.getAttribute("data-print-document")).toBeNull();
     } finally {
       window.print = real;
     }
-    expect(print).toHaveBeenCalledOnce();
-    expect(document.documentElement.getAttribute("data-print-document")).toBeNull();
   });
 
   it("prints the allow-listed profile and keeps monthly cost off the page", async () => {

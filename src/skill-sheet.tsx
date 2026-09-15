@@ -41,8 +41,9 @@ export function printSkillSheet() {
   window.addEventListener("afterprint", clear);
   try {
     window.print();
-  } finally {
+  } catch (error) {
     clear();
+    throw error;
   }
 }
 

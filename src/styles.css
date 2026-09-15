@@ -5484,6 +5484,7 @@ h1 {
     display: block;
     color: #1b2437;
     background: #fff;
+    overflow-wrap: anywhere;
   }
   .skill-sheet-kicker {
     margin: 0 0 4px;
