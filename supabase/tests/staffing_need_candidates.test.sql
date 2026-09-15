@@ -193,6 +193,8 @@ select is(
   'get_workspace returns saved candidate ids in order'
 );
 
+reset role;
+
 insert into app.staffing_need_candidates (
   organization_id, staffing_need_id, person_id, sort_order, created_by, updated_by
 ) values (
@@ -203,6 +205,16 @@ insert into app.staffing_need_candidates (
   '11000000-0000-4000-8000-000000000324',
   '11000000-0000-4000-8000-000000000324'
 );
+
+create temp table cand_created as
+select person_id, created_at, created_by
+from app.staffing_need_candidates
+where staffing_need_id = '63000000-0000-4000-8000-000000000324'
+  and person_id = '61000000-0000-4000-8000-000000000325';
+
+set local role authenticated;
+set local request.jwt.claim.role = 'authenticated';
+set local request.jwt.claim.sub = '11000000-0000-4000-8000-000000000324';
 
 select is(
   (
@@ -218,12 +230,6 @@ select is(
   ),
   'get_workspace drops archived members from the candidate array'
 );
-
-create temp table cand_created as
-select person_id, created_at, created_by
-from app.staffing_need_candidates
-where staffing_need_id = '63000000-0000-4000-8000-000000000324'
-  and person_id = '61000000-0000-4000-8000-000000000325';
 
 select public.save_workspace(
   '21000000-0000-4000-8000-000000000324',
@@ -244,6 +250,8 @@ select public.save_workspace(
   repeat('0', 64)
 );
 
+reset role;
+
 select is(
   (
     select candidate.created_at
@@ -255,6 +263,10 @@ select is(
   (select created_at from cand_created),
   'omitting the key leaves created_at alone'
 );
+
+set local role authenticated;
+set local request.jwt.claim.role = 'authenticated';
+set local request.jwt.claim.sub = '11000000-0000-4000-8000-000000000324';
 
 select throws_ok(
   $sql$select public.save_workspace(
