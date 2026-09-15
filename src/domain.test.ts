@@ -32,6 +32,7 @@ import {
   hydrateWorkspaceSkills,
   inferSkillCatalog,
   initialWorkspace,
+  sheetSkillLevels,
   memberDailyLoads,
   memberAvailablePercent,
   memberCapacityOnDate,
@@ -566,6 +567,35 @@ describe("skill taxonomy and matching", () => {
 
     expect(state.members[0].skillLevels).toEqual([{ name: "Rust", proficiency: 3 }]);
     expect(inferSkillCatalog(state).some((item) => item.name === "Rust" && item.kind === "skill")).toBe(true);
+  });
+
+  it("orders a skill sheet by the catalog tree, then by name for the rest", () => {
+    const catalog = [
+      { id: "cat", name: "言語", kind: "category" as const, sortOrder: 10 },
+      { id: "ts", name: "TypeScript", kind: "skill" as const, parentId: "cat", sortOrder: 10 },
+      { id: "react", name: "React", kind: "skill" as const, parentId: "cat", sortOrder: 20 },
+    ];
+    const member = {
+      skills: ["Zig", "React", "TypeScript", "Ada"],
+      skillLevels: [
+        { name: "Zig", proficiency: 5 as const },
+        { name: "React", proficiency: 2 as const },
+        { name: "TypeScript", proficiency: 4 as const },
+        { name: "Ada", proficiency: 3 as const },
+      ],
+    };
+    expect(sheetSkillLevels(member, catalog).map((level) => level.name)).toEqual([
+      "TypeScript",
+      "React",
+      "Ada",
+      "Zig",
+    ]);
+    expect(sheetSkillLevels(member, []).map((level) => level.name)).toEqual([
+      "Ada",
+      "React",
+      "TypeScript",
+      "Zig",
+    ]);
   });
 
   it("builds a skill map with department distribution and open-need gaps", () => {

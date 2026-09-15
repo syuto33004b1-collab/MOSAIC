@@ -1140,7 +1140,7 @@ describe("role-aware workspace", () => {
 
     await user.click(navigation.getByRole("button", { name: "メンバー" }));
     await user.click(screen.getAllByRole("button", { name: /佐伯 優斗/ }).find((button) => button.classList.contains("member-name-cell"))!);
-    expect(screen.getByText("Studio North")).toBeInTheDocument();
+    expect(within(screen.getByRole("dialog", { name: "詳細パネル" })).getByText("Studio North")).toBeInTheDocument();
     expect(screen.getAllByText("ビジネス").length).toBeGreaterThan(0);
     await user.click(document.querySelector(".close-button") as HTMLButtonElement);
 
@@ -6589,5 +6589,89 @@ describe("the project drawer's next milestone", () => {
     await user.click(named.getByRole("button", { name: "詳細パネルを閉じる" }));
     const blank = await openProject(user, "日付だけ不正");
     expect(factValue(blank, "次の節目")).toBe("未設定");
+  });
+});
+
+describe("printing a skill sheet", () => {
+  const owner = { name: "管理 花子", email: "owner@example.com", role: "owner" as const };
+
+  async function openSaeki(user: ReturnType<typeof userEvent.setup>, extra: Parameters<typeof App>[0] = {}) {
+    render(<App mode="shared" organizationName="Example Inc." identity={owner} shared={sharedAdapter()} {...extra} />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: "メンバー" }));
+    await user.click(screen.getByRole("button", { name: "佐伯 優斗をお気に入りに追加" }).closest("tr")!.querySelector(".member-name-cell")!);
+    return document.querySelector(".skill-sheet") as HTMLElement;
+  }
+
+  it("hands the page to the browser with the skill-sheet mark set", async () => {
+    const user = userEvent.setup();
+    await openSaeki(user);
+    const print = vi.fn(() => {
+      expect(document.documentElement.getAttribute("data-print-document")).toBe("skill-sheet");
+    });
+    const real = window.print;
+    window.print = print;
+    try {
+      await user.click(screen.getByRole("button", { name: "スキルシートを印刷" }));
+      expect(print).toHaveBeenCalledOnce();
+      expect(document.documentElement.getAttribute("data-print-document")).toBe("skill-sheet");
+      window.dispatchEvent(new Event("afterprint"));
+      expect(document.documentElement.getAttribute("data-print-document")).toBeNull();
+    } finally {
+      window.print = real;
+    }
+  });
+
+  it("prints the allow-listed profile and keeps monthly cost off the page", async () => {
+    const user = userEvent.setup();
+    const sheet = await openSaeki(user);
+    expect(sheet.textContent).toContain("佐伯 優斗");
+    expect(sheet.textContent).toContain("Product Designer");
+    expect(sheet.textContent).toContain("Figma");
+    expect(sheet.textContent).toContain("GIFTEE Inc.");
+    expect(sheet.textContent).toContain("英語");
+    expect(sheet.textContent).not.toContain("650000");
+    expect(sheet.textContent).not.toContain("月額原価");
+    expect(sheet.textContent).not.toContain("現在のアサイン");
+  });
+
+  it("omits a custom value whose field is no longer in the catalog", async () => {
+    const user = userEvent.setup();
+    const state = {
+      ...initialWorkspace,
+      customFields: (initialWorkspace.customFields ?? []).filter((field) => field.key !== "english"),
+    };
+    const sheet = await openSaeki(user, { shared: { ...sharedAdapter(), initialState: state, reload: vi.fn().mockResolvedValue({ state, revision: 7 }) } });
+    expect(sheet.textContent).not.toContain("英語");
+    expect(sheet.textContent).not.toContain("ビジネス");
+    expect(sheet.textContent).toContain("雇用形態");
+  });
+
+  it("does not offer a sheet for a member who is not in the workspace", async () => {
+    window.history.replaceState({}, "", "/?nav=members&open=missing-person");
+    render(<App mode="shared" organizationName="Example Inc." identity={owner} shared={sharedAdapter()} />);
+    expect(await screen.findByText("共有リンクのメンバーが見つかりません")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "スキルシートを印刷" })).not.toBeInTheDocument();
+    expect(document.querySelector(".skill-sheet")).toBeNull();
+  });
+
+  it("keeps empty skill and history headings", async () => {
+    const user = userEvent.setup();
+    const empty = {
+      ...initialWorkspace.members[0],
+      id: "empty-sheet",
+      name: "空 欄",
+      skills: [],
+      skillLevels: [],
+      workHistory: [],
+      customValues: {},
+    };
+    const state = { ...initialWorkspace, members: [empty], customFields: [] };
+    render(<App mode="shared" organizationName="Example Inc." identity={owner} shared={{ ...sharedAdapter(), initialState: state, reload: vi.fn().mockResolvedValue({ state, revision: 7 }) }} />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: "メンバー" }));
+    await user.click(screen.getByRole("button", { name: "空 欄をお気に入りに追加" }).closest("tr")!.querySelector(".member-name-cell")!);
+    const sheet = document.querySelector(".skill-sheet")!;
+    expect(sheet.textContent).toContain("スキルはまだありません");
+    expect(sheet.textContent).toContain("業務経歴はまだありません");
+    expect(sheet.querySelector(".skill-sheet-fields")).toBeNull();
   });
 });

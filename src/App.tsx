@@ -18,6 +18,7 @@ import {
   LayoutDashboard,
   MoreHorizontal,
   Plus,
+  Printer,
   Save,
   Search,
   SlidersHorizontal,
@@ -30,6 +31,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { ActiveFilters, CustomFieldFacts, CustomFieldInputs, MemberPicker, WeekendWorkPicker, type MemberCandidate, CsvTransferPanel, FavoriteStar, FieldsView, MemberOrgFields, MembersView, OpportunitiesView, OrgFacts, OrgView, PeriodRangeTabs, ProjectsView, ProposalView, ReportsView, SkillsView, UnavailabilityEditor, UnavailabilityList, WorkHistoryEditor, WorkHistoryList } from "./expanded-views";
+import { SkillSheet, printSkillSheet } from "./skill-sheet";
 import { AiChat } from "./components/ai-chat/AiChat";
 import type { ChatTransport } from "./lib/ai/chatClient";
 import {
@@ -3705,6 +3707,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                 <div className="entity-action-row">
                   <button className="drawer-secondary" type="button" onClick={() => void copyShareLink({ nav: "members", open: selectedMember.id }, "メンバーリンクをコピーしました")}>このメンバーのリンクをコピー</button>
                   <button className="drawer-secondary" type="button" onClick={() => addMemberToProposal(selectedMember.id)}>提案ビューに追加</button>
+                  <button className="drawer-secondary" type="button" onClick={printSkillSheet}><Printer size={15} />スキルシートを印刷</button>
                 </div>
                 {canEdit && <button className="drawer-primary" onClick={() => openAssignmentFor(selectedMember.id)}><Plus size={16} />この人へアサインを追加</button>}
                 {canManageMembers && <div className="entity-action-row"><button className="drawer-secondary" onClick={() => openMemberEditor(selectedMember)}>メンバー情報を編集</button><button className="drawer-danger" onClick={archiveMember}><Trash2 size={15} />メンバーをアーカイブ</button></div>}
@@ -3908,6 +3911,8 @@ export default function Home({ mode = "demo", organizationId, organizationName =
           </section>
         </div>
       )}
+
+      {drawer === "member" && selectedMember ? <SkillSheet state={workspace} member={selectedMember} /> : null}
 
       <AiChat
         transport={aiChatTransport}

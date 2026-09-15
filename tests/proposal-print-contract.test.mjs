@@ -104,9 +104,16 @@ test("the application does not print, only the document it is showing", async ()
     const hiding = hiddenBy(selector);
     assert.ok(hiding.length > 0, `${selector} would print as part of the handout (#179)`);
     assert.ok(hiding.every(({ parts }) => parts.filter((part) => part.endsWith(selector))
-      .every((part) => part.includes(".proposal-view"))),
-      `${selector} is hidden for every print, not just the proposal's (#179)`);
+      .every((part) => part.includes(".proposal-view") || part.includes("data-print-document"))),
+      `${selector} is hidden for every print, not just a named document (#179)`);
   }
+
+  // The drawer lives inside `.overlay`, which this block already hides on every
+  // screen. A skill-sheet rule that named `.drawer` would be dead, and would
+  // also look like the sheet printed from the drawer — it cannot (#325).
+  assert.ok(hiddenBy(".drawer").every(({ parts }) => parts.filter((part) => part.endsWith(".drawer"))
+    .every((part) => part.includes(".proposal-view"))),
+    "the skill sheet must not grow a .drawer hide; overlay already takes the drawer (#325)");
 
   // The sidebar's grid column has to go with the sidebar, or every page carries its indent.
   assert.match(rulesFor(body, ".app-shell:has(.proposal-view)"), /display:\s*block/u,

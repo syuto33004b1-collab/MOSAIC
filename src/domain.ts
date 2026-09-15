@@ -1726,6 +1726,32 @@ export function hydrateWorkspaceSkills(state: WorkspaceState): WorkspaceState {
   });
 }
 
+/**
+ * Skills on a printed sheet (#325). Catalog entries keep tree order so two sheets
+ * can be laid side by side; names that are not in the catalog follow, sorted,
+ * so another person's inferred skills cannot reshuffle this one.
+ */
+export function sheetSkillLevels(
+  member: Pick<Member, "skills" | "skillLevels">,
+  catalog: SkillDefinition[] | undefined,
+): SkillLevel[] {
+  const levels = memberSkillLevels(member);
+  const byKey = new Map(levels.map((level) => [skillKey(level.name), level]));
+  const used = new Set<string>();
+  const ordered: SkillLevel[] = [];
+  skillCatalogTree(catalog ?? []).forEach((item) => {
+    if (item.kind !== "skill") return;
+    const level = byKey.get(skillKey(item.name));
+    if (!level || used.has(skillKey(level.name))) return;
+    used.add(skillKey(level.name));
+    ordered.push(level);
+  });
+  const rest = levels
+    .filter((level) => !used.has(skillKey(level.name)))
+    .sort((left, right) => left.name.localeCompare(right.name, "ja"));
+  return [...ordered, ...rest];
+}
+
 export function skillCatalogTree(catalog: SkillDefinition[]): SkillDefinition[] {
   const byParent = new Map<string | null, SkillDefinition[]>();
   catalog.forEach((item) => {

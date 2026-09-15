@@ -5369,6 +5369,10 @@ h1 {
    688px, which is 210mm less two 14mm margins; the matching height is 1017px, not that it can
    be enforced here — and measured there. The remainder is one look at a real print preview,
    which is #179's own conclusion about what a machine here can do. */
+/* Screen-only: the sheet is a second copy of the profile for paper (#325).
+   `aria-hidden` keeps it out of the reader; this keeps it off the screen. */
+.skill-sheet { display: none; }
+
 @media print {
   /* A margin, not a paper size. `size: A4` would put A4 pages on whatever is in the tray, and
      the reader's paper is the reader's business — the layout is fluid and takes either
@@ -5466,4 +5470,49 @@ h1 {
      internal, the file has never had a column for it, and the tick boxes are the whole of what
      the sender chose (#179, from the evaluation). */
   .proposal-card-department { display: none; }
+
+  /* A member skill sheet (#325). The mark is set only by the print button, so
+     Ctrl+P from a proposal that still has the member drawer open keeps printing
+     the proposal. Furniture is scoped to that mark the same way the proposal
+     scopes it to `.proposal-view`. `.drawer` is not listed: it already lives
+     inside `.overlay`, which this block hides on every screen. */
+  html[data-print-document="skill-sheet"] .app-shell .sidebar,
+  html[data-print-document="skill-sheet"] .app-shell .topbar,
+  html[data-print-document="skill-sheet"] .app-shell .workspace { display: none !important; }
+  html[data-print-document="skill-sheet"] .app-shell { display: block; min-height: 0; }
+  html[data-print-document="skill-sheet"] .skill-sheet {
+    display: block;
+    color: #1b2437;
+    background: #fff;
+    overflow-wrap: anywhere;
+  }
+  .skill-sheet-kicker {
+    margin: 0 0 4px;
+    color: #4a5468;
+    font-size: var(--text-min);
+    font-weight: 700;
+  }
+  .skill-sheet-name { margin: 0 0 8px; font-size: 22px; }
+  .skill-sheet-role,
+  .skill-sheet-department,
+  .skill-sheet-location { margin: 0; color: #1b2437; }
+  .skill-sheet-skills,
+  .skill-sheet-history,
+  .skill-sheet-fields { margin-top: 16px; }
+  .skill-sheet-skills h2,
+  .skill-sheet-history h2 {
+    margin: 0 0 8px;
+    font-size: var(--text-sm);
+    color: #4a5468;
+  }
+  .skill-sheet-skills ul { margin: 0; padding: 0; list-style: none; }
+  .skill-sheet-skills li {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 4px 0;
+    border-bottom: 1px solid #b9bfcc;
+  }
+  .skill-sheet-skills small { color: #4a5468; }
+  .skill-sheet-history article { break-inside: avoid; }
 }
