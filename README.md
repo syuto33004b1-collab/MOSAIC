@@ -1,6 +1,6 @@
 # MOSAIC
 
-チームの稼働状況、プロジェクトの要員不足、過負荷を同じ時間軸で確認・調整できる、プロジェクトアサイン管理ツールです。
+チームの稼働状況、プロジェクトの要員不足、過負荷を同じ時間軸で確認・調整できる、プロジェクトアサイン管理ツールです。誰のための道具か、既に決まった非目標、機能を足すときの判断基準は[製品方針](docs/PRODUCT.md)が唯一の出典です。
 
 ## 公開サイト
 
@@ -50,7 +50,7 @@ npm run typecheck
 
 ## 共有運用のセットアップ
 
-業務データは非公開の`app` schemaに置き、ブラウザは認証済みRPCだけを利用します。migration、Auth URL、GitHub Repository Variables、role別検証は[Supabaseセットアップ](docs/SUPABASE_SETUP.md)を参照してください。AIチャットのserver-side APIキー、ローカル実行、Functionデプロイは[AIチャット設定](docs/AI_CHAT.md)に記載しています。外部APIとWebhookは[外部API](docs/EXTERNAL_API.md)を参照してください。Remote MCP Serverは[MCP Server](docs/MCP_SERVER.md)、AI秘書から社外MCPへ接続する出口は[外部MCP Client](docs/MCP_CLIENT.md)を参照してください。リリース、バックアップ、障害対応は[運用手順](docs/OPERATIONS.md)、認可とsecretの境界は[セキュリティ方針](docs/SECURITY.md)に記載しています。
+業務データは非公開の`app` schemaに置き、ブラウザは認証済みRPCだけを利用します。migration、Auth URL、GitHub Repository Variables、role別検証は[Supabaseセットアップ](docs/SUPABASE_SETUP.md)を参照してください。AIチャットのserver-side APIキー、ローカル実行、Functionデプロイは[AIチャット設定](docs/AI_CHAT.md)に記載しています。外部APIとWebhookは[外部API](docs/EXTERNAL_API.md)を参照してください。Remote MCP Serverは[MCP Server](docs/MCP_SERVER.md)、AI秘書から社外MCPへ接続する出口は[外部MCP Client](docs/MCP_CLIENT.md)を参照してください。リリース、バックアップ、障害対応は[運用手順](docs/OPERATIONS.md)、認可とsecretの境界は[セキュリティ方針](docs/SECURITY.md)、製品方針は[製品方針](docs/PRODUCT.md)に記載しています。
 
 `.env.local`には公開可能な接続値だけを設定します。
 
