@@ -106,8 +106,8 @@ describe("the address the reader is standing in", () => {
   const at = (search: string, hash = "") => ({ pathname: "/MOSAIC/", search, hash });
 
   it("keeps a root pathname on the Cloudflare host", () => {
-    expect(shareLocationFor({ pathname: "/", search: "?nav=members" }, { nav: "board" })).toBe("/");
-    expect(shareLocationFor({ pathname: "/", search: "?nav=members&open=saeki" }, { nav: "members" })).toBe("/?nav=members");
+    expect(shareLocationFor({ pathname: "/", search: "?nav=members", hash: "" }, { nav: "board" })).toBe("/");
+    expect(shareLocationFor({ pathname: "/", search: "?nav=members&open=saeki", hash: "" }, { nav: "members" })).toBe("/?nav=members");
   });
 
   it("keeps the path, and everything the share link has no opinion about", () => {
