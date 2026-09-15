@@ -72,7 +72,7 @@ organizationの識別子とCloudflareのaccount IDは書きません。**公開�
 
 ### 対象に含むもの、含まないもの
 
-GeminiのAPIキーを**Supabase Edge Function Secretsへ設定する操作**は、接続先がSupabaseなので上の表に含まれます。**Google側でのキーの発行・失効はこの台帳では承認しません。** 必要になったら利用者に確認します。
+GeminiのAPIキーを**Supabase Edge Function Secretsへ設定する操作**は、接続先がSupabaseなので上の表に含まれます。**Google側でのキーの発行・失効はこの台帳では承認しません。** 必要になったら利用者に確認します。Google ログインの OAuth Client ID / Secret も同じです。発行は Google Cloud、貼付先は正しい Supabase project の Authentication > Providers > Google だけです。GitHub、Worker、リポジトリ、Issue、PR には置きません。
 
 SMTP、監視providerは現在実体がありません。使い始めるときにこの表へ足します。
 

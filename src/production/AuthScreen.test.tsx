@@ -117,3 +117,56 @@ describe("AuthScreen invite onboarding", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("確認用パスワードが一致しません");
   });
 });
+
+describe("AuthScreen Google sign-in", () => {
+  it("hides the Google button unless the flag and handler are both present", () => {
+    const missingHandler = renderAuth({ googleAuthEnabled: true });
+    expect(screen.queryByRole("button", { name: "Google でログイン" })).not.toBeInTheDocument();
+    missingHandler.unmount();
+
+    renderAuth();
+    expect(screen.queryByRole("button", { name: "Google でログイン" })).not.toBeInTheDocument();
+  });
+
+  it("starts Google sign-in without requiring the password form", async () => {
+    const user = userEvent.setup();
+    const onGoogleSignIn = vi.fn().mockResolvedValue(undefined);
+    renderAuth({ googleAuthEnabled: true, onGoogleSignIn });
+
+    await user.click(screen.getByRole("button", { name: "Google でログイン" }));
+
+    expect(onGoogleSignIn).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the password submit label while Google is redirecting", async () => {
+    const user = userEvent.setup();
+    let release: () => void = () => undefined;
+    const onGoogleSignIn = vi.fn().mockImplementation(() => new Promise<void>((resolve) => {
+      release = resolve;
+    }));
+    renderAuth({ googleAuthEnabled: true, onGoogleSignIn });
+
+    await user.click(screen.getByRole("button", { name: "Google でログイン" }));
+
+    expect(screen.getByRole("button", { name: "Google へ移動しています…" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "ログイン" })).toBeDisabled();
+    release();
+    expect(await screen.findByRole("button", { name: "Google でログイン" })).toBeEnabled();
+  });
+
+  it("does not show Google on recovery or onboarding", () => {
+    const onGoogleSignIn = vi.fn();
+    const recovery = renderAuth({ mode: "update-password", googleAuthEnabled: true, onGoogleSignIn });
+    expect(screen.queryByRole("button", { name: "Google でログイン" })).not.toBeInTheDocument();
+    recovery.unmount();
+
+    renderAuth({ mode: "onboard", googleAuthEnabled: true, onGoogleSignIn, onCompleteOnboarding: vi.fn() });
+    expect(screen.queryByRole("button", { name: "Google でログイン" })).not.toBeInTheDocument();
+  });
+
+  it("shows a Google callback error on the login form", () => {
+    renderAuth({ initialError: "Google でのログインをキャンセルしました。メールとパスワードで続けるか、もう一度お試しください。" });
+    expect(screen.getByRole("alert")).toHaveTextContent("キャンセル");
+    expect(screen.queryByRole("button", { name: "再設定メールを送る" })).not.toBeInTheDocument();
+  });
+});

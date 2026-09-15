@@ -5,8 +5,9 @@ import type { User } from "@supabase/supabase-js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { initialWorkspace } from "../domain";
 import { ProductionRepository } from "./repository";
-import { createSharedWorkspaceController, ProductionGate } from "./RootApp";
+import RootApp, { createSharedWorkspaceController, ProductionGate } from "./RootApp";
 import type { MyContext } from "./types";
+import { markOAuthPending } from "./oauthPending";
 
 const supabaseClient = vi.hoisted(() => ({
   auth: {
@@ -15,15 +16,22 @@ const supabaseClient = vi.hoisted(() => ({
   },
 }));
 
+const supabaseRuntime = vi.hoisted(() => ({
+  mode: "configured" as "demo" | "configured" | "invalid",
+}));
+
 vi.mock("../lib/supabase", () => ({
   getSupabaseClient: () => supabaseClient,
-  getSupabaseRuntimeConfiguration: () => ({ mode: "configured" }),
+  getSupabaseRuntimeConfiguration: () => ({ mode: supabaseRuntime.mode }),
 }));
 
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.unstubAllEnvs();
+  supabaseRuntime.mode = "configured";
   window.history.replaceState({}, "", "/");
   window.localStorage.clear();
+  sessionStorage.clear();
 });
 
 describe("shared workspace controller", () => {
@@ -153,6 +161,187 @@ describe("password recovery deep links", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("有効期限が切れています");
     expect(screen.queryByText(/Email link/i)).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "再設定メールを送る" })).toBeInTheDocument();
+  });
+
+  it("opens the password update screen for a bare callback code without an OAuth marker", async () => {
+    const authUser = { id: "00000000-0000-4000-8000-000000000001", email: "member@example.com" } as User;
+    supabaseClient.auth.getUser.mockResolvedValue({ data: { user: authUser }, error: null });
+    supabaseClient.auth.onAuthStateChange.mockImplementation((listener: (event: string, session: { user: User } | null) => void) => {
+      listener("INITIAL_SESSION", { user: authUser });
+      return { data: { subscription: { unsubscribe: vi.fn() } } };
+    });
+    const getMyContext = vi.spyOn(ProductionRepository.prototype, "getMyContext").mockResolvedValue({
+      userId: authUser.id,
+      name: "既存 利用者",
+      email: authUser.email!,
+      organizations: [{ id: "00000000-0000-4000-8000-000000000010", name: "第一組織", role: "viewer" }],
+      invitations: [],
+    });
+    window.history.replaceState({}, "", "/?code=auth-code");
+
+    render(createElement(ProductionGate));
+
+    expect(await screen.findByRole("heading", { level: 2, name: "新しいパスワードを設定" })).toBeInTheDocument();
+    expect(getMyContext).not.toHaveBeenCalled();
+  });
+
+  it("opens the password update screen for an implicit recovery fragment without an OAuth marker", async () => {
+    const authUser = { id: "00000000-0000-4000-8000-000000000001", email: "member@example.com" } as User;
+    supabaseClient.auth.getUser.mockResolvedValue({ data: { user: authUser }, error: null });
+    supabaseClient.auth.onAuthStateChange.mockImplementation((listener: (event: string, session: { user: User } | null) => void) => {
+      listener("INITIAL_SESSION", { user: authUser });
+      return { data: { subscription: { unsubscribe: vi.fn() } } };
+    });
+    const getMyContext = vi.spyOn(ProductionRepository.prototype, "getMyContext").mockResolvedValue({
+      userId: authUser.id,
+      name: "既存 利用者",
+      email: authUser.email!,
+      organizations: [{ id: "00000000-0000-4000-8000-000000000010", name: "第一組織", role: "viewer" }],
+      invitations: [],
+    });
+    window.history.replaceState({}, "", "/#access_token=token&token_type=bearer&type=recovery");
+
+    render(createElement(ProductionGate));
+
+    expect(await screen.findByRole("heading", { level: 2, name: "新しいパスワードを設定" })).toBeInTheDocument();
+    expect(getMyContext).not.toHaveBeenCalled();
+  });
+});
+
+describe("Google OAuth callbacks", () => {
+  it("does not open password recovery after Google returns with an OAuth marker", async () => {
+    const authUser = { id: "00000000-0000-4000-8000-000000000001", email: "member@example.com" } as User;
+    markOAuthPending("google");
+    supabaseClient.auth.getUser.mockResolvedValue({ data: { user: authUser }, error: null });
+    supabaseClient.auth.onAuthStateChange.mockImplementation((listener: (event: string, session: { user: User } | null) => void) => {
+      listener("INITIAL_SESSION", { user: authUser });
+      return { data: { subscription: { unsubscribe: vi.fn() } } };
+    });
+    vi.spyOn(ProductionRepository.prototype, "getMyContext").mockResolvedValue({
+      userId: authUser.id,
+      name: "既存 利用者",
+      email: authUser.email!,
+      organizations: [
+        { id: "00000000-0000-4000-8000-000000000010", name: "第一組織", role: "viewer" },
+        { id: "00000000-0000-4000-8000-000000000011", name: "第二組織", role: "planner" },
+      ],
+      invitations: [],
+    });
+    window.history.replaceState({}, "", "/?code=auth-code");
+
+    render(createElement(ProductionGate));
+
+    expect(await screen.findByRole("heading", { name: "利用する組織を選択" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { level: 2, name: "新しいパスワードを設定" })).not.toBeInTheDocument();
+  });
+
+  it("does not open password recovery after Google returns an implicit token fragment", async () => {
+    const authUser = { id: "00000000-0000-4000-8000-000000000001", email: "member@example.com" } as User;
+    markOAuthPending("google");
+    supabaseClient.auth.getUser.mockResolvedValue({ data: { user: authUser }, error: null });
+    supabaseClient.auth.onAuthStateChange.mockImplementation((listener: (event: string, session: { user: User } | null) => void) => {
+      listener("INITIAL_SESSION", { user: authUser });
+      return { data: { subscription: { unsubscribe: vi.fn() } } };
+    });
+    vi.spyOn(ProductionRepository.prototype, "getMyContext").mockResolvedValue({
+      userId: authUser.id,
+      name: "既存 利用者",
+      email: authUser.email!,
+      organizations: [
+        { id: "00000000-0000-4000-8000-000000000010", name: "第一組織", role: "viewer" },
+        { id: "00000000-0000-4000-8000-000000000011", name: "第二組織", role: "planner" },
+      ],
+      invitations: [],
+    });
+    window.history.replaceState({}, "", "/#access_token=token&token_type=bearer");
+
+    render(createElement(ProductionGate));
+
+    expect(await screen.findByRole("heading", { name: "利用する組織を選択" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { level: 2, name: "新しいパスワードを設定" })).not.toBeInTheDocument();
+  });
+
+  it("keeps invite onboarding when mosaic_invite is set after Google returns", async () => {
+    const authUser = {
+      id: "00000000-0000-4000-8000-000000000001",
+      email: "invitee@example.jp",
+      user_metadata: { mosaic_invite: true },
+    } as unknown as User;
+    markOAuthPending("google");
+    supabaseClient.auth.getUser.mockResolvedValue({ data: { user: authUser }, error: null });
+    supabaseClient.auth.onAuthStateChange.mockImplementation((listener: (event: string, session: { user: User } | null) => void) => {
+      listener("INITIAL_SESSION", { user: authUser });
+      return { data: { subscription: { unsubscribe: vi.fn() } } };
+    });
+    const getMyContext = vi.spyOn(ProductionRepository.prototype, "getMyContext").mockResolvedValue({
+      userId: authUser.id,
+      name: "未設定",
+      email: authUser.email!,
+      organizations: [],
+      invitations: [],
+    });
+    window.history.replaceState({}, "", "/?code=auth-code");
+
+    render(createElement(ProductionGate));
+
+    expect(await screen.findByRole("heading", { level: 2, name: "表示名とパスワードを設定" })).toBeInTheDocument();
+    expect(getMyContext).not.toHaveBeenCalled();
+  });
+
+  it("shows a Google cancel message on the login screen instead of the recovery form", async () => {
+    markOAuthPending("google");
+    supabaseClient.auth.getUser.mockResolvedValue({ data: { user: null }, error: { name: "AuthSessionMissingError" } });
+    supabaseClient.auth.onAuthStateChange.mockReturnValue({ data: { subscription: { unsubscribe: vi.fn() } } });
+    window.history.replaceState({}, "", "/?error=access_denied&error_description=The%20user%20denied%20access");
+
+    render(createElement(ProductionGate));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("キャンセル");
+    expect(screen.queryByText(/user denied/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "再設定メールを送る" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "ログイン" })).toBeInTheDocument();
+  });
+
+  it("explains an uninvited Google account without the recovery copy", async () => {
+    markOAuthPending("google");
+    supabaseClient.auth.getUser.mockResolvedValue({ data: { user: null }, error: { name: "AuthSessionMissingError" } });
+    supabaseClient.auth.onAuthStateChange.mockReturnValue({ data: { subscription: { unsubscribe: vi.fn() } } });
+    window.history.replaceState({}, "", "/?error=access_denied&error_code=signup_disabled");
+
+    render(createElement(ProductionGate));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("招待");
+    expect(screen.queryByRole("button", { name: "再設定メールを送る" })).not.toBeInTheDocument();
+  });
+
+  it("hides the Google button when the flag is off", async () => {
+    vi.stubEnv("VITE_ENABLE_GOOGLE_AUTH", "false");
+    supabaseClient.auth.getUser.mockResolvedValue({ data: { user: null }, error: { name: "AuthSessionMissingError" } });
+    supabaseClient.auth.onAuthStateChange.mockReturnValue({ data: { subscription: { unsubscribe: vi.fn() } } });
+
+    render(createElement(ProductionGate));
+
+    expect(await screen.findByRole("button", { name: "ログイン" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Google でログイン" })).not.toBeInTheDocument();
+  });
+
+  it("shows the Google button when the flag is on", async () => {
+    vi.stubEnv("VITE_ENABLE_GOOGLE_AUTH", "true");
+    supabaseClient.auth.getUser.mockResolvedValue({ data: { user: null }, error: { name: "AuthSessionMissingError" } });
+    supabaseClient.auth.onAuthStateChange.mockReturnValue({ data: { subscription: { unsubscribe: vi.fn() } } });
+
+    render(createElement(ProductionGate));
+
+    expect(await screen.findByRole("button", { name: "Google でログイン" })).toBeInTheDocument();
+  });
+
+  it("does not render the Google button in the demo fallback even when the flag is on", () => {
+    supabaseRuntime.mode = "demo";
+    vi.stubEnv("VITE_ENABLE_GOOGLE_AUTH", "true");
+
+    render(createElement(RootApp));
+
+    expect(screen.queryByRole("button", { name: "Google でログイン" })).not.toBeInTheDocument();
   });
 });
 

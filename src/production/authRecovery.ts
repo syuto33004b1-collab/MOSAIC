@@ -1,4 +1,7 @@
+import { peekOAuthPending } from "./oauthPending";
+
 const EXPIRED_CODES = new Set(["otp_expired", "flow_state_expired"]);
+const SIGNUP_DISABLED_CODES = new Set(["signup_disabled", "user_not_allowed"]);
 const ERROR_KEYS = ["error", "error_code", "error_description", "error_uri"] as const;
 const CALLBACK_KEYS = ["code", "type", "access_token", "refresh_token", "token_type", "expires_in", "expires_at"];
 
@@ -23,6 +26,28 @@ export function passwordRecoveryLinkError(search = "", hash = "") {
   return "リンクを利用できません。もう一度メールを送信するか、管理者に連絡してください。";
 }
 
+export function oauthCallbackError(search = "", hash = "") {
+  const { query, fragment } = callbackParams(search, hash);
+  const error = query.get("error") ?? fragment.get("error");
+  const code = query.get("error_code") ?? fragment.get("error_code");
+  if (!error && !code) return "";
+  if (code && SIGNUP_DISABLED_CODES.has(code)) {
+    return "この Google アカウントではログインできません。組織の管理者から招待を受けた方だけが利用できます。";
+  }
+  if (error === "access_denied" && (!code || code === "access_denied")) {
+    return "Google でのログインをキャンセルしました。メールとパスワードで続けるか、もう一度お試しください。";
+  }
+  return "Google でログインできませんでした。もう一度お試しください。";
+}
+
+export function authCallbackNotice(search = "", hash = "") {
+  if (peekOAuthPending()) {
+    const oauthError = oauthCallbackError(search, hash);
+    if (oauthError) return { recoveryError: "", oauthError };
+  }
+  return { recoveryError: passwordRecoveryLinkError(search, hash), oauthError: "" };
+}
+
 export function isInviteCallback(search = "", hash = "") {
   const { query, fragment } = callbackParams(search, hash);
   return query.get("type") === "invite" || fragment.get("type") === "invite";
@@ -36,8 +61,10 @@ export function hasAuthCallbackParams(search = "", hash = "") {
   const { query, fragment } = callbackParams(search, hash);
   return Boolean(
     query.get("code")
+    || query.get("error")
     || query.get("type") === "recovery"
     || query.get("type") === "invite"
+    || fragment.get("error")
     || fragment.get("type") === "recovery"
     || fragment.get("type") === "invite"
     || fragment.get("access_token"),

@@ -1,5 +1,10 @@
-import { describe, expect, it } from "vitest";
-import { appAuthRedirectUrl, hasAuthCallbackParams, passwordRecoveryLinkError } from "./authRecovery";
+import { afterEach, describe, expect, it } from "vitest";
+import { appAuthRedirectUrl, authCallbackNotice, hasAuthCallbackParams, oauthCallbackError, passwordRecoveryLinkError } from "./authRecovery";
+import { markOAuthPending } from "./oauthPending";
+
+afterEach(() => {
+  sessionStorage.clear();
+});
 
 describe("password recovery callback helpers", () => {
   it("builds the current origin and app base as the reset redirect", () => {
@@ -33,6 +38,39 @@ describe("password recovery callback helpers", () => {
     expect(hasAuthCallbackParams("?code=pkce-code", "")).toBe(true);
     expect(hasAuthCallbackParams("", "#type=recovery&access_token=token")).toBe(true);
     expect(hasAuthCallbackParams("?type=invite&code=pkce-code", "")).toBe(true);
+    expect(hasAuthCallbackParams("?error=access_denied", "")).toBe(true);
     expect(hasAuthCallbackParams("?invitation=abc", "")).toBe(false);
+  });
+});
+
+describe("OAuth callback errors", () => {
+  it("maps cancel and signup-disabled without exposing provider text", () => {
+    const cancelled = oauthCallbackError("?error=access_denied&error_description=The+user+denied", "");
+    expect(cancelled).toContain("キャンセル");
+    expect(cancelled).not.toContain("denied");
+
+    const blocked = oauthCallbackError("?error=access_denied&error_code=signup_disabled&error_description=Signups+not+allowed", "");
+    expect(blocked).toContain("招待");
+    expect(blocked).not.toContain("Signups");
+    expect(blocked).not.toContain("signup_disabled");
+
+    const other = oauthCallbackError("?error=server_error&error_code=unexpected_failure", "");
+    expect(other).toContain("Google でログインできませんでした");
+    expect(other).not.toContain("unexpected_failure");
+
+    const deniedUnknown = oauthCallbackError("?error=access_denied&error_code=unexpected_failure", "");
+    expect(deniedUnknown).toContain("Google でログインできませんでした");
+    expect(deniedUnknown).not.toContain("キャンセル");
+    expect(deniedUnknown).not.toContain("unexpected_failure");
+  });
+
+  it("classifies a pending OAuth error separately from a recovery link error", () => {
+    expect(authCallbackNotice("?error=access_denied", "").recoveryError).toContain("利用できません");
+    expect(authCallbackNotice("?error=access_denied", "").oauthError).toBe("");
+
+    markOAuthPending("google");
+    const pending = authCallbackNotice("?error=access_denied", "");
+    expect(pending.oauthError).toContain("キャンセル");
+    expect(pending.recoveryError).toBe("");
   });
 });

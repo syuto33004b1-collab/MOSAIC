@@ -21,6 +21,7 @@ jobs:
       VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
       VITE_SUPABASE_PUBLISHABLE_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}
       VITE_REQUIRE_SHARED_MODE: ${{ vars.VITE_REQUIRE_SHARED_MODE }}
+      VITE_ENABLE_GOOGLE_AUTH: ${{ vars.VITE_ENABLE_GOOGLE_AUTH }}
       VITE_APP_ENV: production
       VITE_RELEASE: ${{ github.sha }}
     steps:
@@ -38,6 +39,10 @@ jobs:
         run: |
           if [[ -n "$VITE_REQUIRE_SHARED_MODE" && "$VITE_REQUIRE_SHARED_MODE" != "true" && "$VITE_REQUIRE_SHARED_MODE" != "false" ]]; then
             echo "::error::VITE_REQUIRE_SHARED_MODE must be true or false."
+            exit 1
+          fi
+          if [[ -n "$VITE_ENABLE_GOOGLE_AUTH" && "$VITE_ENABLE_GOOGLE_AUTH" != "true" && "$VITE_ENABLE_GOOGLE_AUTH" != "false" ]]; then
+            echo "::error::VITE_ENABLE_GOOGLE_AUTH must be true or false."
             exit 1
           fi
           if [[ -z "$VITE_SUPABASE_URL" && -z "$VITE_SUPABASE_PUBLISHABLE_KEY" ]]; then

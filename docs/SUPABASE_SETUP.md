@@ -25,6 +25,7 @@ VITE_SUPABASE_URL=https://PROJECT_REF.supabase.co
 VITE_SUPABASE_PUBLISHABLE_KEY=sb_publishable_REPLACE_ME
 VITE_APP_ENV=development
 VITE_REQUIRE_SHARED_MODE=false
+VITE_ENABLE_GOOGLE_AUTH=false
 ```
 
 本番フロントエンドのビルドでは同じ2つの接続値をRepository Variablesとして設定します。publishable keyはブラウザへ公開される前提のkeyです。安全性はkeyの秘匿ではなく、Auth、RLS、明示的な権限で担保します。
@@ -51,7 +52,7 @@ Supabase AuthのSite URLと許可redirect URLを、実際に利用するURLへ�
 - Local `supabase/config.toml`: `site_url` は localhost。`additional_redirect_urls` に上の3本。この節はローカル専用で hosted へ `config push` しない（push すると hosted の Site URL が localhost で上書きされる）。
 - OG / twitter:image: `index.html` はまだ旧 Pages。別 Issue。
 
-パスワード再設定メールと招待メールの戻り先も、この許可リストのURLだけを使います。
+パスワード再設定メールと招待メールの戻り先も、この許可リストのURLだけを使います。Google ログインの `redirectTo` も同じ組み立てです。Hosted Auth の Site URL が旧 Pages のままでも、アプリが `redirectTo` を明示するので OAuth の戻りは成立します。Site URL の付け替えは今段の対象外です。
 
 接続後に次を確認します。
 
@@ -69,6 +70,32 @@ Authentication設定では、Email providerの`Allow new users to sign up`を無
 初期ownerは、Supabase DashboardのAuthentication > Usersから招待するか、secretを保持できる信頼済みbackendからAdmin APIで作成します。2人目以降はMOSAICの運用パネルから招待します。招待Edge Function `invite` が組織RPC `invite_member` を実行したあと、サーバー側のAdmin APIでAuth招待メールを送ります。Admin APIや`service_role`をMOSAICのブラウザへ追加してはいけません。公開の自己サインアップは無効のままです。
 
 招待メールを使う場合は本番SMTP、送信元domain、リンク期限、password resetを先に検証します。Cloudflare のデプロイはフロントエンドだけを更新するため、Function本体は別にデプロイします。`--no-verify-jwt`は付けません。
+
+## Google ログイン
+
+公開サインアップは無効のままです。Google は招待済みの Auth user が別の方法で入る経路であり、未招待アカウントの登録導線ではありません。Hosted で `Allow new users to sign up` が Google の新規 Auth user も拒否することを、接続後に実測します。拒否されなければこの手順では hook を足さず、そこで打ち切ります。
+
+Google Cloud での OAuth Client 発行と、Dashboard への Client ID / Secret 貼付は利用者作業です。エージェントは代行しません。値はリポジトリ、Worker、GitHub Variables、Issue、PR に置きません。正しい Supabase project の Authentication > Providers > Google へだけ設定します。照合は[セキュリティ方針のアカウント境界](SECURITY.md#アカウント境界)です。
+
+設定する値。
+
+- Google Cloud のアプリケーションの種類はウェブアプリケーション。
+- Authorized redirect URI は `https://<PROJECT_REF>.supabase.co/auth/v1/callback` だけ。アプリの公開 URL をここに置かない。`PROJECT_REF` の実値はアカウント境界を見る。
+- Authorized JavaScript origins に本番フロント `https://mosaic.taps-desk.workers.dev` とローカル `http://127.0.0.1:5173` を置く。
+- Skip nonce check は本番 Web では有効化しない。
+- 同じ検証済みメールのパスワードアカウントと Google は、Supabase 既定の Automatic Linking に任せる。Manual Linking は使わない（`enable_manual_linking = false`）。アプリから `linkIdentity` しない。
+
+フロントのボタンは Repository Variable `VITE_ENABLE_GOOGLE_AUTH=true` のときだけ出ます。既定はオフです。provider を入れる前にボタンを本番へ出さないためです。有効化したあとにフラグを消す作業は別 Issue に残します。
+
+Google で戻ったあとも、招待オンボードは表示名とパスワードの設定を求めます。今段では Google を理由にパスワードを省略しません。
+
+接続後に次も確認します。エージェントは Google アカウントでのログインを代行しません。
+
+1. 未招待の Google アカウントでは Auth user が作られず、ログインできない。
+2. 招待済みでリンク未クリックのメールに、同じ Google アカウントで入れるか（同一検証済みメールの Automatic Linking の実測）。
+3. 招待完了（パスワード設定済み）のあと、同じメールの Google で入れる。
+4. Google 側でキャンセルすると、再設定リンクの案内ではなくキャンセルの案内になる。
+5. ログイン画面の Google ボタンは `VITE_ENABLE_GOOGLE_AUTH=true` の共有モードだけで出る。デモフォールバックには出ない。
 
 ```powershell
 npm exec supabase -- functions deploy invite --project-ref PROJECT_REF
