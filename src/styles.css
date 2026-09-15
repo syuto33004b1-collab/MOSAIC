@@ -5285,6 +5285,7 @@ h1 {
 .role-permission-features legend,
 .role-permission-fields legend { color: var(--muted-readable); font-size: var(--text-min); font-weight: 700; }
 .role-permission-form .role-permission-note { grid-column: 1 / -1; margin: 0; }
+.role-permission-fields .role-permission-note { flex: 1 0 100%; }
 
 .profile-request-card { margin: 0 0 12px; }
 .profile-request-form { grid-template-columns: minmax(0, 1fr) 160px minmax(0, 1.2fr); }
