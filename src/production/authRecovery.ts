@@ -34,7 +34,7 @@ export function oauthCallbackError(search = "", hash = "") {
   if (code && SIGNUP_DISABLED_CODES.has(code)) {
     return "この Google アカウントではログインできません。組織の管理者から招待を受けた方だけが利用できます。";
   }
-  if (error === "access_denied") {
+  if (error === "access_denied" && (!code || code === "access_denied")) {
     return "Google でのログインをキャンセルしました。メールとパスワードで続けるか、もう一度お試しください。";
   }
   return "Google でログインできませんでした。もう一度お試しください。";

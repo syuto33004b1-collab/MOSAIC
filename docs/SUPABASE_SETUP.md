@@ -83,7 +83,7 @@ Google Cloud での OAuth Client 発行と、Dashboard への Client ID / Secret
 - Authorized redirect URI は `https://<PROJECT_REF>.supabase.co/auth/v1/callback` だけ。アプリの公開 URL をここに置かない。`PROJECT_REF` の実値はアカウント境界を見る。
 - Authorized JavaScript origins に本番フロント `https://mosaic.taps-desk.workers.dev` とローカル `http://127.0.0.1:5173` を置く。
 - Skip nonce check は本番 Web では有効化しない。
-- 同じメールのパスワードアカウントと Google は Automatic linking に任せる。アプリから `linkIdentity` しない。
+- 同じ検証済みメールのパスワードアカウントと Google は、Supabase 既定の Automatic Linking に任せる。Manual Linking は使わない（`enable_manual_linking = false`）。アプリから `linkIdentity` しない。
 
 フロントのボタンは Repository Variable `VITE_ENABLE_GOOGLE_AUTH=true` のときだけ出ます。既定はオフです。provider を入れる前にボタンを本番へ出さないためです。有効化したあとにフラグを消す作業は別 Issue に残します。
 
@@ -92,7 +92,7 @@ Google で戻ったあとも、招待オンボードは表示名とパスワー�
 接続後に次も確認します。エージェントは Google アカウントでのログインを代行しません。
 
 1. 未招待の Google アカウントでは Auth user が作られず、ログインできない。
-2. 招待済みでリンク未クリックのメールに、同じ Google アカウントで入れるか（Automatic linking の実測）。
+2. 招待済みでリンク未クリックのメールに、同じ Google アカウントで入れるか（同一検証済みメールの Automatic Linking の実測）。
 3. 招待完了（パスワード設定済み）のあと、同じメールの Google で入れる。
 4. Google 側でキャンセルすると、再設定リンクの案内ではなくキャンセルの案内になる。
 5. ログイン画面の Google ボタンは `VITE_ENABLE_GOOGLE_AUTH=true` の共有モードだけで出る。デモフォールバックには出ない。

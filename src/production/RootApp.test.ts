@@ -163,7 +163,7 @@ describe("password recovery deep links", () => {
     expect(screen.getByRole("button", { name: "再設定メールを送る" })).toBeInTheDocument();
   });
 
-  it("opens the password update screen for a bare PKCE code without an OAuth marker", async () => {
+  it("opens the password update screen for a bare callback code without an OAuth marker", async () => {
     const authUser = { id: "00000000-0000-4000-8000-000000000001", email: "member@example.com" } as User;
     supabaseClient.auth.getUser.mockResolvedValue({ data: { user: authUser }, error: null });
     supabaseClient.auth.onAuthStateChange.mockImplementation((listener: (event: string, session: { user: User } | null) => void) => {
@@ -177,7 +177,29 @@ describe("password recovery deep links", () => {
       organizations: [{ id: "00000000-0000-4000-8000-000000000010", name: "第一組織", role: "viewer" }],
       invitations: [],
     });
-    window.history.replaceState({}, "", "/?code=pkce-code");
+    window.history.replaceState({}, "", "/?code=auth-code");
+
+    render(createElement(ProductionGate));
+
+    expect(await screen.findByRole("heading", { level: 2, name: "新しいパスワードを設定" })).toBeInTheDocument();
+    expect(getMyContext).not.toHaveBeenCalled();
+  });
+
+  it("opens the password update screen for an implicit recovery fragment without an OAuth marker", async () => {
+    const authUser = { id: "00000000-0000-4000-8000-000000000001", email: "member@example.com" } as User;
+    supabaseClient.auth.getUser.mockResolvedValue({ data: { user: authUser }, error: null });
+    supabaseClient.auth.onAuthStateChange.mockImplementation((listener: (event: string, session: { user: User } | null) => void) => {
+      listener("INITIAL_SESSION", { user: authUser });
+      return { data: { subscription: { unsubscribe: vi.fn() } } };
+    });
+    const getMyContext = vi.spyOn(ProductionRepository.prototype, "getMyContext").mockResolvedValue({
+      userId: authUser.id,
+      name: "既存 利用者",
+      email: authUser.email!,
+      organizations: [{ id: "00000000-0000-4000-8000-000000000010", name: "第一組織", role: "viewer" }],
+      invitations: [],
+    });
+    window.history.replaceState({}, "", "/#access_token=token&token_type=bearer&type=recovery");
 
     render(createElement(ProductionGate));
 
@@ -187,7 +209,7 @@ describe("password recovery deep links", () => {
 });
 
 describe("Google OAuth callbacks", () => {
-  it("does not open password recovery after Google returns a bare PKCE code", async () => {
+  it("does not open password recovery after Google returns with an OAuth marker", async () => {
     const authUser = { id: "00000000-0000-4000-8000-000000000001", email: "member@example.com" } as User;
     markOAuthPending("google");
     supabaseClient.auth.getUser.mockResolvedValue({ data: { user: authUser }, error: null });
@@ -205,7 +227,33 @@ describe("Google OAuth callbacks", () => {
       ],
       invitations: [],
     });
-    window.history.replaceState({}, "", "/?code=pkce-code");
+    window.history.replaceState({}, "", "/?code=auth-code");
+
+    render(createElement(ProductionGate));
+
+    expect(await screen.findByRole("heading", { name: "利用する組織を選択" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { level: 2, name: "新しいパスワードを設定" })).not.toBeInTheDocument();
+  });
+
+  it("does not open password recovery after Google returns an implicit token fragment", async () => {
+    const authUser = { id: "00000000-0000-4000-8000-000000000001", email: "member@example.com" } as User;
+    markOAuthPending("google");
+    supabaseClient.auth.getUser.mockResolvedValue({ data: { user: authUser }, error: null });
+    supabaseClient.auth.onAuthStateChange.mockImplementation((listener: (event: string, session: { user: User } | null) => void) => {
+      listener("INITIAL_SESSION", { user: authUser });
+      return { data: { subscription: { unsubscribe: vi.fn() } } };
+    });
+    vi.spyOn(ProductionRepository.prototype, "getMyContext").mockResolvedValue({
+      userId: authUser.id,
+      name: "既存 利用者",
+      email: authUser.email!,
+      organizations: [
+        { id: "00000000-0000-4000-8000-000000000010", name: "第一組織", role: "viewer" },
+        { id: "00000000-0000-4000-8000-000000000011", name: "第二組織", role: "planner" },
+      ],
+      invitations: [],
+    });
+    window.history.replaceState({}, "", "/#access_token=token&token_type=bearer");
 
     render(createElement(ProductionGate));
 
@@ -232,7 +280,7 @@ describe("Google OAuth callbacks", () => {
       organizations: [],
       invitations: [],
     });
-    window.history.replaceState({}, "", "/?code=pkce-code");
+    window.history.replaceState({}, "", "/?code=auth-code");
 
     render(createElement(ProductionGate));
 

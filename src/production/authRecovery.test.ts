@@ -57,6 +57,11 @@ describe("OAuth callback errors", () => {
     const other = oauthCallbackError("?error=server_error&error_code=unexpected_failure", "");
     expect(other).toContain("Google でログインできませんでした");
     expect(other).not.toContain("unexpected_failure");
+
+    const deniedUnknown = oauthCallbackError("?error=access_denied&error_code=unexpected_failure", "");
+    expect(deniedUnknown).toContain("Google でログインできませんでした");
+    expect(deniedUnknown).not.toContain("キャンセル");
+    expect(deniedUnknown).not.toContain("unexpected_failure");
   });
 
   it("classifies a pending OAuth error separately from a recovery link error", () => {
