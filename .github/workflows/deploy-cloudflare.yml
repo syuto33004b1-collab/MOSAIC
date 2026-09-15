@@ -74,6 +74,7 @@ jobs:
           if-no-files-found: error
 
   deploy:
+    if: github.ref == 'refs/heads/main'
     environment: cloudflare
     runs-on: ubuntu-latest
     needs: build
@@ -104,6 +105,7 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          wranglerVersion: "4.131.2"
           command: deploy
       - name: Verify deployed entry point
         shell: bash
