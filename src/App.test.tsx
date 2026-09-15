@@ -3227,12 +3227,13 @@ describe("the board can show a month", () => {
 });
 
 /**
- * #140. The proposal screen let you build a shortlist of up to twelve people,
- * optionally anonymised, and never said what they were being proposed *for*. The
- * app has staffing needs on confirmed projects and staffing plans on
- * opportunities, each with a role, a period, an allocation and required skills,
- * and the screen was connected to none of it. Its only output — the share link —
- * was in the command palette, so a reader of the screen had no way to finish.
+ * #140. The proposal screen let you build a shortlist of up to twelve people
+ * and never said what they were being proposed *for*. A later display mode that
+ * hid names is gone (#332). The app has staffing needs on confirmed projects
+ * and staffing plans on opportunities, each with a role, a period, an allocation
+ * and required skills, and the screen was connected to none of it. Its only
+ * output — the share link — was in the command palette, so a reader of the
+ * screen had no way to finish.
  */
 describe("a proposal answers something", () => {
   const openProposal = async () => {
@@ -3245,7 +3246,7 @@ describe("a proposal answers something", () => {
 
   it("says what the screen is for before a subject is picked", async () => {
     await openProposal();
-    // Not 「氏名を隠して候補を比較します」, which described a display mode.
+    // The ribbon names the job — pick a subject — not a former display mode (#332).
     expect(ribbon()).toContain("提案先を選ぶと、要件に合う候補から並びます");
     expect(screen.getByLabelText("提案先を選ぶ")).toBeInTheDocument();
   });

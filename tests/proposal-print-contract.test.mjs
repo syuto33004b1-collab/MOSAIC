@@ -200,7 +200,7 @@ test("nothing rides along with a field that was chosen", async () => {
  * here. A line per card certainly prints.
  *
  * What this holds is that the line is paper-only and reaches paper. Its content — the
- * subject and the display mode — is in `src/App.test.tsx`, where there is a DOM.
+ * subject — is in `src/App.test.tsx`, where there is a DOM.
  */
 test("every printed candidate says whose proposal it is", async () => {
   const [body] = await printBlock();
