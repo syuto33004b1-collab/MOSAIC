@@ -208,7 +208,17 @@ export type StaffingNeed = {
   allocation: number;
   status: NeedStatus;
   draftPersonId?: string | null;
+  /**
+   * People being considered for this need. Not the person who is planned or
+   * filled — that stays `draftPersonId`. Missing and `[]` mean the same in
+   * memory; the save payload treats a missing key as “leave the stored rows”.
+   */
+  candidatePersonIds?: string[];
 };
+
+export function needCandidatePersonIds(need: Pick<StaffingNeed, "candidatePersonIds"> | undefined) {
+  return need?.candidatePersonIds ?? [];
+}
 
 export type OpportunityStage = "inquiry" | "proposal" | "negotiation" | "won" | "lost";
 
@@ -479,8 +489,8 @@ const assignments: Assignment[] = [
 ];
 
 const needs: StaffingNeed[] = [
-  { id: "need-mobile-qa", projectId: "mobile", role: "QA Engineer", skills: ["QA", "Mobile"], skillRequirements: [{ name: "QA", minProficiency: 3 }, { name: "Mobile", minProficiency: 3 }], startDate: "2026-08-24", endDate: "2026-09-04", allocation: 60, status: "open" },
-  { id: "need-orion-be", projectId: "orion", role: "Backend Engineer", skills: ["API", "AWS"], skillRequirements: [{ name: "API", minProficiency: 3 }, { name: "AWS", minProficiency: 4 }], startDate: "2026-08-31", endDate: "2026-09-30", allocation: 40, status: "open" },
+  { id: "need-mobile-qa", projectId: "mobile", role: "QA Engineer", skills: ["QA", "Mobile"], skillRequirements: [{ name: "QA", minProficiency: 3 }, { name: "Mobile", minProficiency: 3 }], startDate: "2026-08-24", endDate: "2026-09-04", allocation: 60, status: "open", candidatePersonIds: ["matsumoto", "okada"] },
+  { id: "need-orion-be", projectId: "orion", role: "Backend Engineer", skills: ["API", "AWS"], skillRequirements: [{ name: "API", minProficiency: 3 }, { name: "AWS", minProficiency: 4 }], startDate: "2026-08-31", endDate: "2026-09-30", allocation: 40, status: "open", candidatePersonIds: [] },
 ];
 
 const opportunities: Opportunity[] = [
@@ -2112,6 +2122,7 @@ export function convertOpportunityToProject(
       allocation: need.allocation,
       status: "open",
       draftPersonId: null,
+      candidatePersonIds: [],
     };
   });
   return hydrateWorkspaceSkills({

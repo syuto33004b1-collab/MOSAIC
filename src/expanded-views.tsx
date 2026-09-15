@@ -78,6 +78,7 @@ import {
   openNeeds,
   matchScoreMax,
   memberById,
+  needCandidatePersonIds,
   memberDailyLoads,
   weekendDatesBetween,
   memberLabel,
@@ -194,6 +195,8 @@ type ProposalViewProps = {
   onSelectedIdsChange: (ids: string[]) => void;
   onOpenMember: (memberId: string) => void;
   onToggleFavorite?: (memberId: string) => void;
+  canEdit?: boolean;
+  onToggleNeedCandidate?: (needId: string, personId: string, pinned: boolean) => void;
 };
 
 type ReportsViewProps = {
@@ -1147,6 +1150,8 @@ export function ProposalView({
   onToggleFavorite,
   needId,
   onNeedIdChange,
+  canEdit = false,
+  onToggleNeedCandidate,
 }: ProposalViewProps) {
   const [pickerQuery, setPickerQuery] = useState("");
   /** Which columns the file carries. Minimal until the sender adds to it (#148). */
@@ -1184,6 +1189,14 @@ export function ProposalView({
     })),
   ];
   const subject = subjects.find((item) => item.id === needId);
+  const staffingNeedId = needId?.startsWith("need:") ? needId.slice("need:".length) : undefined;
+  const savedNeed = staffingNeedId
+    ? (state.needs ?? []).find((need) => need.id === staffingNeedId)
+    : undefined;
+  const savedCandidateIds = needCandidatePersonIds(savedNeed);
+  const savedCandidateMembers = savedCandidateIds
+    .map((id) => memberById(state, id))
+    .filter((member): member is Member => member != null && !selectedIds.includes(member.id));
   const matches = subject ? matchMembers(state, searchSceneFromNeed(subject.need)) : [];
   const matchById = new Map(matches.map((match) => [match.member.id, match]));
 
@@ -1299,6 +1312,18 @@ export function ProposalView({
       <div className="proposal-layout">
         <aside className="proposal-picker">
           <label className="inline-search"><Search size={15} /><input value={pickerQuery} onChange={(event) => setPickerQuery(event.target.value)} placeholder="候補を検索して追加" aria-label="提案に追加するメンバーを検索" /></label>
+          {savedCandidateMembers.length > 0 && (
+            <div className="proposal-picker-group">
+              <small>この要件の候補</small>
+              {savedCandidateMembers.map((member) => (
+                <button type="button" key={member.id} className="proposal-picker-item" onClick={() => addMember(member.id)} disabled={selectedIds.length >= MAX_PROPOSAL_MEMBERS}>
+                  <span className={"avatar " + member.avatarTone}>{member.initials}</span>
+                  <span className="proposal-picker-copy"><strong>{memberLabel(state, member)}</strong><small>{member.role}</small></span>
+                  <Plus size={14} />
+                </button>
+              ))}
+            </div>
+          )}
           {favoriteMembers.length > 0 && (
             <div className="proposal-picker-group">
               <small>お気に入り</small>
@@ -1367,6 +1392,16 @@ export function ProposalView({
                     <small className="proposal-card-location">{member.location}</small>
                   </div>
                   {onToggleFavorite && <FavoriteStar name={memberLabel(state, member)} pressed={isFavorited(favorites, "member", member.id)} onToggle={() => onToggleFavorite(member.id)} />}
+                  {canEdit && savedNeed && onToggleNeedCandidate && (
+                    <button
+                      type="button"
+                      className="proposal-pin"
+                      aria-pressed={savedCandidateIds.includes(member.id)}
+                      onClick={() => onToggleNeedCandidate(savedNeed.id, member.id, !savedCandidateIds.includes(member.id))}
+                    >
+                      {savedCandidateIds.includes(member.id) ? "要件から外す" : "この要件に残す"}
+                    </button>
+                  )}
                   <button type="button" className="proposal-remove" onClick={() => onSelectedIdsChange(selectedIds.filter((id) => id !== member.id))}>外す</button>
                 </header>
                 <div className="member-skills">{memberSkillLevels(member).slice(0, 4).map((level) => <span key={level.name}>{level.name}<small>{level.proficiency}</small></span>)}</div>

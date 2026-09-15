@@ -383,6 +383,29 @@ describe("production repository response adapters", () => {
     expect(payload.needs?.upsert).toEqual([expect.objectContaining({ id: originalNeed.id, status: "open", draftPersonId: null })]);
   });
 
+  it("keeps candidatePersonIds when normalizing a need and sends a candidate-only change", () => {
+    const workspace = normalizeWorkspace({
+      workspaceRevision: 3,
+      ...initialWorkspace,
+      needs: initialWorkspace.needs.map((need, index) => index === 0
+        ? { ...need, candidatePersonIds: ["00000000-0000-4000-8000-000000000301"] }
+        : need),
+    });
+    expect(workspace.state.needs[0].candidatePersonIds).toEqual(["00000000-0000-4000-8000-000000000301"]);
+
+    const previous = initialWorkspace;
+    const changed = {
+      ...previous,
+      needs: previous.needs.map((need, index) => index === 0
+        ? { ...need, candidatePersonIds: ["saeki", "nakamura"] }
+        : need),
+    };
+    const payload = workspaceChangesPayload(changed, previous, "planner");
+    expect(payload.needs?.upsert).toEqual([
+      expect.objectContaining({ id: previous.needs[0].id, candidatePersonIds: ["saeki", "nakamura"] }),
+    ]);
+  });
+
   it("sends a detached assignment update and reopened need in one payload", () => {
     const originalAssignment = {
       ...initialWorkspace.assignments[0],

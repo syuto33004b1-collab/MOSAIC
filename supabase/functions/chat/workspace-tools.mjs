@@ -1496,7 +1496,7 @@ export function readWorkspaceTool(snapshot, name, args, caller) {
     .filter((need) => includesSkills(need.skills, filters.skills))
     .filter((need) => overlaps(need, filters.startDate, filters.endDate))
     .filter((need) => !filters.id || need.id === filters.id)
-    .map((need) => ({ id: need.id, projectId: need.projectId, projectName: projects.get(need.projectId)?.name ?? null, role: need.role, skills: need.skills ?? [], ...(Array.isArray(need.skillRequirements) && need.skillRequirements.length ? { skillRequirements: need.skillRequirements } : {}), startDate: need.startDate, endDate: need.endDate, allocation: Number(need.allocation), status: need.status, draftPersonId: need.draftPersonId ?? null, draftPersonName: members.get(need.draftPersonId)?.name ?? null }));
+    .map((need) => ({ id: need.id, projectId: need.projectId, projectName: projects.get(need.projectId)?.name ?? null, role: need.role, skills: need.skills ?? [], ...(Array.isArray(need.skillRequirements) && need.skillRequirements.length ? { skillRequirements: need.skillRequirements } : {}), startDate: need.startDate, endDate: need.endDate, allocation: Number(need.allocation), status: need.status, draftPersonId: need.draftPersonId ?? null, draftPersonName: members.get(need.draftPersonId)?.name ?? null, candidatePersonIds: need.candidatePersonIds ?? [], candidatePersonNames: (need.candidatePersonIds ?? []).map((id) => members.get(id)?.name ?? null) }));
   return { resource: filters.resource, revision: state.revision, ...bounded(values, filters.limit) };
 }
 
@@ -1693,7 +1693,14 @@ function workspacePayload(next, previous) {
   const assignmentUpsert = changedRows(next.assignments, previous.assignments);
   const assignmentCancel = removedIds(next.assignments, previous.assignments);
   if (assignmentUpsert.length || assignmentCancel.length) payload.assignments = { upsert: assignmentUpsert, cancelIds: assignmentCancel };
-  const needUpsert = changedRows(next.needs, previous.needs);
+  const needUpsert = changedRows(next.needs, previous.needs).map((need) => {
+    // AI tools do not write the consideration list. Sending the nested key
+    // would replace the stored rows (empty or not). Omit it so the
+    // three-valued contract leaves them (#324).
+    const row = { ...need };
+    delete row.candidatePersonIds;
+    return row;
+  });
   const needCancel = removedIds(next.needs, previous.needs);
   if (needUpsert.length || needCancel.length) payload.needs = { upsert: needUpsert, cancelIds: needCancel };
   const catalogUpsert = changedRows(next.skillCatalog ?? [], previous.skillCatalog ?? []);
