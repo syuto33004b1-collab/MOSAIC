@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import axe from "axe-core";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -3542,6 +3542,94 @@ describe("a proposal answers something", () => {
     expect(cards).toContain(name);
     expect(cards).toContain(location);
     expect(cards).not.toMatch(/候補[A-Z]/u);
+  });
+});
+
+/**
+ * #324. The picker and `members=` stay a shortlist. A staffing need keeps its
+ * own consideration list, written only by the pin, and still readable after
+ * the screen is closed. `plan:` is unchanged — those candidates still live
+ * only in the URL.
+ */
+describe("a staffing need keeps its own candidates", () => {
+  it("pins a picked person onto the need without replacing the picker", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: "提案" }));
+    await user.selectOptions(screen.getByLabelText("提案先を選ぶ"), "need:need-mobile-qa");
+    const outsider = initialWorkspace.members.find((member) => member.id === "saeki")!;
+    await user.click(screen.getAllByRole("button", { name: new RegExp(outsider.name) })[0]);
+    expect(screen.queryByRole("button", { name: "デモへ保存" })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "この要件に残す" }));
+    expect(screen.getByRole("button", { name: "デモへ保存" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "要件から外す" })).toBeInTheDocument();
+    expect([...document.querySelectorAll(".proposal-card h3")].map((el) => el.textContent)).toContain(outsider.name);
+  });
+
+  it("does not offer the pin to a viewer, and a members link does not mark the workspace dirty", async () => {
+    window.history.replaceState({}, "", "?nav=proposal&need=need:need-mobile-qa&members=saeki");
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "閲覧 太郎", email: "viewer@example.com", role: "viewer" }} shared={sharedAdapter()} />);
+    expect((screen.getByLabelText("提案先を選ぶ") as HTMLSelectElement).value).toBe("need:need-mobile-qa");
+    expect(document.querySelector(".proposal-card h3")!.textContent).toBe("佐伯 優斗");
+    expect(screen.queryByRole("button", { name: "この要件に残す" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "チームへ保存" })).not.toBeInTheDocument();
+  });
+
+  it("keeps the picker when the subject changes", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: "提案" }));
+    const first = document.querySelector(".proposal-picker-item") as HTMLElement;
+    const name = first.querySelector("strong")!.textContent!;
+    await user.click(first);
+    await user.selectOptions(screen.getByLabelText("提案先を選ぶ"), "need:need-mobile-qa");
+    await user.selectOptions(screen.getByLabelText("提案先を選ぶ"), "need:need-orion-be");
+    expect([...document.querySelectorAll(".proposal-card h3")].map((el) => el.textContent)).toEqual([name]);
+    expect(screen.queryByRole("button", { name: "この要件に残す" })).toBeInTheDocument();
+  });
+
+  it("shows saved candidates in the need drawer for none, one, and several", async () => {
+    const user = userEvent.setup();
+    const openNeedFromProject = async (projectName: string, role: string) => {
+      await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^プロジェクト/u }));
+      const row = [...document.querySelectorAll(".project-name-cell")].find((el) => (el.textContent ?? "").includes(projectName));
+      expect(row, projectName).toBeTruthy();
+      await user.click(row!);
+      const dialog = within(screen.getByRole("dialog"));
+      await user.click(dialog.getByRole("button", { name: new RegExp(`${role}.*候補を見る`, "u") }));
+    };
+
+    render(<App />);
+    await openNeedFromProject("モバイル会員証", "QA Engineer");
+    const qaDrawer = within(screen.getByRole("dialog"));
+    const qaSaved = within(qaDrawer.getByText("残している候補").closest(".saved-need-candidates") as HTMLElement);
+    expect(qaSaved.getByText("残している候補").closest("div")!.textContent).toContain("2名");
+    expect(qaSaved.getByText("松本 蓮")).toBeInTheDocument();
+    expect(qaSaved.getByText("岡田 紗季")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "詳細パネルを閉じる" }));
+
+    await openNeedFromProject("Orion 顧客ポータル", "Backend Engineer");
+    const emptyDrawer = within(screen.getByRole("dialog"));
+    expect(emptyDrawer.getByText("残している候補はいません")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "詳細パネルを閉じる" }));
+
+    cleanup();
+    const adapter = sharedAdapter();
+    adapter.initialState = {
+      ...initialWorkspace,
+      needs: [{
+        ...initialWorkspace.needs[0],
+        candidatePersonIds: ["matsumoto"],
+      }],
+    };
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
+    await openNeedFromProject("モバイル会員証", "QA Engineer");
+    const oneDrawer = within(screen.getAllByRole("dialog").at(-1)!);
+    const oneSaved = within(oneDrawer.getByText("残している候補").closest(".saved-need-candidates") as HTMLElement);
+    expect(oneSaved.getByText("残している候補").closest("div")!.textContent).toContain("1名");
+    expect(oneSaved.getByText("松本 蓮")).toBeInTheDocument();
+    expect(oneSaved.queryByText("岡田 紗季")).not.toBeInTheDocument();
   });
 });
 

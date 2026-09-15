@@ -67,6 +67,7 @@ import {
   isActiveOpportunity,
   makeInitials,
   memberById,
+  needCandidatePersonIds,
   memberAvailablePercent,
   memberDailyLoads,
   memberExceedsCapacity,
@@ -140,6 +141,7 @@ import {
   nextHistoryAction,
   parseShareSearch,
   readDemoFavorites,
+  MAX_PROPOSAL_MEMBERS,
   retainedMemberIds,
   shareLocationFor,
   toggleFavorite,
@@ -1915,6 +1917,34 @@ export default function Home({ mode = "demo", organizationId, organizationName =
     setToast((memberById(workspace, personId)?.name || "候補者") + "さんを" + formatDate(need.startDate) + "から" + need.allocation + "%で仮置きしました");
   };
 
+  const toggleNeedCandidate = (needId: string, personId: string, pinned: boolean) => {
+    if (!canEdit) return;
+    const need = workspace.needs.find((item) => item.id === needId);
+    if (!need) return;
+    const current = needCandidatePersonIds(need);
+    if (pinned) {
+      if (current.includes(personId)) return;
+      if (current.length >= MAX_PROPOSAL_MEMBERS) {
+        setToast(`1つの要員要件に残せる候補は${MAX_PROPOSAL_MEMBERS}名までです`);
+        return;
+      }
+    } else if (!current.includes(personId)) {
+      return;
+    }
+    const candidatePersonIds = pinned
+      ? [...current, personId]
+      : current.filter((id) => id !== personId);
+    setWorkspace({
+      ...workspace,
+      needs: workspace.needs.map((item) => item.id === needId ? { ...item, candidatePersonIds } : item),
+    });
+    markUnsaved();
+    const personName = memberById(workspace, personId)?.name || "候補者";
+    setToast(pinned
+      ? `${personName}さんをこの要件の候補に残しました`
+      : `${personName}さんをこの要件の候補から外しました`);
+  };
+
   const undoChanges = () => {
     if (operationLocked) return;
     // The row's undo is about one move inside the pending set; dropping the whole set
@@ -2371,6 +2401,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
       allocation,
       status: existing?.status ?? "open",
       draftPersonId: existing?.draftPersonId ?? null,
+      candidatePersonIds: existing?.candidatePersonIds ?? [],
     };
     const withEditedNeed: WorkspaceState = hydrateWorkspaceSkills({
       ...workspace,
@@ -3286,7 +3317,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
         {activeNav === "projects" && <ProjectsView state={workspace} weekOffset={viewWeekOffset} onOpen={openProject} query={projectQuery} onQueryChange={setProjectQuery} favorites={favorites} favoritesOnly={favoritesOnly} onFavoritesOnlyChange={setFavoritesOnly} onToggleFavorite={(projectId) => void toggleFavoriteTarget("project", projectId)} onCopyQuery={() => void copyShareLink({ nav: "projects", q: projectQuery }, "検索リンクをコピーしました")} />}
         {activeNav === "opportunities" && <OpportunitiesView state={workspace} onOpen={openOpportunity} />}
         {activeNav === "members" && <MembersView state={workspace} weekOffset={viewWeekOffset} onOpen={openMember} onAssign={openAssignmentFor} onAddScene={handleAddSearchScene} onDeleteScene={handleDeleteSearchScene} canEdit={canEdit} canManageScenes={canManageMembers && featureEnabled("searchScenes")} query={memberQuery} onQueryChange={setMemberQuery} favorites={favorites} favoritesOnly={favoritesOnly} onFavoritesOnlyChange={setFavoritesOnly} onToggleFavorite={(memberId) => void toggleFavoriteTarget("member", memberId)} onAddToProposal={addMemberToProposal} onCopyQuery={() => void copyShareLink({ nav: "members", q: memberQuery }, "検索リンクをコピーしました")} />}
-        {activeNav === "proposal" && <ProposalView state={workspace} weekOffset={viewWeekOffset} selectedIds={visibleProposalIds} favorites={favorites} needId={proposalNeedId || undefined} onNeedIdChange={setProposalNeedId} onSelectedIdsChange={setProposalMemberIds} onOpenMember={openMember} onToggleFavorite={(memberId) => void toggleFavoriteTarget("member", memberId)} />}
+        {activeNav === "proposal" && <ProposalView state={workspace} weekOffset={viewWeekOffset} selectedIds={visibleProposalIds} favorites={favorites} needId={proposalNeedId || undefined} onNeedIdChange={setProposalNeedId} onSelectedIdsChange={setProposalMemberIds} onOpenMember={openMember} onToggleFavorite={(memberId) => void toggleFavoriteTarget("member", memberId)} canEdit={canEdit} onToggleNeedCandidate={toggleNeedCandidate} />}
         {activeNav === "org" && <OrgView
           state={workspace}
           onAddUnit={handleAddOrgUnit}
@@ -3449,6 +3480,19 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                     {candidateMatches.length > 0 ? <div className="candidate-list">{candidateMatches.map((match) => <article key={match.member.id}><span className={"avatar " + match.member.avatarTone}>{match.member.initials}</span><span><strong>{memberLabel(workspace, match.member)}</strong><small>{match.member.role} · 要件期間の最小空き {match.availablePercent}%</small><em><Check size={10} />{match.matchedMust.length > 0 ? `${match.matchedMust.join("・")}に適合` : `${selectedNeed.role}に適合`}</em></span>{canEdit ? <button onClick={() => placeCandidate(match.member.id, selectedNeed)}>仮置き</button> : <span className="read-only-label">閲覧のみ</span>}</article>)}</div> : <div className="candidate-empty"><UsersRound size={18} /><span><strong>条件を満たす候補がいません</strong><small>メンバーのスキルまたは要件期間の配分を見直してください。</small></span></div>}
                   </>
                 )}
+                {(() => {
+                  const savedCandidates = needCandidatePersonIds(selectedNeed)
+                    .map((id) => memberById(workspace, id))
+                    .filter((member): member is Member => member != null);
+                  return (
+                    <div className="saved-need-candidates">
+                      <div className="saved-candidate-label"><span>残している候補</span><small>{savedCandidates.length}名</small></div>
+                      {savedCandidates.length === 0
+                        ? <div className="candidate-empty"><UsersRound size={18} /><span><strong>残している候補はいません</strong><small>提案画面で「この要件に残す」と、閉じてもここに残ります。</small></span></div>
+                        : <div className="saved-candidate-list">{savedCandidates.map((member) => <article key={member.id}><span className={"avatar " + member.avatarTone}>{member.initials}</span><span><strong>{memberLabel(workspace, member)}</strong><small>{member.role}</small></span>{selectedNeed.status === "open" && canEdit ? <button onClick={() => placeCandidate(member.id, selectedNeed)}>仮置き</button> : null}</article>)}</div>}
+                    </div>
+                  );
+                })()}
                 <p className="drawer-footnote">候補は対象週の稼働と登録スキルに基づく参考情報です。</p>
                 {/* Not behind `canEdit`: the proposal screen only lines candidates up and
                     copies a link, which a viewer may do. 「仮置き」 and 「要員要件を編集」

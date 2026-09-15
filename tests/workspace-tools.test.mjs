@@ -280,6 +280,16 @@ test("returns bounded, filtered, data-minimized workspace reads with availabilit
   assert.equal("employeeCode" in result.items[0], false);
 });
 
+test("lists candidate ids on a staffing need without writing them", () => {
+  const state = snapshot();
+  state.needs = state.needs.map((need) => need.id === ids.openNeed
+    ? { ...need, candidatePersonIds: [ids.bob] }
+    : need);
+  const result = readWorkspaceTool(state, "read_workspace", { resource: "staffing_needs", id: ids.openNeed });
+  assert.deepEqual(result.items[0].candidatePersonIds, [ids.bob]);
+  assert.deepEqual(result.items[0].candidatePersonNames, ["Bob B"]);
+});
+
 test("enforces the organization role matrix before planning writes", async () => {
   const assignmentArgs = { personId: ids.bob, projectId: ids.secondProject, startDate: "2026-08-10", endDate: "2026-08-20", allocation: 30 };
   await assert.rejects(() => planWorkspaceAction(plannerOptions("create_assignment", assignmentArgs, { role: "viewer" })), (error) => error.code === "FORBIDDEN");
@@ -1123,6 +1133,20 @@ test("drops holiday load and compares 時短 against the absolute ceiling, same 
   }, { snapshot: { ...snapshot(), members: state.members, assignments: [] } }));
   assert.deepEqual(plan.preview.impacts.filter((line) => line.includes("を超えます")),
     ["Bob Bさんの最大稼働が60%となり、稼働上限50%を超えます。"]);
+});
+
+test("omits candidatePersonIds from need upserts so a date change does not clear stored rows", async () => {
+  const state = snapshot();
+  state.needs = state.needs.map((need) => need.id === ids.openNeed
+    ? { ...need, candidatePersonIds: [ids.bob, ids.carol] }
+    : need);
+  const plan = await planWorkspaceAction(plannerOptions("update_staffing_need", {
+    staffingNeedId: ids.openNeed,
+    patch: { allocation: 55 },
+  }, { snapshot: state }));
+  const row = plan.payload.needs.upsert.find((need) => need.id === ids.openNeed);
+  assert.equal(row.allocation, 55);
+  assert.equal("candidatePersonIds" in row, false);
 });
 
 test("omits unavailability from member upserts so a name change does not clear stored rows", async () => {

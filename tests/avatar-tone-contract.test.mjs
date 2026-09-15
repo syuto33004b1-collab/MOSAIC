@@ -92,5 +92,5 @@ test("the proposal picker grows a named element, not every span", async () => {
 
   const tsx = await readFile(path.join(root, "src", "expanded-views.tsx"), "utf8");
   const uses = tsx.match(/proposal-picker-copy/gu) ?? [];
-  assert.equal(uses.length, 2, `expected both picker rows to use the class, found ${uses.length}`);
+  assert.equal(uses.length, 3, `expected every picker row template to use the class, found ${uses.length}`);
 });

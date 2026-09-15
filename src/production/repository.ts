@@ -484,6 +484,9 @@ function normalizeWorkspaceNeed(value: unknown): StaffingNeed | undefined {
     allocation,
     status: status as StaffingNeed["status"],
     draftPersonId: nullableString(record, "draftPersonId"),
+    candidatePersonIds: readArray(record, "candidatePersonIds").flatMap((value) => (
+      typeof value === "string" && value.trim() ? [value.trim()] : []
+    )),
   };
 }
 
@@ -1018,6 +1021,7 @@ function auditSummary(action: string, entityType: string, oldData?: UnknownRecor
     people: "メンバー",
     projects: "プロジェクト",
     staffing_needs: "要員要件",
+    staffing_need_candidates: "要員要件の候補",
     custom_fields: "カスタム項目",
     custom_field_values: "カスタム項目値",
     work_history: "業務経歴",

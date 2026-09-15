@@ -115,7 +115,7 @@ test("the application does not print, only the document it is showing", async ()
 
 test("nothing on the printed proposal is a control", async () => {
   const [body] = await printBlock();
-  for (const selector of [".view-toolbar", ".proposal-picker", ".proposal-remove", ".proposal-open",
+  for (const selector of [".view-toolbar", ".proposal-picker", ".proposal-pin", ".proposal-remove", ".proposal-open",
     ".favorite-star"]) {
     assert.match(rulesFor(body, selector), /display:\s*none/u,
       `${selector} is something to press, and paper cannot be pressed (#179)`);

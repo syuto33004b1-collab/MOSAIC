@@ -283,3 +283,17 @@ test("holds an external write until a person confirms it", async () => {
   assert.match(sql, /drop function if exists public\.create_mcp_server\(uuid, text, text, text, text\[\], uuid\)/);
   assert.doesNotMatch(sql, /grant execute on function private\./);
 });
+
+test("persists proposal candidates on the staffing need without replacing save_workspace_core", async () => {
+  const sql = await readFile(path.join(migrations, "20260915160000_staffing_need_candidates.sql"), "utf8");
+  const cap = (await readFile(path.join(root, "src/collaboration.ts"), "utf8"))
+    .match(/export const MAX_PROPOSAL_MEMBERS = (\d+)/)?.[1];
+  assert.equal(cap, "12");
+  assert.match(sql, /create table app\.staffing_need_candidates/);
+  assert.match(sql, /key absent/);
+  assert.match(sql, /needs\.upsert\[\]\.candidatePersonIds may have at most 12 people/);
+  assert.match(sql, /private\.actor_visible_active_person_ids/);
+  assert.doesNotMatch(sql, /create or replace function private\.save_workspace_core/);
+  assert.match(sql, /perform private\.apply_staffing_need_candidates/);
+  assert.match(sql, /tg_table_name = 'staffing_need_candidates'/);
+});
