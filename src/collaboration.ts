@@ -197,7 +197,7 @@ export function shareLocationFor(
     new URLSearchParams(serializeShareSearch(link).replace(/^\?/u, "")).forEach((value, key) => params.set(key, value));
   }
   const query = params.toString();
-  // Always the pathname: on the deployed site that is `/MOSAIC/`, and a bare `?…` or `""`
+  // Always the pathname: on the deployed site that is `/`, and a bare `?…` or `""`
   // would be resolved against the current document rather than kept.
   return `${location.pathname}${query ? `?${query}` : ""}${location.hash}`;
 }

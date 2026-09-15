@@ -3,10 +3,9 @@ import { appAuthRedirectUrl, hasAuthCallbackParams, passwordRecoveryLinkError } 
 
 describe("password recovery callback helpers", () => {
   it("builds the current origin and app base as the reset redirect", () => {
-    expect(appAuthRedirectUrl("https://syuto33004b1-collab.github.io", "/MOSAIC/")).toBe(
-      "https://syuto33004b1-collab.github.io/MOSAIC/",
-    );
-    expect(appAuthRedirectUrl("http://127.0.0.1:5173", "/MOSAIC/")).toBe("http://127.0.0.1:5173/MOSAIC/");
+    expect(appAuthRedirectUrl("https://mosaic.example.workers.dev", "/")).toBe("https://mosaic.example.workers.dev/");
+    expect(appAuthRedirectUrl("http://127.0.0.1:5173", "/")).toBe("http://127.0.0.1:5173/");
+    expect(appAuthRedirectUrl("https://pages.example.test", "/app/")).toBe("https://pages.example.test/app/");
   });
 
   it("maps expired recovery links without exposing the provider description", () => {

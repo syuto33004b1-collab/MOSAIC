@@ -118,7 +118,7 @@ npm exec supabase -- functions deploy chat --project-ref PROJECT_REF
 - `GEMINI_API_KEY`: 必須。Google AI Studioで発行したキー。
 - `GEMINI_MODEL`: 任意。未設定時は`gemini-3.7-flash`。
 
-`GEMINI_API_KEY`を`VITE_`変数、GitHub Pagesのビルド変数、source、logへ置かないでください。
+`GEMINI_API_KEY`を`VITE_`変数、フロントエンドのビルド変数、source、logへ置かないでください。
 
 ## Later phases
 

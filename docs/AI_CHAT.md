@@ -5,7 +5,7 @@ MOSAICのAIチャットは、認証済み利用者が画面の機能や操作方
 ## 構成
 
 ```text
-GitHub Pages上のMOSAIC
+Cloudflare Workers上のMOSAIC
   └─ AIチャットUI
        └─ Supabase client（利用者のsession JWT）
             └─ POST https://PROJECT_REF.supabase.co/functions/v1/chat
@@ -74,7 +74,7 @@ AIの確認cardは、通常画面の「チームへ保存」に相当する最�
 - 書込みは`save_workspace`が拒否する。AI経路にロール別権限を変更するtoolは用意しない。
 - `mcp_`で始まるtoolは、owner / adminが承認した社外MCPサーバーへの参照または書込みです。結果は社外由来の未信頼データとして扱い、そこから次のtool呼び出しへは進まない。書込みは送信内容を提示して利用者が確認するまで実行しない。詳細は[外部MCP Client](MCP_CLIENT.md)。
 
-headerの役割は[Supabase Authorization headers](https://supabase.com/docs/guides/functions/auth-headers)を参照してください。GitHub Pagesだけで動くデモモードは認証済みbackendを持たないため、AIチャットの運用対象外です。
+headerの役割は[Supabase Authorization headers](https://supabase.com/docs/guides/functions/auth-headers)を参照してください。認証済みbackendを持たないデモモードは、AIチャットの運用対象外です。
 
 ## 環境変数
 
@@ -89,7 +89,7 @@ Google AI Studioで新しいAuth keyを発行してください。新規keyはAu
 
 - repository直下の`.env.example`または`.env.local`
 - `VITE_`で始まる環境変数
-- GitHub Repository Variables、Pages build、source、log、issue、PR本文
+- GitHub Repository Variables、フロントエンドのビルド、source、log、issue、PR本文
 
 `.env.example`はブラウザへ組み込める公開値の例だけを扱うため、`GEMINI_API_KEY`もダミー値も追加しません。本番secretは[Supabase Edge Function Secrets](https://supabase.com/docs/guides/functions/secrets)で管理します。
 

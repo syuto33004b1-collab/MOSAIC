@@ -48,7 +48,7 @@ import puppeteer from "puppeteer-core";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const dist = path.join(root, "dist");
 const axeSource = path.join(root, "node_modules", "axe-core", "axe.min.js");
-const BASE = "/MOSAIC/";
+const BASE = "/";
 const KEEP_OPEN = process.argv.includes("--keep-open");
 
 /** The nine sidebar entries, and the `<h1>` each screen puts up (from `pageMeta`). */
@@ -121,7 +121,7 @@ function chromePath() {
 }
 
 /**
- * The built site under `/MOSAIC/`, the way Pages serves it.
+ * The built site at `/`, the way Cloudflare Workers serves it.
  *
  * A missing file is a 404, not a fallback to the entry point: the screens are reached by
  * clicking, never by URL, so nothing here needs one — and a fallback would answer a

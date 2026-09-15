@@ -4,7 +4,7 @@
 
 ## 公開サイト
 
-[GitHub PagesでMOSAICを開く](https://syuto33004b1-collab.github.io/MOSAIC/)
+本番は Cloudflare Workers（Worker 名 `mosaic`、`*.workers.dev`）へデプロイします。初回デプロイの出力が公開 URL です。切替期間中の旧 URL は [GitHub Pages の凍結成果物](https://syuto33004b1-collab.github.io/MOSAIC/) です。
 
 ## 主な機能
 
@@ -64,6 +64,6 @@ VITE_REQUIRE_SHARED_MODE=false
 
 ## 公開方法
 
-Pull Requestではlint、unit/static test、build、dependency review、dependency auditに加え、隔離Postgresへmigrationを適用してrole/RLSを検証します。`main`への反映後、GitHub Actionsが静的ビルドを作成し、GitHub Pagesへ自動公開します。
+Pull Requestではlint、unit/static test、build、dependency review、dependency auditに加え、隔離Postgresへmigrationを適用してrole/RLSを検証します。`main`への反映後、GitHub Actionsが静的ビルドを作成し、Cloudflare Workersへ自動公開します。
 
 リリースごとの変更点は[CHANGELOG](CHANGELOG.md)を参照してください。

@@ -27,7 +27,7 @@ VITE_APP_ENV=development
 VITE_REQUIRE_SHARED_MODE=false
 ```
 
-GitHub Pagesでは同じ2つの接続値をRepository Variablesとして設定します。publishable keyはブラウザへ公開される前提のkeyです。安全性はkeyの秘匿ではなく、Auth、RLS、明示的な権限で担保します。
+本番フロントエンドのビルドでは同じ2つの接続値をRepository Variablesとして設定します。publishable keyはブラウザへ公開される前提のkeyです。安全性はkeyの秘匿ではなく、Auth、RLS、明示的な権限で担保します。
 
 接続確認とrole別試験が完了した本番切替時に、Repository Variable `VITE_REQUIRE_SHARED_MODE=true`を追加します。以後はURL/keyが欠けたbuildをデモへフォールバックさせず、デプロイを失敗させます。切替前の公開デモでは空または`false`のままにします。
 
@@ -42,11 +42,11 @@ GitHub Pagesでは同じ2つの接続値をRepository Variablesとして設定�
 
 Supabase AuthのSite URLと許可redirect URLを、実際に利用するURLへ限定します。
 
-- Production Site URL: `https://syuto33004b1-collab.github.io/MOSAIC/`
-- Production redirect: `https://syuto33004b1-collab.github.io/MOSAIC/`
-- Local redirect: `http://127.0.0.1:5173/MOSAIC/`
+- Production Site URL: 切替完了後は Cloudflare の公開 URL（`https://mosaic.<subdomain>.workers.dev/`）。切替中は旧 `https://syuto33004b1-collab.github.io/MOSAIC/` のまま残し、**最後に**付け替える
+- Production redirect: 切替中は旧 Pages URL と新しい workers.dev URL の**両方**。新しいホスト名が分かってから dashboard と `invite` の allowlist へ exact で足す
+- Local redirect: `http://127.0.0.1:5173/`
 
-パスワード再設定メールと招待メールの戻り先も、この許可リストのURLだけを使います。MOSAICは現在のoriginと`base`（`/MOSAIC/`）からredirect URLを組み立て、独自のpathは使いません。GitHub PagesのSPAでも同じトップURLへ戻します。
+パスワード再設定メールと招待メールの戻り先も、この許可リストのURLだけを使います。MOSAICは現在のoriginと`base`（`/`）からredirect URLを組み立て、独自のpathは使いません。不要なwildcardや第三者domainを追加しません。
 
 接続後に次を確認します。
 
@@ -59,13 +59,11 @@ Supabase AuthのSite URLと許可redirect URLを、実際に利用するURLへ�
 7. 期限切れの招待・再設定リンクは「有効期限が切れています」と案内し、providerの英語エラー文を出さない。
 8. 既存Authアカウントへの招待は組織招待だけを更新し、ログイン後に承認できる。
 
-不要なwildcardや第三者domainを追加しません。独自domainへ移行した場合は、切替期間を決めて旧URLを削除します。
-
 Authentication設定では、Email providerの`Allow new users to sign up`を無効にします。画面から登録導線を隠すだけでは招待制にならないため、publishable keyを使った`signUp`もserver側で拒否されることを接続後テストで確認します。`supabase/config.toml`もローカル環境で`auth.enable_signup = false`、`auth.email.enable_signup = false`に固定しています。
 
 初期ownerは、Supabase DashboardのAuthentication > Usersから招待するか、secretを保持できる信頼済みbackendからAdmin APIで作成します。2人目以降はMOSAICの運用パネルから招待します。招待Edge Function `invite` が組織RPC `invite_member` を実行したあと、サーバー側のAdmin APIでAuth招待メールを送ります。Admin APIや`service_role`をMOSAICのブラウザへ追加してはいけません。公開の自己サインアップは無効のままです。
 
-招待メールを使う場合は本番SMTP、送信元domain、リンク期限、password resetを先に検証します。GitHub Pagesのデプロイはフロントエンドだけを更新するため、Function本体は別にデプロイします。`--no-verify-jwt`は付けません。
+招待メールを使う場合は本番SMTP、送信元domain、リンク期限、password resetを先に検証します。Cloudflare のデプロイはフロントエンドだけを更新するため、Function本体は別にデプロイします。`--no-verify-jwt`は付けません。
 
 ```powershell
 npm exec supabase -- functions deploy invite --project-ref PROJECT_REF
