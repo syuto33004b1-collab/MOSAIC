@@ -105,8 +105,13 @@ describe("share links", () => {
 describe("the address the reader is standing in", () => {
   const at = (search: string, hash = "") => ({ pathname: "/MOSAIC/", search, hash });
 
+  it("keeps a root pathname on the Cloudflare host", () => {
+    expect(shareLocationFor({ pathname: "/", search: "?nav=members" }, { nav: "board" })).toBe("/");
+    expect(shareLocationFor({ pathname: "/", search: "?nav=members&open=saeki" }, { nav: "members" })).toBe("/?nav=members");
+  });
+
   it("keeps the path, and everything the share link has no opinion about", () => {
-    // The deployed site is under a path, and `serializeShareSearch` says "" for the board.
+    // A non-root base still has to keep its pathname; `serializeShareSearch` says "" for the board.
     expect(shareLocationFor(at("?nav=members"), { nav: "board" })).toBe("/MOSAIC/");
     // An invitation is the reader's, and so is a fragment; only the share keys are ours.
     expect(shareLocationFor(at("?invitation=abc&nav=members&open=saeki", "#top"), { nav: "projects", open: "atlas" }))

@@ -1,18 +1,18 @@
 # MOSAIC 運用手順
 
-この文書は、MOSAICのフロントエンド、GitHub Pages、将来接続するSupabaseを安全に運用するための手順です。2026-08-17時点ではGitHub Pagesのみ稼働しており、Supabaseは未接続です。Supabase設定がないビルドはデモデータとブラウザ内保存へフォールバックします。
+この文書は、MOSAICのフロントエンドとSupabaseを安全に運用するための手順です。フロントエンドの本番公開先は Cloudflare Workers です。GitHub Pages の成果物は切替期間中だけ残し、新しいビルドは載せません。Supabase設定がないビルドはデモデータとブラウザ内保存へフォールバックします。
 
 ## 運用対象
 
 | 対象 | 現在の状態 | 正典 |
 | --- | --- | --- |
-| フロントエンド | GitHub Pagesで公開 | `main`ブランチ |
+| フロントエンド | Cloudflare Workers（`mosaic`）で公開 | `main`ブランチ |
 | CI | lint、テスト、build、npm audit、CodeQL | `.github/workflows/ci.yml` |
-| Pagesデプロイ | `main`へのpushまたは手動実行 | `.github/workflows/deploy-pages.yml` |
+| 本番デプロイ | `main`へのpushまたは手動実行 | `.github/workflows/deploy-cloudflare.yml` |
 | データベース | 未接続 | 接続後は`supabase/migrations/` |
 | バックアップ | 未設定 | 接続するSupabaseプランと本書の運用記録 |
 
-公開URL: <https://syuto33004b1-collab.github.io/MOSAIC/>
+公開URL: 初回デプロイの `deployment-url`（`https://mosaic.<subdomain>.workers.dev/`）。旧 URL <https://syuto33004b1-collab.github.io/MOSAIC/> は凍結。
 
 ## 環境
 
@@ -20,7 +20,7 @@
 | --- | --- | --- |
 | local | 開発・単体確認 | デモまたは開発専用Supabase。実データ禁止 |
 | pull request | CIのみ | Supabase変数を渡さず、デモフォールバックで検証 |
-| production | GitHub Pages | 本番Supabase。認証済み利用者だけが業務データを参照 |
+| production | Cloudflare Workers | 本番Supabase。認証済み利用者だけが業務データを参照 |
 
 GitHub Repository Variablesには次を設定します。
 
@@ -48,7 +48,7 @@ GitHub Repository Variablesには次を設定します。
 2. pull requestを作成し、`Quality gate`と`Database policy tests`を必須チェックとして通します。依存変更がある場合は`Dependency review`も確認します。
 3. DB変更がある場合は、後方互換なmigrationを先に適用します。破壊的変更はexpand/contract方式で複数リリースに分けます。
 4. 承認後に`main`へmergeします。直接pushは禁止します。
-5. `Deploy MOSAIC to GitHub Pages`と自動HTTP到達確認が成功したこと、デプロイ対象SHAを確認します。
+5. `Deploy MOSAIC to Cloudflare`と自動HTTP到達確認が成功したこと、デプロイ対象SHAを確認します。Environment `cloudflare` に `CLOUDFLARE_API_TOKEN` と `CLOUDFLARE_ACCOUNT_ID` が無いと deploy job は失敗します。account ID はリポジトリの文書に書きません。
 6. 次のスモークテストを実行し、結果と実行者をリリース記録へ残します。
 
 ## デプロイ後スモークテスト
@@ -72,7 +72,7 @@ GitHub Repository Variablesには次を設定します。
 
 1. 書込み障害がある場合は、可能ならUIを読取り専用へ切り替えます。
 2. 不具合commitを`git revert`するpull requestを作成します。履歴のforce pushや`reset --hard`は使いません。
-3. CI通過後にmergeし、Pagesを再デプロイします。
+3. CI通過後にmergeし、Cloudflare Workersを再デプロイします。凍結した GitHub Pages は新しい修正を受けません。
 4. スモークテストを再実行します。
 
 ### データベース
