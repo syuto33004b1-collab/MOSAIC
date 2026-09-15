@@ -44,7 +44,7 @@ MOSAICのsourceと静的フロントエンドはpublicです。source、schema�
 | --- | --- | --- |
 | GitHub | `syuto33004b1-collab/MOSAIC` | `-R syuto33004b1-collab/MOSAIC`。`git push`は`git remote get-url`で照合する |
 | Supabase | project ref `ivsauhjnoiurpsriskqe` | `--project-ref ivsauhjnoiurpsriskqe` |
-| Cloudflare | Worker 名 `mosaic`。照合は公開 URL（`https://mosaic.<subdomain>.workers.dev/`。初回デプロイの出力） | GitHub Environment `cloudflare` の secret。初回デプロイの**前に**、Environment の account ID が意図した社用アカウントであることをダッシュボードで照合する。account ID はここへ書かない |
+| Cloudflare | Worker 名 `mosaic`。照合は公開 URL `https://mosaic.taps-desk.workers.dev/` | GitHub Environment `cloudflare` の secret。デプロイの**前に**、Environment の account ID が意図した社用アカウントであることをダッシュボードで照合する。account ID はここへ書かない |
 
 GitHubのowner `syuto33004b1-collab`はOrganizationではなくUser accountです。**個人用途ではなく、業務利用として承認済みです。** Supabaseのorganization表示名がこのアカウント名を含むのも同じ理由で、個人所有を意味しません。
 

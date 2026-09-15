@@ -4,7 +4,7 @@
 
 ## 公開サイト
 
-本番は Cloudflare Workers（Worker 名 `mosaic`、`*.workers.dev`）へデプロイします。初回デプロイの出力が公開 URL です。切替期間中の旧 URL は [GitHub Pages の凍結成果物](https://syuto33004b1-collab.github.io/MOSAIC/) です。
+本番は Cloudflare Workers（Worker 名 `mosaic`）の [https://mosaic.taps-desk.workers.dev/](https://mosaic.taps-desk.workers.dev/) です。切替期間中の旧 URL は [GitHub Pages の凍結成果物](https://syuto33004b1-collab.github.io/MOSAIC/) です。
 
 ## 主な機能
 

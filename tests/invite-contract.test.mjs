@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import {
   LOCAL_INVITE_REDIRECT,
   PAGES_INVITE_REDIRECT,
+  WORKERS_INVITE_REDIRECT,
   errorBody,
   InviteContractError,
   isExistingAuthUserError,
@@ -29,6 +30,7 @@ function invite(overrides = {}) {
 
 test("validates the invite request and allowlisted redirect", () => {
   assert.equal(parseInviteRequest(invite({ redirectTo: LOCAL_INVITE_REDIRECT })).redirectTo, LOCAL_INVITE_REDIRECT);
+  assert.equal(parseInviteRequest(invite({ redirectTo: WORKERS_INVITE_REDIRECT })).redirectTo, WORKERS_INVITE_REDIRECT);
   assert.deepEqual(parseInviteRequest(invite({ email: "  New.Member@example.jp  " })), {
     action: "send",
     email: "new.member@example.jp",
@@ -42,6 +44,14 @@ test("validates the invite request and allowlisted redirect", () => {
   );
   assert.throws(
     () => parseInviteRequest(invite({ redirectTo: "https://mosaic.other-account.workers.dev/" })),
+    (error) => error instanceof InviteContractError && error.code === "INVALID_REDIRECT",
+  );
+  assert.throws(
+    () => parseInviteRequest(invite({ redirectTo: "https://mosaic.taps-desk.workers.dev" })),
+    (error) => error instanceof InviteContractError && error.code === "INVALID_REDIRECT",
+  );
+  assert.throws(
+    () => parseInviteRequest(invite({ redirectTo: "https://mosaic.taps-desk.workers.dev/login" })),
     (error) => error instanceof InviteContractError && error.code === "INVALID_REDIRECT",
   );
   assert.throws(
@@ -138,6 +148,8 @@ test("keeps the invite function authenticated and secret-key usage server-side",
     readFile(path.join(root, "supabase", "functions", "invite", "index.ts"), "utf8"),
   ]);
   assert.match(configuration, /\[functions\.invite\][\s\S]*verify_jwt = true/);
+  assert.match(configuration, /Do not `supabase config push` this \[auth\] section to hosted/);
+  assert.match(configuration, /additional_redirect_urls = \["http:\/\/127\.0\.0\.1:5173\/", "https:\/\/syuto33004b1-collab\.github\.io\/MOSAIC\/", "https:\/\/mosaic\.taps-desk\.workers\.dev\/"\]/);
   assert.match(imports, /jsr:@supabase\/functions-js@2\.112\.3/);
   assert.match(imports, /npm:@supabase\/server@1\.4\.1/);
   assert.doesNotMatch(imports, /@[~^*]/);

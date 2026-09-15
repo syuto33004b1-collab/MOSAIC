@@ -40,17 +40,22 @@ VITE_REQUIRE_SHARED_MODE=false
 
 ## Auth URL
 
-Supabase AuthのSite URLと許可redirect URLを、実際に利用するURLへ限定します。
+Supabase AuthのSite URLと許可redirect URLを、実際に利用するURLへ限定します。招待 allowlist（`invite` Function）、Hosted Auth の Redirect URLs、Site URL、OG は別の設定です。一度に付け替えません。MOSAICは現在のoriginと`base`（`/`）からredirect URLを組み立て、独自のpathは使いません。不要なwildcardや第三者domainを追加しません。
 
-- Production Site URL: 切替完了後は Cloudflare の公開 URL（`https://mosaic.<subdomain>.workers.dev/`）。切替中は旧 `https://syuto33004b1-collab.github.io/MOSAIC/` のまま残し、**最後に**付け替える
-- Production redirect: 切替中は旧 Pages URL と新しい workers.dev URL の**両方**。新しいホスト名が分かってから dashboard と `invite` の allowlist へ exact で足す
-- Local redirect: `http://127.0.0.1:5173/`
+- Production Site URL: いまは旧 `https://syuto33004b1-collab.github.io/MOSAIC/`。Pages を捨てる最後に `https://mosaic.taps-desk.workers.dev/` へ付け替える。今は変えない。
+- Production Redirect URLs（Hosted Auth）: 次の3本。wildcard は使わない。
+  - `https://syuto33004b1-collab.github.io/MOSAIC/`（切替中の旧ホスト。残す）
+  - `https://mosaic.taps-desk.workers.dev/`（本番フロント）
+  - `http://127.0.0.1:5173/`（ローカル開発からの認証フロー実測。本番 project にも置く。`/MOSAIC/` 付きは現行アプリが生成しないので置かない）
+- invite Function の allowlist: 上と同じ3本を exact。slash 無しと `/login` は足さない。`*.workers.dev` 正規表現は使わない。
+- Local `supabase/config.toml`: `site_url` は localhost。`additional_redirect_urls` に上の3本。この節はローカル専用で hosted へ `config push` しない（push すると hosted の Site URL が localhost で上書きされる）。
+- OG / twitter:image: `index.html` はまだ旧 Pages。別 Issue。
 
-パスワード再設定メールと招待メールの戻り先も、この許可リストのURLだけを使います。MOSAICは現在のoriginと`base`（`/`）からredirect URLを組み立て、独自のpathは使いません。不要なwildcardや第三者domainを追加しません。
+パスワード再設定メールと招待メールの戻り先も、この許可リストのURLだけを使います。
 
 接続後に次を確認します。
 
-1. Authentication > URL Configuration のSite URLとRedirect URLsが上表と一致する。
+1. Authentication > URL Configuration のSite URLとRedirect URLsが上記と一致する。
 2. Email providerが有効で、本番はSMTPが設定されている。
 3. ログイン画面の「パスワードを忘れた場合」から再設定メールが届く。
 4. 有効なリンクから新しいパスワードを設定してログインできる。

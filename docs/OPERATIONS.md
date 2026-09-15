@@ -12,7 +12,7 @@
 | データベース | 未接続 | 接続後は`supabase/migrations/` |
 | バックアップ | 未設定 | 接続するSupabaseプランと本書の運用記録 |
 
-公開URL: 初回デプロイの `deployment-url`（`https://mosaic.<subdomain>.workers.dev/`）。旧 URL <https://syuto33004b1-collab.github.io/MOSAIC/> は凍結。
+公開URL: <https://mosaic.taps-desk.workers.dev/>。旧 URL <https://syuto33004b1-collab.github.io/MOSAIC/> は凍結。
 
 ## 環境
 
@@ -48,7 +48,7 @@ GitHub Repository Variablesには次を設定します。
 2. pull requestを作成し、`Quality gate`と`Database policy tests`を必須チェックとして通します。依存変更がある場合は`Dependency review`も確認します。
 3. DB変更がある場合は、後方互換なmigrationを先に適用します。破壊的変更はexpand/contract方式で複数リリースに分けます。
 4. 承認後に`main`へmergeします。直接pushは禁止します。
-5. `Deploy MOSAIC to Cloudflare`と自動HTTP到達確認が成功したこと、デプロイ対象SHAを確認します。deploy job は `main` だけで走ります。Environment `cloudflare` に `CLOUDFLARE_API_TOKEN` と `CLOUDFLARE_ACCOUNT_ID` が無いと失敗します。初回の前に、Environment の account ID が意図した社用アカウントであることをダッシュボードで照合してください。account ID はリポジトリの文書に書きません。この PR は公開経路の bootstrap です。workers.dev の正確なホストが分かるまで、招待 allowlist・OG・Hosted Auth の Site URL は切替完了ではありません。
+5. `Deploy MOSAIC to Cloudflare`と自動HTTP到達確認が成功したこと、デプロイ対象SHAを確認します。deploy job は `main` だけで走ります。Environment `cloudflare` に `CLOUDFLARE_API_TOKEN` と `CLOUDFLARE_ACCOUNT_ID` が無いと失敗します。デプロイの前に、Environment の account ID が意図した社用アカウントであることをダッシュボードで照合してください。account ID はリポジトリの文書に書きません。公開 URL は <https://mosaic.taps-desk.workers.dev/> です。招待 allowlist と Hosted Auth の Redirect URLs は公開ホストを exact で許可する（#355）。OG / twitter:image はまだ旧 Pages（別 Issue）。Hosted Auth の Site URL は Pages を捨てる最後に付け替える。Cloudflare のデプロイはフロントだけを更新するので、`invite` の allowlist を変えたあとは Function を別にデプロイします。
 6. 次のスモークテストを実行し、結果と実行者をリリース記録へ残します。
 
 ## デプロイ後スモークテスト
