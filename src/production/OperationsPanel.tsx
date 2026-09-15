@@ -1,8 +1,9 @@
 import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from "react";
-import { Check, Clock3, History, KeyRound, MailPlus, MailX, Plug, Radio, RefreshCw, ShieldCheck, UsersRound, X } from "lucide-react";
+import { Check, Clock3, History, KeyRound, MailPlus, MailX, MessageSquarePlus, Plug, Radio, RefreshCw, ShieldCheck, UsersRound, X } from "lucide-react";
 import { ProductionRepository } from "./repository";
 import type {
   AuditEvent,
+  FeedbackItem,
   IntegrationClient,
   IntegrationScope,
   McpServer,
@@ -74,6 +75,19 @@ function formatWebhookEvents(events: WebhookEvent[]) {
   return events.map((event) => WEBHOOK_EVENT_LABELS[event] ?? event).join(" / ");
 }
 
+const FEEDBACK_SCREEN_LABELS: Record<FeedbackItem["sourceScreen"], string> = {
+  board: "アサインボード",
+  projects: "プロジェクト",
+  opportunities: "受注前",
+  members: "メンバー",
+  proposal: "提案",
+  org: "組織",
+  skills: "スキルマップ",
+  fields: "項目定義",
+  reports: "レポート",
+  unknown: "不明",
+};
+
 function formatAuditData(value?: Record<string, unknown>) {
   return value ? JSON.stringify(value, null, 2) : "—";
 }
@@ -120,11 +134,16 @@ export function OperationsPanel({
   const [mcpWriteTools, setMcpWriteTools] = useState("");
   const [registeringMcp, setRegisteringMcp] = useState(false);
   const [mcpAction, setMcpAction] = useState("");
+  const [feedback, setFeedback] = useState<FeedbackItem[]>([]);
+  const [feedbackNextBefore, setFeedbackNextBefore] = useState<string>();
+  const [feedbackAction, setFeedbackAction] = useState("");
+  const [loadingMoreFeedback, setLoadingMoreFeedback] = useState(false);
   const panelRef = useRef<HTMLElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
   const onCloseRef = useRef(onClose);
   const canInvite = currentOrganization.role === "owner" || currentOrganization.role === "admin";
   const canViewAudit = canInvite;
+  const canViewFeedback = canInvite;
   const effectiveInviteRole = currentOrganization.role !== "owner" && inviteRole === "admin" ? "planner" : inviteRole;
 
   useLayoutEffect(() => {
@@ -141,8 +160,9 @@ export function OperationsPanel({
       canInvite ? repository.listIntegrationClients(currentOrganization.id) : Promise.resolve([] as IntegrationClient[]),
       canInvite ? repository.listWebhookEndpoints(currentOrganization.id) : Promise.resolve([] as WebhookEndpoint[]),
       canInvite ? repository.listMcpServers(currentOrganization.id) : Promise.resolve([] as McpServer[]),
+      canViewFeedback ? repository.listFeedback(currentOrganization.id) : Promise.resolve({ items: [] as FeedbackItem[], nextBefore: undefined }),
     ]);
-    const [memberResult, auditResult, invitationResult, clientResult, webhookResult, mcpResult] = results;
+    const [memberResult, auditResult, invitationResult, clientResult, webhookResult, mcpResult, feedbackResult] = results;
     if (memberResult.status === "fulfilled") setMembers(memberResult.value);
     if (auditResult.status === "fulfilled") {
       setEvents(auditResult.value.events);
@@ -152,6 +172,10 @@ export function OperationsPanel({
     if (clientResult.status === "fulfilled") setClients(clientResult.value);
     if (webhookResult.status === "fulfilled") setWebhooks(webhookResult.value);
     if (mcpResult.status === "fulfilled") setMcpServers(mcpResult.value);
+    if (feedbackResult.status === "fulfilled") {
+      setFeedback(feedbackResult.value.items);
+      setFeedbackNextBefore(feedbackResult.value.nextBefore);
+    }
     const rejected = results.find((result): result is PromiseRejectedResult => result.status === "rejected");
     if (rejected) setError(messageFrom(rejected.reason));
     setLoading(false);
@@ -166,9 +190,10 @@ export function OperationsPanel({
       canInvite ? repository.listIntegrationClients(currentOrganization.id) : Promise.resolve([] as IntegrationClient[]),
       canInvite ? repository.listWebhookEndpoints(currentOrganization.id) : Promise.resolve([] as WebhookEndpoint[]),
       canInvite ? repository.listMcpServers(currentOrganization.id) : Promise.resolve([] as McpServer[]),
+      canViewFeedback ? repository.listFeedback(currentOrganization.id) : Promise.resolve({ items: [] as FeedbackItem[], nextBefore: undefined }),
     ]).then((results) => {
       if (!active) return;
-      const [memberResult, auditResult, invitationResult, clientResult, webhookResult, mcpResult] = results;
+      const [memberResult, auditResult, invitationResult, clientResult, webhookResult, mcpResult, feedbackResult] = results;
       if (memberResult.status === "fulfilled") setMembers(memberResult.value);
       if (auditResult.status === "fulfilled") {
         setEvents(auditResult.value.events);
@@ -178,6 +203,10 @@ export function OperationsPanel({
       if (clientResult.status === "fulfilled") setClients(clientResult.value);
       if (webhookResult.status === "fulfilled") setWebhooks(webhookResult.value);
     if (mcpResult.status === "fulfilled") setMcpServers(mcpResult.value);
+      if (feedbackResult.status === "fulfilled") {
+        setFeedback(feedbackResult.value.items);
+        setFeedbackNextBefore(feedbackResult.value.nextBefore);
+      }
       const rejected = results.find((result): result is PromiseRejectedResult => result.status === "rejected");
       if (rejected) setError(messageFrom(rejected.reason));
       setLoading(false);
@@ -185,7 +214,7 @@ export function OperationsPanel({
     return () => {
       active = false;
     };
-  }, [canInvite, canViewAudit, currentOrganization.id, repository]);
+  }, [canInvite, canViewAudit, canViewFeedback, currentOrganization.id, repository]);
 
   useEffect(() => {
     previousFocusRef.current = document.activeElement as HTMLElement;
@@ -443,6 +472,38 @@ export function OperationsPanel({
       setError(messageFrom(reason));
     } finally {
       setEndpointAction("");
+    }
+  };
+
+  const loadMoreFeedback = async () => {
+    if (!feedbackNextBefore || loadingMoreFeedback) return;
+    setLoadingMoreFeedback(true);
+    setError("");
+    try {
+      const page = await repository.listFeedback(currentOrganization.id, 50, feedbackNextBefore);
+      setFeedback((current) => {
+        const known = new Set(current.map((item) => item.id));
+        return [...current, ...page.items.filter((item) => !known.has(item.id))];
+      });
+      setFeedbackNextBefore(page.nextBefore);
+    } catch (reason) {
+      setError(messageFrom(reason));
+    } finally {
+      setLoadingMoreFeedback(false);
+    }
+  };
+
+  const markFeedback = async (item: FeedbackItem, status: FeedbackItem["status"]) => {
+    if (feedbackAction) return;
+    setFeedbackAction(item.id);
+    setError("");
+    try {
+      const result = await repository.updateFeedbackStatus(currentOrganization.id, item.id, status);
+      setFeedback((current) => current.map((entry) => entry.id === item.id ? { ...entry, status: result.status } : entry));
+    } catch (reason) {
+      setError(messageFrom(reason));
+    } finally {
+      setFeedbackAction("");
     }
   };
 
@@ -762,6 +823,49 @@ export function OperationsPanel({
               <div className="form-note"><ShieldCheck size={15} /><span>外部の秘密鍵はMOSAICに保存しません。必要な場合は <code>MCP_SECRET_サーバーキー（大文字）</code> をFunctionのsecretへ設定します。承認したtoolの結果は社外由来の未信頼データとして扱われます。書込toolは上の承認リストに含めたものだけ指定でき、AI秘書が呼ぶと変更案が作られ、利用者が確認するまで実行されません。</span></div>
               <button className="drawer-primary" type="submit" disabled={registeringMcp || !mcpKey.trim() || !mcpName.trim() || !mcpUrl.trim() || !mcpTools.trim()}><Plug size={15} />{registeringMcp ? "登録中…" : "外部MCPサーバーを承認する"}</button>
             </form>
+          </>
+        )}
+
+        {canViewFeedback && (
+          <>
+            <div className="drawer-section-title"><span>気づき</span><small>{loading ? "読込中" : `${feedback.length}件`}</small></div>
+            <div className="allocation-list production-feedback-list">
+              {feedback.map((item) => (
+                <div className="production-feedback-item" key={item.id}>
+                  <MessageSquarePlus size={15} />
+                  <span>
+                    <strong>{item.body}</strong>
+                    <small>
+                      {FEEDBACK_SCREEN_LABELS[item.sourceScreen]}
+                      {" · "}
+                      {item.createdByName}
+                      {item.createdByRole ? ` · ${item.createdByRole}` : ""}
+                      {" · "}
+                      {formatDateTime(item.createdAt)}
+                    </small>
+                  </span>
+                  <button
+                    className="row-open"
+                    type="button"
+                    disabled={Boolean(feedbackAction)}
+                    onClick={() => void markFeedback(item, item.status === "open" ? "done" : "open")}
+                  >
+                    {feedbackAction === item.id ? "更新中" : item.status === "open" ? "完了にする" : "未読に戻す"}
+                  </button>
+                </div>
+              ))}
+              {!loading && feedback.length === 0 && (
+                <div>
+                  <MessageSquarePlus size={15} />
+                  <span><strong>気づきはまだありません</strong><small>利用者がどの画面からでも送れます。本文は監査ログにも残ります。</small></span>
+                </div>
+              )}
+            </div>
+            {feedbackNextBefore && (
+              <button className="drawer-secondary production-load-more" type="button" disabled={loadingMoreFeedback} onClick={() => void loadMoreFeedback()}>
+                {loadingMoreFeedback ? "読み込み中…" : "以前の気づきを読み込む"}
+              </button>
+            )}
           </>
         )}
 

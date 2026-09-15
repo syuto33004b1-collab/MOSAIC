@@ -16,6 +16,7 @@ import {
   Inbox,
   Layers3,
   LayoutDashboard,
+  MessageSquarePlus,
   MoreHorizontal,
   Plus,
   Printer,
@@ -201,6 +202,7 @@ export type AppProps = {
   shared?: SharedWorkspaceAdapter;
   onSignOut?: () => void;
   onOpenOperations?: () => void;
+  onSubmitFeedback?: (input: { requestId: string; body: string; sourceScreen: string }) => Promise<unknown>;
   onAccessInvalidated?: () => void;
   aiChatTransport?: ChatTransport;
 };
@@ -548,7 +550,7 @@ function drawerFromShare(link: ReturnType<typeof parseShareSearch>, state: Works
   return { drawer: null };
 }
 
-export default function Home({ mode = "demo", organizationId, organizationName = "MOSAIC デモ", identity, shared, onSignOut, onOpenOperations, onAccessInvalidated, aiChatTransport }: AppProps) {
+export default function Home({ mode = "demo", organizationId, organizationName = "MOSAIC デモ", identity, shared, onSignOut, onOpenOperations, onSubmitFeedback, onAccessInvalidated, aiChatTransport }: AppProps) {
   const startingWorkspace = shared?.initialState ?? initialWorkspace;
   const startingShare = initialShareLink();
   const opening = drawerFromShare(startingShare, startingWorkspace);
@@ -600,6 +602,9 @@ export default function Home({ mode = "demo", organizationId, organizationName =
   const [selectedAssignmentId, setSelectedAssignmentId] = useState("");
   const [selectedNeedId, setSelectedNeedId] = useState(startingWorkspace.needs[0]?.id ?? "");
   const [toast, setToast] = useState(opening.toast ?? "");
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
+  const [feedbackBody, setFeedbackBody] = useState("");
+  const [feedbackSending, setFeedbackSending] = useState(false);
   /**
    * The org move that can still be put back, offered in the row it belongs to.
    *
@@ -1571,6 +1576,35 @@ export default function Home({ mode = "demo", organizationId, organizationName =
 
   const openOperations = () => {
     if (confirmWorkspaceExit()) onOpenOperations?.();
+  };
+
+  const openFeedback = () => {
+    if (accountActionLocked) {
+      setToast("同期処理が終わってから気づきを送ってください");
+      return;
+    }
+    setFeedbackOpen(true);
+  };
+
+  const submitFeedback = async (event: FormEvent) => {
+    event.preventDefault();
+    const body = feedbackBody.trim();
+    if (!onSubmitFeedback || !body || feedbackSending) return;
+    setFeedbackSending(true);
+    try {
+      await onSubmitFeedback({
+        requestId: crypto.randomUUID(),
+        body,
+        sourceScreen: activeNav,
+      });
+      setFeedbackBody("");
+      setFeedbackOpen(false);
+      setToast("気づきを送りました");
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : "気づきを送れませんでした");
+    } finally {
+      setFeedbackSending(false);
+    }
   };
 
   const signOut = () => {
@@ -3177,7 +3211,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
         </div>
         <div className="profile-row">
           <span className="avatar avatar-dark">{makeInitials(displayName)}</span><span><strong>{displayName}</strong><small>{roleLabel[role]}</small></span>
-          <span className="profile-actions">{onOpenOperations && <button aria-label="組織と監査ログを管理" disabled={accountActionLocked} onClick={openOperations}><MoreHorizontal size={17} /></button>}{onSignOut && <button aria-label="ログアウト" disabled={accountActionLocked} onClick={signOut}>退出</button>}</span>
+          <span className="profile-actions">{onSubmitFeedback && <button aria-label="気づきを送る" disabled={accountActionLocked || feedbackSending} onClick={openFeedback}><MessageSquarePlus size={17} /></button>}{onOpenOperations && <button aria-label="組織と監査ログを管理" disabled={accountActionLocked} onClick={openOperations}><MoreHorizontal size={17} /></button>}{onSignOut && <button aria-label="ログアウト" disabled={accountActionLocked} onClick={signOut}>退出</button>}</span>
         </div>
       </aside>
 
@@ -3926,6 +3960,38 @@ export default function Home({ mode = "demo", organizationId, organizationName =
         elevated={unsavedChanges > 0}
         unavailableReason={mode === "demo" ? "AIチャットは、共有モードでログインすると利用できます。" : undefined}
       />
+      {feedbackOpen && onSubmitFeedback && (
+        <div className="overlay feedback-overlay">
+          <button className="overlay-backdrop" type="button" aria-label="気づきの送信を閉じる" onClick={() => { if (!feedbackSending) setFeedbackOpen(false); }} />
+          <section className="drawer feedback-dialog" role="dialog" aria-modal="true" aria-labelledby="feedback-title">
+            <div className="drawer-top">
+              <span className="drawer-kicker">FEEDBACK</span>
+              <button className="close-button" type="button" aria-label="気づきの送信を閉じる" disabled={feedbackSending} onClick={() => setFeedbackOpen(false)}><X size={18} /></button>
+            </div>
+            <div className="drawer-heading">
+              <span className="drawer-icon cobalt"><MessageSquarePlus size={19} /></span>
+              <div><h2 id="feedback-title">気づきを送る</h2><p>いま見ている画面から、不具合や要望を送ります。画面名は自動で添えます。</p></div>
+            </div>
+            <form className="assignment-form" onSubmit={(event) => void submitFeedback(event)}>
+              <label>
+                内容
+                <textarea
+                  required
+                  maxLength={2000}
+                  rows={6}
+                  value={feedbackBody}
+                  onChange={(event) => setFeedbackBody(event.target.value)}
+                  disabled={feedbackSending}
+                />
+              </label>
+              <p className="form-note">送信元: {pageMeta[activeNav].title}</p>
+              <button className="drawer-primary" type="submit" disabled={feedbackSending || !feedbackBody.trim()}>
+                <MessageSquarePlus size={15} />{feedbackSending ? "送信中…" : "送る"}
+              </button>
+            </form>
+          </section>
+        </div>
+      )}
       <div className={"toast " + (toast ? "show" : "")} style={changeBarReach > 0 ? { "--toast-lift": `${changeBarReach}px` } as CSSProperties : undefined} role="status" aria-live="polite"><Check size={14} />{toast}</div>
       {!hydrated && <span className="sr-only">保存データを読み込み中</span>}
     </main>

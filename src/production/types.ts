@@ -80,6 +80,7 @@ export type ProductionAppProps = {
   shared?: SharedWorkspaceAdapter;
   onSignOut?: () => void;
   onOpenOperations?: () => void;
+  onSubmitFeedback?: SubmitFeedback;
   onAccessInvalidated?: () => void;
   aiChatTransport?: ChatTransport;
 };
@@ -115,6 +116,57 @@ export type AuditEvent = {
 export type AuditEventPage = {
   events: AuditEvent[];
   nextBefore?: string;
+};
+
+export const FEEDBACK_SCREENS = [
+  "board",
+  "projects",
+  "opportunities",
+  "members",
+  "proposal",
+  "org",
+  "skills",
+  "fields",
+  "reports",
+  "unknown",
+] as const;
+
+export type FeedbackScreen = (typeof FEEDBACK_SCREENS)[number];
+export type FeedbackStatus = "open" | "done";
+
+export type FeedbackItem = {
+  id: string;
+  seq: number;
+  body: string;
+  sourceScreen: FeedbackScreen;
+  status: FeedbackStatus;
+  createdAt: string;
+  createdByName: string;
+  createdByRole?: OrganizationRole;
+};
+
+export type FeedbackPage = {
+  items: FeedbackItem[];
+  nextBefore?: string;
+};
+
+export type SubmitFeedbackResult = {
+  id: string;
+  requestId: string;
+  replayed: boolean;
+};
+
+export type SubmitFeedback = (input: {
+  requestId: string;
+  body: string;
+  sourceScreen: string;
+}) => Promise<SubmitFeedbackResult | void>;
+
+export type UpdateFeedbackStatusResult = {
+  id: string;
+  status: FeedbackStatus;
+  requestId: string;
+  replayed: boolean;
 };
 
 export type SaveWorkspacePayload = {
