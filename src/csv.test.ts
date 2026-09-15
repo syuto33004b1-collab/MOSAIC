@@ -49,10 +49,8 @@ describe("csv round-trip", () => {
 
 /**
  * #148 asked whether the proposal should be shareable outside the organisation. A link
- * cannot be: measured, the copied one is `?nav=proposal&members=saeki&anonymous=1` — real
- * member ids, and the reader can untick the hiding. A file can. It carries no ids and
- * nobody at the other end can un-anonymise it; what it cannot do is expire, which the
- * button says out loud.
+ * cannot be: it carries real member ids. A file can. It carries no ids; what it cannot do
+ * is expire, which the button says out loud.
  */
 describe("writing a proposal out", () => {
   const weekStart = getWeekStart(0);
@@ -62,7 +60,7 @@ describe("writing a proposal out", () => {
 
   it("says who and what they do, and nothing else, by default", () => {
     const csv = exportProposalCsv(initialWorkspace, {
-      memberIds: ids, columns: DEFAULT_PROPOSAL_CSV_COLUMNS, anonymous: false, weekStart,
+      memberIds: ids, columns: DEFAULT_PROPOSAL_CSV_COLUMNS, weekStart,
     });
     expect(rows(csv)).toEqual([
       ["候補", "職種"],
@@ -77,9 +75,9 @@ describe("writing a proposal out", () => {
    * which meant a screen showing no columns and a file with two.
    */
   it("writes the candidates alone when nothing else is chosen", () => {
-    expect(proposalCsvColumns(false)).not.toContain("候補");
+    expect(proposalCsvColumns()).not.toContain("候補");
     const csv = exportProposalCsv(initialWorkspace, {
-      memberIds: ids, columns: [], anonymous: false, weekStart,
+      memberIds: ids, columns: [], weekStart,
     });
     expect(rows(csv)).toEqual([["候補"], ["佐伯 優斗"], ["中村 美咲"]]);
   });
@@ -93,7 +91,7 @@ describe("writing a proposal out", () => {
   it("writes a name that starts like a formula so no spreadsheet runs it", () => {
     const hostile = { ...initialWorkspace.members[0], id: "hostile", name: '=HYPERLINK("http://example.test","click")' };
     const state = { ...initialWorkspace, members: [...initialWorkspace.members, hostile] };
-    const csv = exportProposalCsv(state, { memberIds: ["hostile"], columns: [], anonymous: false, weekStart });
+    const csv = exportProposalCsv(state, { memberIds: ["hostile"], columns: [], weekStart });
     const cell = rows(csv)[1].join(",");
     expect(cell.startsWith("=")).toBe(false);
     expect(csv).toContain("'=HYPERLINK");
@@ -101,27 +99,19 @@ describe("writing a proposal out", () => {
     expect(parseCsv(serializeCsv(["氏名"], [[hostile.name]])).rows[0]["氏名"]).toBe(hostile.name);
   });
 
-  it("numbers the candidates when the names are hidden", () => {
+  it("always offers 勤務地, and writes names in the 候補 column", () => {
+    expect(proposalCsvColumns()).toEqual(PROPOSAL_CSV_COLUMNS.filter((column) => column !== "候補"));
+    expect(proposalCsvColumns()).toContain("勤務地");
     const csv = exportProposalCsv(initialWorkspace, {
-      memberIds: ids, columns: DEFAULT_PROPOSAL_CSV_COLUMNS, anonymous: true, weekStart,
+      memberIds: ["saeki"], columns: ["勤務地"], weekStart,
     });
-    expect(rows(csv)).toEqual([["候補", "職種"], ["候補A", "Product Designer"], ["候補B", "Frontend Engineer"]]);
-  });
-
-  it("does not offer 勤務地 while the names are hidden", () => {
-    expect(proposalCsvColumns(false)).toEqual(PROPOSAL_CSV_COLUMNS.filter((column) => column !== "候補"));
-    expect(proposalCsvColumns(true)).not.toContain("勤務地");
-    // Asking for it anyway does not get it.
-    const csv = exportProposalCsv(initialWorkspace, {
-      memberIds: ["saeki"], columns: ["勤務地"], anonymous: true, weekStart,
-    });
-    expect(rows(csv)[0]).toEqual(["候補"]);
+    expect(rows(csv)).toEqual([["候補", "勤務地"], ["佐伯 優斗", "東京"]]);
   });
 
   it("carries no member id in any column, whatever is asked for", () => {
     const csv = exportProposalCsv(initialWorkspace, {
       memberIds: initialWorkspace.members.map((member) => member.id),
-      columns: [...PROPOSAL_CSV_COLUMNS], anonymous: false, weekStart,
+      columns: [...PROPOSAL_CSV_COLUMNS], weekStart,
     });
     for (const member of initialWorkspace.members) {
       expect(csv, `${member.id} reached the file`).not.toContain(member.id);
@@ -132,7 +122,7 @@ describe("writing a proposal out", () => {
     const need = (initialWorkspace.needs ?? [])[0];
     expect(need, "the demo data should carry a staffing need").toBeDefined();
     const csv = exportProposalCsv(initialWorkspace, {
-      memberIds: ["matsumoto"], columns: ["4週間の稼働率", "要件期間の最小空き"], anonymous: false,
+      memberIds: ["matsumoto"], columns: ["4週間の稼働率", "要件期間の最小空き"],
       weekStart, needId: need.id,
     });
     const [header, row] = rows(csv);
@@ -146,14 +136,14 @@ describe("writing a proposal out", () => {
     const unscoredId = initialWorkspace.members.find((member) => !scored.includes(member.id))!.id;
     expect(scored, "the demo need should not match everybody").not.toContain(unscoredId);
     const unscored = exportProposalCsv(initialWorkspace, {
-      memberIds: [unscoredId], columns: ["要件期間の最小空き"], anonymous: false, weekStart, needId: need.id,
+      memberIds: [unscoredId], columns: ["要件期間の最小空き"], weekStart, needId: need.id,
     });
     expect(rows(unscored)[1][1]).toBe("");
   });
 
   it("keeps the declared column order, not the order they were asked for", () => {
     const csv = exportProposalCsv(initialWorkspace, {
-      memberIds: ["saeki"], columns: ["4週間の稼働率", "職種"], anonymous: false, weekStart,
+      memberIds: ["saeki"], columns: ["4週間の稼働率", "職種"], weekStart,
     });
     expect(rows(csv)[0]).toEqual(["候補", "職種", "4週間の稼働率"]);
   });

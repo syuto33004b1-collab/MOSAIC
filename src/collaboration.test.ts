@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  anonymousCandidateLabel,
   buildShareHref,
   isFavorited,
   normalizeFavorites,
@@ -15,14 +14,6 @@ import {
   DEMO_SEEDED_FAVORITES,
   MAX_FAVORITES,
 } from "./collaboration";
-
-describe("anonymous labels", () => {
-  it("uses A-Z then numeric labels", () => {
-    expect(anonymousCandidateLabel(0)).toBe("候補A");
-    expect(anonymousCandidateLabel(25)).toBe("候補Z");
-    expect(anonymousCandidateLabel(26)).toBe("候補27");
-  });
-});
 
 describe("favorites", () => {
   it("toggles a member without duplicating it", () => {
@@ -54,7 +45,7 @@ describe("favorites", () => {
 });
 
 describe("share links", () => {
-  it("parses member detail, search, and anonymous proposal URLs", () => {
+  it("parses member detail, search, and proposal URLs", () => {
     expect(parseShareSearch("?nav=members&open=saeki")).toEqual({ nav: "members", open: "saeki" });
     // A proposal carries what it is for, not only who is in it (#140).
     expect(parseShareSearch("?nav=proposal&members=a,b&need=need-1"))
@@ -68,10 +59,10 @@ describe("share links", () => {
     expect(serializeShareSearch({ nav: "proposal", memberIds: ["a"], needId: "no spaces allowed" }))
       .toBe("?nav=proposal&members=a");
     expect(parseShareSearch("nav=members&q=React")).toEqual({ nav: "members", q: "React" });
+    // A retired display-mode flag is not share state. The members still load (#332).
     expect(parseShareSearch("?members=saeki,nakamura,saeki&anonymous=1")).toEqual({
       nav: "proposal",
       memberIds: ["saeki", "nakamura"],
-      anonymous: true,
     });
   });
 
@@ -84,9 +75,19 @@ describe("share links", () => {
   it("serializes the shortest share query", () => {
     expect(serializeShareSearch({ nav: "board" })).toBe("");
     expect(serializeShareSearch({ nav: "members", open: "saeki" })).toBe("?nav=members&open=saeki");
-    expect(serializeShareSearch({ nav: "proposal", memberIds: ["saeki", "nakamura"], anonymous: true })).toBe(
-      "?nav=proposal&members=saeki%2Cnakamura&anonymous=1",
+    expect(serializeShareSearch({ nav: "proposal", memberIds: ["saeki", "nakamura"] })).toBe(
+      "?nav=proposal&members=saeki%2Cnakamura",
     );
+  });
+
+  it("strips a retired anonymous flag so copying a legacy link cannot redistribute it", () => {
+    const location = { origin: "https://example.test", pathname: "/", search: "?nav=proposal&members=saeki&anonymous=1" };
+    expect(buildShareHref(location, { nav: "proposal", memberIds: ["saeki"] })).toBe(
+      "https://example.test/?nav=proposal&members=saeki",
+    );
+    expect(shareLocationFor({ pathname: "/", search: "?nav=proposal&members=saeki&anonymous=1", hash: "" }, { nav: "proposal", memberIds: ["saeki"] }))
+      .toBe("/?nav=proposal&members=saeki");
+    expect(serializeShareSearch({ nav: "proposal", memberIds: ["saeki"] })).not.toContain("anonymous");
   });
 
   it("keeps unrelated query params when building an href", () => {

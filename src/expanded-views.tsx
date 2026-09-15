@@ -10,7 +10,6 @@ import {
   CircleAlert,
   ClipboardCheck,
   Download,
-  EyeOff,
   Gauge,
   Layers3,
   MailPlus,
@@ -28,7 +27,6 @@ import {
   X,
 } from "lucide-react";
 import {
-  anonymousCandidateLabel,
   isFavorited,
   MAX_PROPOSAL_MEMBERS,
   type Favorite,
@@ -189,13 +187,11 @@ type ProposalViewProps = {
   state: WorkspaceState;
   weekOffset: number;
   selectedIds: string[];
-  anonymous: boolean;
   favorites?: Favorite[];
   /** The staffing need or staffing plan this proposal answers, if one was picked. */
   needId?: string;
   onNeedIdChange: (needId: string) => void;
   onSelectedIdsChange: (ids: string[]) => void;
-  onAnonymousChange: (value: boolean) => void;
   onOpenMember: (memberId: string) => void;
   onToggleFavorite?: (memberId: string) => void;
 };
@@ -1145,10 +1141,8 @@ export function ProposalView({
   state,
   weekOffset,
   selectedIds,
-  anonymous,
   favorites = [],
   onSelectedIdsChange,
-  onAnonymousChange,
   onOpenMember,
   onToggleFavorite,
   needId,
@@ -1214,9 +1208,8 @@ export function ProposalView({
   return (
     <section className="section-view proposal-view" aria-labelledby="proposal-heading">
       <h2 id="proposal-heading" className="sr-only">候補者提案</h2>
-      {/* The ribbon said 「氏名を隠して候補を比較します」 — a description of a display
-          mode, on a screen whose job was never stated. It names the thing being
-          answered now, and falls back to saying what the screen is for (#140). */}
+      {/* The ribbon names the thing being answered, and falls back to saying what
+          the screen is for (#140). */}
       <div className="member-ribbon">
         <div className="ribbon-lead">
           <span className="ribbon-icon mint"><Sparkles size={18} /></span>
@@ -1229,12 +1222,6 @@ export function ProposalView({
           </div>
         </div>
         <div className="ribbon-stat"><strong>{selected.length}</strong><span>選定中</span></div>
-        <div className="ribbon-divider" />
-        {/* 「匿名」 was the wrong word for it: this hides two fields on this screen,
-            it does not anonymise anything (#148). The stat says what the toggle
-            does, in the toggle's own words. The prop and the URL parameter keep
-            their names — renaming those would break links already handed out. */}
-        <div className="ribbon-stat"><strong>{anonymous ? "氏名なし" : "氏名あり"}</strong><span>表示モード</span></div>
       </div>
 
       {/* No copy button here. #140 said the only way out was the command palette;
@@ -1247,22 +1234,10 @@ export function ProposalView({
           <option value="">未選択</option>
           {subjects.map((item) => <option value={item.id} key={item.id}>{item.label}</option>)}
         </select></label>
-        {/* What this hides and how far it holds, in one sentence, because 「隠す」 alone reads
-            as a promise. Measured: `anonymous=1` travels in the link and the reader does open
-            to hidden names — so the label's scope is not 「this screen」 — and unticking the
-            box brings them back, with real member ids in the URL either way. The empty state
-            says the same thing and disappears the moment a candidate is picked, which is when
-            the link gets copied. What is safe to send outside is #148, which settled on a file
-            rather than a link (#176). */}
-        <label className="view-toggle">
-          <input type="checkbox" checked={anonymous} onChange={(event) => onAnonymousChange(event.target.checked)} />
-          <EyeOff size={14} />氏名・勤務地を隠す
-        </label>
-        <span className="toolbar-result">最大{MAX_PROPOSAL_MEMBERS}名。社内リンクはログインが必要です。氏名・勤務地は共有リンクでも最初は隠れますが、開いた人が表示に戻せます。</span>
+        <span className="toolbar-result">最大{MAX_PROPOSAL_MEMBERS}名。社内リンクはログインが必要です。社外へ出すときはファイルか紙にします。</span>
         {/* The answer #148 settled on. A link cannot be sent outside — it carries real
-            member ids and the reader can put the names back — and a file can: no ids in it,
-            and nothing at the other end to untick. What a file cannot do is expire, so the
-            panel says that where the button is rather than leaving it implied. */}
+            member ids — and a file can: no ids in it. What a file cannot do is expire, so
+            the panel says that where the button is rather than leaving it implied. */}
         <details className="proposal-export">
           {/* Two ways out, one set of choices. #179 asked for paper as well as the file, and
               made the same tick boxes decide what goes on it: the alternative was a second
@@ -1274,7 +1249,7 @@ export function ProposalView({
             {/* 候補 is not in here: every file has it, and a file of nothing at all is not a
                 proposal. Saying so in the legend beats a checkbox that cannot be unticked. */}
             <legend>ファイルと紙に入れる項目（候補は必ず入ります）</legend>
-            {proposalCsvColumns(anonymous).map((column) => (
+            {proposalCsvColumns().map((column) => (
               <label key={column}>
                 <input
                   type="checkbox"
@@ -1287,7 +1262,7 @@ export function ProposalView({
               </label>
             ))}
           </fieldset>
-          <p className="proposal-export-note">書き出したファイルと印刷した紙は取り消せません。共有リンクと違って氏名を戻す操作はありませんが、渡した後に消すこともできません。</p>
+          <p className="proposal-export-note">書き出したファイルと印刷した紙は取り消せません。渡した後に消すこともできません。</p>
           <button
             type="button"
             className="view-add-button"
@@ -1295,23 +1270,19 @@ export function ProposalView({
             onClick={() => downloadCsv("mosaic-proposal.csv", exportProposalCsv(state, {
               memberIds: selected.map((member) => member.id),
               columns: exportColumns,
-              anonymous,
               weekStart,
               needId: subject?.need.id,
             }))}
           >
-            {/* Which way the names are going out, on the control that sends them. The panel
-                looked the same either way, and 「2名を書き出す」 does not say whether those two
-                are named in the file — the evaluation on #148 asked for this. */}
             <Download size={15} />{selected.length > 0
-              ? `${anonymous ? "氏名を隠して" : "実名で"}${selected.length}名を書き出す`
+              ? `${selected.length}名を書き出す`
               : "候補を選ぶと書き出せます"}
           </button>
           {/* Paper, for the case a spreadsheet is the wrong thing to hand over: the file puts
               the cards back into columns, and a proposal is read as cards. The browser's own
               print dialogue is the PDF writer too, so this is the whole of the feature — what
               lands on the page is `@media print` in the stylesheet, working from this screen's
-              own markup. It says which way the names are going, like the button above (#179). */}
+              own markup (#179). */}
           <button
             type="button"
             className="view-add-button"
@@ -1319,7 +1290,7 @@ export function ProposalView({
             onClick={() => window.print()}
           >
             <Printer size={15} />{selected.length > 0
-              ? `${anonymous ? "氏名を隠して" : "実名で"}${selected.length}名を印刷`
+              ? `${selected.length}名を印刷`
               : "候補を選ぶと印刷できます"}
           </button>
         </details>
@@ -1364,27 +1335,24 @@ export function ProposalView({
             <div className="view-empty proposal-empty">
               <UsersRound size={22} />
               <strong>左側から候補を追加してください</strong>
-              <p>氏名を隠すと、共有リンクを開いた社内メンバーの画面でも既定で隠れます。開いた側で表示に戻すこともできます。</p>
+              <p>提案先を選ぶと、要件に合う人から並びます。社外へ出すときはファイルか紙にします。</p>
             </div>
           )}
-          {selected.map((member, index) => {
-            // Anonymous mode numbers the candidates, so it needs no disambiguation (#123).
-            const label = anonymous ? anonymousCandidateLabel(index) : memberLabel(state, member);
+          {selected.map((member) => {
+            const label = memberLabel(state, member);
             const weeklyLoads = proposalWeeklyLoads(state, member, weekStart);
             return (
-              <article className={"proposal-card" + (anonymous ? " is-anonymous" : "")} key={member.id}>
+              <article className="proposal-card" key={member.id}>
                 {/* Paper only, and on every card. The ribbon that names the proposal is one
                     element in normal flow, so once the candidates spill past the first page —
                     four of them, at 267px a card in 1017px of printable height — every later
                     page is candidates with nothing saying whose proposal they are. A running
                     header would say it once per page, but `position: fixed` repeats are
                     engine-dependent and cannot be measured here, and `@page` margin boxes are
-                    not in Chrome, so this is the one that certainly prints (#185).
-                    The display mode comes with it: a reader holding only page two would not
-                    otherwise know that names were being withheld. */}
-                <p className="proposal-card-provenance">{subject ? subject.label : "提案先未選択"} · {anonymous ? "氏名なし" : "氏名あり"}</p>
+                    not in Chrome, so this is the one that certainly prints (#185). */}
+                <p className="proposal-card-provenance">{subject ? subject.label : "提案先未選択"}</p>
                 <header>
-                  <span className={"avatar " + (anonymous ? "sand" : member.avatarTone)}>{anonymous ? anonymousCandidateLabel(index).slice(-1) : member.initials}</span>
+                  <span className={"avatar " + member.avatarTone}>{member.initials}</span>
                   {/* Named so the print rules can drop the ones the tick boxes did not
                       choose. Structural selectors would reach these today and mean something
                       else the next time a line is added here (#179).
@@ -1395,10 +1363,10 @@ export function ProposalView({
                       asked for. The evaluation on #179 found it. */}
                   <div>
                     <h3>{label}</h3>
-                    <p className="proposal-card-role">{member.role}{anonymous ? "" : <span className="proposal-card-department"> · {member.department}</span>}</p>
-                    {!anonymous && <small className="proposal-card-location">{member.location}</small>}
+                    <p className="proposal-card-role">{member.role}<span className="proposal-card-department"> · {member.department}</span></p>
+                    <small className="proposal-card-location">{member.location}</small>
                   </div>
-                  {onToggleFavorite && !anonymous && <FavoriteStar name={memberLabel(state, member)} pressed={isFavorited(favorites, "member", member.id)} onToggle={() => onToggleFavorite(member.id)} />}
+                  {onToggleFavorite && <FavoriteStar name={memberLabel(state, member)} pressed={isFavorited(favorites, "member", member.id)} onToggle={() => onToggleFavorite(member.id)} />}
                   <button type="button" className="proposal-remove" onClick={() => onSelectedIdsChange(selectedIds.filter((id) => id !== member.id))}>外す</button>
                 </header>
                 <div className="member-skills">{memberSkillLevels(member).slice(0, 4).map((level) => <span key={level.name}>{level.name}<small>{level.proficiency}</small></span>)}</div>
@@ -1429,7 +1397,7 @@ export function ProposalView({
                       </div>
                     ))}
                 </div>
-                {!anonymous && <button type="button" className="proposal-open" onClick={() => onOpenMember(member.id)}>詳細を開く</button>}
+                <button type="button" className="proposal-open" onClick={() => onOpenMember(member.id)}>詳細を開く</button>
               </article>
             );
           })}

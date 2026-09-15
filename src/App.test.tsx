@@ -1346,7 +1346,7 @@ describe("role-aware workspace", () => {
   });
 });
 
-describe("favorites, share links, and anonymous proposals", () => {
+describe("favorites and share links", () => {
   it("opens a member drawer from an internal share URL", async () => {
     window.history.replaceState({}, "", "/?nav=members&open=saeki");
     render(<App mode="shared" organizationName="Example Inc." identity={{ name: "計画 花子", email: "planner@example.com", role: "planner" }} shared={sharedAdapter()} />);
@@ -1378,16 +1378,13 @@ describe("favorites, share links, and anonymous proposals", () => {
     expect(screen.getByRole("button", { name: "佐伯 優斗のお気に入りを解除" })).toHaveAttribute("aria-pressed", "true");
   });
 
-  it("hides names in the anonymized proposal view", async () => {
-    const user = userEvent.setup();
+  it("opens a legacy anonymous proposal URL with names shown", async () => {
     window.history.replaceState({}, "", "/?nav=proposal&members=saeki,nakamura&anonymous=1");
     render(<App mode="shared" organizationName="Example Inc." identity={{ name: "計画 花子", email: "planner@example.com", role: "planner" }} shared={sharedAdapter()} />);
-    expect(await screen.findByRole("heading", { name: "候補A" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "候補B" })).toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: "佐伯 優斗" })).not.toBeInTheDocument();
-    expect(screen.queryByText("東京")).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "提案" }));
-    expect(screen.getByLabelText("氏名・勤務地を隠す")).toBeChecked();
+    expect(await screen.findByRole("heading", { name: "佐伯 優斗" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "中村 美咲" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "候補A" })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("氏名・勤務地を隠す")).not.toBeInTheDocument();
   });
 
   it("loads and updates shared favorites through the workspace adapter", async () => {
@@ -3282,9 +3279,8 @@ describe("a proposal answers something", () => {
    * carries the line now (#185).
    *
    * Whether it prints is the stylesheet's half, in
-   * `tests/proposal-print-contract.test.mjs`. This is the content: the subject and
-   * the display mode, on every card, including the one thing a reader holding only
-   * page two could not otherwise know — that names are being withheld.
+   * `tests/proposal-print-contract.test.mjs`. This is the content: the subject on
+   * every card, so a reader holding only page two still knows whose proposal it is.
    */
   it("puts the proposal's own name on every candidate for the printed page", async () => {
     const user = await openProposal();
@@ -3301,10 +3297,8 @@ describe("a proposal answers something", () => {
     expect(provenance()).toHaveLength(document.querySelectorAll(".proposal-card").length);
     expect(provenance().length).toBeGreaterThan(1);
     expect(new Set(provenance()).size).toBe(1);
-    expect(provenance()[0]).toBe(`${subject.textContent} · 氏名あり`);
-
-    await user.click(screen.getByLabelText("氏名・勤務地を隠す"));
-    expect(provenance()[0]).toBe(`${subject.textContent} · 氏名なし`);
+    expect(provenance()[0]).toBe(subject.textContent);
+    expect(screen.queryByLabelText("氏名・勤務地を隠す")).not.toBeInTheDocument();
   });
 
   /**
@@ -3534,7 +3528,7 @@ describe("a proposal answers something", () => {
     expect(document.querySelector(".proposal-match")).toBeNull();
   });
 
-  it("keeps names and locations out of the anonymous view, subject or not", async () => {
+  it("keeps names and locations on the card, subject or not", async () => {
     const user = await openProposal();
     const picker = screen.getByLabelText("提案先を選ぶ") as HTMLSelectElement;
     await user.selectOptions(picker, [...picker.options].find((option) => option.value !== "")!.value);
@@ -3543,16 +3537,10 @@ describe("a proposal answers something", () => {
     await user.click(candidate);
 
     const location = initialWorkspace.members.find((member) => member.name === name)!.location;
-    expect(document.querySelector(".proposal-cards")!.textContent).toContain(location);
-
-    await user.click(screen.getByLabelText("氏名・勤務地を隠す"));
     const cards = document.querySelector(".proposal-cards")!.textContent ?? "";
-    expect(cards).not.toContain(name);
-    expect(cards).not.toContain(location);
-    expect(cards).toMatch(/候補[A-Z]/u);
-    // The fit survives the anonymising, which is the point of showing it: a
-    // reader can weigh the candidate without being told who they are.
-    expect(cards).toMatch(/適合 \d+点|この要件には適合していません/u);
+    expect(cards).toContain(name);
+    expect(cards).toContain(location);
+    expect(cards).not.toMatch(/候補[A-Z]/u);
   });
 });
 
@@ -4862,22 +4850,9 @@ describe("custom fields in a drawer form", () => {
  * What was true is that nothing named the move and nothing could take back just it.
  */
 /**
- * #176: 「氏名・勤務地を隠す」 read as a promise. What it actually does, measured: the copied
- * link is `?nav=proposal&members=saeki&anonymous=1`, so the hiding does reach whoever opens
- * it — they start with the names hidden — and unticking the box brings them back. Real
- * member ids are in the URL either way, and the skills and the four-week load show whether
- * the names are hidden or not.
- *
- * So the gap was never that the setting is lost in transit; it is that it cannot be
- * enforced. The toolbar says both halves now. An earlier version of this said 「リンクに
- * 残りません」, which was wrong in the other direction.
- */
-/**
  * #148 asked whether a proposal should be shareable outside the organisation, and settled
- * on a file rather than a link. A link cannot be: measured, the copied one is
- * `?nav=proposal&members=saeki&anonymous=1` — real member ids, and whoever opens it can
- * untick the hiding. A file carries no ids and has nothing to untick. What it cannot do is
- * expire, which the panel says where the button is.
+ * on a file rather than a link. A link cannot be: it carries real member ids. A file
+ * carries no ids. What it cannot do is expire, which the panel says where the button is.
  *
  * The file's contents are `src/csv.test.ts`; this is the screen that asks for it.
  */
@@ -4906,32 +4881,21 @@ describe("writing the proposal out as a file", () => {
     expect(screen.getByRole("button", { name: /候補を選ぶと書き出せます/u })).toBeDisabled();
   });
 
-  /**
-   * The panel looked the same whether the file was about to carry names or numbers, and
-   * 「2名を書き出す」 does not say which. The control that sends them says it.
-   */
-  it("says on the button whether the names are going out", async () => {
+  it("enables the write-out button once somebody is picked", async () => {
     const user = userEvent.setup();
     render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={sharedAdapter()} />);
     await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^提案( |$)/u }));
     await user.click(document.querySelectorAll(".proposal-picker-item")[0]);
     await user.click(screen.getByText("書き出す・印刷する"));
-    expect(screen.getByRole("button", { name: "実名で1名を書き出す" })).toBeInTheDocument();
-
-    await user.click(screen.getByLabelText("氏名・勤務地を隠す"));
-    expect(screen.getByRole("button", { name: "氏名を隠して1名を書き出す" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "1名を書き出す" })).toBeInTheDocument();
   });
 
-  it("stops offering 勤務地 once the names are hidden", async () => {
+  it("keeps 勤務地 among the columns that can go out", async () => {
     const user = userEvent.setup();
     render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={sharedAdapter()} />);
     await openPanel(user);
-    const offered = () => [...document.querySelectorAll(".proposal-export-columns label")].map((label) => label.textContent!.trim());
-    expect(offered()).toContain("勤務地");
-
-    await user.click(screen.getByLabelText("氏名・勤務地を隠す"));
-    // The other half of what the toggle hides cannot be written out around it.
-    expect(offered()).not.toContain("勤務地");
+    const offered = [...document.querySelectorAll(".proposal-export-columns label")].map((label) => label.textContent!.trim());
+    expect(offered).toContain("勤務地");
   });
 
   it("writes a file named without an id once somebody is picked", async () => {
@@ -4950,7 +4914,7 @@ describe("writing the proposal out as a file", () => {
     const realClick = HTMLAnchorElement.prototype.click;
     HTMLAnchorElement.prototype.click = function (this: HTMLAnchorElement) { clicks.push(this.download); };
     try {
-      await user.click(screen.getByRole("button", { name: /実名で1名を書き出す/u }));
+      await user.click(screen.getByRole("button", { name: /1名を書き出す/u }));
     } finally {
       URL.createObjectURL = realCreate;
       URL.revokeObjectURL = realRevoke;
@@ -4971,8 +4935,8 @@ describe("writing the proposal out as a file", () => {
  * the candidate cards back into columns — so paper is the other way out, and the browser's
  * print dialogue is the PDF writer too. What lands on the page is `@media print` over this
  * screen's own markup, which `tests/proposal-print-contract.test.mjs` holds; what is here is
- * the part a stylesheet cannot do: the same tick boxes deciding both, and the button saying
- * which way the names are going.
+ * the part a stylesheet cannot do: the same tick boxes deciding both, and a button that
+ * waits for a candidate.
  */
 describe("printing the proposal", () => {
   const openPanel = async (user: ReturnType<typeof userEvent.setup>) => {
@@ -4980,16 +4944,14 @@ describe("printing the proposal", () => {
     await user.click(screen.getByText("書き出す・印刷する"));
   };
 
-  it("waits for a candidate, and says which way the names are going", async () => {
+  it("waits for a candidate before printing", async () => {
     const user = userEvent.setup();
     render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={sharedAdapter()} />);
     await openPanel(user);
     expect(screen.getByRole("button", { name: /候補を選ぶと印刷できます/u })).toBeDisabled();
 
     await user.click(document.querySelectorAll(".proposal-picker-item")[0]);
-    expect(screen.getByRole("button", { name: "実名で1名を印刷" })).toBeInTheDocument();
-    await user.click(screen.getByLabelText("氏名・勤務地を隠す"));
-    expect(screen.getByRole("button", { name: "氏名を隠して1名を印刷" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "1名を印刷" })).toBeInTheDocument();
   });
 
   it("hands the page to the browser, which is also its PDF writer", async () => {
@@ -5003,7 +4965,7 @@ describe("printing the proposal", () => {
     const real = window.print;
     window.print = print;
     try {
-      await user.click(screen.getByRole("button", { name: "実名で1名を印刷" }));
+      await user.click(screen.getByRole("button", { name: "1名を印刷" }));
     } finally {
       window.print = real;
     }
@@ -5083,24 +5045,18 @@ describe("printing the proposal", () => {
   });
 });
 
-describe("what the proposal's hiding promises", () => {
-  it("says the link starts hidden and the reader can undo it", async () => {
+describe("what the proposal's share and export promise", () => {
+  it("says the link is for people who can sign in, and a file is for sending out", async () => {
     const user = userEvent.setup();
     const adapter = sharedAdapter();
     render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
     await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^提案( |$)/u }));
 
-    expect(screen.getByLabelText("氏名・勤務地を隠す")).toBeInTheDocument();
+    expect(screen.queryByLabelText("氏名・勤務地を隠す")).not.toBeInTheDocument();
     const toolbar = document.querySelector(".proposal-view .toolbar-result, .toolbar-result")!;
     expect(toolbar.textContent).toContain("社内リンクはログインが必要です");
-    // Both halves: where the hiding reaches, and that it can be undone there. Either one
-    // alone reads as a promise — the first that it is safe to send, the second that the
-    // link never carried it.
-    expect(toolbar.textContent).toContain("共有リンクでも最初は隠れます");
-    expect(toolbar.textContent).toContain("開いた人が表示に戻せます");
-    // Both fields, because the checkbox hides both.
-    expect(toolbar.textContent).toContain("氏名・勤務地");
-    expect(toolbar.textContent).not.toContain("リンクに残りません");
+    expect(toolbar.textContent).toContain("ファイルか紙");
+    expect(toolbar.textContent).not.toContain("隠れます");
   });
 });
 

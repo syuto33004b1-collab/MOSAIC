@@ -322,7 +322,7 @@ const pageMeta = {
   projects: { eyebrow: "PORTFOLIO CONTROL", title: "プロジェクト・ポートフォリオ", description: "案件ごとの充足と次の節目を横断して管理します。" },
   opportunities: { eyebrow: "PRE-AWARD PIPELINE", title: "受注前案件", description: "引き合いから商談までの要員計画を、確定プロジェクトと分けて検討します。" },
   members: { eyebrow: "TEAM AVAILABILITY", title: "メンバーと空き状況", description: "スキルと4週間の稼働から、次の担当者を探します。" },
-  proposal: { eyebrow: "CANDIDATE PROPOSAL", title: "候補者提案", description: "氏名を隠して、スキルと空き状況だけを比較します。" },
+  proposal: { eyebrow: "CANDIDATE PROPOSAL", title: "候補者提案", description: "要件に合う候補を並べて、スキルと空きで比較します。" },
   org: { eyebrow: "ORGANIZATION TREE", title: "組織階層", description: "部門の階層、責任者、兼務を管理し、検索とレポートへ使います。" },
   skills: { eyebrow: "SKILL TAXONOMY", title: "スキルマップ", description: "分類、習熟度、不足領域を組織全体で確認します。" },
   fields: { eyebrow: "FIELD DEFINITIONS", title: "項目と経歴", description: "独自項目の配置と、メンバーの業務経歴を管理します。" },
@@ -525,7 +525,6 @@ export default function Home({ mode = "demo", organizationId, organizationName =
   const [proposalMemberIds, setProposalMemberIds] = useState<string[]>(startingShare?.nav === "proposal" ? startingShare.memberIds ?? [] : []);
   /** What the proposal answers, carried in the share link like the selection is. */
   const [proposalNeedId, setProposalNeedId] = useState(startingShare?.nav === "proposal" ? startingShare.needId ?? "" : "");
-  const [proposalAnonymous, setProposalAnonymous] = useState(startingShare?.nav === "proposal" ? Boolean(startingShare.anonymous) : false);
   const [searchOpen, setSearchOpen] = useState(false);
   /**
    * The candidate search, shared by both assignment forms and cleared whenever either
@@ -663,11 +662,10 @@ export default function Home({ mode = "demo", organizationId, organizationName =
     }
     if (activeNav === "proposal") {
       if (proposalMemberIds.length) link.memberIds = proposalMemberIds;
-      if (proposalAnonymous) link.anonymous = true;
       if (proposalNeedId) link.needId = proposalNeedId;
     }
     return link;
-  }, [activeNav, drawer, memberQuery, projectQuery, proposalAnonymous, proposalMemberIds, proposalNeedId, selectedMemberId, selectedProjectId]);
+  }, [activeNav, drawer, memberQuery, projectQuery, proposalMemberIds, proposalNeedId, selectedMemberId, selectedProjectId]);
 
   /**
    * Everything a share link says, put back.
@@ -685,7 +683,6 @@ export default function Home({ mode = "demo", organizationId, organizationName =
     setProjectQuery(link?.nav === "projects" ? link.q ?? "" : "");
     setProposalMemberIds(link?.nav === "proposal" ? link.memberIds ?? [] : []);
     setProposalNeedId(link?.nav === "proposal" ? link.needId ?? "" : "");
-    setProposalAnonymous(link?.nav === "proposal" ? Boolean(link.anonymous) : false);
     const restored = drawerFromShare(link, state);
     if (restored.memberId) setSelectedMemberId(restored.memberId);
     if (restored.projectId) setSelectedProjectId(restored.projectId);
@@ -1473,7 +1470,6 @@ export default function Home({ mode = "demo", organizationId, organizationName =
     {
       nav: "proposal",
       memberIds: visibleProposalIds,
-      anonymous: proposalAnonymous,
       needId: proposalSubjectExists ? proposalNeedId : undefined,
     },
     "提案リンクをコピーしました",
@@ -3270,7 +3266,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
         {activeNav === "projects" && <ProjectsView state={workspace} weekOffset={viewWeekOffset} onOpen={openProject} query={projectQuery} onQueryChange={setProjectQuery} favorites={favorites} favoritesOnly={favoritesOnly} onFavoritesOnlyChange={setFavoritesOnly} onToggleFavorite={(projectId) => void toggleFavoriteTarget("project", projectId)} onCopyQuery={() => void copyShareLink({ nav: "projects", q: projectQuery }, "検索リンクをコピーしました")} />}
         {activeNav === "opportunities" && <OpportunitiesView state={workspace} onOpen={openOpportunity} />}
         {activeNav === "members" && <MembersView state={workspace} weekOffset={viewWeekOffset} onOpen={openMember} onAssign={openAssignmentFor} onAddScene={handleAddSearchScene} onDeleteScene={handleDeleteSearchScene} canEdit={canEdit} canManageScenes={canManageMembers && featureEnabled("searchScenes")} query={memberQuery} onQueryChange={setMemberQuery} favorites={favorites} favoritesOnly={favoritesOnly} onFavoritesOnlyChange={setFavoritesOnly} onToggleFavorite={(memberId) => void toggleFavoriteTarget("member", memberId)} onAddToProposal={addMemberToProposal} onCopyQuery={() => void copyShareLink({ nav: "members", q: memberQuery }, "検索リンクをコピーしました")} />}
-        {activeNav === "proposal" && <ProposalView state={workspace} weekOffset={viewWeekOffset} selectedIds={visibleProposalIds} anonymous={proposalAnonymous} favorites={favorites} needId={proposalNeedId || undefined} onNeedIdChange={setProposalNeedId} onSelectedIdsChange={setProposalMemberIds} onAnonymousChange={setProposalAnonymous} onOpenMember={openMember} onToggleFavorite={(memberId) => void toggleFavoriteTarget("member", memberId)} />}
+        {activeNav === "proposal" && <ProposalView state={workspace} weekOffset={viewWeekOffset} selectedIds={visibleProposalIds} favorites={favorites} needId={proposalNeedId || undefined} onNeedIdChange={setProposalNeedId} onSelectedIdsChange={setProposalMemberIds} onOpenMember={openMember} onToggleFavorite={(memberId) => void toggleFavoriteTarget("member", memberId)} />}
         {activeNav === "org" && <OrgView
           state={workspace}
           onAddUnit={handleAddOrgUnit}

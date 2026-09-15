@@ -1,4 +1,3 @@
-import { anonymousCandidateLabel } from "./collaboration";
 import {
   addDays,
   createProjectCode,
@@ -192,8 +191,9 @@ export function exportAssignmentsCsv(state: WorkspaceState, columns: string[]) {
  * The columns a proposal can be written out with, in the order they appear in the file.
  *
  * #148 asked whether an externally shareable proposal should exist. It settled on a file
- * rather than a link: a file carries no member ids, and nobody at the other end can
- * un-anonymise it. What it also cannot do is expire, which the button says out loud.
+ * rather than a link: a file carries no member ids, so it cannot be turned back into the
+ * workspace's person records the way a `members=` link can. What it also cannot do is
+ * expire, which the button says out loud.
  */
 export const PROPOSAL_CSV_COLUMNS = ["候補", "職種", "勤務地", "スキル", "要件期間の最小空き", "4週間の稼働率"] as const;
 export type ProposalCsvColumn = typeof PROPOSAL_CSV_COLUMNS[number];
@@ -211,19 +211,15 @@ export const REQUIRED_PROPOSAL_CSV_COLUMN: ProposalCsvColumn = "候補";
 export const DEFAULT_PROPOSAL_CSV_COLUMNS: ProposalCsvColumn[] = ["職種"];
 
 /**
- * The columns the sender chooses from. 勤務地 is the other half of what 「氏名・勤務地を隠す」
- * hides, so it is not on offer while that is on.
+ * The columns the sender chooses from. 候補 is required and is not a choice.
  */
-export function proposalCsvColumns(anonymous: boolean): ProposalCsvColumn[] {
-  return PROPOSAL_CSV_COLUMNS
-    .filter((column) => column !== REQUIRED_PROPOSAL_CSV_COLUMN)
-    .filter((column) => !(anonymous && column === "勤務地"));
+export function proposalCsvColumns(): ProposalCsvColumn[] {
+  return PROPOSAL_CSV_COLUMNS.filter((column) => column !== REQUIRED_PROPOSAL_CSV_COLUMN);
 }
 
 export function exportProposalCsv(state: WorkspaceState, input: {
   memberIds: string[];
   columns: string[];
-  anonymous: boolean;
   /** The four weeks the cards show, so the file and the screen agree. */
   weekStart: string;
   /** The requirement the proposal answers, for 要件期間の最小空き. */
@@ -231,7 +227,7 @@ export function exportProposalCsv(state: WorkspaceState, input: {
 }) {
   // 候補 always, then whatever was chosen, in the order they are declared rather than the
   // order they were ticked. Nothing is substituted for an empty choice.
-  const offered = proposalCsvColumns(input.anonymous);
+  const offered = proposalCsvColumns();
   const columns: ProposalCsvColumn[] = [
     REQUIRED_PROPOSAL_CSV_COLUMN,
     ...offered.filter((column) => input.columns.includes(column)),
@@ -242,11 +238,11 @@ export function exportProposalCsv(state: WorkspaceState, input: {
   const rows = input.memberIds
     .map((id) => state.members.find((member) => member.id === id))
     .filter((member): member is Member => Boolean(member))
-    .map((member, index) => columns.map((column) => {
+    .map((member) => columns.map((column) => {
       switch (column) {
-        // Never the id. A file that names 「候補A」 cannot be turned back into a person by
-        // whoever receives it, and neither can one that names the person outright.
-        case "候補": return input.anonymous ? anonymousCandidateLabel(index) : memberLabel(state, member);
+        // Never the id. A file that names a person still cannot be turned back into the
+        // workspace row the way a share link with `members=` can.
+        case "候補": return memberLabel(state, member);
         case "職種": return member.role;
         case "勤務地": return member.location;
         case "スキル": return formatSkillInput(memberSkillLevels(member));

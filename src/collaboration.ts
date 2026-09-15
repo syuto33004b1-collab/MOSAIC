@@ -16,7 +16,6 @@ export type ShareLink = {
   open?: string;
   q?: string;
   memberIds?: string[];
-  anonymous?: boolean;
   /**
    * What the proposal is for: a project's staffing need or an opportunity's
    * staffing plan (#140). Validated like `open`, and only ever used to look one up
@@ -25,11 +24,22 @@ export type ShareLink = {
   needId?: string;
 };
 
-const SHARE_PARAM_KEYS = ["nav", "open", "q", "members", "anonymous", "need"] as const;
+const SHARE_PARAM_KEYS = ["nav", "open", "q", "members", "need"] as const;
+/**
+ * Query keys that used to be share state and must still be stripped (#332).
+ *
+ * `buildShareHref` keeps unknown parameters (invites, fragments). If a retired
+ * key is not deleted here, copying a legacy `?anonymous=1` link redistributes it.
+ */
+const RETIRED_SHARE_PARAM_KEYS = ["anonymous"] as const;
 const NAV_SET = new Set<string>(SHARE_NAV_IDS);
 const KIND_SET = new Set<FavoriteKind>(["member", "project"]);
 const TARGET_ID_PATTERN = /^[\w:-]{1,80}$/;
-const LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+
+function clearShareParams(params: URLSearchParams) {
+  for (const key of SHARE_PARAM_KEYS) params.delete(key);
+  for (const key of RETIRED_SHARE_PARAM_KEYS) params.delete(key);
+}
 
 export const DEMO_SEEDED_FAVORITES: Favorite[] = [
   { kind: "member", targetId: "saeki" },
@@ -42,12 +52,6 @@ export function isShareNav(value: unknown): value is ShareNavId {
 
 export function isFavoriteKind(value: unknown): value is FavoriteKind {
   return value === "member" || value === "project";
-}
-
-export function anonymousCandidateLabel(index: number) {
-  if (index < 0) return "候補";
-  if (index < 26) return `候補${LETTERS[index]}`;
-  return `候補${index + 1}`;
 }
 
 export function favoriteKey(favorite: Pick<Favorite, "kind" | "targetId">) {
@@ -126,7 +130,6 @@ export function parseShareSearch(search: string): ShareLink | null {
   const navParam = params.get("nav");
   const open = parseOpenId(params.get("open"));
   const q = (params.get("q") ?? "").trim().slice(0, 120);
-  const anonymous = params.get("anonymous") === "1";
   let nav: ShareNavId | undefined = isShareNav(navParam) ? navParam : undefined;
   if (!nav && memberIds.length) nav = "proposal";
   if (!nav) return null;
@@ -135,7 +138,6 @@ export function parseShareSearch(search: string): ShareLink | null {
   if (q && (nav === "members" || nav === "projects")) link.q = q;
   if (nav === "proposal") {
     if (memberIds.length) link.memberIds = memberIds;
-    if (anonymous) link.anonymous = true;
     const needId = parseOpenId(params.get("need"));
     if (needId) link.needId = needId;
   }
@@ -144,14 +146,13 @@ export function parseShareSearch(search: string): ShareLink | null {
 
 export function serializeShareSearch(link: ShareLink) {
   const params = new URLSearchParams();
-  const omitNav = link.nav === "board" && !link.open && !link.q && !link.memberIds?.length && !link.anonymous && !link.needId;
+  const omitNav = link.nav === "board" && !link.open && !link.q && !link.memberIds?.length && !link.needId;
   if (!omitNav) params.set("nav", link.nav);
   if (link.open && (link.nav === "members" || link.nav === "projects")) params.set("open", link.open);
   if (link.q && (link.nav === "members" || link.nav === "projects")) params.set("q", link.q);
   if (link.nav === "proposal") {
     const ids = parseMemberIds((link.memberIds ?? []).join(","));
     if (ids.length) params.set("members", ids.join(","));
-    if (link.anonymous) params.set("anonymous", "1");
     // Through the same validator on the way out as on the way in, so a value that
     // could not have been parsed cannot be produced either.
     const needId = link.needId && TARGET_ID_PATTERN.test(link.needId) ? link.needId : undefined;
@@ -167,7 +168,7 @@ export function buildShareHref(
 ) {
   const url = new URL(location.pathname, location.origin);
   const current = new URLSearchParams(location.search);
-  for (const key of SHARE_PARAM_KEYS) current.delete(key);
+  clearShareParams(current);
   const next = new URLSearchParams(serializeShareSearch(link).replace(/^\?/, ""));
   next.forEach((value, key) => current.set(key, value));
   url.search = current.toString();
@@ -192,7 +193,7 @@ export function shareLocationFor(
   link: ShareLink | null,
 ) {
   const params = new URLSearchParams(location.search);
-  for (const key of SHARE_PARAM_KEYS) params.delete(key);
+  clearShareParams(params);
   if (link) {
     new URLSearchParams(serializeShareSearch(link).replace(/^\?/u, "")).forEach((value, key) => params.set(key, value));
   }
