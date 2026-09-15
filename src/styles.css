@@ -1691,8 +1691,9 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   display: grid;
   gap: 12px;
 }
-.proposal-card header { display: flex; align-items: flex-start; gap: 10px; }
-.proposal-card header div { min-width: 0; flex: 1; }
+.proposal-card header { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 10px; }
+.proposal-card-identity { min-width: 0; flex: 1 1 10rem; }
+.proposal-card-actions { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px; flex: 0 1 auto; margin-left: auto; }
 .proposal-card h3 { margin: 0; font-size: var(--text-lg); }
 .proposal-card header p { margin: 2px 0 0; color: #687285; font-size: var(--text-min); }
 .proposal-card header small { color: #929aaa; font-size: var(--text-min); }

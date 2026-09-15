@@ -1386,11 +1386,12 @@ export function ProposalView({
                       ticking 「職種」 would otherwise put 「QA Engineer · 品質保証」 on a page
                       going outside the organisation, and only the first half of that was
                       asked for. The evaluation on #179 found it. */}
-                  <div>
+                  <div className="proposal-card-identity">
                     <h3>{label}</h3>
                     <p className="proposal-card-role">{member.role}<span className="proposal-card-department"> · {member.department}</span></p>
                     <small className="proposal-card-location">{member.location}</small>
                   </div>
+                  <div className="proposal-card-actions">
                   {onToggleFavorite && <FavoriteStar name={memberLabel(state, member)} pressed={isFavorited(favorites, "member", member.id)} onToggle={() => onToggleFavorite(member.id)} />}
                   {canEdit && savedNeed && onToggleNeedCandidate && (
                     <button
@@ -1403,6 +1404,7 @@ export function ProposalView({
                     </button>
                   )}
                   <button type="button" className="proposal-remove" onClick={() => onSelectedIdsChange(selectedIds.filter((id) => id !== member.id))}>外す</button>
+                  </div>
                 </header>
                 <div className="member-skills">{memberSkillLevels(member).slice(0, 4).map((level) => <span key={level.name}>{level.name}<small>{level.proficiency}</small></span>)}</div>
                 {/* Against the requirement, not in the abstract. The same score the
