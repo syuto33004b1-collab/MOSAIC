@@ -896,11 +896,12 @@ export function periodMemberStats(
   state: WorkspaceState,
   member: Member,
   range: PeriodRange,
+  dailyLoads: typeof memberDailyLoads = memberDailyLoads,
 ): PeriodMemberStats {
   if (!range.from || !range.to || range.to < range.from) {
     return { exceeds: false, open: false, buckets: range.buckets.map((bucket) => ({ ...bucket, load: 0, capacity: 0, average: 0 })) };
   }
-  return periodStatsFromDays(memberDailyLoads(state, member.id, range.from, range.to), range.buckets);
+  return periodStatsFromDays(dailyLoads(state, member.id, range.from, range.to), range.buckets);
 }
 
 export type DailyLoad = {

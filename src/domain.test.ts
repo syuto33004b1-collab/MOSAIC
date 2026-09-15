@@ -1431,6 +1431,12 @@ describe("period range (#329 / #364)", () => {
     expect(clipped.buckets.length).toBeLessThanOrEqual(12);
     expect(clipped.buckets.at(-1)).toEqual({ from: "2035-12-01", to: "2035-12-31" });
     expect(periodRange({ unit: "week", count: 4 }, "2036-01-01")).toEqual({ from: "", to: "", buckets: [], clipped: true });
+    const lastWeek = periodRange({ unit: "week", count: 4 }, "2035-12-29");
+    expect(lastWeek.clipped).toBe(true);
+    expect(lastWeek.from).toBe(getWeekStartForDate("2035-12-29"));
+    expect(lastWeek.to).toBe("2035-12-31");
+    expect(lastWeek.buckets.at(-1)?.to).toBe("2035-12-31");
+    expect(lastWeek.buckets.every((bucket) => bucket.to <= "2035-12-31")).toBe(true);
     const early = periodRange({ unit: "month", count: 12 }, "2015-06-01");
     expect(early.clipped).toBe(true);
     expect(early.from).toBe("2016-01-01");
@@ -1447,6 +1453,25 @@ describe("period range (#329 / #364)", () => {
     const yearDays = memberDailyLoads(initialWorkspace, member.id, year.from, year.to);
     expect(periodMemberStats(initialWorkspace, member, four)).toEqual(periodStatsFromDays(fourDays, four.buckets));
     expect(periodMemberStats(initialWorkspace, member, year)).toEqual(periodStatsFromDays(yearDays, year.buckets));
+    const first = four.buckets[0];
+    const firstDays = fourDays.filter((day) => day.date >= first.from && day.date <= first.to);
+    const firstLoad = firstDays.reduce((sum, day) => sum + day.load, 0);
+    const firstCapacity = firstDays.filter((day) => !day.weekend).reduce((sum, day) => sum + day.capacity, 0);
+    expect(periodMemberStats(initialWorkspace, member, four).buckets[0]).toMatchObject({
+      load: firstLoad,
+      capacity: firstCapacity,
+      average: firstCapacity > 0 ? Math.round(firstLoad / firstCapacity * 100) : 0,
+    });
+    expect(periodMemberStats(initialWorkspace, member, four).exceeds).toBe(
+      memberExceedsCapacity(initialWorkspace, member, four.from, four.to),
+    );
+    let calls = 0;
+    const counting = ((...args: Parameters<typeof memberDailyLoads>) => {
+      calls += 1;
+      return memberDailyLoads(...args);
+    }) as typeof memberDailyLoads;
+    periodMemberStats(initialWorkspace, member, year, counting);
+    expect(calls).toBe(1);
   });
 
   it("treats a 時短 week as over and a holiday weekday as no supply", () => {
