@@ -845,7 +845,7 @@ export function OperationsPanel({
                     </small>
                   </span>
                   <button
-                    className="row-open"
+                    className="row-open feedback-status-button"
                     type="button"
                     disabled={Boolean(feedbackAction)}
                     onClick={() => void markFeedback(item, item.status === "open" ? "done" : "open")}

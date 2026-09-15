@@ -596,6 +596,7 @@ describe("OperationsPanel feedback", () => {
 
     expect(await screen.findByText("ボードの空き列が狭い")).toBeInTheDocument();
     expect(screen.getByText(/アサインボード/u)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "完了にする" })).toHaveClass("feedback-status-button");
     await user.click(screen.getByRole("button", { name: "完了にする" }));
     await waitFor(() => expect(repository.updateFeedbackStatus).toHaveBeenCalledWith(organization.id, item.id, "done"));
     expect(await screen.findByRole("button", { name: "未読に戻す" })).toBeInTheDocument();
