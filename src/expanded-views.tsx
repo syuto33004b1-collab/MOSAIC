@@ -97,7 +97,6 @@ import {
   opportunitySearchText,
   orgManagers,
   orgUnitArchiveBlocker,
-  orgUnitLoadRows,
   orgUnitPath,
   overlaps,
   orgUnitTree,
@@ -1478,24 +1477,43 @@ export function ReportsView({ state, onOpenWeek, onResolveNeed, onOpenOpportunit
       label: choice.unit === "month" ? `${month}月` : `${formatMonthDay(bucket.from)}週`,
     };
   });
+  const statsByMember = new Map(memberPeriodStats.map((row) => [row.member.id, row.stats]));
+  const loadFromPeople = (people: typeof state.members) => {
+    let load = 0;
+    let capacity = 0;
+    for (const member of people) {
+      const stats = statsByMember.get(member.id);
+      if (!stats) continue;
+      for (const bucket of stats.buckets) {
+        load += bucket.load;
+        capacity += bucket.capacity;
+      }
+    }
+    return { count: people.length, average: capacity > 0 ? Math.round(load / capacity * 100) : 0 };
+  };
   const orgRows = !range.from || !range.to
     ? []
     : (state.orgUnits ?? []).length > 0
-      ? orgUnitLoadRows(state, range.from, range.to)
+      ? orgUnitTree(state.orgUnits).map((unit) => {
+        const people = membersInOrgSubtree(state, unit.id, "primary");
+        const totals = loadFromPeople(people);
+        return {
+          id: unit.id,
+          name: unit.name,
+          path: orgUnitPath(state.orgUnits, unit.id),
+          depth: Math.max(0, orgUnitPath(state.orgUnits, unit.id).length - 1),
+          count: totals.count,
+          average: totals.average,
+          managers: orgManagers(state, unit.id).map((member) => member.name),
+        };
+      })
       : Array.from(new Set(state.members.map((member) => member.department))).map((department) => {
         const people = state.members.filter((member) => member.department === department);
-        const load = people.reduce((sum, member) => {
-          const stats = memberPeriodStats.find((row) => row.member.id === member.id)?.stats;
-          return sum + (stats?.buckets.reduce((bucketSum, bucket) => bucketSum + bucket.load, 0) ?? 0);
-        }, 0);
-        const capacity = people.reduce((sum, member) => {
-          const stats = memberPeriodStats.find((row) => row.member.id === member.id)?.stats;
-          return sum + (stats?.buckets.reduce((bucketSum, bucket) => bucketSum + bucket.capacity, 0) ?? 0);
-        }, 0);
-        return { id: department, name: department, path: [department], depth: 0, count: people.length, average: capacity > 0 ? Math.round(load / capacity * 100) : 0, managers: [] as string[] };
+        const totals = loadFromPeople(people);
+        return { id: department, name: department, path: [department], depth: 0, count: totals.count, average: totals.average, managers: [] as string[] };
       }).sort((a, b) => b.average - a.average);
-  const periodOverloads = memberPeriodStats.filter((row) => row.stats.exceeds).map((row) => row.member);
-  const periodIdle = memberPeriodStats.filter((row) => row.stats.open).map((row) => row.member);
+  const periodOverloads = memberPeriodStats.filter((row) => row.stats.exceeds);
+  const periodIdle = memberPeriodStats.filter((row) => row.stats.open);
   // The same list the board warns about (#255): unfilled and not yet over.
   const activeNeeds = openNeeds(state, origin);
   const activeOpportunities = (state.opportunities ?? []).filter(isActiveOpportunity);
@@ -1581,7 +1599,7 @@ export function ReportsView({ state, onOpenWeek, onResolveNeed, onOpenOpportunit
           <div className="horizon-grid" style={{ gridTemplateColumns: `repeat(${Math.max(horizon.length, 1)}, minmax(42px, 1fr))` }}>
             <div className="horizon-guide g100" /><div className="horizon-guide g60" />
             {horizon.map((bucket) => (
-            <button className="horizon-week" type="button" onClick={() => openBoard(bucket.offset)} key={`${bucket.from}:${bucket.to}`} aria-label={`${bucket.label} ${bucket.average}%`}>
+            <button className="horizon-week" type="button" onClick={() => openBoard(bucket.offset)} key={`${bucket.from}:${bucket.to}`} aria-label={`${bucket.label} ${bucket.average}%${bucket.pipelineDemand > 0 ? ` 受注前+${bucket.pipelineDemand}名` : ""}`}>
               <span className="horizon-bar"><i className={bucket.average > 100 ? "over" : ""} style={{ height: Math.min(100, bucket.average / 120 * 100) + "%" }} />{bucket.draft > 0 && <b style={{ bottom: Math.min(100, bucket.average / 120 * 100) + "%" }} />}</span>
               <strong>{bucket.average}%</strong>
               {bucket.pipelineDemand > 0 && <span className="pipeline-chip">+{bucket.pipelineDemand}名</span>}
@@ -1603,8 +1621,8 @@ export function ReportsView({ state, onOpenWeek, onResolveNeed, onOpenOpportunit
         <section className="exceptions-card">
           <div className="card-heading"><div><small>EXCEPTIONS</small><h3>判断が必要な項目</h3></div><span>{periodOverloads.length + periodIdle.length + activeNeeds.length + pipelineNeeds.length}</span></div>
           <div className="exception-list">
-            {periodOverloads.map((member) => <button type="button" onClick={() => openBoard(0)} key={member.id}><span className="exception-icon risk"><CircleAlert size={14} /></span><span><strong>{memberLabel(state, member)}さんが期間中に超過</strong><small>稼働を調整してください</small></span><ChevronRight size={15} /></button>)}
-            {periodIdle.map((member) => <button type="button" onClick={() => openBoard(0)} key={member.id}><span className="exception-icon idle"><UsersRound size={14} /></span><span><strong>{memberLabel(state, member)}さんが期間中ずっと空き</strong><small>配置を検討してください</small></span><ChevronRight size={15} /></button>)}
+            {periodOverloads.map(({ member, stats }) => <button type="button" onClick={() => openBoard(stats.firstExceedOffset ?? 0)} key={member.id}><span className="exception-icon risk"><CircleAlert size={14} /></span><span><strong>{memberLabel(state, member)}さんが期間中に超過</strong><small>稼働を調整してください</small></span><ChevronRight size={15} /></button>)}
+            {periodIdle.map(({ member }) => <button type="button" onClick={() => openBoard(0)} key={member.id}><span className="exception-icon idle"><UsersRound size={14} /></span><span><strong>{memberLabel(state, member)}さんが期間中ずっと空き</strong><small>配置を検討してください</small></span><ChevronRight size={15} /></button>)}
             {activeNeeds.map((need) => <button type="button" onClick={() => onResolveNeed(need.id)} key={need.id}><span className={"exception-icon " + (need.status === "planned" ? "planned" : "open")}><CalendarClock size={14} /></span><span><strong>{state.projects.find((project) => project.id === need.projectId)?.name}</strong><small>{need.role} {need.allocation}% · {need.status === "planned" ? "解消予定" : "担当未定"}</small></span><ChevronRight size={15} /></button>)}
             {pipelineNeeds.map((need) => {
               const opportunity = activeOpportunities.find((item) => item.id === need.opportunityId);

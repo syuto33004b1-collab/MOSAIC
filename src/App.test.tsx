@@ -1229,6 +1229,9 @@ describe("role-aware workspace", () => {
       expect(screen.getByRole("button", { name: "12か月" })).toBeInTheDocument();
       expect(document.querySelectorAll(".horizon-week")).toHaveLength(12);
       expect(screen.getByRole("button", { name: /8\/17週/ })).toBeInTheDocument();
+      const weekOrg = screen.getByText("開発本部").closest("div")!.textContent;
+      await user.click(screen.getByRole("button", { name: "12か月" }));
+      expect(screen.getByText("開発本部").closest("div")!.textContent).not.toEqual(weekOrg);
 
       await user.click(screen.getByRole("button", { name: "6か月" }));
       expect(document.querySelectorAll(".horizon-week")).toHaveLength(6);
@@ -1265,6 +1268,54 @@ describe("role-aware workspace", () => {
       await user.click(screen.getByRole("button", { name: "12か月" }));
       expect(screen.getByRole("note")).toHaveTextContent("2016年から2035年");
       expect(document.querySelectorAll(".horizon-week").length).toBe(2);
+    });
+
+    it("changes organization load with the selected span and opens the first overloaded bucket", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      vi.setSystemTime(new Date("2026-08-19T09:00:00+09:00"));
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      const adapter = sharedAdapter();
+      const overloaded = { ...initialWorkspace.members[0], id: "over-one", name: "超過 花子", capacity: 80, unavailability: [] };
+      adapter.initialState = {
+        ...initialWorkspace,
+        members: [overloaded],
+        assignments: [{
+          id: "over-oct",
+          personId: "over-one",
+          projectId: initialWorkspace.projects[0].id,
+          startDate: "2026-10-05",
+          endDate: "2026-10-09",
+          allocation: 120,
+          status: "confirmed",
+        }],
+        needs: [],
+        opportunities: [],
+        opportunityNeeds: [],
+      };
+      render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "admin@example.com", role: "admin" }} shared={adapter} />);
+      const navigation = within(screen.getByRole("navigation", { name: "メインナビゲーション" }));
+      await user.click(navigation.getByRole("button", { name: "レポート" }));
+      await user.click(screen.getByRole("button", { name: "12か月" }));
+      expect(screen.getByText("超過 花子さんが期間中に超過")).toBeInTheDocument();
+      await user.click(screen.getByRole("button", { name: /超過 花子さんが期間中に超過/ }));
+      expect(within(screen.getByRole("group", { name: "表示する期間" })).getByRole("button", { name: "月", pressed: true })).toBeInTheDocument();
+      expect(document.querySelector(".date-range")!.textContent).toContain("2026年 10月");
+    });
+
+    it("falls back to department rows when the workspace has no org units", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      vi.setSystemTime(new Date("2026-08-19T09:00:00+09:00"));
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      const adapter = sharedAdapter();
+      adapter.initialState = {
+        ...initialWorkspace,
+        orgUnits: [],
+        orgMemberships: [],
+      };
+      render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "admin@example.com", role: "admin" }} shared={adapter} />);
+      const navigation = within(screen.getByRole("navigation", { name: "メインナビゲーション" }));
+      await user.click(navigation.getByRole("button", { name: "レポート" }));
+      expect(screen.getByRole("heading", { name: "部署別の需給" })).toBeInTheDocument();
     });
   });
 
