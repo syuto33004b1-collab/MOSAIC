@@ -285,7 +285,7 @@ test("lists candidate ids on a staffing need without writing them", () => {
   state.needs = state.needs.map((need) => need.id === ids.openNeed
     ? { ...need, candidatePersonIds: [ids.bob] }
     : need);
-  const result = readWorkspaceTool(state, "read_workspace", { resource: "needs", id: ids.openNeed });
+  const result = readWorkspaceTool(state, "read_workspace", { resource: "staffing_needs", id: ids.openNeed });
   assert.deepEqual(result.items[0].candidatePersonIds, [ids.bob]);
   assert.deepEqual(result.items[0].candidatePersonNames, ["Bob B"]);
 });
