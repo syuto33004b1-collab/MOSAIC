@@ -1677,7 +1677,14 @@ function removedIds(next, previous) {
 
 function workspacePayload(next, previous) {
   const payload = {};
-  const memberUpsert = changedRows(next.members, previous.members);
+  const memberUpsert = changedRows(next.members, previous.members).map((member) => {
+    // AI tools do not write period ceilings. Sending the nested key would replace
+    // the stored rows (empty or not). Omit it so the three-valued contract leaves
+    // them (#323).
+    const row = { ...member };
+    delete row.unavailability;
+    return row;
+  });
   const memberArchive = removedIds(next.members, previous.members);
   if (memberUpsert.length || memberArchive.length) payload.members = { upsert: memberUpsert, archiveIds: memberArchive };
   const projectUpsert = changedRows(next.projects, previous.projects);
@@ -1778,10 +1785,12 @@ function payloadIsDestructive(payload) {
 function overloadImpact(state, assignment) {
   const member = state.members.find((candidate) => candidate.id === assignment.personId);
   if (!member) return null;
-  const peak = memberPeakLoad(state, member.id, assignment.startDate, assignment.endDate);
-  return memberExceedsCapacity(state, member, assignment.startDate, assignment.endDate)
-    ? `${member.name}さんの最大稼働が${peak}%となり、稼働上限${Number(member.capacity)}%を超えます。`
-    : null;
+  if (!memberExceedsCapacity(state, member, assignment.startDate, assignment.endDate)) return null;
+  const over = memberDailyLoads(state, member.id, assignment.startDate, assignment.endDate)
+    .filter((day) => day.load > day.capacity);
+  if (over.length === 0) return null;
+  const worst = over.reduce((lead, day) => (day.load - day.capacity) > (lead.load - lead.capacity) ? day : lead);
+  return `${member.name}さんの最大稼働が${worst.load}%となり、稼働上限${worst.capacity}%を超えます。`;
 }
 
 function actionLabels(toolName) {

@@ -1817,6 +1817,21 @@ describe("the member screen's scene form", () => {
     expect(screen.getByText(/2026年8月17日/u).tagName).toBe("EM");
   });
 
+  it("refuses a period with only one date instead of dropping it", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: "メンバー" }));
+    await user.click(screen.getAllByRole("button", { name: "メンバーを追加" }).find((button) => !button.hasAttribute("disabled"))!);
+    const dialog = within(screen.getByRole("dialog", { name: "詳細パネル" }));
+    await user.type(dialog.getByLabelText("氏名"), "片方 花子");
+    await user.click(dialog.getByRole("button", { name: "期間を追加" }));
+    await user.type(dialog.getByLabelText("期間1の開始日"), "2026-08-17");
+    await user.click(dialog.getByRole("button", { name: "メンバーを追加" }));
+    expect(screen.getByText("期間指定の稼働上限は開始日と終了日の両方を入力してください")).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "詳細パネル" })).toBeInTheDocument();
+    expect(screen.queryByText("片方 花子")).toBeNull();
+  });
+
   it("compares the overload drawer to the reduced daily ceiling", async () => {
     const user = userEvent.setup();
     const adapter = sharedAdapter();
@@ -1850,6 +1865,62 @@ describe("the member screen's scene form", () => {
     expect(screen.getByText(/稼働上限50%/u)).toBeInTheDocument();
     expect(screen.getByText(/稼働上限を10%超えています/u)).toBeInTheDocument();
     expect(screen.queryByText(/稼働上限100%/u)).toBeNull();
+  });
+
+  it("pairs the overload drawer load and ceiling from the same day", async () => {
+    // A usual day at 100/100 and a 時短 day at 60/50: the week's peak is 100, the
+    // worst overage is 10 on the 時短 day. Pairing peak with that day's ceiling
+    // would read 「100% / 稼働上限50%」.
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date("2026-08-19T00:00:00Z"));
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    const adapter = sharedAdapter();
+    const weekStart = "2026-08-17";
+    const shortDay = "2026-08-19";
+    const member = {
+      ...initialWorkspace.members[0],
+      id: "mixed",
+      name: "混在 花子",
+      capacity: 100,
+      unavailability: [{ id: "u", startDate: shortDay, endDate: shortDay, capacityPercent: 50 }],
+    };
+    const project = { ...initialWorkspace.projects[0], id: "project", ownerPersonId: member.id };
+    adapter.initialState = {
+      assignments: [
+        {
+          id: "full",
+          personId: member.id,
+          projectId: project.id,
+          startDate: weekStart,
+          endDate: weekStart,
+          allocation: 100,
+          status: "confirmed",
+        },
+        {
+          id: "short",
+          personId: member.id,
+          projectId: project.id,
+          startDate: shortDay,
+          endDate: shortDay,
+          allocation: 60,
+          status: "confirmed",
+        },
+      ],
+      members: [member],
+      needs: [],
+      projects: [project],
+    };
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
+
+    try {
+      await user.click(screen.getByText("上限超過").closest("button")!);
+      expect(screen.getByRole("heading", { name: "上限超過を調整" })).toBeInTheDocument();
+      expect(screen.getByText(/60% \/ 稼働上限50%/u)).toBeInTheDocument();
+      expect(screen.queryByText(/100% \/ 稼働上限50%/u)).toBeNull();
+      expect(screen.getByText(/稼働上限を10%超えています/u)).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("drops the name error as soon as a name is typed", async () => {

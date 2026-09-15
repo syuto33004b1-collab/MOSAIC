@@ -288,6 +288,7 @@ test("enforces the organization role matrix before planning writes", async () =>
   await assert.rejects(() => planWorkspaceAction(plannerOptions("create_profile_request", { personIds: [ids.bob], scope: "skills" })), (error) => error.code === "FORBIDDEN");
   const adminPlan = await planWorkspaceAction(plannerOptions("create_member", { name: "D", role: "QA", department: "品質", location: "東京", capacity: 100, skills: [] }, { role: "admin" }));
   assert.equal(adminPlan.payload.members.upsert[0].name, "D");
+  assert.equal("unavailability" in adminPlan.payload.members.upsert[0], false);
 });
 
 test("plans a confirmed assignment with server IDs, deterministic hash, overload warning, and RPC arguments", async () => {
@@ -1082,6 +1083,15 @@ test("drops holiday load and compares 時短 against the absolute ceiling, same 
   });
   assert.equal(holiday.items[0].peakAllocation, 60);
   assert.equal(holiday.items[0].availablePercent, 20);
+  const holidayOnly = readWorkspaceTool(state, "read_workspace", {
+    resource: "members",
+    query: "Bob",
+    startDate: "2026-05-06",
+    endDate: "2026-05-06",
+  });
+  // 5/6 is a 振替 holiday. Peak 60 here would mean the holiday check was skipped.
+  assert.equal(holidayOnly.items[0].peakAllocation, 0);
+  assert.equal(holidayOnly.items[0].availablePercent, 0);
 
   const shortHours = snapshot();
   shortHours.members = state.members;
@@ -1111,5 +1121,23 @@ test("drops holiday load and compares 時短 against the absolute ceiling, same 
     endDate: "2026-08-21",
     allocation: 60,
   }, { snapshot: { ...snapshot(), members: state.members, assignments: [] } }));
-  assert.equal(plan.preview.impacts.some((line) => line.includes("を超えます")), true);
+  assert.deepEqual(plan.preview.impacts.filter((line) => line.includes("を超えます")),
+    ["Bob Bさんの最大稼働が60%となり、稼働上限50%を超えます。"]);
+});
+
+test("omits unavailability from member upserts so a name change does not clear stored rows", async () => {
+  const state = snapshot();
+  state.members = state.members.map((member) => member.id === ids.bob
+    ? {
+      ...member,
+      unavailability: [{ id: "u", startDate: "2026-08-17", endDate: "2026-08-21", capacityPercent: 50 }],
+    }
+    : member);
+  const plan = await planWorkspaceAction(plannerOptions("update_member", {
+    memberId: ids.bob,
+    patch: { name: "Bob Changed" },
+  }, { role: "admin", snapshot: state }));
+  const row = plan.payload.members.upsert.find((member) => member.id === ids.bob);
+  assert.equal(row.name, "Bob Changed");
+  assert.equal("unavailability" in row, false);
 });

@@ -365,6 +365,15 @@ function formRangeHint(startDate: string, endDate: string, measured: string) {
   return measured;
 }
 
+function worstLoadOverCapacity<T extends { load: number; capacity: number }>(days: T[]): T | undefined {
+  if (days.length === 0) return undefined;
+  return days.reduce((worst, day) => (day.load - day.capacity) > (worst.load - worst.capacity) ? day : worst);
+}
+
+function incompleteUnavailabilityPeriod(entries: MemberUnavailability[]) {
+  return entries.some((entry) => Boolean(entry.startDate) !== Boolean(entry.endDate));
+}
+
 function cloneState(state: WorkspaceState): WorkspaceState {
   return JSON.parse(JSON.stringify(state)) as WorkspaceState;
 }
@@ -1086,11 +1095,10 @@ export default function Home({ mode = "demo", organizationId, organizationName =
   const overloadDays = overloadMember
     ? memberDailyLoads(workspace, overloadMember.id, weekStart, weekEnd(weekStart))
     : [];
-  const overloadOverage = overloadDays.reduce((highest, day) => Math.max(highest, day.load - day.capacity), 0);
-  const overloadWorst = overloadDays[0]
-    ? overloadDays.reduce((worst, day) => (day.load - day.capacity) > (worst.load - worst.capacity) ? day : worst)
-    : undefined;
+  const overloadWorst = worstLoadOverCapacity(overloadDays);
+  const overloadPeak = overloadWorst?.load ?? 0;
   const overloadCeiling = overloadWorst?.capacity ?? overloadMember?.capacity ?? 0;
+  const overloadOverage = overloadWorst ? Math.max(0, overloadWorst.load - overloadWorst.capacity) : 0;
   // Dated as well as unfilled (#255): a need whose end has passed stops being a
   // warning here, in the popover and in the report, all of which read this list.
   const todayIso = currentLocalDate();
@@ -1208,18 +1216,18 @@ export default function Home({ mode = "demo", organizationId, organizationName =
         weekendWorkDates: form.weekendWorkDates,
       }],
     };
-    const projected = memberPeakLoad(preview, member.id, form.startDate, form.endDate);
     const days = memberDailyLoads(preview, member.id, form.startDate, form.endDate).filter((day) => day.load > day.capacity);
-    if (days.length === 0) return null;
-    return { projected, capacity: Math.min(...days.map((day) => day.capacity)) };
+    const worst = worstLoadOverCapacity(days);
+    if (!worst) return null;
+    return { projected: worst.load, capacity: worst.capacity };
   })();
   const editOverload = (() => {
     // `editCandidates` already measures with the moved assignment in place.
     const chosen = editCandidates.find((candidate) => candidate.member.id === assignmentEditForm.personId);
     if (!chosen) return null;
-    const over = chosen.days.filter((day) => day.load > day.capacity);
-    if (over.length === 0) return null;
-    return { projected: chosen.peak, capacity: Math.min(...over.map((day) => day.capacity)) };
+    const worst = worstLoadOverCapacity(chosen.days.filter((day) => day.load > day.capacity));
+    if (!worst) return null;
+    return { projected: worst.load, capacity: worst.capacity };
   })();
   const canAddAssignment = canEdit && workspace.members.length > 0 && workspace.projects.length > 0;
 
@@ -2049,6 +2057,10 @@ export default function Home({ mode = "demo", organizationId, organizationName =
       setToast(skillProblems[0]);
       return;
     }
+    if (incompleteUnavailabilityPeriod(memberForm.unavailability)) {
+      setToast("期間指定の稼働上限は開始日と終了日の両方を入力してください");
+      return;
+    }
     const id = newId();
     const skillLevels = parseSkillInput(memberForm.skills);
     let customValues: Record<string, string>;
@@ -2110,6 +2122,10 @@ export default function Home({ mode = "demo", organizationId, organizationName =
     const skillProblems = skillInputProblems(memberEditForm.skills);
     if (skillProblems.length > 0) {
       setToast(skillProblems[0]);
+      return;
+    }
+    if (incompleteUnavailabilityPeriod(memberEditForm.unavailability)) {
+      setToast("期間指定の稼働上限は開始日と終了日の両方を入力してください");
       return;
     }
     const skillLevels = parseSkillInput(memberEditForm.skills);
@@ -3398,7 +3414,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
             {drawer === "overload" && overloadMember && (
               <div className="drawer-content">
                 <div className="drawer-heading"><span className={"drawer-icon " + (overloadPlanned ? "mint" : "coral")}>{overloadPlanned ? <CheckCircle2 size={19} /> : <AlertTriangle size={19} />}</span><div><h2>{overloadPlanned ? "解消予定を確認" : "上限超過を調整"}</h2><p>{overloadMember.name}さん · {overloadMember.role}</p></div></div>
-                <div className={"capacity-card " + (overloadPlanned ? "resolved" : "")}><div><span>{measuredWeekLabel}の稼働</span><strong>{overloadStats?.peak}% / 稼働上限{overloadCeiling}%</strong></div><div className="capacity-meter"><span style={{ width: (overloadStats?.ratio ?? 0) + "%" }} /><i>{overloadCeiling}%</i></div><p>{overloadPlanned ? "保存すると超過警告が解消されます。" : `稼働上限を${Math.max(0, Math.round(overloadOverage))}%超えています。`}</p></div>
+                <div className={"capacity-card " + (overloadPlanned ? "resolved" : "")}><div><span>{measuredWeekLabel}の稼働</span><strong>{Math.round(overloadPeak)}% / 稼働上限{overloadCeiling}%</strong></div><div className="capacity-meter"><span style={{ width: Math.min(100, overloadPeak) + "%" }} /><i>{overloadCeiling}%</i></div><p>{overloadPlanned ? "保存すると超過警告が解消されます。" : `稼働上限を${Math.max(0, Math.round(overloadOverage))}%超えています。`}</p></div>
                 <div className="drawer-section-title"><span>現在の配分</span><small>合計 {overloadStats?.peak}%</small></div>
                 <div className="allocation-list">{overloadAssignments.map((assignment) => <div key={assignment.id}><span className={"project-dot " + (projectById(workspace, assignment.projectId)?.tone || "blue")} /><span><strong>{projectById(workspace, assignment.projectId)?.name}</strong><small>{formatDate(assignment.startDate)} — {formatDate(assignment.endDate)}</small></span><b>{assignment.allocation}%</b></div>)}</div>
                 {!overloadPlanned && canEdit && overloadAssignments.length > 0 ? <><div className="suggestion-card"><span><Sparkles size={15} /></span><div><strong>おすすめの調整</strong><p>超過している各営業日の案件配分を順に減らし、すべての日を稼働上限内へ収めます。</p></div></div><button className="drawer-primary" onClick={resolveOverload}><CheckCircle2 size={16} />推奨配分へ調整</button></> : <button className="drawer-primary" onClick={closeDrawer}><Check size={16} />閉じる</button>}

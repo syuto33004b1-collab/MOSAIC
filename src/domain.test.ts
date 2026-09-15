@@ -1376,6 +1376,8 @@ describe("weekday capacity with holidays and unavailability", () => {
     const gw = assigned("2026-05-04", "2026-05-08");
     // 5/4・5/5 holidays, 5/6 振替, 5/7–5/8 working.
     expect(weekdaySupplyCapacity(gw, member(), "2026-05-04", "2026-05-08")).toBe(160);
+    // Holiday-only Wednesday: dropping isJapanHoliday would count 80 here.
+    expect(weekdaySupplyCapacity(gw, member(), "2026-05-06", "2026-05-06")).toBe(0);
   });
 
   it("treats a 時短 week as over and not open when load sits above the reduced ceiling", () => {

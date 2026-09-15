@@ -4,7 +4,7 @@ create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions, pg_catalog;
 
 -- Period-specific weekday ceilings nested on members (#323).
-select plan(12);
+select plan(11);
 
 insert into auth.users (id, email, raw_user_meta_data) values
   ('11000000-0000-4000-8000-000000000092', 'leave-owner@test.local', '{"full_name":"Leave Owner"}'::jsonb);
