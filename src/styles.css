@@ -4112,7 +4112,7 @@ h1 {
   background-image: none;
 }
 .production-workspace::before { content: none; }
-.production-workspace > .workspace-accent { left: clamp(28px, 5vw, 58px); }
+.production-workspace > .workspace-accent { left: 0; }
 .production-workspace::after {
   content: "";
   position: absolute;

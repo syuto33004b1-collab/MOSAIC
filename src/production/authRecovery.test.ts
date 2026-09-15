@@ -37,9 +37,13 @@ describe("password recovery callback helpers", () => {
   it("detects recovery callback parameters before the session is ready", () => {
     expect(hasAuthCallbackParams("?code=pkce-code", "")).toBe(true);
     expect(hasAuthCallbackParams("", "#type=recovery&access_token=token")).toBe(true);
+    expect(hasAuthCallbackParams("?access_token=tok", "")).toBe(true);
     expect(hasAuthCallbackParams("?type=invite&code=pkce-code", "")).toBe(true);
     expect(hasAuthCallbackParams("?error=access_denied", "")).toBe(true);
+    expect(hasAuthCallbackParams("?error_code=otp_expired", "")).toBe(true);
+    expect(hasAuthCallbackParams("", "#error_code=otp_expired")).toBe(true);
     expect(hasAuthCallbackParams("?invitation=abc", "")).toBe(false);
+    expect(hasAuthCallbackParams("?legal=1", "")).toBe(false);
   });
 });
 

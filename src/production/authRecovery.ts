@@ -62,9 +62,12 @@ export function hasAuthCallbackParams(search = "", hash = "") {
   return Boolean(
     query.get("code")
     || query.get("error")
+    || query.get("error_code")
+    || query.get("access_token")
     || query.get("type") === "recovery"
     || query.get("type") === "invite"
     || fragment.get("error")
+    || fragment.get("error_code")
     || fragment.get("type") === "recovery"
     || fragment.get("type") === "invite"
     || fragment.get("access_token"),

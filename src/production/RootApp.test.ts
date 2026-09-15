@@ -475,4 +475,13 @@ describe("legal notice route", () => {
     expect(screen.queryByRole("heading", { name: "プライバシーと利用規約" })).not.toBeInTheDocument();
     expect(await screen.findByRole("heading", { name: "セッションを確認中" })).toBeInTheDocument();
   });
+
+  it("does not swallow an error_code-only callback", async () => {
+    window.history.replaceState({}, "", "/?legal=1&error_code=otp_expired");
+    supabaseClient.auth.getUser.mockResolvedValue({ data: { user: null }, error: { name: "AuthSessionMissingError" } });
+    supabaseClient.auth.onAuthStateChange.mockReturnValue({ data: { subscription: { unsubscribe: vi.fn() } } });
+    render(createElement(RootApp));
+    expect(screen.queryByRole("heading", { name: "プライバシーと利用規約" })).not.toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "セッションを確認中" })).toBeInTheDocument();
+  });
 });

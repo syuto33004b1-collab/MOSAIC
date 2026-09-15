@@ -18,7 +18,9 @@ describe("legal notice query", () => {
 
   it("removes only legal when closing", () => {
     expect(withoutLegalSearch({ pathname: "/", search: "?invitation=abc&legal=1&nav=members", hash: "#legal-outbound" }))
-      .toBe("/?invitation=abc&nav=members#legal-outbound");
+      .toBe("/?invitation=abc&nav=members");
+    expect(withoutLegalSearch({ pathname: "/", search: "?legal=1", hash: "#legal-privacy" })).toBe("/");
+    expect(withoutLegalSearch({ pathname: "/", search: "?legal=1", hash: "#top" })).toBe("/#top");
     expect(withoutLegalSearch({ pathname: "/", search: "?legal=1", hash: "" })).toBe("/");
   });
 });

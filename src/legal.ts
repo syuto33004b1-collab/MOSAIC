@@ -23,8 +23,16 @@ export function withLegalSearch(location: LegalLocation) {
   return hrefFrom(location, params);
 }
 
+/** TOC hashes must not remain after close: shareLocationFor keeps the fragment. */
+const LEGAL_SECTION_HASHES = new Set(["legal-outbound", "legal-privacy", "legal-terms"]);
+
+function hashAfterClosing(hash: string) {
+  const id = hash.startsWith("#") ? hash.slice(1) : hash;
+  return LEGAL_SECTION_HASHES.has(id) ? "" : hash;
+}
+
 export function withoutLegalSearch(location: LegalLocation) {
   const params = searchParamsOf(location.search);
   params.delete(LEGAL_SEARCH_PARAM);
-  return hrefFrom(location, params);
+  return hrefFrom({ ...location, hash: hashAfterClosing(location.hash) }, params);
 }
