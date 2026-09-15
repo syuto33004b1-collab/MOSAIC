@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions, pg_catalog;
 
-select plan(17);
+select plan(18);
 
 insert into auth.users (id, email, raw_user_meta_data) values
   ('11000000-0000-4000-8000-000000000371', 'cost-owner@test.local', '{"full_name":"Cost Owner"}'::jsonb),
@@ -237,6 +237,11 @@ select ok(
   'integration_get_workspace omits monthlyCost even when the issuer is owner'
 );
 
+-- become_integration_actor sets app.caller_kind for the whole transaction.
+-- Leave it set and the next user save is treated as an integration write.
+select set_config('app.caller_kind', '', true);
+select set_config('app.integration_client_id', '', true);
+
 reset role;
 set local role authenticated;
 set local request.jwt.claim.role = 'authenticated';
@@ -293,6 +298,9 @@ select throws_ok(
   'integration_save_workspace refuses monthlyCost even with members:write'
 );
 
+select set_config('app.caller_kind', '', true);
+select set_config('app.integration_client_id', '', true);
+
 reset role;
 set local role authenticated;
 set local request.jwt.claim.role = 'authenticated';
@@ -304,7 +312,7 @@ select lives_ok(
       3,
       '91000000-0000-4000-8000-000000000379',
       '{"members":{"upsert":[{"id":"31000000-0000-4000-8000-000000000373","initials":"CT","name":"原価 改","role":"Engineer","department":"第一本部","location":"東京","capacity":100,"monthlyCost":null}],"archiveIds":[]}}'::jsonb,
-      repeat('g', 64)
+      repeat('0', 64)
     )$$,
   'owner can clear monthlyCost to null'
 );
