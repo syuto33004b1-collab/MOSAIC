@@ -129,6 +129,11 @@ export type Member = {
   skillLevels?: SkillLevel[];
   location: string;
   capacity: number;
+  /**
+   * Planned monthly cost in yen. `null` is unset. The key is omitted when the
+   * caller may not see the field (#373).
+   */
+  monthlyCost?: number | null;
   customValues?: Record<string, string>;
   workHistory?: WorkHistoryEntry[];
   /**
@@ -248,6 +253,11 @@ export type OpportunityNeed = {
   endDate: string;
   allocation: number;
 };
+
+/** Reserved camelCase key. Custom field keys are lowercase-only, so they cannot collide. */
+export const MONTHLY_COST_FIELD_KEY = "monthlyCost";
+export const MONTHLY_COST_YEN_MAX = 1_000_000_000;
+export const MONTHLY_COST_FIELD_LABEL = "月額原価";
 
 export const RESTRICTABLE_ROLES = ["admin", "planner", "viewer"] as const;
 export type RestrictableRole = (typeof RESTRICTABLE_ROLES)[number];
@@ -448,15 +458,15 @@ const skillCatalog: SkillDefinition[] = [
 ];
 
 const members: Member[] = [
-  { id: "saeki", initials: "YS", name: "佐伯 優斗", role: "Product Designer", department: "デザイン", avatarTone: "lavender", skills: ["Figma", "UX", "Design system"], skillLevels: [{ name: "Figma", proficiency: 5 }, { name: "UX", proficiency: 4 }, { name: "Design system", proficiency: 4 }], location: "東京", capacity: 100, customValues: { "field-employment": "正社員", "field-joined": "2021-04-01", "field-english": "ビジネス" }, workHistory: [{ id: "wh-saeki-1", title: "プロダクトデザイナー", organization: "GIFTEE Inc.", startDate: "2021-04-01", description: "販売管理と採用ブランドの体験設計" }, { id: "wh-saeki-2", title: "UIデザイナー", organization: "Studio North", startDate: "2018-04-01", endDate: "2021-03-31", description: "B2B管理画面のデザインシステム構築" }] },
-  { id: "nakamura", initials: "MN", name: "中村 美咲", role: "Frontend Engineer", department: "プロダクト開発", avatarTone: "peach", skills: ["React", "TypeScript", "A11y"], skillLevels: [{ name: "React", proficiency: 4 }, { name: "TypeScript", proficiency: 4 }, { name: "A11y", proficiency: 3 }], location: "東京", capacity: 100, customValues: { "field-employment": "正社員", "field-joined": "2022-07-01", "field-english": "日常会話" }, workHistory: [{ id: "wh-nakamura-1", title: "フロントエンドエンジニア", organization: "Atlas リニューアル", startDate: "2022-07-01", description: "販売管理フロントの刷新" }] },
-  { id: "suzuki", initials: "KS", name: "鈴木 健太", role: "Backend Engineer", department: "プラットフォーム", avatarTone: "sky", skills: ["Java", "AWS", "Payments"], skillLevels: [{ name: "Java", proficiency: 4 }, { name: "AWS", proficiency: 5 }, { name: "Payments", proficiency: 3 }], location: "大阪", capacity: 100, customValues: { "field-employment": "正社員", "field-joined": "2019-10-01", "field-english": "ビジネス" } },
-  { id: "hayashi", initials: "AH", name: "林 葵", role: "Project Manager", department: "事業推進", avatarTone: "mint", skills: ["PM", "Scrum", "B2B"], skillLevels: [{ name: "PM", proficiency: 5 }, { name: "Scrum", proficiency: 4 }, { name: "B2B", proficiency: 3 }], location: "東京", capacity: 100 },
-  { id: "matsumoto", initials: "RM", name: "松本 蓮", role: "QA Engineer", department: "品質保証", avatarTone: "sand", skills: ["QA", "Mobile", "Automation"], skillLevels: [{ name: "QA", proficiency: 4 }, { name: "Mobile", proficiency: 3 }, { name: "Automation", proficiency: 3 }], location: "福岡", capacity: 100 },
-  { id: "ito", initials: "YI", name: "伊藤 優", role: "Data Analyst", department: "データ戦略", avatarTone: "rose", skills: ["Python", "SQL", "BI"], skillLevels: [{ name: "Python", proficiency: 4 }, { name: "SQL", proficiency: 5 }, { name: "BI", proficiency: 3 }], location: "リモート", capacity: 100 },
-  { id: "morita", initials: "AM", name: "森田 葵", role: "UX Researcher", department: "デザイン", avatarTone: "mint", skills: ["Research", "UX", "Interview"], skillLevels: [{ name: "Research", proficiency: 5 }, { name: "UX", proficiency: 4 }, { name: "Interview", proficiency: 4 }], location: "東京", capacity: 100 },
-  { id: "takahashi", initials: "NT", name: "高橋 直樹", role: "Mobile Engineer", department: "プロダクト開発", avatarTone: "lavender", skills: ["iOS", "Swift", "Mobile"], skillLevels: [{ name: "iOS", proficiency: 4 }, { name: "Swift", proficiency: 4 }, { name: "Mobile", proficiency: 4 }], location: "大阪", capacity: 100 },
-  { id: "okada", initials: "SO", name: "岡田 紗季", role: "QA Engineer", department: "品質保証", avatarTone: "rose", skills: ["QA", "Web", "Automation"], skillLevels: [{ name: "QA", proficiency: 3 }, { name: "Web", proficiency: 3 }, { name: "Automation", proficiency: 4 }], location: "東京", capacity: 100 },
+  { id: "saeki", initials: "YS", name: "佐伯 優斗", role: "Product Designer", department: "デザイン", avatarTone: "lavender", skills: ["Figma", "UX", "Design system"], skillLevels: [{ name: "Figma", proficiency: 5 }, { name: "UX", proficiency: 4 }, { name: "Design system", proficiency: 4 }], location: "東京", capacity: 100, monthlyCost: 650000, customValues: { "field-employment": "正社員", "field-joined": "2021-04-01", "field-english": "ビジネス" }, workHistory: [{ id: "wh-saeki-1", title: "プロダクトデザイナー", organization: "GIFTEE Inc.", startDate: "2021-04-01", description: "販売管理と採用ブランドの体験設計" }, { id: "wh-saeki-2", title: "UIデザイナー", organization: "Studio North", startDate: "2018-04-01", endDate: "2021-03-31", description: "B2B管理画面のデザインシステム構築" }] },
+  { id: "nakamura", initials: "MN", name: "中村 美咲", role: "Frontend Engineer", department: "プロダクト開発", avatarTone: "peach", skills: ["React", "TypeScript", "A11y"], skillLevels: [{ name: "React", proficiency: 4 }, { name: "TypeScript", proficiency: 4 }, { name: "A11y", proficiency: 3 }], location: "東京", capacity: 100, monthlyCost: 700000, customValues: { "field-employment": "正社員", "field-joined": "2022-07-01", "field-english": "日常会話" }, workHistory: [{ id: "wh-nakamura-1", title: "フロントエンドエンジニア", organization: "Atlas リニューアル", startDate: "2022-07-01", description: "販売管理フロントの刷新" }] },
+  { id: "suzuki", initials: "KS", name: "鈴木 健太", role: "Backend Engineer", department: "プラットフォーム", avatarTone: "sky", skills: ["Java", "AWS", "Payments"], skillLevels: [{ name: "Java", proficiency: 4 }, { name: "AWS", proficiency: 5 }, { name: "Payments", proficiency: 3 }], location: "大阪", capacity: 100, monthlyCost: 800000, customValues: { "field-employment": "正社員", "field-joined": "2019-10-01", "field-english": "ビジネス" } },
+  { id: "hayashi", initials: "AH", name: "林 葵", role: "Project Manager", department: "事業推進", avatarTone: "mint", skills: ["PM", "Scrum", "B2B"], skillLevels: [{ name: "PM", proficiency: 5 }, { name: "Scrum", proficiency: 4 }, { name: "B2B", proficiency: 3 }], location: "東京", capacity: 100, monthlyCost: 900000 },
+  { id: "matsumoto", initials: "RM", name: "松本 蓮", role: "QA Engineer", department: "品質保証", avatarTone: "sand", skills: ["QA", "Mobile", "Automation"], skillLevels: [{ name: "QA", proficiency: 4 }, { name: "Mobile", proficiency: 3 }, { name: "Automation", proficiency: 3 }], location: "福岡", capacity: 100, monthlyCost: 550000 },
+  { id: "ito", initials: "YI", name: "伊藤 優", role: "Data Analyst", department: "データ戦略", avatarTone: "rose", skills: ["Python", "SQL", "BI"], skillLevels: [{ name: "Python", proficiency: 4 }, { name: "SQL", proficiency: 5 }, { name: "BI", proficiency: 3 }], location: "リモート", capacity: 100, monthlyCost: 600000 },
+  { id: "morita", initials: "AM", name: "森田 葵", role: "UX Researcher", department: "デザイン", avatarTone: "mint", skills: ["Research", "UX", "Interview"], skillLevels: [{ name: "Research", proficiency: 5 }, { name: "UX", proficiency: 4 }, { name: "Interview", proficiency: 4 }], location: "東京", capacity: 100, monthlyCost: 650000 },
+  { id: "takahashi", initials: "NT", name: "高橋 直樹", role: "Mobile Engineer", department: "プロダクト開発", avatarTone: "lavender", skills: ["iOS", "Swift", "Mobile"], skillLevels: [{ name: "iOS", proficiency: 4 }, { name: "Swift", proficiency: 4 }, { name: "Mobile", proficiency: 4 }], location: "大阪", capacity: 100, monthlyCost: 700000 },
+  { id: "okada", initials: "SO", name: "岡田 紗季", role: "QA Engineer", department: "品質保証", avatarTone: "rose", skills: ["QA", "Web", "Automation"], skillLevels: [{ name: "QA", proficiency: 3 }, { name: "Web", proficiency: 3 }, { name: "Automation", proficiency: 4 }], location: "東京", capacity: 100, monthlyCost: null },
 ];
 
 const projects: Project[] = [
@@ -928,6 +938,83 @@ export function periodMemberStats(
     return { exceeds: false, open: false, firstExceedOffset: null, buckets: range.buckets.map((bucket) => ({ ...bucket, load: 0, capacity: 0, average: 0, exceeds: false })) };
   }
   return periodStatsFromDays(dailyLoads(state, member.id, range.from, range.to), range.buckets);
+}
+
+export function parseMonthlyCostYen(raw: string): number | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  if (!/^[0-9]+$/u.test(trimmed)) throw new Error("月額原価は0〜10億の整数で入力してください");
+  const amount = Number(trimmed);
+  if (!Number.isSafeInteger(amount) || amount < 0 || amount > MONTHLY_COST_YEN_MAX) {
+    throw new Error("月額原価は0〜10億の整数で入力してください");
+  }
+  return amount;
+}
+
+export function formatYen(amount: number) {
+  return new Intl.NumberFormat("ja-JP", { style: "currency", currency: "JPY", maximumFractionDigits: 0 }).format(amount);
+}
+
+export function memberHasMonthlyCostField(member: Member) {
+  return member.monthlyCost !== undefined;
+}
+
+export function workspaceShowsMonthlyCost(state: Pick<WorkspaceState, "members">) {
+  return state.members.some(memberHasMonthlyCostField);
+}
+
+/**
+ * Business days in the civil month of `monthStartIso` (YYYY-MM-01), using the
+ * same weekend + Japan-holiday calendar as `memberDailyLoads`. Years outside
+ * the calendar are 0 so they do not invent a denominator (#323, #373).
+ */
+export function monthBusinessDayCount(monthStartIso: string) {
+  const from = monthStartIso.length === 7 ? `${monthStartIso}-01` : monthStartIso.slice(0, 8) + "01";
+  if (!/^\d{4}-\d{2}-01$/u.test(from)) return 0;
+  const year = Number(from.slice(0, 4));
+  if (year < JAPAN_HOLIDAY_YEAR_MIN || year > JAPAN_HOLIDAY_YEAR_MAX) return 0;
+  const to = monthEndIso(from);
+  let count = 0;
+  for (let date = from; date <= to; date = addDays(date, 1)) {
+    if (!isWeekendDate(date) && !isJapanHoliday(date)) count += 1;
+  }
+  return count;
+}
+
+/**
+ * Idle yen over a span: unused weekday capacity-points / 100 / that month's
+ * business days × monthly cost, summed. Returns null when the field is hidden
+ * or unset. Short-time ceilings count as available capacity, not full pay (#373).
+ */
+export function periodIdleCostYen(
+  state: WorkspaceState,
+  member: Member,
+  from: string,
+  to: string,
+  dailyLoads: typeof memberDailyLoads = memberDailyLoads,
+): number | null {
+  if (member.monthlyCost == null) return null;
+  if (isoDayNumber(from) === null || isoDayNumber(to) === null || to < from) return null;
+  const denomByMonth = new Map<string, number>();
+  const denom = (date: string) => {
+    const key = date.slice(0, 7);
+    let count = denomByMonth.get(key);
+    if (count === undefined) {
+      count = monthBusinessDayCount(`${key}-01`);
+      denomByMonth.set(key, count);
+    }
+    return count;
+  };
+  let yen = 0;
+  for (const day of dailyLoads(state, member.id, from, to)) {
+    if (day.weekend) continue;
+    const unused = Math.max(0, day.capacity - day.load);
+    if (unused <= 0) continue;
+    const days = denom(day.date);
+    if (days <= 0) continue;
+    yen += member.monthlyCost * (unused / 100) / days;
+  }
+  return Math.round(yen);
 }
 
 export type DailyLoad = {
@@ -1955,16 +2042,21 @@ export function setRolePermission(
   const personScope = input.personScope ?? "organization";
   if (!PERSON_SCOPES.includes(personScope)) throw new Error("参照範囲を確認してください");
   const knownKeys = new Set(customFields.map((field) => field.key));
-  const normalizeKeys = (keys: string[] | undefined) => {
+  const normalizeKeys = (keys: string[] | undefined, allowMonthlyCost: boolean) => {
     const unique = [...new Set((keys ?? []).map((key) => key.trim()).filter(Boolean))].sort();
-    const unknown = unique.find((key) => !knownKeys.has(key));
+    const unknown = unique.find((key) => {
+      if (key === MONTHLY_COST_FIELD_KEY) return !allowMonthlyCost;
+      return !knownKeys.has(key);
+    });
+    if (unknown === MONTHLY_COST_FIELD_KEY) throw new Error("月額原価を編集不可にはできません");
     if (unknown) throw new Error(`独自項目「${unknown}」が見つかりません`);
     if (unique.length > 100) throw new Error("項目は100件までです");
     return unique;
   };
-  const hiddenFieldKeys = normalizeKeys(input.hiddenFieldKeys);
-  const readonlyFieldKeys = normalizeKeys(input.readonlyFieldKeys);
+  const hiddenFieldKeys = normalizeKeys(input.hiddenFieldKeys, true);
+  const readonlyFieldKeys = normalizeKeys(input.readonlyFieldKeys, false);
   const overlap = hiddenFieldKeys.find((key) => readonlyFieldKeys.includes(key));
+  if (overlap === MONTHLY_COST_FIELD_KEY) throw new Error("月額原価を非表示と編集不可の両方にはできません");
   if (overlap) throw new Error(`独自項目「${overlap}」を非表示と編集不可の両方にはできません`);
   const disabledFeatures = [...new Set((input.disabledFeatures ?? []).map((feature) => feature.trim()).filter(Boolean))].sort();
   const unsupported = disabledFeatures.find((feature) => !RESTRICTABLE_FEATURES.includes(feature as RestrictableFeature));

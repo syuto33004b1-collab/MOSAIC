@@ -1,6 +1,6 @@
 import type { AuthError, PostgrestError, SupabaseClient, User } from "@supabase/supabase-js";
 import type { Assignment, CustomFieldDefinition, CustomFieldEntity, CustomFieldType, Member, MemberUnavailability, Opportunity, OpportunityNeed, OpportunityStage, OrgMembership, OrgUnit, PersonScope, ProfileRequest, ProfileRequestScope, ProfileRequestStatus, Project, ReportGroupBy, ReportMetric, ReportSource, RestrictableFeature, RestrictableRole, RolePermission, SavedReport, SearchScene, SearchSkillFilter, SkillDefinition, SkillImportance, SkillKind, StaffingNeed, WorkHistoryEntry, WorkspaceState } from "../domain";
-import { hydrateWorkspaceSkills, OPPORTUNITY_STAGES, normalizeMemberUnavailability, normalizeSkillProficiency, normalizeWorkHistory, parseSkillInput, PERSON_SCOPES, PROFILE_REQUEST_SCOPES, PROFILE_REQUEST_STATUSES, RESTRICTABLE_FEATURES, RESTRICTABLE_ROLES } from "../domain";
+import { hydrateWorkspaceSkills, MONTHLY_COST_YEN_MAX, OPPORTUNITY_STAGES, normalizeMemberUnavailability, normalizeSkillProficiency, normalizeWorkHistory, parseSkillInput, PERSON_SCOPES, PROFILE_REQUEST_SCOPES, PROFILE_REQUEST_STATUSES, RESTRICTABLE_FEATURES, RESTRICTABLE_ROLES } from "../domain";
 import { normalizeFavorites, type Favorite, type FavoriteKind } from "../collaboration";
 import { appAuthRedirectUrl } from "./authRecovery";
 import { consumeOAuthPending, markOAuthPending } from "./oauthPending";
@@ -373,6 +373,13 @@ function normalizeWorkspaceMember(value: unknown): Member | undefined {
   const unavailability = record.unavailability === undefined ? undefined : normalizeIncomingUnavailability(record.unavailability);
   if (record.unavailability !== undefined && unavailability === undefined) return undefined;
   const authUserId = readString(record, "authUserId");
+  let monthlyCost: number | null | undefined;
+  if (Object.prototype.hasOwnProperty.call(record, "monthlyCost")) {
+    const value = record.monthlyCost;
+    if (value === null) monthlyCost = null;
+    else if (typeof value === "number" && Number.isSafeInteger(value) && value >= 0 && value <= MONTHLY_COST_YEN_MAX) monthlyCost = value;
+    else return undefined;
+  }
   return {
     id,
     ...(authUserId ? { authUserId } : {}),
@@ -385,6 +392,7 @@ function normalizeWorkspaceMember(value: unknown): Member | undefined {
     avatarTone: avatarTone as Member["avatarTone"],
     skills: skills as string[],
     ...(skillLevels.length ? { skillLevels } : {}),
+    ...(monthlyCost !== undefined ? { monthlyCost } : {}),
     ...(customValues && Object.keys(customValues).length ? { customValues } : {}),
     ...(workHistory ? { workHistory } : {}),
     ...(unavailability ? { unavailability } : {}),

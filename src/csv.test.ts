@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { normalizeCsvPresets, applyAssignmentImport, applyMemberImport, applyProjectImport, assignmentCsvColumns, exportAssignmentsCsv, previewAssignmentImport, DEFAULT_PROPOSAL_CSV_COLUMNS, exportMembersCsv, exportProjectsCsv, exportProposalCsv, parseCsv, previewMemberImport, previewProjectImport, proposalCsvColumns, PROPOSAL_CSV_COLUMNS, serializeCsv } from "./csv";
+import { normalizeCsvPresets, applyAssignmentImport, applyMemberImport, applyProjectImport, assignmentCsvColumns, exportAssignmentsCsv, previewAssignmentImport, DEFAULT_PROPOSAL_CSV_COLUMNS, exportMembersCsv, exportProjectsCsv, exportProposalCsv, memberCsvColumns, parseCsv, previewMemberImport, previewProjectImport, proposalCsvColumns, PROPOSAL_CSV_COLUMNS, serializeCsv } from "./csv";
 import { getWeekStart, initialWorkspace, matchMembers, searchSceneFromNeed, type WorkspaceState } from "./domain";
 
 describe("csv round-trip", () => {
@@ -10,6 +10,16 @@ describe("csv round-trip", () => {
       headers: ["name", "role"],
       rows: [{ name: "佐伯, 優斗", role: "Product Designer" }],
     });
+  });
+
+  it("offers monthlyCost only when the workspace already shows the field", () => {
+    expect(memberCsvColumns(initialWorkspace.customFields).map((column) => column.key)).not.toContain("monthlyCost");
+    expect(memberCsvColumns(initialWorkspace.customFields, { includeMonthlyCost: true }).map((column) => column.key)).toContain("monthlyCost");
+    const csv = exportMembersCsv(initialWorkspace, ["name", "monthlyCost"]);
+    const parsed = parseCsv(csv);
+    expect(parsed.headers).toEqual(["name", "monthlyCost"]);
+    expect(parsed.rows.find((row) => row.name === "佐伯 優斗")?.monthlyCost).toBe("650000");
+    expect(parsed.rows.find((row) => row.name === "岡田 紗季")?.monthlyCost).toBe("");
   });
 
   it("exports selected member columns including custom fields", () => {
@@ -28,6 +38,7 @@ describe("csv round-trip", () => {
     expect(preview.actions.map((action) => action.mode)).toEqual(["update", "create"]);
     const next = applyMemberImport(initialWorkspace, preview.actions);
     expect(next.members.find((member) => member.id === "saeki")?.capacity).toBe(80);
+    expect(next.members.find((member) => member.id === "saeki")?.monthlyCost).toBe(650000);
     expect(next.members.some((member) => member.name === "山田 花子" && member.id === "new-1")).toBe(true);
   });
 

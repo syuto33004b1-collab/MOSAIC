@@ -68,7 +68,13 @@ import {
   customValue,
   formatCustomValue,
   formatDate,
+  formatYen,
   formatSkillInput,
+  MONTHLY_COST_FIELD_KEY,
+  MONTHLY_COST_FIELD_LABEL,
+  memberHasMonthlyCostField,
+  periodIdleCostYen,
+  workspaceShowsMonthlyCost,
   formatWorkHistoryPeriod,
   getWeekStart,
   isActiveOpportunity,
@@ -1630,7 +1636,15 @@ export function ReportsView({ state, onOpenWeek, onResolveNeed, onOpenOpportunit
           <div className="card-heading"><div><small>EXCEPTIONS</small><h3>判断が必要な項目</h3></div><span>{periodOverloads.length + periodIdle.length + activeNeeds.length + pipelineNeeds.length}</span></div>
           <div className="exception-list">
             {periodOverloads.map(({ member, stats }) => <button type="button" onClick={() => openBoard(stats.firstExceedOffset ?? 0)} key={member.id}><span className="exception-icon risk"><CircleAlert size={14} /></span><span><strong>{memberLabel(state, member)}さんが期間中に超過</strong><small>稼働を調整してください</small></span><ChevronRight size={15} /></button>)}
-            {periodIdle.map(({ member }) => <button type="button" onClick={() => openBoard(0)} key={member.id}><span className="exception-icon idle"><UsersRound size={14} /></span><span><strong>{memberLabel(state, member)}さんが期間中ずっと空き</strong><small>配置を検討してください</small></span><ChevronRight size={15} /></button>)}
+            {periodIdle.map(({ member }) => {
+              const idleYen = memberHasMonthlyCostField(member) ? periodIdleCostYen(state, member, range.from, range.to) : null;
+              const idleNote = !memberHasMonthlyCostField(member)
+                ? "配置を検討してください"
+                : idleYen == null
+                  ? "原価未設定"
+                  : `遊休 ${formatYen(idleYen)}`;
+              return <button type="button" onClick={() => openBoard(0)} key={member.id}><span className="exception-icon idle"><UsersRound size={14} /></span><span><strong>{memberLabel(state, member)}さんが期間中ずっと空き</strong><small>{idleNote}</small></span><ChevronRight size={15} /></button>;
+            })}
             {activeNeeds.map((need) => <button type="button" onClick={() => onResolveNeed(need.id)} key={need.id}><span className={"exception-icon " + (need.status === "planned" ? "planned" : "open")}><CalendarClock size={14} /></span><span><strong>{state.projects.find((project) => project.id === need.projectId)?.name}</strong><small>{need.role} {need.allocation}% · {need.status === "planned" ? "解消予定" : "担当未定"}</small></span><ChevronRight size={15} /></button>)}
             {pipelineNeeds.map((need) => {
               const opportunity = activeOpportunities.find((item) => item.id === need.opportunityId);
@@ -2043,37 +2057,48 @@ export function RolePermissionsPanel({
             </label>
           ))}
         </fieldset>
+        <fieldset className="role-permission-fields">
+          <legend>非表示の項目</legend>
+          {role === "admin" ? (
+            <label className="field-flag">
+              <input
+                type="checkbox"
+                checked={active.hiddenFieldKeys.includes(MONTHLY_COST_FIELD_KEY)}
+                disabled={!editable}
+                onChange={() => toggleKey("hiddenFieldKeys", MONTHLY_COST_FIELD_KEY)}
+              />
+              {MONTHLY_COST_FIELD_LABEL}
+            </label>
+          ) : (
+            <p className="role-permission-note">計画担当・閲覧者には月額原価は常に非表示です。</p>
+          )}
+          {fields.map((field) => (
+            <label key={`hidden-${field.id}`} className="field-flag">
+              <input
+                type="checkbox"
+                checked={active.hiddenFieldKeys.includes(field.key)}
+                disabled={!editable}
+                onChange={() => toggleKey("hiddenFieldKeys", field.key)}
+              />
+              {field.label}
+            </label>
+          ))}
+        </fieldset>
         {fields.length > 0 && (
-          <>
-            <fieldset className="role-permission-fields">
-              <legend>非表示の独自項目</legend>
-              {fields.map((field) => (
-                <label key={`hidden-${field.id}`} className="field-flag">
-                  <input
-                    type="checkbox"
-                    checked={active.hiddenFieldKeys.includes(field.key)}
-                    disabled={!editable}
-                    onChange={() => toggleKey("hiddenFieldKeys", field.key)}
-                  />
-                  {field.label}
-                </label>
-              ))}
-            </fieldset>
-            <fieldset className="role-permission-fields">
-              <legend>編集できない独自項目</legend>
-              {fields.map((field) => (
-                <label key={`readonly-${field.id}`} className="field-flag">
-                  <input
-                    type="checkbox"
-                    checked={active.readonlyFieldKeys.includes(field.key)}
-                    disabled={!editable}
-                    onChange={() => toggleKey("readonlyFieldKeys", field.key)}
-                  />
-                  {field.label}
-                </label>
-              ))}
-            </fieldset>
-          </>
+          <fieldset className="role-permission-fields">
+            <legend>編集できない独自項目</legend>
+            {fields.map((field) => (
+              <label key={`readonly-${field.id}`} className="field-flag">
+                <input
+                  type="checkbox"
+                  checked={active.readonlyFieldKeys.includes(field.key)}
+                  disabled={!editable}
+                  onChange={() => toggleKey("readonlyFieldKeys", field.key)}
+                />
+                {field.label}
+              </label>
+            ))}
+          </fieldset>
         )}
         {editable && <button type="submit" className="view-add-button">{RESTRICTABLE_ROLE_LABELS[role]}の権限を更新</button>}
         {!editable && <p className="role-permission-note">{role === "admin" ? "管理者の権限設定はオーナーだけが変更できます。" : "権限設定を変更する権限がありません。"}</p>}
@@ -2650,11 +2675,12 @@ const CSV_TARGETS = {
 export function CsvTransferPanel({ state, organizationId, canImport = false, canImportProjects = false, onImportMembers, onImportProjects, onImportAssignments }: CsvTransferPanelProps) {
   const storageKey = `${CSV_PRESETS_KEY}:${organizationId ?? "demo"}`;
   const [source, setSource] = useState<CsvSource>("members");
-  const columnsFor = (target: CsvSource) => target === "members" ? memberCsvColumns(state.customFields)
+  const columnsFor = (target: CsvSource) => target === "members"
+    ? memberCsvColumns(state.customFields, { includeMonthlyCost: workspaceShowsMonthlyCost(state) })
     : target === "projects" ? projectCsvColumns(state.customFields)
     : assignmentCsvColumns();
   const available = columnsFor(source);
-  const [columns, setColumns] = useState<string[]>(() => memberCsvColumns(state.customFields).map((column) => column.key));
+  const [columns, setColumns] = useState<string[]>(() => memberCsvColumns(state.customFields, { includeMonthlyCost: workspaceShowsMonthlyCost(state) }).map((column) => column.key));
   const [presets, setPresets] = useState<CsvExportPreset[]>(() => readCsvPresets(storageKey));
   const [presetName, setPresetName] = useState("");
   const [issues, setIssues] = useState<CsvIssue[]>([]);

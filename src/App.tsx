@@ -98,7 +98,11 @@ import {
   periodChoiceLabel,
   periodMemberStats,
   periodRange,
+  parseMonthlyCostYen,
   parseSkillInput,
+  MONTHLY_COST_FIELD_KEY,
+  MONTHLY_COST_FIELD_LABEL,
+  MONTHLY_COST_YEN_MAX,
   projectById,
   projectMembers,
   projectPeriodCount,
@@ -218,6 +222,7 @@ type MemberForm = {
   location: string;
   skills: string;
   capacity: string;
+  monthlyCost: string;
   customValues: Record<string, string>;
   workHistory: WorkHistoryEntry[];
   unavailability: MemberUnavailability[];
@@ -478,6 +483,7 @@ function emptyMemberForm(state: WorkspaceState): MemberForm {
     location: "東京",
     skills: "",
     capacity: "100",
+    monthlyCost: "",
     customValues: {},
     workHistory: [],
     unavailability: [],
@@ -496,6 +502,7 @@ function memberFormFrom(state: WorkspaceState, member: Member): MemberForm {
     location: member.location,
     skills: formatSkillInput(memberSkillLevels(member)),
     capacity: String(member.capacity),
+    monthlyCost: member.monthlyCost == null ? "" : String(member.monthlyCost),
     customValues: { ...(member.customValues ?? {}) },
     workHistory: member.workHistory ? member.workHistory.map((entry) => ({ ...entry })) : [],
     unavailability: (member.unavailability ?? []).map((entry) => ({ ...entry })),
@@ -1198,6 +1205,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
   const hasEditPermission = mode === "demo" || role !== "viewer";
   const canEdit = hasEditPermission && !operationLocked && !saveOutcomePending;
   const canManageMembers = (mode === "demo" || role === "owner" || role === "admin") && !operationLocked && !saveOutcomePending;
+  const canSeeMonthlyCost = mode === "demo" || role === "owner" || (role === "admin" && !(permissions?.hiddenFieldKeys.includes(MONTHLY_COST_FIELD_KEY)));
   const disabledFeatures = new Set<RestrictableFeature>(permissions?.disabledFeatures ?? []);
   const featureEnabled = (feature: RestrictableFeature) => !disabledFeatures.has(feature);
   const visibleNavItems = navItems.filter((item) => item.id !== "opportunities" || featureEnabled("opportunities"));
@@ -2226,10 +2234,12 @@ export default function Home({ mode = "demo", organizationId, organizationName =
     let customValues: Record<string, string>;
     let workHistory: WorkHistoryEntry[];
     let unavailability: MemberUnavailability[];
+    let monthlyCost: number | null | undefined;
     try {
       customValues = normalizeCustomValues(workspace.customFields, "member", memberForm.customValues);
       workHistory = normalizeWorkHistory(memberForm.workHistory.filter((entry) => entry.title.trim() && entry.organization.trim() && entry.startDate));
       unavailability = normalizeMemberUnavailability(memberForm.unavailability.filter((entry) => entry.startDate && entry.endDate));
+      monthlyCost = canSeeMonthlyCost ? parseMonthlyCostYen(memberForm.monthlyCost) : undefined;
     } catch (caught) {
       setToast(caught instanceof Error ? caught.message : "入力内容を確認してください");
       return;
@@ -2249,6 +2259,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
           skillLevels,
           location: memberForm.location,
           capacity,
+          ...(monthlyCost !== undefined ? { monthlyCost } : {}),
           customValues,
           workHistory,
           unavailability,
@@ -2292,10 +2303,12 @@ export default function Home({ mode = "demo", organizationId, organizationName =
     let customValues: Record<string, string>;
     let workHistory: WorkHistoryEntry[];
     let unavailability: MemberUnavailability[];
+    let monthlyCost: number | null | undefined;
     try {
       customValues = normalizeCustomValues(workspace.customFields, "member", memberEditForm.customValues);
       workHistory = normalizeWorkHistory(memberEditForm.workHistory.filter((entry) => entry.title.trim() && entry.organization.trim() && entry.startDate));
       unavailability = normalizeMemberUnavailability(memberEditForm.unavailability.filter((entry) => entry.startDate && entry.endDate));
+      monthlyCost = canSeeMonthlyCost ? parseMonthlyCostYen(memberEditForm.monthlyCost) : undefined;
     } catch (caught) {
       setToast(caught instanceof Error ? caught.message : "入力内容を確認してください");
       return;
@@ -2311,6 +2324,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
       skills: skillLevels.map((level) => level.name),
       skillLevels,
       capacity,
+      ...(canSeeMonthlyCost ? { monthlyCost } : {}),
       customValues,
       workHistory,
       unavailability,
@@ -3714,6 +3728,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                   : <div className="form-grid"><label>部署<input required value={memberEditForm.department} onChange={(event) => setMemberEditForm({ ...memberEditForm, department: event.target.value })} /></label><label>勤務地<input required value={memberEditForm.location} onChange={(event) => setMemberEditForm({ ...memberEditForm, location: event.target.value })} /></label></div>}
                 {(workspace.orgUnits ?? []).length > 0 && <label>勤務地<input required value={memberEditForm.location} onChange={(event) => setMemberEditForm({ ...memberEditForm, location: event.target.value })} /></label>}
                 <label>稼働上限（%）<input required type="number" min="0" max="100" step="1" value={memberEditForm.capacity} onChange={(event) => setMemberEditForm({ ...memberEditForm, capacity: event.target.value })} /></label>
+                {canSeeMonthlyCost && <label>{MONTHLY_COST_FIELD_LABEL}（円）<input type="number" min="0" max={MONTHLY_COST_YEN_MAX} step="1" inputMode="numeric" value={memberEditForm.monthlyCost} onChange={(event) => setMemberEditForm({ ...memberEditForm, monthlyCost: event.target.value })} /></label>}
                 <CustomFieldInputs fields={editableCustomFields(workspace.customFields, "member", "detail")} values={memberEditForm.customValues} onChange={(customValues) => setMemberEditForm({ ...memberEditForm, customValues })} />
                 <WorkHistoryEditor entries={memberEditForm.workHistory} onChange={(workHistory) => setMemberEditForm({ ...memberEditForm, workHistory })} />
                 <UnavailabilityEditor entries={memberEditForm.unavailability} onChange={(unavailability) => setMemberEditForm({ ...memberEditForm, unavailability })} />
@@ -3883,6 +3898,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                 <label htmlFor="member-new-location">勤務地<select id="member-new-location" aria-label="勤務地" value={memberForm.location} onChange={(event) => setMemberForm({ ...memberForm, location: event.target.value })}>{["東京", "大阪", "福岡", "リモート"].map((location) => <option key={location}>{location}</option>)}</select></label>
                 <label>スキル（カンマ区切り）<input value={memberForm.skills} onChange={(event) => setMemberForm({ ...memberForm, skills: event.target.value })} placeholder="React:4, TypeScript:3, A11y" /></label>
                 <label>稼働上限（%）<input required type="number" min="0" max="100" step="1" value={memberForm.capacity} onChange={(event) => setMemberForm({ ...memberForm, capacity: event.target.value })} /></label>
+                {canSeeMonthlyCost && <label>{MONTHLY_COST_FIELD_LABEL}（円）<input type="number" min="0" max={MONTHLY_COST_YEN_MAX} step="1" inputMode="numeric" value={memberForm.monthlyCost} onChange={(event) => setMemberForm({ ...memberForm, monthlyCost: event.target.value })} /></label>}
                 <CustomFieldInputs fields={editableCustomFields(workspace.customFields, "member", "detail")} values={memberForm.customValues} onChange={(customValues) => setMemberForm({ ...memberForm, customValues })} />
                 <WorkHistoryEditor entries={memberForm.workHistory} onChange={(workHistory) => setMemberForm({ ...memberForm, workHistory })} />
                 <UnavailabilityEditor entries={memberForm.unavailability} onChange={(unavailability) => setMemberForm({ ...memberForm, unavailability })} />

@@ -23,11 +23,11 @@ MOSAICのsourceと静的フロントエンドはpublicです。source、schema�
 - 機密操作は短いJWT有効期間、session失効、必要に応じたsession ID確認を検討する。
 - 利用者削除だけで既発行tokenが即時無効になると仮定しない。退職・権限剥奪時はsessionを失効する。
 - 最後のownerを停止・降格しない。退職者はmembershipを物理削除せず`suspended`にし、同じメールの保留招待も取り消す。
-- `app.role_permissions`でrole別に独自項目の非表示・編集不可、機能の利用可否、参照できる人の範囲を制限できる。ownerは常に無制限で行を持たない。行が無いroleは無制限。
+- `app.role_permissions`でrole別に独自項目と予約キー（現在は`monthlyCost`）の非表示、独自項目の編集不可、機能の利用可否、参照できる人の範囲を制限できる。ownerは常に無制限で行を持たない。行が無いroleは、予約キーを除き無制限。`monthlyCost`はplanner/viewerには常に非表示で、adminは`hiddenFieldKeys`で隠せる。外部APIとRemote MCP（`app.caller_kind=integration`）は発行者がownerでも`monthlyCost`を返さない。
 - role別権限の判定は`public.get_workspace`と`public.save_workspace`だけに置く。Web UI、AI秘書、外部API、MCPはこの2つを通るので経路ごとに実装しない。clientが受け取る`permissions`は判定済みの結果であり、認可の根拠にしない。
 - role別権限を変更できるのはowner/admin。adminのrowを変更できるのはownerだけにする。制限されたadminが自分の制限を外せないようにする。
 - 外部連携clientからの`rolePermissions`書込はscopeに関係なく拒否する。
-- 非表示・編集不可の独自項目は、その値を書き換えられないだけでなく、他項目の保存時に消えない。
+- 非表示・編集不可の独自項目と、非表示の予約キーは、その値を書き換えられないだけでなく、他項目の保存時に消えない。`list_audit_events` の `oldData` / `newData` からも、月額原価を見られない呼び出し（hidden な admin、integration）には `monthly_cost_yen` を出さない。
 - AI秘書から社外MCPサーバーへ接続する経路では、接続先URLを`app.mcp_servers`の管理者登録行からしか取らない。モデルの出力、リクエスト本文、社外応答からURLを組まない。`https`のみ、localhost・プライベートIP・資格情報入りURL・リダイレクト追跡は拒否し、呼び出しごとに名前解決まで再検証する。
 - 社外MCPサーバー向けの秘密鍵はDBへ保存せず、Functionのsecret（`MCP_SECRET_<サーバーキー大文字>`）で管理する。
 - 社外MCPの応答は未信頼データとして扱う。指示として解釈せず、応答から次のツール呼び出しへ進まない。テキスト以外のブロックはモデルへ渡さない。
