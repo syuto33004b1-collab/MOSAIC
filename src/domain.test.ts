@@ -64,6 +64,7 @@ import {
   periodStatsFromDays,
   projectMembers,
   projectMembersLow,
+  projectPeriodCount,
   openNeeds,
   parseSkillInput,
   skillInputProblems,
@@ -1591,6 +1592,26 @@ describe("period range (#329 / #364)", () => {
     expect(projectMembersLow(state, "p", "2026-08-01", "2026-08-31")).toBe(1);
     expect(projectMembersLow(state, "p", "2026-08-03", "2026-08-07")).toBe(2);
     expect(projectMembersLow(state, "missing", "2026-08-01", "2026-08-31")).toBe(0);
+    const lateStart = {
+      ...state,
+      assignments: [
+        { id: "full", personId: "a", projectId: "p", startDate: "2026-08-17", endDate: "2026-08-31", allocation: 50, status: "confirmed" as const },
+        { id: "thin", personId: "b", projectId: "p", startDate: "2026-08-17", endDate: "2026-08-31", allocation: 50, status: "confirmed" as const },
+      ],
+    };
+    const project = { id: "p", startDate: "2026-08-17", endDate: "2026-08-31" };
+    expect(projectMembersLow(lateStart, "p", "2026-08-01", "2026-08-31")).toBe(0);
+    expect(projectPeriodCount(lateStart, project, "2026-08-01", "2026-08-31")).toBe(2);
+    expect(projectPeriodCount(lateStart, project, "2026-09-01", "2026-09-30")).toBe(null);
+    const earlyEnd = {
+      ...state,
+      assignments: [
+        { id: "full", personId: "a", projectId: "p", startDate: "2026-08-01", endDate: "2026-08-21", allocation: 50, status: "confirmed" as const },
+        { id: "thin", personId: "b", projectId: "p", startDate: "2026-08-01", endDate: "2026-08-21", allocation: 50, status: "confirmed" as const },
+      ],
+    };
+    expect(projectMembersLow(earlyEnd, "p", "2026-08-01", "2026-08-31")).toBe(0);
+    expect(projectPeriodCount(earlyEnd, { id: "p", startDate: "2026-08-01", endDate: "2026-08-21" }, "2026-08-01", "2026-08-31")).toBe(2);
   });
 
   it("keeps week labels relative after the first and months as the calendar month", () => {

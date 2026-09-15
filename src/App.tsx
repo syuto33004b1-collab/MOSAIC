@@ -102,7 +102,7 @@ import {
   parseSkillInput,
   projectById,
   projectMembers,
-  projectMembersLow,
+  projectPeriodCount,
   projectMembersOnDays,
   projectSearchText,
   projectTone,
@@ -3528,12 +3528,12 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                 <div className="drawer-section-title"><span>{periodChoiceLabel(drawerPeriod)}の充足</span><small>{selectedProject.demand === 0 ? "必要人数 未設定" : `必要 ${selectedProject.demand}名`}</small></div>
                 {drawerRange.clipped && <p className="horizon-clip-note" role="note">{PERIOD_CLIP_NOTE}</p>}
                 <div className="profile-capacity">{drawerRange.buckets.map((bucket, index) => {
-                  const outside = !overlaps(selectedProject.startDate, selectedProject.endDate, bucket.from, bucket.to);
-                  const count = outside ? null : projectMembersLow(workspace, selectedProject.id, bucket.from, bucket.to);
+                  const count = projectPeriodCount(workspace, selectedProject, bucket.from, bucket.to);
+                  const outside = count === null;
                   const unset = selectedProject.demand === 0;
-                  const width = outside ? 0 : unset ? 100 : Math.min(100, (count ?? 0) / selectedProject.demand * 100);
+                  const width = outside ? 0 : unset ? 100 : Math.min(100, count / selectedProject.demand * 100);
                   const figure = outside ? "—" : unset ? "未設定" : `${count}/${selectedProject.demand}`;
-                  return <div key={`${bucket.from}:${bucket.to}`}><span>{periodBucketLabel(drawerPeriod, bucket, index)}</span><i><b className={!outside && !unset && (count ?? 0) < selectedProject.demand ? "short" : ""} style={{ width: width + "%" }} /></i><strong>{figure}</strong></div>;
+                  return <div key={`${bucket.from}:${bucket.to}`}><span>{periodBucketLabel(drawerPeriod, bucket, index)}</span><i><b className={!outside && !unset && count < selectedProject.demand ? "short" : ""} style={{ width: width + "%" }} /></i><strong>{figure}</strong></div>;
                 })}</div>
                 <div className="drawer-section-title"><span>担当メンバー</span><small>{projectMembers(workspace, selectedProject.id, weekStart)}名</small></div>
                 <div className="detail-member-list">{workspace.assignments.filter((assignment) => assignment.projectId === selectedProject.id && overlaps(assignment.startDate, assignment.endDate, weekStart, weekEnd(weekStart))).map((assignment) => { const member = memberById(workspace, assignment.personId); return <button onClick={() => member && openMember(member.id)} key={assignment.id}><span className={"avatar " + member?.avatarTone}>{member?.initials}</span><span><strong>{member?.name}</strong><small>{member?.role}</small></span><b>{assignment.allocation}%</b></button>; })}</div>

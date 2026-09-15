@@ -4187,6 +4187,39 @@ describe("detail drawer period horizon (#366)", () => {
     expect(rows[0].querySelector("b")!.classList.contains("short")).toBe(true);
     expect(rows.slice(1).every((row) => row.querySelector("strong")!.textContent === "—")).toBe(true);
   });
+
+  it("does not treat the empty days before a mid-month start as a shortage", async () => {
+    const memberA = { ...initialWorkspace.members[0], id: "a", name: "A" };
+    const memberB = { ...initialWorkspace.members[1], id: "b", name: "B" };
+    const project = {
+      ...initialWorkspace.projects[0],
+      id: "late",
+      name: "月中開始",
+      startDate: "2026-08-17",
+      endDate: "2026-08-31",
+      demand: 2,
+    };
+    const adapter = sharedAdapter();
+    adapter.initialState = {
+      members: [memberA, memberB],
+      projects: [project],
+      assignments: [
+        { id: "a", personId: "a", projectId: "late", startDate: "2026-08-17", endDate: "2026-08-31", allocation: 50, status: "confirmed" },
+        { id: "b", personId: "b", projectId: "late", startDate: "2026-08-17", endDate: "2026-08-31", allocation: 50, status: "confirmed" },
+      ],
+      needs: [],
+    } as unknown as WorkspaceState;
+    const user = userEvent.setup();
+    render(<App mode="shared" organizationName="Example Inc." identity={owner} shared={adapter} />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^プロジェクト 登録 \d+件$/u }));
+    await user.click([...document.querySelectorAll(".project-name-cell")].find((node) => node.textContent?.includes("月中開始")) as HTMLElement);
+    const dialog = within(screen.getByRole("dialog", { name: "詳細パネル" }));
+    await user.click(dialog.getByRole("button", { name: "6か月" }));
+    const august = [...document.querySelectorAll(".drawer .profile-capacity > div")].find((row) => row.querySelector("span")?.textContent === "8月");
+    expect(august).toBeDefined();
+    expect(august!.querySelector("strong")!.textContent).toBe("2/2");
+    expect(august!.querySelector("b")!.classList.contains("short")).toBe(false);
+  });
 });
 
 /**

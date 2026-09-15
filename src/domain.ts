@@ -1233,6 +1233,25 @@ export function projectMembersLow(state: WorkspaceState, projectId: string, from
   return Number.isFinite(lowest) ? lowest : 0;
 }
 
+/**
+ * Headcount for one period bucket, clipped to the project's own dates.
+ * No overlap → `null` (the rail shows —). Partial overlap ignores the
+ * weeks that fall outside the project, so a mid-month start does not
+ * read as a shortage (#366).
+ */
+export function projectPeriodCount(
+  state: WorkspaceState,
+  project: Pick<Project, "id" | "startDate" | "endDate">,
+  from: string,
+  to: string,
+) {
+  if (!from || !to || to < from) return null;
+  const start = project.startDate > from ? project.startDate : from;
+  const end = project.endDate < to ? project.endDate : to;
+  if (!start || !end || start > end) return null;
+  return projectMembersLow(state, project.id, start, end);
+}
+
 export function memberById(state: WorkspaceState, id: string) {
   return state.members.find((member) => member.id === id);
 }
