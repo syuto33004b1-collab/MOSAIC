@@ -662,19 +662,23 @@ export function boardRange(unit: BoardUnit, offset: number, today = currentLocal
  * every drawer and the other tabs read this same week. So the week stays a week, and the
  * label beside it keeps naming which one (#115).
  */
-export function boardBasisWeek(range: BoardRange, today = currentLocalDate()) {
-  // ISO dates compare as strings in date order, so this is 「is today in the span」.
+/**
+ * The civil day the board is standing on. Today's date while today is in the
+ * range, otherwise the range's first working day (#207, #366).
+ *
+ * Period helpers that align to a month must start from this day, not from
+ * `boardBasisWeek`: a Thursday the 1st has a Monday in the previous month, and
+ * `monthStartIso` of that Monday would open the horizon on a month already gone.
+ */
+export function boardBasisDay(range: BoardRange, today = currentLocalDate()) {
   const inView = today >= range.start && today <= range.end;
-  if (inView) return getWeekStartForDate(today);
-  /*
-   * The range's first *working* day, not its first day. August 2026 opens on a
-   * Saturday, and now that the board draws weekends the range starts on the 1st —
-   * whose week began on 7月27日, four days of which are July. Measuring a month by
-   * a mostly-previous-month week is a worse answer than the one this gave while
-   * the weekends were missing, and the working day gives that answer back (#207).
-   */
+  if (inView) return today;
   const firstWorkingDay = range.days.find((day) => !day.weekend);
-  return getWeekStartForDate(firstWorkingDay?.iso ?? range.start);
+  return firstWorkingDay?.iso ?? range.start;
+}
+
+export function boardBasisWeek(range: BoardRange, today = currentLocalDate()) {
+  return getWeekStartForDate(boardBasisDay(range, today));
 }
 
 /**
@@ -790,6 +794,8 @@ export type PeriodBucketStats = PeriodBucket & {
   load: number;
   capacity: number;
   average: number;
+  /** True when any day in the bucket is over that day's ceiling. */
+  exceeds: boolean;
 };
 
 export type PeriodMemberStats = {
@@ -802,6 +808,21 @@ export type PeriodMemberStats = {
 
 export function periodChoiceLabel(choice: PeriodChoice) {
   return choice.unit === "week" ? `${choice.count}週間` : `${choice.count}か月`;
+}
+
+/**
+ * Copy for the holiday-calendar clip. Shared so the report and the drawer do
+ * not drift (#365, #366).
+ */
+export const PERIOD_CLIP_NOTE = "祝日カレンダーは2016年から2035年までです。この見通しはその範囲で切れています。";
+
+/**
+ * Week buckets keep #146: the first cell names its Monday, the rest stay
+ * relative. Month buckets use the same `${month}月` the report horizon uses.
+ */
+export function periodBucketLabel(choice: PeriodChoice, bucket: PeriodBucket, index: number) {
+  if (choice.unit === "month") return `${Number(bucket.from.slice(5, 7))}月`;
+  return index === 0 ? weekLabel(bucket.from) : `${index + 1}週後`;
 }
 
 function emptyPeriodRange(): PeriodRange {
@@ -873,35 +894,27 @@ export function periodRange(choice: PeriodChoice, originIso: string): PeriodRang
  * same `DailyLoad[]` they already have (#329).
  */
 export function periodStatsFromDays(days: DailyLoad[], buckets: PeriodBucket[]): PeriodMemberStats {
-  const exceeds = days.some((day) => day.load > day.capacity);
   const bearing = days.filter((day) => !day.weekend && day.capacity > 0);
   const open = bearing.length > 0 && bearing.every((day) => day.load <= day.capacity * 0.6);
-  let firstExceedOffset: number | null = null;
-  if (exceeds) {
-    for (let index = 0; index < buckets.length; index += 1) {
-      const bucket = buckets[index];
-      if (days.some((day) => day.date >= bucket.from && day.date <= bucket.to && day.load > day.capacity)) {
-        firstExceedOffset = index;
-        break;
-      }
-    }
-  }
+  const bucketStats = buckets.map((bucket) => {
+    const inside = days.filter((day) => day.date >= bucket.from && day.date <= bucket.to);
+    const load = inside.reduce((sum, day) => sum + day.load, 0);
+    const capacity = inside.filter((day) => !day.weekend).reduce((sum, day) => sum + day.capacity, 0);
+    return {
+      from: bucket.from,
+      to: bucket.to,
+      load,
+      capacity,
+      average: capacity > 0 ? Math.round(load / capacity * 100) : 0,
+      exceeds: inside.some((day) => day.load > day.capacity),
+    };
+  });
+  const firstExceedOffset = bucketStats.findIndex((bucket) => bucket.exceeds);
   return {
-    exceeds,
+    exceeds: bucketStats.some((bucket) => bucket.exceeds),
     open,
-    firstExceedOffset,
-    buckets: buckets.map((bucket) => {
-      const inside = days.filter((day) => day.date >= bucket.from && day.date <= bucket.to);
-      const load = inside.reduce((sum, day) => sum + day.load, 0);
-      const capacity = inside.filter((day) => !day.weekend).reduce((sum, day) => sum + day.capacity, 0);
-      return {
-        from: bucket.from,
-        to: bucket.to,
-        load,
-        capacity,
-        average: capacity > 0 ? Math.round(load / capacity * 100) : 0,
-      };
-    }),
+    firstExceedOffset: firstExceedOffset === -1 ? null : firstExceedOffset,
+    buckets: bucketStats,
   };
 }
 
@@ -912,7 +925,7 @@ export function periodMemberStats(
   dailyLoads: typeof memberDailyLoads = memberDailyLoads,
 ): PeriodMemberStats {
   if (!range.from || !range.to || range.to < range.from) {
-    return { exceeds: false, open: false, firstExceedOffset: null, buckets: range.buckets.map((bucket) => ({ ...bucket, load: 0, capacity: 0, average: 0 })) };
+    return { exceeds: false, open: false, firstExceedOffset: null, buckets: range.buckets.map((bucket) => ({ ...bucket, load: 0, capacity: 0, average: 0, exceeds: false })) };
   }
   return periodStatsFromDays(dailyLoads(state, member.id, range.from, range.to), range.buckets);
 }
@@ -1190,6 +1203,53 @@ export function projectMembers(state: WorkspaceState, projectId: string, weekSta
     .filter((assignment) => assignment.projectId === projectId
       && overlaps(assignment.startDate, assignment.endDate, weekStart, weekEnd(weekStart)))
     .map((assignment) => assignment.personId)).size;
+}
+
+/**
+ * The thinnest week-shaped window inside `from`–`to`. A month that is full
+ * except for one empty week reads as that empty week, so the rail can show a
+ * shortage instead of a unique-over-the-month count that hides it (#366).
+ *
+ * Each window is clipped to the span, and uses the same overlap rule as
+ * `projectMembers` (Saturday and Sunday included). A single-week span matches
+ * `projectMembers` on that Monday.
+ */
+export function projectMembersLow(state: WorkspaceState, projectId: string, from: string, to: string) {
+  if (!from || !to || to < from) return 0;
+  let lowest = Number.POSITIVE_INFINITY;
+  let week = getWeekStartForDate(from);
+  while (week <= to) {
+    const windowFrom = week < from ? from : week;
+    const windowTo = weekEnd(week) > to ? to : weekEnd(week);
+    if (windowFrom <= windowTo) {
+      const count = new Set(state.assignments
+        .filter((assignment) => assignment.projectId === projectId
+          && overlaps(assignment.startDate, assignment.endDate, windowFrom, windowTo))
+        .map((assignment) => assignment.personId)).size;
+      if (count < lowest) lowest = count;
+    }
+    week = addDays(week, 7);
+  }
+  return Number.isFinite(lowest) ? lowest : 0;
+}
+
+/**
+ * Headcount for one period bucket, clipped to the project's own dates.
+ * No overlap → `null` (the rail shows —). Partial overlap ignores the
+ * weeks that fall outside the project, so a mid-month start does not
+ * read as a shortage (#366).
+ */
+export function projectPeriodCount(
+  state: WorkspaceState,
+  project: Pick<Project, "id" | "startDate" | "endDate">,
+  from: string,
+  to: string,
+) {
+  if (!from || !to || to < from) return null;
+  const start = project.startDate > from ? project.startDate : from;
+  const end = project.endDate < to ? project.endDate : to;
+  if (!start || !end || start > end) return null;
+  return projectMembersLow(state, project.id, start, end);
 }
 
 export function memberById(state: WorkspaceState, id: string) {

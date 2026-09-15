@@ -2425,12 +2425,8 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
    stays one token so 「9月2日」 is not split. */
 .detail-facts > .fact-wide { grid-column: 1 / -1; }
 .detail-facts > .fact-wide .milestone-date { display: inline; white-space: nowrap; }
-.detail-capacity-rail { margin-bottom: 21px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
-.detail-capacity-rail i { height: 7px; border-radius: 99px; background: #edf0f4; overflow: hidden; display: block; }
-.detail-capacity-rail b { display: block; height: 100%; border-radius: inherit; background: #8391e7; }
-.detail-capacity-rail b.short { background: #eaa078; }
-.detail-capacity-rail span, .detail-capacity-rail strong { margin-top: 5px; display: block; }
-.detail-capacity-rail span { color: #929aaa; font-size: 6px; }.detail-capacity-rail strong { font-family: var(--font-data); font-size: 7px; }
+.drawer .range-tabs { margin-bottom: 12px; flex-wrap: wrap; width: 100%; }
+.drawer .horizon-clip-note { margin: 0 0 12px; }
 .detail-member-list { margin-bottom: 18px; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
 .detail-member-list button {
   width: 100%;
@@ -2477,6 +2473,7 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .profile-capacity i { height: 6px; border-radius: 99px; background: #edf0f4; overflow: hidden; }
 .profile-capacity b { display: block; height: 100%; border-radius: inherit; background: #8391e7; }
 .profile-capacity b.over { background: #e87970; }
+.profile-capacity b.short { background: #eaa078; }
 .profile-capacity strong { color: #687285; font-family: var(--font-data); font-size: 7px; text-align: right; }
 
 @media (max-width: 1120px) {
@@ -3008,8 +3005,6 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .report-insight button,
 .detail-facts span,
 .detail-facts strong,
-.detail-capacity-rail span,
-.detail-capacity-rail strong,
 .detail-member-list strong,
 .detail-member-list small,
 .detail-member-list b,
@@ -3059,7 +3054,6 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .exception-list small,
 .report-insight p,
 .detail-facts span,
-.detail-capacity-rail span,
 .detail-member-list small,
 .profile-hero p,
 .profile-hero small,
@@ -3881,14 +3875,12 @@ h1 {
 .status-pill i { background: currentColor; }
 .four-week-rail i,
 .progress-cell > span,
-.detail-capacity-rail i,
 .profile-capacity i { background: var(--paper-deep); }
 .four-week-rail b,
 .progress-cell b,
-.detail-capacity-rail b,
 .profile-capacity b { background: var(--sage); }
 .four-week-rail b.short,
-.detail-capacity-rail b.short { background: var(--coral); }
+.profile-capacity b.short { background: var(--coral); }
 .staffed-label { color: var(--muted); }
 .owner-cell i { background: var(--paper-deep); color: var(--ink); }
 .row-open { color: var(--coral-deep); }
