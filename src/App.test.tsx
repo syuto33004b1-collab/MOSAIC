@@ -4,7 +4,7 @@ import axe from "axe-core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import App, { type SharedWorkspaceAdapter } from "./App";
 import { DEMO_FAVORITES_KEY } from "./collaboration";
-import { addDays, boardRange, getWeekDays, getWeekStart, initialWorkspace, memberDailyLoads, memberLoad, memberPeakLoad, type StaffingNeed, type WorkspaceState } from "./domain";
+import { addDays, boardRange, getWeekDays, getWeekStart, initialWorkspace, memberDailyLoads, memberLoad, memberPeakLoad, periodMemberStats, periodRange, type StaffingNeed, type WorkspaceState } from "./domain";
 import type { ChatTransport } from "./lib/ai/chatClient";
 
 function sharedAdapter(): SharedWorkspaceAdapter {
@@ -4068,7 +4068,7 @@ describe("a week-scoped figure names the week it measures", () => {
     // that has nothing to do with this test.
     await user.click(document.querySelector(".drawer .close-button") as HTMLElement);
 
-    // The member drawer's rail: label, then 「{n}% / {capacity}%」.
+    // The member drawer's rail: label, then the bucket's average 「{n}%」.
     await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^メンバー( |$)/u }));
     await user.click(document.querySelector(".member-table tbody tr .member-name-cell") as HTMLElement);
     const rail = await waitFor(() => {
@@ -4083,9 +4083,10 @@ describe("a week-scoped figure names the week it measures", () => {
     expect(rows).toHaveLength(4);
     const monday = mondayFrom(rows[0].querySelector("span")!.textContent!);
     expect(monday).toBe("2026-08-17");
+    const drawerStats = periodMemberStats(initialWorkspace, member!, periodRange({ unit: "week", count: 4 }, "2026-08-19"));
     rows.forEach((row, index) => {
-      const load = Number(row.querySelector("strong")!.textContent!.match(/^(\d+)%/u)![1]);
-      expect(load, `rail cell ${index}`).toBe(memberLoad(initialWorkspace, member!.id, addDays(monday, index * 7)));
+      const load = Number(row.querySelector("strong")!.textContent!.match(/^(\d+)%$/u)![1]);
+      expect(load, `rail cell ${index}`).toBe(drawerStats.buckets[index]!.average);
     });
   });
 
@@ -4108,6 +4109,83 @@ describe("a week-scoped figure names the week it measures", () => {
     });
     const cells = [...rail.querySelectorAll(":scope > div > span")].map((node) => node.textContent);
     expect(cells).toEqual(["8/24週", "2週後", "3週後", "4週後"]);
+  });
+});
+
+describe("detail drawer period horizon (#366)", () => {
+  const owner = { name: "管理 花子", email: "owner@example.com", role: "owner" as const };
+
+  it("defaults to four weeks and can open a year of buckets", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^メンバー( |$)/u }));
+    await user.click(document.querySelector(".member-table tbody tr .member-name-cell") as HTMLElement);
+    const dialog = within(screen.getByRole("dialog", { name: "詳細パネル" }));
+    expect(dialog.getByText("4週間の稼働")).toBeInTheDocument();
+    const rail = document.querySelector(".drawer .profile-capacity")!;
+    expect(rail.querySelectorAll(":scope > div")).toHaveLength(4);
+    expect([...rail.querySelectorAll(":scope > div > span")].map((node) => node.textContent))
+      .toEqual(["8/17週", "2週後", "3週後", "4週後"]);
+
+    await user.click(dialog.getByRole("button", { name: "12か月" }));
+    expect(dialog.getByText("12か月の稼働")).toBeInTheDocument();
+    expect(rail.querySelectorAll(":scope > div")).toHaveLength(12);
+    expect(rail.querySelector(":scope > div > span")!.textContent).toBe("8月");
+
+    await user.click(dialog.getByRole("button", { name: "12週間" }));
+    expect(dialog.getByText("12週間の稼働")).toBeInTheDocument();
+    expect(rail.querySelectorAll(":scope > div")).toHaveLength(12);
+  });
+
+  it("starts a month horizon on the month in view, not that month's Monday", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(within(screen.getByRole("group", { name: "表示する期間" })).getByRole("button", { name: "月" }));
+    await user.click(screen.getByRole("button", { name: "次の月" }));
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^メンバー( |$)/u }));
+    await user.click(document.querySelector(".member-table tbody tr .member-name-cell") as HTMLElement);
+    const dialog = within(screen.getByRole("dialog", { name: "詳細パネル" }));
+    await user.click(dialog.getByRole("button", { name: "6か月" }));
+    const labels = [...document.querySelectorAll(".drawer .profile-capacity > div > span")].map((node) => node.textContent);
+    expect(labels[0]).toBe("9月");
+    expect(labels).toHaveLength(6);
+  });
+
+  it("uses the thinnest week in a month and hides buckets past the project", async () => {
+    const memberA = { ...initialWorkspace.members[0], id: "a", name: "A" };
+    const memberB = { ...initialWorkspace.members[1], id: "b", name: "B" };
+    const project = {
+      ...initialWorkspace.projects[0],
+      id: "short",
+      name: "短い案件",
+      startDate: "2026-08-01",
+      endDate: "2026-08-31",
+      demand: 2,
+    };
+    const adapter = sharedAdapter();
+    adapter.initialState = {
+      members: [memberA, memberB],
+      projects: [project],
+      assignments: [
+        { id: "full", personId: "a", projectId: "short", startDate: "2026-08-01", endDate: "2026-08-31", allocation: 50, status: "confirmed" },
+        { id: "thin", personId: "b", projectId: "short", startDate: "2026-08-03", endDate: "2026-08-07", allocation: 50, status: "confirmed" },
+      ],
+      needs: [],
+    } as unknown as WorkspaceState;
+    const user = userEvent.setup();
+    render(<App mode="shared" organizationName="Example Inc." identity={owner} shared={adapter} />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^プロジェクト 登録 \d+件$/u }));
+    await user.click([...document.querySelectorAll(".project-name-cell")].find((node) => node.textContent?.includes("短い案件")) as HTMLElement);
+    const dialog = within(screen.getByRole("dialog", { name: "詳細パネル" }));
+    expect(dialog.getByText("4週間の充足")).toBeInTheDocument();
+    await user.click(dialog.getByRole("button", { name: "6か月" }));
+    expect(dialog.getByText("6か月の充足")).toBeInTheDocument();
+    const rows = [...document.querySelectorAll(".drawer .profile-capacity > div")];
+    expect(rows).toHaveLength(6);
+    expect(rows[0].querySelector("span")!.textContent).toBe("8月");
+    expect(rows[0].querySelector("strong")!.textContent).toBe("1/2");
+    expect(rows[0].querySelector("b")!.classList.contains("short")).toBe(true);
+    expect(rows.slice(1).every((row) => row.querySelector("strong")!.textContent === "—")).toBe(true);
   });
 });
 

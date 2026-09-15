@@ -8,6 +8,7 @@ import {
   addSkillCatalogEntry,
   archiveOrgUnit,
   assignmentSpan,
+  boardBasisDay,
   boardBasisWeek,
   boardRange,
   boardRangeDistance,
@@ -55,10 +56,14 @@ import {
   orgUnitLoadRows,
   orgUnitPath,
   PERIOD_CHOICES,
+  PERIOD_CLIP_NOTE,
+  periodBucketLabel,
   periodChoiceLabel,
   periodMemberStats,
   periodRange,
   periodStatsFromDays,
+  projectMembers,
+  projectMembersLow,
   openNeeds,
   parseSkillInput,
   skillInputProblems,
@@ -176,6 +181,23 @@ describe("calendar helpers", () => {
       expect(boardBasisWeek(august, "2026-08-02")).toBe("2026-07-27");
       // From outside the month, the answer stays inside it.
       expect(boardBasisWeek(august, "2026-09-15")).toBe("2026-08-03");
+    });
+
+    it("names the civil day the month horizon should open on (#366)", () => {
+      // 10/1 is a Thursday. Its week began on 9/28, which would make a month
+      // horizon start in September if the origin were the Monday.
+      const october = boardRange("month", 1, "2026-09-15");
+      expect(boardBasisDay(october, "2026-09-15")).toBe("2026-10-01");
+      expect(boardBasisWeek(october, "2026-09-15")).toBe("2026-09-28");
+      expect(periodRange({ unit: "month", count: 6 }, boardBasisDay(october, "2026-09-15")).buckets[0]).toEqual({
+        from: "2026-10-01", to: "2026-10-31",
+      });
+      expect(periodRange({ unit: "month", count: 6 }, boardBasisWeek(october, "2026-09-15")).buckets[0]).toEqual({
+        from: "2026-09-01", to: "2026-09-30",
+      });
+      const august = boardRange("month", 0, "2026-08-19");
+      expect(boardBasisDay(august, "2026-08-19")).toBe("2026-08-19");
+      expect(periodRange({ unit: "week", count: 4 }, boardBasisDay(august, "2026-08-19")).from).toBe("2026-08-17");
     });
   });
 
@@ -1464,6 +1486,7 @@ describe("period range (#329 / #364)", () => {
       load: firstLoad,
       capacity: firstCapacity,
       average: firstCapacity > 0 ? Math.round(firstLoad / firstCapacity * 100) : 0,
+      exceeds: firstDays.some((day) => day.load > day.capacity),
     });
     expect(periodMemberStats(initialWorkspace, member, four).exceeds).toBe(
       memberExceedsCapacity(initialWorkspace, member, four.from, four.to),
@@ -1528,6 +1551,56 @@ describe("period range (#329 / #364)", () => {
     const yearRows = orgUnitLoadRows(initialWorkspace, year.from, year.to);
     expect(yearRows.find((row) => row.id === "org-engineering")?.count).toBe(5);
     expect(yearRows.every((row) => Number.isFinite(row.average))).toBe(true);
+  });
+
+  it("marks a bucket over when one day exceeds even if the average does not", () => {
+    const member: Member = {
+      id: "m", initials: "M", name: "Member", role: "QA", department: "QA", avatarTone: "mint", skills: [], location: "Tokyo", capacity: 100,
+    };
+    const state: WorkspaceState = {
+      ...initialWorkspace,
+      members: [member],
+      assignments: [{
+        id: "spike", personId: "m", projectId: "p", startDate: "2026-08-17", endDate: "2026-08-17",
+        allocation: 120, status: "confirmed",
+      }],
+    };
+    const range = periodRange({ unit: "week", count: 4 }, "2026-08-17");
+    const stats = periodMemberStats(state, member, range);
+    expect(stats.buckets[0]?.average).toBeLessThan(100);
+    expect(stats.buckets[0]?.exceeds).toBe(true);
+    expect(stats.exceeds).toBe(true);
+    expect(stats.firstExceedOffset).toBe(0);
+    expect(stats.buckets.slice(1).every((bucket) => bucket.exceeds === false)).toBe(true);
+  });
+
+  it("takes the thinnest week in a span for project headcount", () => {
+    const memberA: Member = {
+      id: "a", initials: "A", name: "A", role: "QA", department: "QA", avatarTone: "mint", skills: [], location: "Tokyo", capacity: 100,
+    };
+    const memberB: Member = { ...memberA, id: "b", initials: "B", name: "B" };
+    const state: WorkspaceState = {
+      ...initialWorkspace,
+      members: [memberA, memberB],
+      assignments: [
+        { id: "full", personId: "a", projectId: "p", startDate: "2026-08-01", endDate: "2026-08-31", allocation: 50, status: "confirmed" },
+        { id: "thin", personId: "b", projectId: "p", startDate: "2026-08-03", endDate: "2026-08-07", allocation: 50, status: "confirmed" },
+      ],
+    };
+    expect(projectMembersLow(state, "p", "2026-08-03", "2026-08-09")).toBe(projectMembers(state, "p", "2026-08-03"));
+    expect(projectMembersLow(state, "p", "2026-08-01", "2026-08-31")).toBe(1);
+    expect(projectMembersLow(state, "p", "2026-08-03", "2026-08-07")).toBe(2);
+    expect(projectMembersLow(state, "missing", "2026-08-01", "2026-08-31")).toBe(0);
+  });
+
+  it("keeps week labels relative after the first and months as the calendar month", () => {
+    const weeks = periodRange({ unit: "week", count: 4 }, "2026-08-19");
+    expect(weeks.buckets.map((bucket, index) => periodBucketLabel({ unit: "week", count: 4 }, bucket, index)))
+      .toEqual(["8/17週", "2週後", "3週後", "4週後"]);
+    const months = periodRange({ unit: "month", count: 6 }, "2026-10-01");
+    expect(periodBucketLabel({ unit: "month", count: 6 }, months.buckets[0]!, 0)).toBe("10月");
+    expect(PERIOD_CLIP_NOTE).toContain("2016");
+    expect(PERIOD_CLIP_NOTE).toContain("2035");
   });
 });
 

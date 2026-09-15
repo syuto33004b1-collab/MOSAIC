@@ -29,7 +29,7 @@ import {
   X,
   type LucideIcon,
 } from "lucide-react";
-import { ActiveFilters, CustomFieldFacts, CustomFieldInputs, MemberPicker, WeekendWorkPicker, type MemberCandidate, CsvTransferPanel, FavoriteStar, FieldsView, MemberOrgFields, MembersView, OpportunitiesView, OrgFacts, OrgView, ProjectsView, ProposalView, ReportsView, SkillsView, UnavailabilityEditor, UnavailabilityList, WorkHistoryEditor, WorkHistoryList } from "./expanded-views";
+import { ActiveFilters, CustomFieldFacts, CustomFieldInputs, MemberPicker, WeekendWorkPicker, type MemberCandidate, CsvTransferPanel, FavoriteStar, FieldsView, MemberOrgFields, MembersView, OpportunitiesView, OrgFacts, OrgView, PeriodRangeTabs, ProjectsView, ProposalView, ReportsView, SkillsView, UnavailabilityEditor, UnavailabilityList, WorkHistoryEditor, WorkHistoryList } from "./expanded-views";
 import { AiChat } from "./components/ai-chat/AiChat";
 import type { ChatTransport } from "./lib/ai/chatClient";
 import {
@@ -42,6 +42,7 @@ import {
   addSkillCatalogEntry,
   archiveOrgUnit,
   assignmentSpan,
+  boardBasisDay,
   boardBasisWeek,
   boardRange,
   boardRangeDistance,
@@ -92,9 +93,16 @@ import {
   openNeeds,
   orgUnitTree,
   overlaps,
+  PERIOD_CHOICES,
+  PERIOD_CLIP_NOTE,
+  periodBucketLabel,
+  periodChoiceLabel,
+  periodMemberStats,
+  periodRange,
   parseSkillInput,
   projectById,
   projectMembers,
+  projectMembersLow,
   projectMembersOnDays,
   projectSearchText,
   projectTone,
@@ -117,6 +125,7 @@ import {
   type Opportunity,
   type OpportunityNeed,
   type OpportunityStage,
+  type PeriodChoice,
   type PersonScope,
   type ProfileRequestScope,
   type Project,
@@ -530,6 +539,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
    * this range's start, which in week mode is the range itself.
    */
   const [boardUnit, setBoardUnit] = useState<BoardUnit>("week");
+  const [drawerPeriod, setDrawerPeriod] = useState<PeriodChoice>(PERIOD_CHOICES[0]);
   const [filter, setFilter] = useState("すべて");
   /**
    * The board's other conditions. They live behind a trigger rather than on the
@@ -1076,6 +1086,8 @@ export default function Home({ mode = "demo", organizationId, organizationName =
    * than a claim.
    */
   const weekStart = boardBasisWeek(range);
+  const drawerOrigin = boardBasisDay(range);
+  const drawerRange = periodRange(drawerPeriod, drawerOrigin);
   const visibleProposalIds = retainedMemberIds(proposalMemberIds, workspace.members.map((member) => member.id));
   /** The same week, as a count of weeks from this one, for the screens that take one. */
   const viewWeekOffset = Math.round((Date.parse(weekStart + "T00:00:00Z") - Date.parse(getWeekStart(0) + "T00:00:00Z")) / 604_800_000);
@@ -1139,6 +1151,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
   const selectedProject = projectById(workspace, selectedProjectId);
   const selectedProjectNeeds = selectedProject ? workspace.needs.filter((need) => need.projectId === selectedProject.id) : [];
   const selectedMember = memberById(workspace, selectedMemberId);
+  const drawerMemberStats = selectedMember ? periodMemberStats(workspace, selectedMember, drawerRange) : null;
   const selectedAssignment = workspace.assignments.find((assignment) => assignment.id === selectedAssignmentId);
   const selectedAssignmentIsPersisted = Boolean(selectedAssignment && committedWorkspace.assignments.some((assignment) => assignment.id === selectedAssignment.id));
   const selectedOpportunity = opportunityById(workspace, selectedOpportunityId);
@@ -3511,8 +3524,17 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                 {(workspace.opportunities ?? []).some((opportunity) => opportunity.convertedProjectId === selectedProject.id) && (
                   <button className="drawer-secondary" onClick={() => openOpportunity((workspace.opportunities ?? []).find((opportunity) => opportunity.convertedProjectId === selectedProject.id)!.id)}>元の受注前案件を開く</button>
                 )}
-                <div className="drawer-section-title"><span>4週間の充足</span><small>{selectedProject.demand === 0 ? "必要人数 未設定" : `必要 ${selectedProject.demand}名`}</small></div>
-                <div className="detail-capacity-rail">{[0, 1, 2, 3].map((offset) => { const count = projectMembers(workspace, selectedProject.id, addDays(weekStart, offset * 7)); return <div key={offset}><i><b className={selectedProject.demand > 0 && count < selectedProject.demand ? "short" : ""} style={{ width: (selectedProject.demand === 0 ? 100 : Math.min(100, count / selectedProject.demand * 100)) + "%" }} /></i><span>{offset === 0 ? measuredWeekLabel : offset + 1 + "週後"}</span><strong>{selectedProject.demand === 0 ? "未設定" : `${count}/${selectedProject.demand}`}</strong></div>; })}</div>
+                <PeriodRangeTabs choice={drawerPeriod} onChange={setDrawerPeriod} />
+                <div className="drawer-section-title"><span>{periodChoiceLabel(drawerPeriod)}の充足</span><small>{selectedProject.demand === 0 ? "必要人数 未設定" : `必要 ${selectedProject.demand}名`}</small></div>
+                {drawerRange.clipped && <p className="horizon-clip-note" role="note">{PERIOD_CLIP_NOTE}</p>}
+                <div className="profile-capacity">{drawerRange.buckets.map((bucket, index) => {
+                  const outside = !overlaps(selectedProject.startDate, selectedProject.endDate, bucket.from, bucket.to);
+                  const count = outside ? null : projectMembersLow(workspace, selectedProject.id, bucket.from, bucket.to);
+                  const unset = selectedProject.demand === 0;
+                  const width = outside ? 0 : unset ? 100 : Math.min(100, (count ?? 0) / selectedProject.demand * 100);
+                  const figure = outside ? "—" : unset ? "未設定" : `${count}/${selectedProject.demand}`;
+                  return <div key={`${bucket.from}:${bucket.to}`}><span>{periodBucketLabel(drawerPeriod, bucket, index)}</span><i><b className={!outside && !unset && (count ?? 0) < selectedProject.demand ? "short" : ""} style={{ width: width + "%" }} /></i><strong>{figure}</strong></div>;
+                })}</div>
                 <div className="drawer-section-title"><span>担当メンバー</span><small>{projectMembers(workspace, selectedProject.id, weekStart)}名</small></div>
                 <div className="detail-member-list">{workspace.assignments.filter((assignment) => assignment.projectId === selectedProject.id && overlaps(assignment.startDate, assignment.endDate, weekStart, weekEnd(weekStart))).map((assignment) => { const member = memberById(workspace, assignment.personId); return <button onClick={() => member && openMember(member.id)} key={assignment.id}><span className={"avatar " + member?.avatarTone}>{member?.initials}</span><span><strong>{member?.name}</strong><small>{member?.role}</small></span><b>{assignment.allocation}%</b></button>; })}</div>
                 <div className="drawer-section-title"><span>要員要件</span><small>{selectedProjectNeeds.length}件</small></div>
@@ -3542,8 +3564,14 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                 <WorkHistoryList entries={selectedMember.workHistory} />
                 <div className="drawer-section-title"><span>期間指定の稼働上限</span><small>{(selectedMember.unavailability ?? []).length}件</small></div>
                 <UnavailabilityList entries={selectedMember.unavailability} />
-                <div className="drawer-section-title"><span>4週間の稼働</span><small>稼働上限 {selectedMember.capacity}%</small></div>
-                <div className="profile-capacity">{[0, 1, 2, 3].map((offset) => { const stats = memberWeekStats(workspace, selectedMember, addDays(weekStart, offset * 7)); return <div key={offset}><span>{offset === 0 ? measuredWeekLabel : offset + 1 + "週後"}</span><i><b className={stats.exceeds ? "over" : ""} style={{ width: stats.ratio + "%" }} /></i><strong>{stats.peak}% / {selectedMember.capacity}%</strong></div>; })}</div>
+                <PeriodRangeTabs choice={drawerPeriod} onChange={setDrawerPeriod} />
+                <div className="drawer-section-title"><span>{periodChoiceLabel(drawerPeriod)}の稼働</span><small>稼働上限 {selectedMember.capacity}%</small></div>
+                {drawerRange.clipped && <p className="horizon-clip-note" role="note">{PERIOD_CLIP_NOTE}</p>}
+                <div className="profile-capacity">{drawerRange.buckets.map((bucket, index) => {
+                  const stats = drawerMemberStats?.buckets[index];
+                  const average = stats?.average ?? 0;
+                  return <div key={`${bucket.from}:${bucket.to}`}><span>{periodBucketLabel(drawerPeriod, bucket, index)}</span><i><b className={stats?.exceeds ? "over" : ""} style={{ width: Math.min(100, average) + "%" }} /></i><strong>{average}%</strong></div>;
+                })}</div>
                 <div className="drawer-section-title"><span>現在のアサイン</span><small>{workspace.assignments.filter((assignment) => assignment.personId === selectedMember.id && overlaps(assignment.startDate, assignment.endDate, weekStart, weekEnd(weekStart))).length}件</small></div>
                 <div className="allocation-list">{workspace.assignments.filter((assignment) => assignment.personId === selectedMember.id && overlaps(assignment.startDate, assignment.endDate, weekStart, weekEnd(weekStart))).map((assignment) => <div key={assignment.id}><span className={"project-dot " + (projectById(workspace, assignment.projectId)?.tone || "plum")} /><span><strong>{assignment.label || projectById(workspace, assignment.projectId)?.name || "プロジェクト未登録"}</strong><small>{formatDate(assignment.startDate)} — {formatDate(assignment.endDate)}</small></span><b>{assignment.allocation}%</b></div>)}</div>
                 <div className="entity-action-row">

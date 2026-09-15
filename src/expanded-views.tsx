@@ -73,6 +73,7 @@ import {
   getWeekStart,
   isActiveOpportunity,
   PERIOD_CHOICES,
+  PERIOD_CLIP_NOTE,
   periodChoiceLabel,
   periodMemberStats,
   periodRange,
@@ -1446,6 +1447,16 @@ export function ProposalView({
   );
 }
 
+export function PeriodRangeTabs({ choice, onChange }: { choice: PeriodChoice; onChange: (choice: PeriodChoice) => void }) {
+  return (
+    <div className="range-tabs" aria-label="表示期間">{PERIOD_CHOICES.map((option) => {
+      const selected = choice.unit === option.unit && choice.count === option.count;
+      const label = periodChoiceLabel(option);
+      return <button type="button" className={selected ? "selected" : ""} aria-pressed={selected} onClick={() => onChange(option)} key={label}>{label}</button>;
+    })}</div>
+  );
+}
+
 export function ReportsView({ state, onOpenWeek, onResolveNeed, onOpenOpportunity, onAddReport, onDeleteReport, canManageReports = false }: ReportsViewProps) {
   const [choice, setChoice] = useState<PeriodChoice>(PERIOD_CHOICES[1]);
   const [reportId, setReportId] = useState((state.savedReports ?? [])[0]?.id ?? "");
@@ -1538,11 +1549,7 @@ export function ReportsView({ state, onOpenWeek, onResolveNeed, onOpenOpportunit
     <section className="section-view reports-view" aria-labelledby="reports-heading">
       <div className="report-toolbar">
         <div><small>CAPACITY HORIZON</small><h2 id="reports-heading">需給バランスの見通し</h2><p>確定稼働と受注前の想定人数を分けて確認します。</p></div>
-        <div className="range-tabs" aria-label="表示期間">{PERIOD_CHOICES.map((option) => {
-          const selected = choice.unit === option.unit && choice.count === option.count;
-          const label = periodChoiceLabel(option);
-          return <button className={selected ? "selected" : ""} aria-pressed={selected} onClick={() => setChoice(option)} key={label}>{label}</button>;
-        })}</div>
+        <PeriodRangeTabs choice={choice} onChange={setChoice} />
       </div>
 
       <section className="balance-card saved-report-card" aria-labelledby="saved-report-heading">
@@ -1608,7 +1615,7 @@ export function ReportsView({ state, onOpenWeek, onResolveNeed, onOpenOpportunit
             ))}
           </div>
         </div>
-        {range.clipped && <p className="horizon-clip-note" role="note">祝日カレンダーは2016年から2035年までです。この見通しはその範囲で切れています。</p>}
+        {range.clipped && <p className="horizon-clip-note" role="note">{PERIOD_CLIP_NOTE}</p>}
         <div className="horizon-caption"><span><i className="confirmed" />確定稼働</span><span><i className="draft" />仮置きあり</span><span><i className="pipeline" />受注前の想定人数</span><button type="button" onClick={() => openBoard(0)}>ボードで確認 <ArrowRight size={13} /></button></div>
       </div>
 
