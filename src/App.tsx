@@ -166,6 +166,7 @@ import {
   type FavoriteKind,
   type ShareLink,
 } from "./collaboration";
+import { withLegalSearch } from "./legal";
 import { applyAssignmentImport, applyMemberImport, applyProjectImport, type AssignmentImportAction, type MemberImportAction, type ProjectImportAction } from "./csv";
 
 export type OrganizationRole = "owner" | "admin" | "planner" | "viewer";
@@ -3263,7 +3264,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
         </div>
         <div className="profile-row">
           <span className="avatar avatar-dark">{makeInitials(displayName)}</span><span><strong>{displayName}</strong><small>{roleLabel[role]}</small></span>
-          <span className="profile-actions">{onSubmitFeedback && <button aria-label="気づきを送る" disabled={accountActionLocked || feedbackSending} onClick={openFeedback}><MessageSquarePlus size={17} /></button>}{onOpenOperations && <button aria-label="組織と監査ログを管理" disabled={accountActionLocked} onClick={openOperations}><MoreHorizontal size={17} /></button>}{onSignOut && <button aria-label="ログアウト" disabled={accountActionLocked} onClick={signOut}>退出</button>}</span>
+          <span className="profile-actions">{onSubmitFeedback && <button aria-label="気づきを送る" disabled={accountActionLocked || feedbackSending} onClick={openFeedback}><MessageSquarePlus size={17} /></button>}{onOpenOperations && <button aria-label="組織と監査ログを管理" disabled={accountActionLocked} onClick={openOperations}><MoreHorizontal size={17} /></button>}{onSignOut && <button aria-label="ログアウト" disabled={accountActionLocked} onClick={signOut}>退出</button>}<a className="sidebar-legal-action" href={withLegalSearch(window.location)} aria-label="プライバシーポリシーと利用規約">規約</a></span>
         </div>
       </aside>
 

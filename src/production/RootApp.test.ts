@@ -457,3 +457,22 @@ describe("invite onboarding deep links", () => {
     expect(screen.getByText("第二組織")).toBeInTheDocument();
   });
 });
+
+describe("legal notice route", () => {
+  it("opens from the query before demo or auth", () => {
+    window.history.replaceState({}, "", "/?legal=1");
+    supabaseRuntime.mode = "demo";
+    render(createElement(RootApp));
+    expect(screen.getByRole("heading", { level: 1, name: "プライバシーと利用規約" })).toBeInTheDocument();
+    expect(screen.queryByRole("navigation", { name: "メインナビゲーション" })).not.toBeInTheDocument();
+  });
+
+  it("does not swallow an auth callback", async () => {
+    window.history.replaceState({}, "", "/?legal=1&code=oauth-code");
+    supabaseClient.auth.getUser.mockResolvedValue({ data: { user: null }, error: { name: "AuthSessionMissingError" } });
+    supabaseClient.auth.onAuthStateChange.mockReturnValue({ data: { subscription: { unsubscribe: vi.fn() } } });
+    render(createElement(RootApp));
+    expect(screen.queryByRole("heading", { name: "プライバシーと利用規約" })).not.toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "セッションを確認中" })).toBeInTheDocument();
+  });
+});

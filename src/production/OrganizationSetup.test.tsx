@@ -85,4 +85,9 @@ describe("organization creation", () => {
     expect(screen.getByRole("button", { name: "参加" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "別のアカウントでログイン" })).toBeDisabled();
   });
+
+  it("offers the legal notice before an organization is chosen", () => {
+    renderSetup();
+    expect(screen.getByRole("link", { name: "プライバシーポリシーと利用規約" })).toHaveAttribute("href", expect.stringContaining("legal=1"));
+  });
 });

@@ -96,6 +96,13 @@ describe("share links", () => {
       { nav: "projects", open: "atlas" },
     )).toBe("https://example.test/MOSAIC/?invitation=abc&nav=projects&open=atlas");
   });
+
+  it("strips the legal notice so a copied workspace link does not open it", () => {
+    const location = { origin: "https://example.test", pathname: "/", search: "?nav=members&legal=1" };
+    expect(buildShareHref(location, { nav: "members" })).toBe("https://example.test/?nav=members");
+    expect(shareLocationFor({ pathname: "/", search: "?nav=members&legal=1", hash: "" }, { nav: "members" }))
+      .toBe("/?nav=members");
+  });
 });
 
 /**

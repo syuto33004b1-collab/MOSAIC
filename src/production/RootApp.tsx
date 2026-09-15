@@ -4,6 +4,8 @@ import App from "../App";
 import { getSupabaseClient, getSupabaseRuntimeConfiguration } from "../lib/supabase";
 import { createSupabaseChatTransport, type ChatTransport } from "../lib/ai/chatClient";
 import { AuthScreen } from "./AuthScreen";
+import { LegalNotice } from "./LegalNotice";
+import { shouldShowLegalNotice } from "./legalRoute";
 import {
   authCallbackNotice,
   hasAuthCallbackParams,
@@ -669,6 +671,9 @@ export function ProductionGate() {
 }
 
 export default function RootApp() {
+  if (shouldShowLegalNotice(window.location.search, window.location.hash)) {
+    return <LegalNotice />;
+  }
   const configuration = getSupabaseRuntimeConfiguration();
   if (configuration.mode === "demo") return <SharedApp mode="demo" />;
   if (configuration.mode === "invalid") {

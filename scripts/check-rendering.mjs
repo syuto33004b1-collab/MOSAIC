@@ -351,6 +351,13 @@ async function main() {
       && document.querySelector(".ai-chat-root section")));
     await seeing(page, ".ai-chat-root section");
     results.push(await scan(page, "AI秘書パネル"));
+
+    // Query, not a path: this harness (and the Worker assets config) 404s unknown
+    // files instead of falling back to index.html.
+    await page.goto(`${origin}${BASE}?legal=1`, { waitUntil: "domcontentloaded" });
+    await page.evaluate(await readFile(axeSource, "utf8"));
+    await until(page, "the legal notice", (want) => document.querySelector("h1")?.textContent?.trim() === want, "プライバシーと利用規約");
+    results.push(await scan(page, "プライバシーと利用規約"));
   } finally {
     if (!KEEP_OPEN) await browser.close();
     server.close();

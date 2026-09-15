@@ -1,3 +1,5 @@
+import { LEGAL_SEARCH_PARAM } from "./legal";
+
 export const DEMO_FAVORITES_KEY = "mosaic-favorites-v1";
 export const MAX_PROPOSAL_MEMBERS = 12;
 export const MAX_FAVORITES = 100;
@@ -32,6 +34,11 @@ const SHARE_PARAM_KEYS = ["nav", "open", "q", "members", "need"] as const;
  * key is not deleted here, copying a legacy `?anonymous=1` link redistributes it.
  */
 const RETIRED_SHARE_PARAM_KEYS = ["anonymous"] as const;
+/**
+ * Query keys that are never share state. `buildShareHref` keeps unknown
+ * parameters, so a leftover `?legal=1` would be copied with the workspace link.
+ */
+const NON_SHARE_PARAM_KEYS = [LEGAL_SEARCH_PARAM] as const;
 const NAV_SET = new Set<string>(SHARE_NAV_IDS);
 const KIND_SET = new Set<FavoriteKind>(["member", "project"]);
 const TARGET_ID_PATTERN = /^[\w:-]{1,80}$/;
@@ -39,6 +46,7 @@ const TARGET_ID_PATTERN = /^[\w:-]{1,80}$/;
 function clearShareParams(params: URLSearchParams) {
   for (const key of SHARE_PARAM_KEYS) params.delete(key);
   for (const key of RETIRED_SHARE_PARAM_KEYS) params.delete(key);
+  for (const key of NON_SHARE_PARAM_KEYS) params.delete(key);
 }
 
 export const DEMO_SEEDED_FAVORITES: Favorite[] = [

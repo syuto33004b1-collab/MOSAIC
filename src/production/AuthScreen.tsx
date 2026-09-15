@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { Check, KeyRound, LockKeyhole, ShieldCheck } from "lucide-react";
+import { LegalLink } from "./LegalLink";
 import { ProductionFrame } from "./ProductionFrame";
 
 export type AuthScreenMode = "sign-in" | "update-password" | "onboard" | "invalid-link";
@@ -299,6 +300,9 @@ export function AuthScreen({
                 >
                   {googleSubmitting ? "Google へ移動しています…" : "Google でログイン"}
                 </button>
+                <p className="production-legal-google-note">
+                  Google でログインする前に、<LegalLink />を読めます。
+                </p>
               </>
             )}
             <button className="production-auth-link" type="button" onClick={() => { setView("request"); setError(""); }}>
@@ -338,6 +342,7 @@ export function AuthScreen({
           </>
         )}
       </form>
+      <p className="production-legal-footer"><LegalLink /></p>
     </ProductionFrame>
   );
 }
