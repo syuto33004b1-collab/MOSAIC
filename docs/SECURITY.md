@@ -27,7 +27,7 @@ MOSAICのsourceと静的フロントエンドはpublicです。source、schema�
 - role別権限の判定は`public.get_workspace`と`public.save_workspace`だけに置く。Web UI、AI秘書、外部API、MCPはこの2つを通るので経路ごとに実装しない。clientが受け取る`permissions`は判定済みの結果であり、認可の根拠にしない。
 - role別権限を変更できるのはowner/admin。adminのrowを変更できるのはownerだけにする。制限されたadminが自分の制限を外せないようにする。
 - 外部連携clientからの`rolePermissions`書込はscopeに関係なく拒否する。
-- 非表示・編集不可の独自項目と、非表示の予約キーは、その値を書き換えられないだけでなく、他項目の保存時に消えない。
+- 非表示・編集不可の独自項目と、非表示の予約キーは、その値を書き換えられないだけでなく、他項目の保存時に消えない。`list_audit_events` の `oldData` / `newData` からも、月額原価を見られない呼び出し（hidden な admin、integration）には `monthly_cost_yen` を出さない。
 - AI秘書から社外MCPサーバーへ接続する経路では、接続先URLを`app.mcp_servers`の管理者登録行からしか取らない。モデルの出力、リクエスト本文、社外応答からURLを組まない。`https`のみ、localhost・プライベートIP・資格情報入りURL・リダイレクト追跡は拒否し、呼び出しごとに名前解決まで再検証する。
 - 社外MCPサーバー向けの秘密鍵はDBへ保存せず、Functionのsecret（`MCP_SECRET_<サーバーキー大文字>`）で管理する。
 - 社外MCPの応答は未信頼データとして扱う。指示として解釈せず、応答から次のツール呼び出しへ進まない。テキスト以外のブロックはモデルへ渡さない。

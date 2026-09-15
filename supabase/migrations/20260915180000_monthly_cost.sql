@@ -66,11 +66,9 @@ begin
     v_raw := v_item -> 'monthlyCost';
     if v_raw = 'null'::jsonb then
       v_value := null;
-    elsif jsonb_typeof(v_raw) = 'number' and (v_item ->> 'monthlyCost') ~ '^[0-9]+$' then
+    elsif jsonb_typeof(v_raw) = 'number' and (v_item ->> 'monthlyCost') ~ '^[0-9]+$'
+      and (v_item ->> 'monthlyCost')::numeric <= 1000000000 then
       v_value := (v_item ->> 'monthlyCost')::integer;
-      if v_value > 1000000000 then
-        raise exception using errcode = '22023', message = 'monthlyCost must be an integer between 0 and 1000000000';
-      end if;
     else
       raise exception using errcode = '22023', message = 'monthlyCost must be an integer between 0 and 1000000000';
     end if;
@@ -507,5 +505,113 @@ begin
   return v_result;
 end;
 $function$;
+
+create or replace function public.list_audit_events(
+  p_organization_id uuid,
+  p_limit integer default 50,
+  p_before bigint default null
+)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = ''
+as $function$
+declare
+  v_limit integer := coalesce(p_limit, 50);
+  v_result jsonb;
+  v_user_id uuid := auth.uid();
+  v_role text;
+  v_hidden text[] := '{}'::text[];
+  v_may_see_cost boolean;
+begin
+  if v_user_id is null then
+    raise exception using errcode = '42501', message = 'authentication required';
+  end if;
+  if not private.has_org_role(p_organization_id, array['owner', 'admin']::text[]) then
+    raise exception using errcode = '42501', message = 'not authorized';
+  end if;
+  if v_limit < 1 or v_limit > 200 then
+    raise exception using errcode = '22023', message = 'p_limit must be between 1 and 200';
+  end if;
+
+  select membership.role
+  into v_role
+  from app.organization_memberships as membership
+  where membership.organization_id = p_organization_id
+    and membership.user_id = v_user_id
+    and membership.status = 'active';
+
+  if v_role <> 'owner' then
+    select permission.hidden_field_keys
+    into v_hidden
+    from app.role_permissions as permission
+    where permission.organization_id = p_organization_id
+      and permission.role = v_role;
+    if not found then
+      v_hidden := '{}'::text[];
+    end if;
+  end if;
+
+  v_may_see_cost :=
+    coalesce(nullif(current_setting('app.caller_kind', true), ''), 'user') <> 'integration'
+    and (
+      v_role = 'owner'
+      or (v_role = 'admin' and not ('monthlyCost' = any (v_hidden)))
+    );
+
+  with page as (
+    select audit.*
+    from app.audit_events as audit
+    where audit.organization_id = p_organization_id
+      and (p_before is null or audit.id < p_before)
+    order by audit.id desc
+    limit v_limit
+  )
+  select jsonb_build_object(
+    'items', coalesce(jsonb_agg(
+      jsonb_build_object(
+        'id', page.id,
+        'occurredAt', page.occurred_at,
+        'actorUserId', page.actor_user_id,
+        'actorName', actor.display_name,
+        'action', page.action,
+        'entityType', page.entity_type,
+        'entityId', page.entity_id,
+        'entityKey', page.entity_key,
+        'requestId', page.request_id,
+        'workspaceRevision', page.workspace_revision,
+        'oldData', case
+          when v_may_see_cost then page.old_data
+          else page.old_data - 'monthly_cost_yen'
+        end,
+        'newData', case
+          when v_may_see_cost then page.new_data
+          else page.new_data - 'monthly_cost_yen'
+        end,
+        'callerKind', page.caller_kind,
+        'integrationClientId', page.integration_client_id,
+        'integrationClientName', integration_client.name
+      ) order by page.id desc
+    ), '[]'::jsonb),
+    'nextBefore', case when count(page.id) = v_limit then min(page.id) else null end
+  )
+  into v_result
+  from page
+  left join app.profiles as actor on actor.id = page.actor_user_id
+  left join app.integration_clients as integration_client
+    on integration_client.id = page.integration_client_id;
+
+  return v_result;
+end;
+$function$;
+
+comment on function public.list_audit_events(uuid, integer, bigint) is $comment$
+Arguments: p_organization_id uuid, p_limit integer (1..200), p_before bigint cursor (exclusive).
+Returns items with callerKind (user|ai|integration) and optional integration client identity.
+Only owners and admins may read audit events. Secrets are never included.
+monthly_cost_yen is omitted from oldData/newData unless the caller may see monthlyCost
+(owner, or admin without that key hidden). Integration callers never receive it.
+$comment$;
 
 commit;

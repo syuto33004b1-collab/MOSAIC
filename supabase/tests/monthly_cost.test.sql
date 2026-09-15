@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions, pg_catalog;
 
-select plan(12);
+select plan(17);
 
 insert into auth.users (id, email, raw_user_meta_data) values
   ('11000000-0000-4000-8000-00000371', 'cost-owner@test.local', '{"full_name":"Cost Owner"}'::jsonb),
@@ -62,6 +62,19 @@ select ok(
     ) as member
   ),
   'owner get_workspace includes monthlyCost'
+);
+
+set local request.jwt.claim.sub = '11000000-0000-4000-8000-00000372';
+
+select ok(
+  (
+    select bool_and(member ? 'monthlyCost')
+      and bool_and((member ->> 'monthlyCost')::int = 600000)
+    from jsonb_array_elements(
+      public.get_workspace('21000000-0000-4000-8000-00000373') -> 'members'
+    ) as member
+  ),
+  'admin get_workspace includes monthlyCost when it is not hidden'
 );
 
 set local request.jwt.claim.sub = '11000000-0000-4000-8000-00000373';
@@ -153,6 +166,41 @@ set local role authenticated;
 set local request.jwt.claim.role = 'authenticated';
 set local request.jwt.claim.sub = '11000000-0000-4000-8000-00000371';
 
+select ok(
+  (
+    select bool_or(
+      item ->> 'entityType' = 'people'
+      and (
+        item -> 'oldData' ? 'monthly_cost_yen'
+        or item -> 'newData' ? 'monthly_cost_yen'
+      )
+    )
+    from jsonb_array_elements(
+      public.list_audit_events('21000000-0000-4000-8000-00000373', 50, null) -> 'items'
+    ) as item
+  ),
+  'owner list_audit_events still includes monthly_cost_yen'
+);
+
+set local request.jwt.claim.sub = '11000000-0000-4000-8000-00000372';
+
+select ok(
+  (
+    select bool_and(
+      not coalesce(item -> 'oldData', '{}'::jsonb) ? 'monthly_cost_yen'
+      and not coalesce(item -> 'newData', '{}'::jsonb) ? 'monthly_cost_yen'
+    )
+    from jsonb_array_elements(
+      public.list_audit_events('21000000-0000-4000-8000-00000373', 50, null) -> 'items'
+    ) as item
+  ),
+  'hidden admin list_audit_events omits monthly_cost_yen'
+);
+
+set local role authenticated;
+set local request.jwt.claim.role = 'authenticated';
+set local request.jwt.claim.sub = '11000000-0000-4000-8000-00000371';
+
 select throws_ok(
   $$select public.save_workspace(
       '21000000-0000-4000-8000-00000373',
@@ -215,6 +263,62 @@ select is(
   ),
   750000,
   'owner write updates monthly_cost_yen'
+);
+
+set local role authenticated;
+set local request.jwt.claim.role = 'authenticated';
+set local request.jwt.claim.sub = '11000000-0000-4000-8000-00000371';
+
+insert into test_runtime (label, payload)
+select 'writer', public.create_integration_client(
+  '21000000-0000-4000-8000-00000373',
+  'Cost Write API',
+  array['workspace:read', 'members:write']::text[],
+  '91000000-0000-4000-8000-00000377'
+);
+
+reset role;
+set local role service_role;
+
+select throws_ok(
+  $$select public.integration_save_workspace(
+      (select (payload -> 'client' ->> 'id')::uuid from test_runtime where label = 'writer'),
+      3,
+      '91000000-0000-4000-8000-00000378',
+      '{"members":{"upsert":[{"id":"31000000-0000-4000-8000-00000373","initials":"CT","name":"原価 改","role":"Engineer","department":"第一本部","location":"東京","capacity":100,"monthlyCost":1}],"archiveIds":[]}}'::jsonb,
+      repeat('f', 64)
+    )$$,
+  '42501',
+  'monthlyCost cannot be changed by this role',
+  'integration_save_workspace refuses monthlyCost even with members:write'
+);
+
+reset role;
+set local role authenticated;
+set local request.jwt.claim.role = 'authenticated';
+set local request.jwt.claim.sub = '11000000-0000-4000-8000-00000371';
+
+select lives_ok(
+  $$select public.save_workspace(
+      '21000000-0000-4000-8000-00000373',
+      3,
+      '91000000-0000-4000-8000-00000379',
+      '{"members":{"upsert":[{"id":"31000000-0000-4000-8000-00000373","initials":"CT","name":"原価 改","role":"Engineer","department":"第一本部","location":"東京","capacity":100,"monthlyCost":null}],"archiveIds":[]}}'::jsonb,
+      repeat('g', 64)
+    )$$,
+  'owner can clear monthlyCost to null'
+);
+
+reset role;
+
+select is(
+  (
+    select person.monthly_cost_yen
+    from app.people as person
+    where person.id = '31000000-0000-4000-8000-00000373'
+  ),
+  null,
+  'owner null write clears monthly_cost_yen'
 );
 
 select * from finish();
