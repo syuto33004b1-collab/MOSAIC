@@ -2321,7 +2321,7 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .horizon-caption i.confirmed { background: #8391e6; }.horizon-caption i.draft { border: 1px dashed #6070c9; background: #dfe3ff; }.horizon-caption i.pipeline { background: #f3c8b5; }
 .pipeline-chip { margin-top: 3px; color: #b9472c; font-size: var(--text-min); font-weight: 700; }
 .horizon-caption button { margin-left: auto; border: 0; background: transparent; color: #5967bd; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; font-size: 8px; font-weight: 700; }
-.horizon-clip-note { margin: 8px 8px 0; color: #8b94a5; font-size: 7px; }
+.horizon-clip-note { grid-column: 2; margin: 8px 0 0; color: #8b94a5; font-size: 7px; line-height: 1.5; }
 .report-lower-grid { margin-bottom: 16px; display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 .balance-card, .exceptions-card {
   padding: 17px;
