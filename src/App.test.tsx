@@ -3210,6 +3210,71 @@ describe("the 要調整 panel names the period it counts (#367)", () => {
     expect(dialog.queryByRole("button", { name: "推奨配分へ調整" })).toBeNull();
   });
 
+  it("still counts a planned overload when someone else is over", async () => {
+    const user = userEvent.setup();
+    const weekStart = getWeekStart(0);
+    const first = { ...initialWorkspace.members[0], id: "first", name: "超過 一郎", capacity: 50 };
+    const second = { ...initialWorkspace.members[1], id: "second", name: "超過 二郎", capacity: 50 };
+    const project = { ...initialWorkspace.projects[0], id: "project", ownerPersonId: first.id };
+    const adapter = sharedAdapter();
+    adapter.initialState = {
+      members: [first, second],
+      projects: [project],
+      assignments: [
+        { id: "a", personId: first.id, projectId: project.id, startDate: weekStart, endDate: addDays(weekStart, 4), allocation: 100, status: "confirmed" },
+        { id: "b", personId: second.id, projectId: project.id, startDate: weekStart, endDate: addDays(weekStart, 4), allocation: 100, status: "confirmed" },
+      ],
+      needs: [],
+    } as unknown as WorkspaceState;
+    render(<App mode="shared" organizationName="Example Inc." identity={owner} shared={adapter} />);
+
+    expect(document.querySelector(".attention-breakdown")!.textContent).toBe("4週間 · 過負荷2人 · 未充足ニーズ0件");
+    expect(countButton().textContent).toContain("2件");
+
+    await user.click(screen.getByText("上限超過").closest("button")!);
+    await user.click(screen.getByRole("button", { name: "推奨配分へ調整" }));
+
+    expect(document.querySelector(".attention-breakdown")!.textContent).toBe("4週間 · 過負荷1人 · 未充足ニーズ0件 · 予定超過1人");
+    expect(countButton().textContent).toContain("2件");
+    expect(document.querySelector(".attention-panel")!.textContent).toMatch(/超過 二郎|超過 一郎/u);
+  });
+
+  it("puts a this-week overload ahead of a later one on the card", async () => {
+    const later = { ...initialWorkspace.members[0], id: "later", name: "後週 花子", capacity: 50 };
+    const now = { ...initialWorkspace.members[1], id: "now", name: "今週 太郎", capacity: 50 };
+    const project = { ...initialWorkspace.projects[0], id: "project", ownerPersonId: now.id };
+    const adapter = sharedAdapter();
+    adapter.initialState = {
+      members: [later, now],
+      projects: [project],
+      assignments: [
+        { id: "oct", personId: later.id, projectId: project.id, startDate: "2026-10-05", endDate: "2026-10-09", allocation: 100, status: "confirmed" },
+        { id: "week", personId: now.id, projectId: project.id, startDate: getWeekStart(0), endDate: addDays(getWeekStart(0), 4), allocation: 100, status: "confirmed" },
+      ],
+      needs: [],
+    } as unknown as WorkspaceState;
+    render(<App mode="shared" organizationName="Example Inc." identity={owner} shared={adapter} />);
+
+    await userEvent.setup().click(screen.getByRole("button", { name: "要調整の12週間" }));
+    const card = document.querySelector(".attention-panel .alert-card.urgent") as HTMLElement;
+    expect(card.textContent).toContain("今週 太郎");
+    expect(card.textContent).not.toContain("後週 花子");
+    expect(document.querySelector(".attention-breakdown")!.textContent).toBe("12週間 · 過負荷2人 · 未充足ニーズ0件");
+  });
+
+  it("does not move the member drawer horizon when the attention period changes", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(document.querySelector(".schedule-row .person-open") as HTMLElement);
+    const dialog = within(screen.getByRole("dialog", { name: "詳細パネル" }));
+    expect(dialog.getByText("4週間の稼働")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "要調整の12か月" }));
+    expect(countButton()).toHaveAccessibleName(/12か月の要調整$/u);
+    expect(dialog.getByText("4週間の稼働")).toBeInTheDocument();
+    expect(dialog.queryByText("12か月の稼働")).toBeNull();
+  });
+
   it("names the holiday clip in the title when the span runs past 2035", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     vi.setSystemTime(new Date("2035-11-15T09:00:00+09:00"));

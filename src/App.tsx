@@ -1148,6 +1148,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
     ...attentionOverloads.filter((entry) => !weekOverloadIds.has(entry.member.id)),
   ];
   const attentionPlannedEntry = attentionCommittedOverloads.find((entry) => !attentionMemberStats.find((current) => current.member.id === entry.member.id)?.stats.exceeds);
+  const attentionPlannedCount = attentionPlannedEntry ? 1 : 0;
   const attentionOverloadEntry = rankedAttentionOverloads[0] ?? attentionPlannedEntry;
   const attentionOverloadMember = attentionOverloadEntry?.member;
   const attentionOverloadPlanned = Boolean(
@@ -1161,12 +1162,12 @@ export default function Home({ mode = "demo", organizationId, organizationName =
   const activeNeeds = openNeeds(workspace, todayIso);
   const selectedNeed = workspace.needs.find((need) => need.id === selectedNeedId);
   const candidateMatches = selectedNeed ? matchMembers(workspace, searchSceneFromNeed(selectedNeed)).slice(0, 5) : [];
-  const adjustmentCount = attentionOverloads.length + (attentionOverloadPlanned ? 1 : 0) + activeNeeds.length;
+  const adjustmentCount = attentionOverloads.length + attentionPlannedCount + activeNeeds.length;
   const attentionBreakdown = attentionBreakdownText(
     periodChoiceLabel(attentionPeriod),
     attentionOverloads.length,
     activeNeeds.length,
-    attentionOverloadPlanned ? 1 : 0,
+    attentionPlannedCount,
   );
   /**
    * What the bell's popover would actually list.
