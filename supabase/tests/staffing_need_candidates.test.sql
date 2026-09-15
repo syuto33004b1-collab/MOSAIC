@@ -423,7 +423,7 @@ select is(
     where entity_type = 'staffing_need_candidates'
       and action = 'insert'
       and (entity_key ->> 'personId') = '61000000-0000-4000-8000-000000000325'
-    order by created_at
+    order by id
     limit 1
   ),
   '63000000-0000-4000-8000-000000000324'::uuid,
