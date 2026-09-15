@@ -1,4 +1,4 @@
-import { isJapanHoliday } from "./japanHolidays";
+import { isJapanHoliday, JAPAN_HOLIDAY_YEAR_MAX, JAPAN_HOLIDAY_YEAR_MIN } from "./japanHolidays";
 
 export type Tone = "blue" | "mint" | "orange" | "plum" | "sky";
 /** Every tone needs a `--<tone>` custom property and an `.avatar.<tone>` rule in
@@ -759,6 +759,148 @@ export function overlaps(startDate: string, endDate: string, rangeStart: string,
  */
 export function weekEnd(weekStart: string) {
   return addDays(weekStart, 6);
+}
+
+const HOLIDAY_CALENDAR_START = `${JAPAN_HOLIDAY_YEAR_MIN}-01-01`;
+const HOLIDAY_CALENDAR_END = `${JAPAN_HOLIDAY_YEAR_MAX}-12-31`;
+
+/**
+ * How far ahead a figure looks. The four choices keep the bucket count at 12 or
+ * fewer so `.horizon-grid` (`repeat(12, …)`) does not wrap (#329).
+ */
+export type PeriodChoice = { unit: BoardUnit; count: number };
+
+export const PERIOD_CHOICES: readonly PeriodChoice[] = [
+  { unit: "week", count: 4 },
+  { unit: "week", count: 12 },
+  { unit: "month", count: 6 },
+  { unit: "month", count: 12 },
+];
+
+export type PeriodBucket = { from: string; to: string };
+
+export type PeriodRange = {
+  from: string;
+  to: string;
+  buckets: PeriodBucket[];
+  clipped: boolean;
+};
+
+export type PeriodBucketStats = PeriodBucket & {
+  load: number;
+  capacity: number;
+  average: number;
+};
+
+export type PeriodMemberStats = {
+  exceeds: boolean;
+  open: boolean;
+  buckets: PeriodBucketStats[];
+};
+
+export function periodChoiceLabel(choice: PeriodChoice) {
+  return choice.unit === "week" ? `${choice.count}週間` : `${choice.count}か月`;
+}
+
+function emptyPeriodRange(): PeriodRange {
+  return { from: "", to: "", buckets: [], clipped: true };
+}
+
+function monthStartIso(iso: string) {
+  const date = new Date(iso + "T00:00:00Z");
+  return isoDate(new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1)));
+}
+
+function monthEndIso(iso: string) {
+  const date = new Date(iso + "T00:00:00Z");
+  return isoDate(new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 0)));
+}
+
+function addCalendarMonths(iso: string, amount: number) {
+  const date = new Date(iso + "T00:00:00Z");
+  return isoDate(new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + amount, 1)));
+}
+
+/**
+ * The civil span a period choice covers from an origin, clipped to the holiday
+ * calendar. Years outside 2016–2035 are not walked: treating them as working days
+ * would invent supply (#323, #329).
+ */
+export function periodRange(choice: PeriodChoice, originIso: string): PeriodRange {
+  if (isoDayNumber(originIso) === null) return emptyPeriodRange();
+  if (choice.count < 1 || choice.count > 12) return emptyPeriodRange();
+  if (originIso > HOLIDAY_CALENDAR_END) return emptyPeriodRange();
+
+  const rawBuckets: PeriodBucket[] = [];
+  if (choice.unit === "week") {
+    const start = getWeekStartForDate(originIso);
+    for (let index = 0; index < choice.count; index += 1) {
+      const from = addDays(start, index * 7);
+      rawBuckets.push({ from, to: addDays(from, 6) });
+    }
+  } else {
+    const start = monthStartIso(originIso);
+    for (let index = 0; index < choice.count; index += 1) {
+      const from = addCalendarMonths(start, index);
+      rawBuckets.push({ from, to: monthEndIso(from) });
+    }
+  }
+
+  const rawFrom = rawBuckets[0]?.from ?? "";
+  const rawTo = rawBuckets[rawBuckets.length - 1]?.to ?? "";
+  const from = rawFrom < HOLIDAY_CALENDAR_START ? HOLIDAY_CALENDAR_START : rawFrom;
+  const to = rawTo > HOLIDAY_CALENDAR_END ? HOLIDAY_CALENDAR_END : rawTo;
+  const clipped = from !== rawFrom || to !== rawTo;
+  if (!from || !to || from > to) return emptyPeriodRange();
+
+  const buckets = rawBuckets
+    .map((bucket) => ({
+      from: bucket.from < from ? from : bucket.from,
+      to: bucket.to > to ? to : bucket.to,
+    }))
+    .filter((bucket) => bucket.from <= bucket.to);
+
+  return { from, to, buckets, clipped };
+}
+
+/**
+ * Overload / idle / per-bucket averages from days already walked.
+ *
+ * `open` is `memberWeekStats` on the whole span: every weekday with a ceiling is
+ * at or under 60% of that day's ceiling. Callers that need one walk pass the
+ * same `DailyLoad[]` they already have (#329).
+ */
+export function periodStatsFromDays(days: DailyLoad[], buckets: PeriodBucket[]): PeriodMemberStats {
+  const exceeds = days.some((day) => day.load > day.capacity);
+  const bearing = days.filter((day) => !day.weekend && day.capacity > 0);
+  const open = bearing.length > 0 && bearing.every((day) => day.load <= day.capacity * 0.6);
+  return {
+    exceeds,
+    open,
+    buckets: buckets.map((bucket) => {
+      const inside = days.filter((day) => day.date >= bucket.from && day.date <= bucket.to);
+      const load = inside.reduce((sum, day) => sum + day.load, 0);
+      const capacity = inside.filter((day) => !day.weekend).reduce((sum, day) => sum + day.capacity, 0);
+      return {
+        from: bucket.from,
+        to: bucket.to,
+        load,
+        capacity,
+        average: capacity > 0 ? Math.round(load / capacity * 100) : 0,
+      };
+    }),
+  };
+}
+
+export function periodMemberStats(
+  state: WorkspaceState,
+  member: Member,
+  range: PeriodRange,
+): PeriodMemberStats {
+  if (!range.from || !range.to || range.to < range.from) {
+    return { exceeds: false, open: false, buckets: range.buckets.map((bucket) => ({ ...bucket, load: 0, capacity: 0, average: 0 })) };
+  }
+  return periodStatsFromDays(memberDailyLoads(state, member.id, range.from, range.to), range.buckets);
 }
 
 export type DailyLoad = {
@@ -2360,12 +2502,16 @@ export function hydrateWorkspaceOrg(state: WorkspaceState): WorkspaceState {
   };
 }
 
-export function orgUnitLoadRows(state: WorkspaceState, weekStart: string): OrgUnitLoadRow[] {
-  const weekClose = addDays(weekStart, 4);
+export function orgUnitLoadRows(state: WorkspaceState, from: string, to = addDays(from, 4)): OrgUnitLoadRow[] {
   return orgUnitTree(state.orgUnits).map((unit) => {
     const people = membersInOrgSubtree(state, unit.id, "primary");
-    const capacity = people.reduce((sum, member) => weekdaySupplyCapacity(state, member, weekStart, weekClose), 0);
-    const load = people.reduce((sum, member) => sum + memberDailyLoads(state, member.id, weekStart, weekClose).reduce((dailySum, day) => dailySum + day.load, 0), 0);
+    let capacity = 0;
+    let load = 0;
+    for (const member of people) {
+      const days = memberDailyLoads(state, member.id, from, to);
+      load += days.reduce((sum, day) => sum + day.load, 0);
+      capacity += days.filter((day) => !day.weekend).reduce((sum, day) => sum + day.capacity, 0);
+    }
     return {
       id: unit.id,
       name: unit.name,
