@@ -135,28 +135,6 @@ select set_config('request.jwt.claim.role', '', true);
 select set_config('request.jwt.claims', '', true);
 
 reset role;
-
-select ok(
-  (
-    select bool_and(audit.caller_kind = 'integration')
-      and bool_and(audit.action = 'insert')
-      and bool_and(audit.entity_type = 'feedback')
-      and bool_and(audit.actor_user_id = '11000000-0000-4000-8000-000000000382')
-      and bool_and(audit.request_id = '91000000-0000-4000-8000-000000000385')
-      and bool_and(
-        audit.integration_client_id = (
-          select (payload -> 'client' ->> 'id')::uuid
-          from test_runtime
-          where label = 'planner_client'
-        )
-      )
-    from app.audit_events as audit
-    where audit.organization_id = '21000000-0000-4000-8000-000000000381'
-      and audit.entity_type = 'feedback'
-  ),
-  'audit records the integration client, issuer, and request on the insert'
-);
-
 set local role authenticated;
 set local request.jwt.claim.role = 'authenticated';
 set local request.jwt.claim.sub = '11000000-0000-4000-8000-000000000381';
@@ -173,6 +151,23 @@ select ok(
     ) as item
   ),
   'owner sees the MCP row as unknown, authored by the issuer, without email'
+);
+
+select ok(
+  (
+    select bool_or(
+      item ->> 'entityType' = 'feedback'
+      and item ->> 'action' = 'insert'
+      and item ->> 'callerKind' = 'integration'
+      and item ->> 'actorUserId' = '11000000-0000-4000-8000-000000000382'
+      and item ->> 'requestId' = '91000000-0000-4000-8000-000000000385'
+      and item ->> 'integrationClientId' = '61000000-0000-4000-8000-000000000381'
+    )
+    from jsonb_array_elements(
+      public.list_audit_events('21000000-0000-4000-8000-000000000381', 50, null) -> 'items'
+    ) as item
+  ),
+  'owner audit lists the integration client, issuer, and request'
 );
 
 reset role;

@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const migration = await readFile(path.join(root, "supabase", "migrations", "20260915210000_feedback.sql"), "utf8");
 const integration = await readFile(path.join(root, "supabase", "migrations", "20260915220000_integration_submit_feedback.sql"), "utf8");
+const audit = await readFile(path.join(root, "supabase", "migrations", "20260915221000_audit_caller_kind.sql"), "utf8");
 const workspace = await readFile(path.join(root, "supabase", "migrations", "20260817065503_mosaic_production_foundation.sql"), "utf8");
 
 test("keeps feedback off the workspace snapshot", () => {
@@ -41,4 +42,7 @@ test("lets the MCP adapter reuse submit_feedback without granting it to service_
   assert.doesNotMatch(integration, /p_organization_id/u);
   assert.match(integration, /grant execute on function public\.integration_submit_feedback\(uuid, uuid, text\)\s+to service_role/u);
   assert.doesNotMatch(integration, /grant execute on function public\.submit_feedback/u);
+  assert.match(audit, /caller_kind,/u);
+  assert.match(audit, /integration_client_id/u);
+  assert.match(audit, /staffing_need_candidates/u);
 });
