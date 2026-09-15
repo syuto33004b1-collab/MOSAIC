@@ -6,6 +6,8 @@ import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const migration = await readFile(path.join(root, "supabase", "migrations", "20260915210000_feedback.sql"), "utf8");
+const integration = await readFile(path.join(root, "supabase", "migrations", "20260915220000_integration_submit_feedback.sql"), "utf8");
+const audit = await readFile(path.join(root, "supabase", "migrations", "20260915221000_audit_caller_kind.sql"), "utf8");
 const workspace = await readFile(path.join(root, "supabase", "migrations", "20260817065503_mosaic_production_foundation.sql"), "utf8");
 
 test("keeps feedback off the workspace snapshot", () => {
@@ -28,4 +30,19 @@ test("stores unknown screens instead of rejecting them, and pages on seq", () =>
   assert.match(migration, /pg_advisory_xact_lock/u);
   assert.match(migration, /unique \(organization_id, request_id\)/u);
   assert.match(migration, /and feedback\.id = p_id/u);
+});
+
+test("lets the MCP adapter reuse submit_feedback without granting it to service_role", () => {
+  assert.match(integration, /create or replace function public\.integration_submit_feedback\(/u);
+  assert.match(integration, /p_client_id uuid,\s*p_request_id uuid,\s*p_body text/u);
+  assert.match(integration, /private\.become_integration_actor\(p_client_id\)/u);
+  assert.match(integration, /return public\.submit_feedback\(/u);
+  assert.match(integration, /'mcp'/u);
+  assert.doesNotMatch(integration, /p_source_screen/u);
+  assert.doesNotMatch(integration, /p_organization_id/u);
+  assert.match(integration, /grant execute on function public\.integration_submit_feedback\(uuid, uuid, text\)\s+to service_role/u);
+  assert.doesNotMatch(integration, /grant execute on function public\.submit_feedback/u);
+  assert.match(audit, /caller_kind,/u);
+  assert.match(audit, /integration_client_id/u);
+  assert.match(audit, /staffing_need_candidates/u);
 });

@@ -1,6 +1,8 @@
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 export const ACTION_TOKEN_TTL_MS = 5 * 60 * 1_000;
+export const ACTION_TOKEN_DOMAIN = "MOSAIC_AI_ACTION";
+export const MCP_CONFIRM_DOMAIN = "MOSAIC_MCP_CONFIRM";
 const ACTION_TOKEN_VERSION = "a1";
 
 function isRecord(value) {
@@ -24,28 +26,30 @@ function base64UrlDecode(value) {
   }
 }
 
-async function signingKey(secret) {
-  return crypto.subtle.importKey("raw", encoder.encode(`MOSAIC_AI_ACTION\0${secret}`), { hash: "SHA-256", name: "HMAC" }, false, ["sign", "verify"]);
+async function signingKey(secret, domain) {
+  return crypto.subtle.importKey("raw", encoder.encode(`${domain}\0${secret}`), { hash: "SHA-256", name: "HMAC" }, false, ["sign", "verify"]);
 }
 
 export async function createActionToken(action, options) {
   const now = options.now ?? Date.now();
+  const domain = options.domain ?? ACTION_TOKEN_DOMAIN;
   const ttlMs = Math.max(30_000, Math.min(ACTION_TOKEN_TTL_MS, options.ttlMs ?? ACTION_TOKEN_TTL_MS));
   const expiresAtMs = now + ttlMs;
   const envelope = { version: 1, userId: options.userId, organizationId: options.organizationId, issuedAt: now, expiresAt: expiresAtMs, action };
   const encodedEnvelope = base64UrlEncode(encoder.encode(JSON.stringify(envelope)));
-  const signature = await crypto.subtle.sign("HMAC", await signingKey(options.secret), encoder.encode(`${ACTION_TOKEN_VERSION}\0${encodedEnvelope}`));
+  const signature = await crypto.subtle.sign("HMAC", await signingKey(options.secret, domain), encoder.encode(`${ACTION_TOKEN_VERSION}\0${encodedEnvelope}`));
   return { expiresAt: new Date(expiresAtMs).toISOString(), token: `${ACTION_TOKEN_VERSION}.${encodedEnvelope}.${base64UrlEncode(new Uint8Array(signature))}` };
 }
 
 export async function verifyActionToken(token, options) {
   if (typeof token !== "string") return null;
+  const domain = options.domain ?? ACTION_TOKEN_DOMAIN;
   const [version, encodedEnvelope, encodedSignature, extra] = token.split(".");
   if (version !== ACTION_TOKEN_VERSION || !encodedEnvelope || !encodedSignature || extra !== undefined) return null;
   const envelopeBytes = base64UrlDecode(encodedEnvelope);
   const signature = base64UrlDecode(encodedSignature);
   if (!envelopeBytes || !signature) return null;
-  const valid = await crypto.subtle.verify("HMAC", await signingKey(options.secret), signature, encoder.encode(`${ACTION_TOKEN_VERSION}\0${encodedEnvelope}`));
+  const valid = await crypto.subtle.verify("HMAC", await signingKey(options.secret, domain), signature, encoder.encode(`${ACTION_TOKEN_VERSION}\0${encodedEnvelope}`));
   if (!valid) return null;
   let envelope;
   try {

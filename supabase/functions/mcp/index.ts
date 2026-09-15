@@ -21,7 +21,8 @@ function unwrapRpcValue(value: unknown) {
 }
 
 async function serviceRpc(name: string, args?: UnknownRecord) {
-  // authorize_integration_request and integration_get_workspace are service_role only.
+  // authorize_integration_request, integration_get_workspace, and
+  // integration_submit_feedback are service_role only.
   const { data, error } = await adminClient().rpc(name, args);
   if (error) throw error;
   return unwrapRpcValue(data);
@@ -30,7 +31,10 @@ async function serviceRpc(name: string, args?: UnknownRecord) {
 export default {
   fetch: async (request: Request) => {
     try {
-      return await handleMcpRequest(request, { rpc: serviceRpc });
+      return await handleMcpRequest(request, {
+        rpc: serviceRpc,
+        confirmSecret: Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
+      });
     } catch (error) {
       if (error instanceof ApiContractError) {
         return jsonResponse(errorBody(error.code, error.message, error.retryable), error.status);

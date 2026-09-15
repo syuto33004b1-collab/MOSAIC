@@ -26,7 +26,7 @@
 - `owner` / `admin` / `planner` / `viewer`の権限分離
 - 組織招待の登録・取消、利用者の権限変更・利用停止、変更前後を追える監査ログ
 - 外部連携資格、バージョン付き外部API、Webhook通知
-- 外部AI向けの参照専用 Remote MCP Server
+- 外部AI向けの Remote MCP Server（参照と確認付きの気づき送信）
 - ロール別の項目・機能・参照範囲の権限設定
 - AI秘書から承認済み外部MCPサーバーを参照するMCP Client
 - revision比較による競合防止、冪等保存、Realtime更新通知

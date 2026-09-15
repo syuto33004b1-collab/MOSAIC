@@ -149,6 +149,7 @@ RealtimeのRLS評価に必要な例外として、`authenticated`には`app.orga
 - `submit_feedback`
 - `list_feedback`
 - `update_feedback_status`
+- `integration_submit_feedback`（service_role のみ。Remote MCP の確認後）
 - `create_integration_client`
 - `list_integration_clients`
 - `revoke_integration_client`
