@@ -21,6 +21,7 @@ function repositoryWithInvitation(invitation: OrganizationInvitation) {
     listIntegrationClients: vi.fn().mockResolvedValue([]),
     listWebhookEndpoints: vi.fn().mockResolvedValue([]),
     listMcpServers: vi.fn().mockResolvedValue([]),
+    listFeedback: vi.fn().mockResolvedValue({ items: [], nextBefore: undefined }),
     revokeOrganizationInvitation: vi.fn().mockResolvedValue({ changed: true }),
   } as unknown as ProductionRepository;
 }
@@ -33,6 +34,7 @@ function repositoryWithAuditEvent(event: AuditEvent) {
     listIntegrationClients: vi.fn().mockResolvedValue([]),
     listWebhookEndpoints: vi.fn().mockResolvedValue([]),
     listMcpServers: vi.fn().mockResolvedValue([]),
+    listFeedback: vi.fn().mockResolvedValue({ items: [], nextBefore: undefined }),
   } as unknown as ProductionRepository;
 }
 
@@ -79,6 +81,7 @@ describe("OperationsPanel invitation administration", () => {
       listIntegrationClients: vi.fn().mockResolvedValue([]),
     listWebhookEndpoints: vi.fn().mockResolvedValue([]),
     listMcpServers: vi.fn().mockResolvedValue([]),
+    listFeedback: vi.fn().mockResolvedValue({ items: [], nextBefore: undefined }),
     } as unknown as ProductionRepository;
 
     render(
@@ -104,6 +107,7 @@ describe("OperationsPanel invitation administration", () => {
       listIntegrationClients: vi.fn().mockResolvedValue([]),
     listWebhookEndpoints: vi.fn().mockResolvedValue([]),
     listMcpServers: vi.fn().mockResolvedValue([]),
+    listFeedback: vi.fn().mockResolvedValue({ items: [], nextBefore: undefined }),
       inviteMember: vi.fn().mockResolvedValue({
         email: "new.member@example.jp",
         role: "planner",
@@ -178,6 +182,7 @@ describe("OperationsPanel keyboard navigation", () => {
       listIntegrationClients: vi.fn().mockResolvedValue([]),
     listWebhookEndpoints: vi.fn().mockResolvedValue([]),
     listMcpServers: vi.fn().mockResolvedValue([]),
+    listFeedback: vi.fn().mockResolvedValue({ items: [], nextBefore: undefined }),
     } as unknown as ProductionRepository;
     const commonProps = {
       currentUserId: "00000000-0000-4000-8000-000000000001",
@@ -283,6 +288,7 @@ describe("OperationsPanel integration credentials", () => {
         }]),
       listWebhookEndpoints: vi.fn().mockResolvedValue([]),
       listMcpServers: vi.fn().mockResolvedValue([]),
+    listFeedback: vi.fn().mockResolvedValue({ items: [], nextBefore: undefined }),
       createIntegrationClient: vi.fn().mockResolvedValue({
         client: {
           id: "00000000-0000-4000-8000-000000000020",
@@ -341,6 +347,7 @@ describe("OperationsPanel integration credentials", () => {
         .mockResolvedValue([{ ...client, status: "revoked" }]),
       listWebhookEndpoints: vi.fn().mockResolvedValue([]),
       listMcpServers: vi.fn().mockResolvedValue([]),
+    listFeedback: vi.fn().mockResolvedValue({ items: [], nextBefore: undefined }),
       revokeIntegrationClient: vi.fn().mockResolvedValue({ changed: true, client: { ...client, status: "revoked" } }),
     } as unknown as ProductionRepository;
 
@@ -381,6 +388,7 @@ describe("OperationsPanel webhook endpoints", () => {
           status: "active",
         }]),
       listMcpServers: vi.fn().mockResolvedValue([]),
+    listFeedback: vi.fn().mockResolvedValue({ items: [], nextBefore: undefined }),
       createWebhookEndpoint: vi.fn().mockResolvedValue({
         endpoint: {
           id: "00000000-0000-4000-8000-000000000040",
@@ -440,6 +448,7 @@ describe("OperationsPanel stopped integration credentials", () => {
       }]),
       listWebhookEndpoints: vi.fn().mockResolvedValue([]),
       listMcpServers: vi.fn().mockResolvedValue([]),
+    listFeedback: vi.fn().mockResolvedValue({ items: [], nextBefore: undefined }),
     } as unknown as ProductionRepository;
 
     render(
@@ -479,6 +488,7 @@ describe("OperationsPanel external mcp servers", () => {
       listIntegrationClients: vi.fn().mockResolvedValue([]),
       listWebhookEndpoints: vi.fn().mockResolvedValue([]),
       listMcpServers: vi.fn().mockResolvedValueOnce([]).mockResolvedValue([approved]),
+      listFeedback: vi.fn().mockResolvedValue({ items: [], nextBefore: undefined }),
       createMcpServer: vi.fn().mockResolvedValue({ server: approved, replayed: false }),
     } as unknown as ProductionRepository;
 
@@ -526,6 +536,7 @@ describe("OperationsPanel external mcp servers", () => {
       listMcpServers: vi.fn()
         .mockResolvedValueOnce([approved])
         .mockResolvedValue([{ ...approved, status: "revoked" as const }]),
+      listFeedback: vi.fn().mockResolvedValue({ items: [], nextBefore: undefined }),
       revokeMcpServer: vi.fn().mockResolvedValue({ changed: true, server: { ...approved, status: "revoked" as const } }),
     } as unknown as ProductionRepository;
 
@@ -544,5 +555,84 @@ describe("OperationsPanel external mcp servers", () => {
     await waitFor(() => expect(repository.revokeMcpServer).toHaveBeenCalledWith(organization.id, approved.id));
     expect(await screen.findByText(/接続を停止しました/u)).toBeInTheDocument();
     confirmSpy.mockRestore();
+  });
+});
+
+describe("OperationsPanel feedback", () => {
+  const item = {
+    id: "00000000-0000-4000-8000-000000000333",
+    seq: 1,
+    body: "ボードの空き列が狭い",
+    sourceScreen: "board" as const,
+    status: "open" as const,
+    createdAt: "2026-09-15T10:00:00Z",
+    createdByName: "気づき Viewer",
+    createdByRole: "viewer" as const,
+  };
+
+  it("lists feedback for owners and admins and marks it done", async () => {
+    const user = userEvent.setup();
+    const repository = {
+      listOrganizationMembers: vi.fn().mockResolvedValue([]),
+      listAuditEvents: vi.fn().mockResolvedValue({ events: [], nextBefore: undefined }),
+      listOrganizationInvitations: vi.fn().mockResolvedValue([]),
+      listIntegrationClients: vi.fn().mockResolvedValue([]),
+      listWebhookEndpoints: vi.fn().mockResolvedValue([]),
+      listMcpServers: vi.fn().mockResolvedValue([]),
+      listFeedback: vi.fn().mockResolvedValue({ items: [item], nextBefore: undefined }),
+      updateFeedbackStatus: vi.fn().mockResolvedValue({ id: item.id, status: "done", requestId: "req", replayed: false }),
+    } as unknown as ProductionRepository;
+
+    render(
+      <OperationsPanel
+        currentUserId="00000000-0000-4000-8000-000000000001"
+        currentOrganization={organization}
+        organizations={[organization]}
+        repository={repository}
+        onClose={vi.fn()}
+        onSelectOrganization={vi.fn()}
+      />,
+    );
+
+    expect(await screen.findByText("ボードの空き列が狭い")).toBeInTheDocument();
+    expect(screen.getByText(/アサインボード/u)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "完了にする" })).toHaveClass("feedback-status-button");
+    await user.click(screen.getByRole("button", { name: "完了にする" }));
+    await waitFor(() => expect(repository.updateFeedbackStatus).toHaveBeenCalledWith(
+      organization.id,
+      item.id,
+      "done",
+      expect.stringMatching(/^[0-9a-f-]{36}$/u),
+    ));
+    expect(await screen.findByRole("button", { name: "未完了に戻す" })).toBeInTheDocument();
+  });
+
+  it("hides feedback from planners", async () => {
+    const plannerOrganization: OrganizationSummary = { ...organization, role: "planner" };
+    const repository = {
+      listOrganizationMembers: vi.fn().mockResolvedValue([]),
+      listAuditEvents: vi.fn().mockResolvedValue({ events: [], nextBefore: undefined }),
+      listOrganizationInvitations: vi.fn().mockResolvedValue([]),
+      listIntegrationClients: vi.fn().mockResolvedValue([]),
+      listWebhookEndpoints: vi.fn().mockResolvedValue([]),
+      listMcpServers: vi.fn().mockResolvedValue([]),
+      listFeedback: vi.fn().mockResolvedValue({ items: [item], nextBefore: undefined }),
+    } as unknown as ProductionRepository;
+
+    render(
+      <OperationsPanel
+        currentUserId="00000000-0000-4000-8000-000000000001"
+        currentOrganization={plannerOrganization}
+        organizations={[plannerOrganization]}
+        repository={repository}
+        onClose={vi.fn()}
+        onSelectOrganization={vi.fn()}
+      />,
+    );
+
+    await screen.findByRole("dialog", { name: "組織と運用履歴" });
+    expect(repository.listFeedback).not.toHaveBeenCalled();
+    expect(screen.queryByText("気づき")).not.toBeInTheDocument();
+    expect(screen.queryByText("ボードの空き列が狭い")).not.toBeInTheDocument();
   });
 });

@@ -214,6 +214,9 @@ function SharedWorkspaceRoute({
           shared={shared}
           onSignOut={onSignOut}
           onOpenOperations={() => setOperationsOpen(true)}
+          onSubmitFeedback={({ requestId, body, sourceScreen }) =>
+            repository.submitFeedback(currentOrganization.id, requestId, body, sourceScreen)
+          }
           onAccessInvalidated={onAccessInvalidated}
           aiChatTransport={aiChatTransport}
         />

@@ -146,6 +146,9 @@ RealtimeのRLS評価に必要な例外として、`authenticated`には`app.orga
 - `list_organization_invitations`
 - `revoke_organization_invitation`
 - `list_audit_events`
+- `submit_feedback`
+- `list_feedback`
+- `update_feedback_status`
 - `create_integration_client`
 - `list_integration_clients`
 - `revoke_integration_client`

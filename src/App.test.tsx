@@ -438,6 +438,114 @@ describe("role-aware workspace", () => {
     expect(onSignOut).toHaveBeenCalledOnce();
   });
 
+  it("does not offer feedback from the demo workspace", () => {
+    render(<App />);
+    expect(screen.queryByRole("button", { name: "気づきを送る" })).not.toBeInTheDocument();
+  });
+
+  it("sends feedback from the current screen in shared mode", async () => {
+    const user = userEvent.setup();
+    const onSubmitFeedback = vi.fn().mockResolvedValue({ id: "fb-1", requestId: "req-1", replayed: false });
+    render(
+      <App
+        mode="shared"
+        organizationName="Example Inc."
+        identity={{ name: "閲覧 太郎", email: "viewer@example.com", role: "viewer" }}
+        shared={sharedAdapter()}
+        onSubmitFeedback={onSubmitFeedback}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "気づきを送る" }));
+    const dialog = screen.getByRole("dialog", { name: "気づきを送る" });
+    expect(within(dialog).getByText(/チーム編成/u)).toBeInTheDocument();
+    await user.type(within(dialog).getByLabelText("内容"), "ボードの空き列が狭い");
+    await user.click(within(dialog).getByRole("button", { name: "送る" }));
+
+    await waitFor(() => expect(onSubmitFeedback).toHaveBeenCalledOnce());
+    expect(onSubmitFeedback).toHaveBeenCalledWith(expect.objectContaining({
+      body: "ボードの空き列が狭い",
+      sourceScreen: "board",
+    }));
+    expect(await screen.findByText("気づきを送りました")).toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "気づきを送る" })).not.toBeInTheDocument();
+  });
+
+  it("attaches the members screen when sent from that page", async () => {
+    const user = userEvent.setup();
+    const onSubmitFeedback = vi.fn().mockResolvedValue({ id: "fb-2", requestId: "req-2", replayed: false });
+    render(
+      <App
+        mode="shared"
+        organizationName="Example Inc."
+        identity={{ name: "閲覧 太郎", email: "viewer@example.com", role: "viewer" }}
+        shared={sharedAdapter()}
+        onSubmitFeedback={onSubmitFeedback}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "メンバー" }));
+    await user.click(screen.getByRole("button", { name: "気づきを送る" }));
+    const dialog = screen.getByRole("dialog", { name: "気づきを送る" });
+    expect(within(dialog).getByText(/メンバーと空き状況/u)).toBeInTheDocument();
+    await user.type(within(dialog).getByLabelText("内容"), "検索が遠い");
+    await user.click(within(dialog).getByRole("button", { name: "送る" }));
+
+    await waitFor(() => expect(onSubmitFeedback).toHaveBeenCalledWith(expect.objectContaining({
+      body: "検索が遠い",
+      sourceScreen: "members",
+    })));
+  });
+
+  it("reuses the same request id when a failed send is retried", async () => {
+    const user = userEvent.setup();
+    const onSubmitFeedback = vi.fn()
+      .mockRejectedValueOnce(new Error("一時的に送れません"))
+      .mockResolvedValueOnce({ id: "fb-3", requestId: "req-3", replayed: false });
+    render(
+      <App
+        mode="shared"
+        organizationName="Example Inc."
+        identity={{ name: "閲覧 太郎", email: "viewer@example.com", role: "viewer" }}
+        shared={sharedAdapter()}
+        onSubmitFeedback={onSubmitFeedback}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "気づきを送る" }));
+    const dialog = screen.getByRole("dialog", { name: "気づきを送る" });
+    await user.type(within(dialog).getByLabelText("内容"), "ボードの空き列が狭い");
+    await user.click(within(dialog).getByRole("button", { name: "送る" }));
+    expect(await screen.findByText("一時的に送れません")).toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: "送る" }));
+    await waitFor(() => expect(onSubmitFeedback).toHaveBeenCalledTimes(2));
+    expect(onSubmitFeedback.mock.calls[0][0].requestId).toEqual(onSubmitFeedback.mock.calls[1][0].requestId);
+    expect(onSubmitFeedback.mock.calls[0][0].requestId).toMatch(/^[0-9a-f-]{36}$/u);
+  });
+
+  it("names closing the feedback dialog once, and the backdrop is not a button", async () => {
+    const user = userEvent.setup();
+    render(
+      <App
+        mode="shared"
+        organizationName="Example Inc."
+        identity={{ name: "閲覧 太郎", email: "viewer@example.com", role: "viewer" }}
+        shared={sharedAdapter()}
+        onSubmitFeedback={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "気づきを送る" }));
+    const close = screen.getByRole("button", { name: "気づきの送信を閉じる" });
+    const dialog = screen.getByRole("dialog", { name: "気づきを送る" });
+    expect(dialog.contains(close)).toBe(true);
+    const backdrop = document.querySelector(".feedback-overlay .overlay-backdrop")!;
+    expect(backdrop.tagName).toBe("DIV");
+    expect(backdrop.getAttribute("aria-hidden")).toBe("true");
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "気づきを送る" })).not.toBeInTheDocument());
+  });
+
   it("edits a persisted assignment as a draft and saves its interval and allocation", async () => {
     const user = userEvent.setup();
     const adapter = sharedAdapter();

@@ -2699,15 +2699,29 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .production-member-list > div,
 .production-invitation-list > div,
 .production-integration-list > div,
-.production-audit-list > div { min-height: 58px; }
+.production-audit-list > div,
+.production-feedback-list > div { min-height: 58px; }
 .production-member-list strong,
 .production-invitation-list strong,
 .production-integration-list strong,
-.production-audit-list strong { font-size: var(--text-min); }
+.production-audit-list strong,
+.production-feedback-list strong { font-size: var(--text-min); overflow-wrap: anywhere; }
 .production-member-list small,
 .production-invitation-list small,
 .production-integration-list small,
-.production-audit-list small { font-size: var(--text-min); line-height: 1.5; }
+.production-audit-list small,
+.production-feedback-list small { font-size: var(--text-min); line-height: 1.5; }
+.production-feedback-item { flex-wrap: wrap; align-items: flex-start; }
+.feedback-status-button {
+  width: auto;
+  min-width: 72px;
+  min-height: 36px;
+  height: auto;
+  padding-inline: 9px;
+  white-space: nowrap;
+  font-size: var(--text-min);
+}
+.feedback-dialog { width: min(420px, 100vw); }
 .member-access-controls { display: flex; flex: 0 0 auto; align-items: center; gap: 6px; }
 .member-access-controls select { min-height: 36px; max-width: 104px; padding: 5px 24px 5px 9px; border: 1px solid #dce2ec; border-radius: 8px; background: #fff; color: var(--ink); font: 700 var(--text-min) var(--font-data); }
 .member-status-button { width: auto; min-width: 62px; min-height: 36px; padding-inline: 9px; font-size: var(--text-min); }
@@ -3095,6 +3109,7 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   .member-access-controls { width: 100%; flex-wrap: wrap; }
   .member-access-controls select,
   .member-status-button,
+  .feedback-status-button,
   .invitation-revoke-button { min-height: 44px; }
   .production-audit-detail { margin-left: 0; }
 }
@@ -3162,7 +3177,8 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   .view-add-button { min-height: 44px; }
   .view-add-button { flex: 1 1 100%; justify-content: center; }
   .report-insight { flex-wrap: wrap; }
-  .production-operations-panel { width: 100vw; }
+  .production-operations-panel,
+  .feedback-dialog { width: 100vw; }
   .production-audit-detail dl > div { grid-template-columns: 1fr; gap: 3px; }
 }
 

@@ -2,7 +2,7 @@ import type { SupabaseClient, User } from "@supabase/supabase-js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { convertOpportunityToProject, initialWorkspace } from "../domain";
 import { peekOAuthPending } from "./oauthPending";
-import { normalizeAuditEvent, normalizeIntegrationClient, normalizeMcpServer, normalizeMyContext, normalizeOrganizationInvitation, normalizeWorkspace, ProductionRepository, sha256Hex, workspaceChangesPayload } from "./repository";
+import { normalizeAuditEvent, normalizeFeedbackItem, normalizeIntegrationClient, normalizeMcpServer, normalizeMyContext, normalizeOrganizationInvitation, normalizeWorkspace, ProductionRepository, sha256Hex, workspaceChangesPayload } from "./repository";
 
 const user = {
   id: "00000000-0000-4000-8000-000000000001",
@@ -940,5 +940,79 @@ describe("integration credential actor eligibility", () => {
     // create and revoke results do not compute it, so it stays absent rather than defaulting to true.
     expect(normalizeIntegrationClient(row)?.actorEligible).toBeUndefined();
     expect(normalizeIntegrationClient({ ...row, actorEligible: "no" })?.actorEligible).toBeUndefined();
+  });
+});
+
+describe("feedback RPCs", () => {
+  it("normalizes a listed item and drops an unknown screen to unknown", () => {
+    expect(normalizeFeedbackItem({
+      id: "00000000-0000-4000-8000-000000000333",
+      seq: 4,
+      body: "空き列が狭い",
+      sourceScreen: "operations",
+      status: "open",
+      createdAt: "2026-09-15T10:00:00Z",
+      createdByName: "気づき Viewer",
+      createdByRole: "viewer",
+    })).toMatchObject({
+      sourceScreen: "unknown",
+      createdByRole: "viewer",
+      body: "空き列が狭い",
+    });
+  });
+
+  it("submits, lists, and updates through the dedicated RPCs", async () => {
+    const rpc = vi.fn()
+      .mockResolvedValueOnce({ data: { id: "fb-1", requestId: "req-1", replayed: false }, error: null })
+      .mockResolvedValueOnce({
+        data: {
+          items: [{
+            id: "fb-1",
+            seq: 1,
+            body: "空き列が狭い",
+            sourceScreen: "board",
+            status: "open",
+            createdAt: "2026-09-15T10:00:00Z",
+            createdByName: "気づき Viewer",
+            createdByRole: "viewer",
+          }],
+          nextBefore: 1,
+        },
+        error: null,
+      })
+      .mockResolvedValueOnce({ data: { id: "fb-1", status: "done", requestId: "00000000-0000-4000-8000-000000000002", replayed: false }, error: null });
+    const repository = new ProductionRepository({ rpc } as unknown as SupabaseClient);
+
+    await expect(repository.submitFeedback("org-1", "req-1", "  空き列が狭い  ", "board")).resolves.toMatchObject({
+      id: "fb-1",
+      replayed: false,
+    });
+    expect(rpc).toHaveBeenNthCalledWith(1, "submit_feedback", {
+      p_body: "空き列が狭い",
+      p_organization_id: "org-1",
+      p_request_id: "req-1",
+      p_source_screen: "board",
+    });
+
+    await expect(repository.listFeedback("org-1", 50, "1")).resolves.toMatchObject({
+      items: [{ id: "fb-1", sourceScreen: "board" }],
+      nextBefore: "1",
+    });
+    expect(rpc).toHaveBeenNthCalledWith(2, "list_feedback", {
+      p_before: 1,
+      p_limit: 50,
+      p_organization_id: "org-1",
+    });
+
+    await expect(repository.updateFeedbackStatus("org-1", "fb-1", "done", "00000000-0000-4000-8000-000000000002")).resolves.toMatchObject({
+      status: "done",
+      replayed: false,
+    });
+    expect(rpc).toHaveBeenNthCalledWith(3, "update_feedback_status", {
+      p_id: "fb-1",
+      p_organization_id: "org-1",
+      p_request_id: "00000000-0000-4000-8000-000000000002",
+      p_status: "done",
+    });
   });
 });

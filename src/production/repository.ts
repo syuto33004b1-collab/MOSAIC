@@ -34,6 +34,13 @@ import {
   type McpServerStatus,
   type CreateMcpServerResult,
   type RevokeMcpServerResult,
+  type FeedbackItem,
+  type FeedbackPage,
+  type FeedbackScreen,
+  type FeedbackStatus,
+  type SubmitFeedbackResult,
+  type UpdateFeedbackStatusResult,
+  FEEDBACK_SCREENS,
   MCP_SERVER_LIMITS,
   INTEGRATION_SCOPES,
   WEBHOOK_EVENTS,
@@ -42,6 +49,8 @@ import {
 type UnknownRecord = Record<string, unknown>;
 
 const roleValues = new Set<OrganizationRole>(["owner", "admin", "planner", "viewer"]);
+const feedbackScreens = new Set<FeedbackScreen>(FEEDBACK_SCREENS);
+const feedbackStatuses = new Set<FeedbackStatus>(["open", "done"]);
 const avatarTones = new Set<Member["avatarTone"]>(["lavender", "peach", "sky", "mint", "sand", "rose"]);
 const projectTones = new Set<Project["tone"]>(["blue", "mint", "orange", "plum", "sky"]);
 const projectStatuses = new Set<Project["status"]>(["進行中", "要注意", "準備中", "完了間近", "完了"]);
@@ -727,6 +736,13 @@ function rpcError(action: string, error: PostgrestError) {
       retryable: false,
     });
   }
+  if (error.code === "54000" && /feedback is limited/i.test(error.message)) {
+    return new ProductionRepositoryError("気づきの送信は1時間に20件までです。しばらくしてから送り直してください。", {
+      cause: error,
+      code: "FEEDBACK_RATE_LIMITED",
+      retryable: false,
+    });
+  }
   if (error.code === "54000") {
     return new ProductionRepositoryError("一度に保存できる変更件数を超えています。変更を分けて保存してください。", {
       cause: error,
@@ -1074,6 +1090,35 @@ export function normalizeAuditEvent(value: unknown, index: number): AuditEvent |
         : "user",
     integrationClientId: readString(record, "integration_client_id", "integrationClientId"),
     integrationClientName: readString(record, "integration_client_name", "integrationClientName"),
+  };
+}
+
+export function normalizeFeedbackItem(value: unknown): FeedbackItem | undefined {
+  const record = asRecord(value);
+  if (!record) return undefined;
+  const id = readIdentifier(record, "id");
+  const body = readString(record, "body");
+  const createdAt = readString(record, "created_at", "createdAt");
+  const screen = readString(record, "source_screen", "sourceScreen");
+  const status = readString(record, "status");
+  const seq = readNumber(record, "seq");
+  if (!id || !body || !createdAt || seq === undefined) return undefined;
+  const sourceScreen: FeedbackScreen = screen && feedbackScreens.has(screen as FeedbackScreen)
+    ? screen as FeedbackScreen
+    : "unknown";
+  const normalizedStatus: FeedbackStatus = status && feedbackStatuses.has(status as FeedbackStatus)
+    ? status as FeedbackStatus
+    : "open";
+  const role = readString(record, "created_by_role", "createdByRole");
+  return {
+    id,
+    seq,
+    body,
+    sourceScreen,
+    status: normalizedStatus,
+    createdAt,
+    createdByName: readString(record, "created_by_name", "createdByName") ?? "MOSAICユーザー",
+    createdByRole: role && roleValues.has(role as OrganizationRole) ? role as OrganizationRole : undefined,
   };
 }
 
@@ -1696,6 +1741,72 @@ export class ProductionRepository {
       changed: result?.changed === true,
       requestId: readString(result, "request_id", "requestId") ?? requestId,
       server,
+    };
+  }
+
+  async submitFeedback(
+    organizationId: string,
+    requestId: string,
+    body: string,
+    sourceScreen: string,
+  ): Promise<SubmitFeedbackResult> {
+    const { data, error } = await this.client.rpc("submit_feedback", {
+      p_body: body.trim(),
+      p_organization_id: organizationId,
+      p_request_id: requestId,
+      p_source_screen: sourceScreen,
+    });
+    if (error) throw rpcError("気づきを送信", error);
+    const result = asRecord(unwrapRpcValue(data));
+    const id = readIdentifier(result, "id");
+    if (!id) throw new ProductionRepositoryError("送信した気づきを確認できませんでした。", { code: "INVALID_FEEDBACK_RESULT" });
+    return {
+      id,
+      requestId: readString(result, "request_id", "requestId") ?? requestId,
+      replayed: result?.replayed === true,
+    };
+  }
+
+  async listFeedback(organizationId: string, limit = 50, before?: string): Promise<FeedbackPage> {
+    const { data, error } = await this.client.rpc("list_feedback", {
+      p_before: before ? Number(before) : null,
+      p_limit: limit,
+      p_organization_id: organizationId,
+    });
+    if (error) throw rpcError("気づきを読み込み", error);
+    const record = asRecord(unwrapRpcValue(data));
+    const values = Array.isArray(data) ? data : readArray(record, "items");
+    const nextBefore = record?.nextBefore ?? record?.next_before;
+    return {
+      items: values.map(normalizeFeedbackItem).filter((item): item is FeedbackItem => Boolean(item)),
+      nextBefore: nextBefore === null || nextBefore === undefined ? undefined : String(nextBefore),
+    };
+  }
+
+  async updateFeedbackStatus(
+    organizationId: string,
+    feedbackId: string,
+    status: FeedbackStatus,
+    requestId = crypto.randomUUID(),
+  ): Promise<UpdateFeedbackStatusResult> {
+    const { data, error } = await this.client.rpc("update_feedback_status", {
+      p_id: feedbackId,
+      p_organization_id: organizationId,
+      p_request_id: requestId,
+      p_status: status,
+    });
+    if (error) throw rpcError("気づきの状態を更新", error);
+    const result = asRecord(unwrapRpcValue(data));
+    const id = readIdentifier(result, "id");
+    const nextStatus = readString(result, "status");
+    if (!id || !nextStatus || !feedbackStatuses.has(nextStatus as FeedbackStatus)) {
+      throw new ProductionRepositoryError("更新後の気づきを確認できませんでした。", { code: "INVALID_FEEDBACK_RESULT" });
+    }
+    return {
+      id,
+      status: nextStatus as FeedbackStatus,
+      requestId: readString(result, "request_id", "requestId") ?? requestId,
+      replayed: result?.replayed === true,
     };
   }
 
