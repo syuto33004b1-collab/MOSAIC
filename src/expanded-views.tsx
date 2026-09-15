@@ -1822,7 +1822,8 @@ export function UnavailabilityList({ entries }: { entries?: MemberUnavailability
     <div className="work-history-list">
       {rows.map((entry) => (
         <article key={entry.id}>
-          <span><strong>上限 {entry.capacityPercent}%</strong><small>{formatDate(entry.startDate)} — {formatDate(entry.endDate)}</small></span>
+          <span><strong>上限 {entry.capacityPercent}%</strong></span>
+          <em>{formatDate(entry.startDate)} — {formatDate(entry.endDate)}</em>
           {entry.note && <p>{entry.note}</p>}
         </article>
       ))}
@@ -1841,7 +1842,7 @@ export function UnavailabilityEditor({
     onChange(entries.map((entry, current) => current === index ? { ...entry, ...patch } : entry));
   };
   return (
-    <div className="work-history-editor">
+    <div className="work-history-editor unavailability-editor">
       <div className="drawer-section-title"><span>期間指定の稼働上限</span><small>{entries.length}件</small></div>
       <p className="unavailability-editor-note">通常の稼働上限より低い期間です。0%の日にはアサインを載せません。メモに健康情報は書かないでください。</p>
       {entries.map((entry, index) => (

@@ -1083,10 +1083,14 @@ export default function Home({ mode = "demo", organizationId, organizationName =
     .filter((assignment) => assignment.personId === overloadMember.id && overloadDates.some((date) => assignment.startDate <= date && assignment.endDate >= date))
     .sort((a, b) => a.allocation - b.allocation) : [];
   const overloadStats = overloadMember ? memberWeekStats(workspace, overloadMember, weekStart) : null;
-  const overloadOverage = overloadMember
+  const overloadDays = overloadMember
     ? memberDailyLoads(workspace, overloadMember.id, weekStart, weekEnd(weekStart))
-      .reduce((highest, day) => Math.max(highest, day.load - day.capacity), 0)
-    : 0;
+    : [];
+  const overloadOverage = overloadDays.reduce((highest, day) => Math.max(highest, day.load - day.capacity), 0);
+  const overloadWorst = overloadDays[0]
+    ? overloadDays.reduce((worst, day) => (day.load - day.capacity) > (worst.load - worst.capacity) ? day : worst)
+    : undefined;
+  const overloadCeiling = overloadWorst?.capacity ?? overloadMember?.capacity ?? 0;
   // Dated as well as unfilled (#255): a need whose end has passed stops being a
   // warning here, in the popover and in the report, all of which read this list.
   const todayIso = currentLocalDate();
@@ -3394,7 +3398,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
             {drawer === "overload" && overloadMember && (
               <div className="drawer-content">
                 <div className="drawer-heading"><span className={"drawer-icon " + (overloadPlanned ? "mint" : "coral")}>{overloadPlanned ? <CheckCircle2 size={19} /> : <AlertTriangle size={19} />}</span><div><h2>{overloadPlanned ? "解消予定を確認" : "上限超過を調整"}</h2><p>{overloadMember.name}さん · {overloadMember.role}</p></div></div>
-                <div className={"capacity-card " + (overloadPlanned ? "resolved" : "")}><div><span>{measuredWeekLabel}の稼働</span><strong>{overloadStats?.peak}% / 稼働上限{overloadMember.capacity}%</strong></div><div className="capacity-meter"><span style={{ width: (overloadStats?.ratio ?? 0) + "%" }} /><i>{overloadMember.capacity}%</i></div><p>{overloadPlanned ? "保存すると超過警告が解消されます。" : `稼働上限を${Math.max(0, Math.round(overloadOverage))}%超えています。`}</p></div>
+                <div className={"capacity-card " + (overloadPlanned ? "resolved" : "")}><div><span>{measuredWeekLabel}の稼働</span><strong>{overloadStats?.peak}% / 稼働上限{overloadCeiling}%</strong></div><div className="capacity-meter"><span style={{ width: (overloadStats?.ratio ?? 0) + "%" }} /><i>{overloadCeiling}%</i></div><p>{overloadPlanned ? "保存すると超過警告が解消されます。" : `稼働上限を${Math.max(0, Math.round(overloadOverage))}%超えています。`}</p></div>
                 <div className="drawer-section-title"><span>現在の配分</span><small>合計 {overloadStats?.peak}%</small></div>
                 <div className="allocation-list">{overloadAssignments.map((assignment) => <div key={assignment.id}><span className={"project-dot " + (projectById(workspace, assignment.projectId)?.tone || "blue")} /><span><strong>{projectById(workspace, assignment.projectId)?.name}</strong><small>{formatDate(assignment.startDate)} — {formatDate(assignment.endDate)}</small></span><b>{assignment.allocation}%</b></div>)}</div>
                 {!overloadPlanned && canEdit && overloadAssignments.length > 0 ? <><div className="suggestion-card"><span><Sparkles size={15} /></span><div><strong>おすすめの調整</strong><p>超過している各営業日の案件配分を順に減らし、すべての日を稼働上限内へ収めます。</p></div></div><button className="drawer-primary" onClick={resolveOverload}><CheckCircle2 size={16} />推奨配分へ調整</button></> : <button className="drawer-primary" onClick={closeDrawer}><Check size={16} />閉じる</button>}

@@ -1813,7 +1813,43 @@ describe("the member screen's scene form", () => {
     expect(screen.getByText("時短 花子")).toBeInTheDocument();
     await user.click(screen.getByText("時短 花子").closest("button")!);
     expect(await screen.findByText("上限 50%")).toBeInTheDocument();
-    expect(screen.getByText(/2026年8月17日/u)).toBeInTheDocument();
+    expect(screen.getByText("上限 50%").closest("span")).not.toHaveTextContent(/2026/u);
+    expect(screen.getByText(/2026年8月17日/u).tagName).toBe("EM");
+  });
+
+  it("compares the overload drawer to the reduced daily ceiling", async () => {
+    const user = userEvent.setup();
+    const adapter = sharedAdapter();
+    const weekStart = getWeekStart(0);
+    const member = {
+      ...initialWorkspace.members[0],
+      id: "short",
+      name: "時短 花子",
+      capacity: 100,
+      unavailability: [{ id: "u", startDate: weekStart, endDate: addDays(weekStart, 4), capacityPercent: 50 }],
+    };
+    const project = { ...initialWorkspace.projects[0], id: "project", ownerPersonId: member.id };
+    adapter.initialState = {
+      assignments: [{
+        id: "over",
+        personId: member.id,
+        projectId: project.id,
+        startDate: weekStart,
+        endDate: addDays(weekStart, 4),
+        allocation: 60,
+        status: "confirmed",
+      }],
+      members: [member],
+      needs: [],
+      projects: [project],
+    };
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
+
+    await user.click(screen.getByText("上限超過").closest("button")!);
+    expect(screen.getByRole("heading", { name: "上限超過を調整" })).toBeInTheDocument();
+    expect(screen.getByText(/稼働上限50%/u)).toBeInTheDocument();
+    expect(screen.getByText(/稼働上限を10%超えています/u)).toBeInTheDocument();
+    expect(screen.queryByText(/稼働上限100%/u)).toBeNull();
   });
 
   it("drops the name error as soon as a name is typed", async () => {

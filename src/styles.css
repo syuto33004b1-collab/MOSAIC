@@ -5069,6 +5069,24 @@ h1 {
    (#164). */
 .work-history-editor { display: grid; gap: 10px; }
 .unavailability-editor-note { margin: 0; color: var(--muted-readable); font-size: var(--text-min); line-height: var(--leading); }
+.unavailability-editor .work-history-form > label {
+  display: grid;
+  gap: 7px;
+  color: #626c7f;
+  font-size: var(--text-min);
+  font-weight: 700;
+}
+.assignment-form .unavailability-editor .work-history-form > label > input {
+  width: 100%;
+  min-height: 43px;
+  margin: 0;
+  padding: 0 12px;
+  border: 1px solid var(--line-strong, #dce2eb);
+  border-radius: 3px;
+  background: var(--paper-pure, #fff);
+  color: var(--ink);
+  box-sizing: border-box;
+}
 .work-history-list { display: grid; gap: 10px; }
 .work-history-list article {
   display: grid;
