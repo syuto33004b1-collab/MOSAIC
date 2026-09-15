@@ -598,8 +598,13 @@ describe("OperationsPanel feedback", () => {
     expect(screen.getByText(/アサインボード/u)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "完了にする" })).toHaveClass("feedback-status-button");
     await user.click(screen.getByRole("button", { name: "完了にする" }));
-    await waitFor(() => expect(repository.updateFeedbackStatus).toHaveBeenCalledWith(organization.id, item.id, "done"));
-    expect(await screen.findByRole("button", { name: "未読に戻す" })).toBeInTheDocument();
+    await waitFor(() => expect(repository.updateFeedbackStatus).toHaveBeenCalledWith(
+      organization.id,
+      item.id,
+      "done",
+      expect.stringMatching(/^[0-9a-f-]{36}$/u),
+    ));
+    expect(await screen.findByRole("button", { name: "未完了に戻す" })).toBeInTheDocument();
   });
 
   it("hides feedback from planners", async () => {

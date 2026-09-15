@@ -73,8 +73,7 @@ as $function$
   end;
 $function$;
 
-revoke all on function private.normalize_feedback_screen(text) from public, anon, authenticated;
-grant execute on function private.normalize_feedback_screen(text) to authenticated, service_role;
+revoke all on function private.normalize_feedback_screen(text) from public, anon, authenticated, service_role;
 
 create or replace function public.submit_feedback(
   p_organization_id uuid,
@@ -108,6 +107,15 @@ begin
   if char_length(v_body) < 1 or char_length(v_body) > 2000 then
     raise exception using errcode = '22023', message = 'feedback body must be between 1 and 2000 characters';
   end if;
+
+  -- Serialize this member's hourly window before counting. Concurrent first
+  -- inserts with different request ids otherwise both read the same count.
+  -- Replay is checked after the lock so a waiting retry of the same id is
+  -- not refused as the 21st submission.
+  perform pg_advisory_xact_lock(
+    hashtext('feedback-rate:' || p_organization_id::text),
+    hashtext(v_user_id::text)
+  );
 
   select feedback.*
   into v_existing

@@ -605,6 +605,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [feedbackBody, setFeedbackBody] = useState("");
   const [feedbackSending, setFeedbackSending] = useState(false);
+  const [feedbackRequest, setFeedbackRequest] = useState<{ body: string; requestId: string } | null>(null);
   /**
    * The org move that can still be put back, offered in the row it belongs to.
    *
@@ -678,6 +679,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
   const [formDirty, setFormDirty] = useState(false);
   const [aiActionBusy, setAiActionBusy] = useState(false);
   const drawerRef = useRef<HTMLElement>(null);
+  const feedbackDialogRef = useRef<HTMLElement>(null);
   const previousFocus = useRef<HTMLElement | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const searchButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -918,15 +920,55 @@ export default function Home({ mode = "demo", organizationId, organizationName =
   }, [drawer]);
 
   useEffect(() => {
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        closeDrawer();
-        setNotificationsOpen(false);
+    if (!feedbackOpen) return;
+    previousFocus.current = document.activeElement as HTMLElement;
+    document.body.style.overflow = "hidden";
+    window.setTimeout(() => feedbackDialogRef.current?.focus(), 0);
+    const trapFocus = (event: KeyboardEvent) => {
+      if (event.key !== "Tab") return;
+      const dialog = feedbackDialogRef.current;
+      const elements = dialog?.querySelectorAll<HTMLElement>("button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], [tabindex]:not([tabindex='-1'])");
+      if (!dialog) return;
+      if (!elements || elements.length === 0) {
+        event.preventDefault();
+        dialog.focus();
+        return;
       }
+      const first = elements[0];
+      const last = elements[elements.length - 1];
+      const activeElement = document.activeElement;
+      if (activeElement === dialog || !dialog.contains(activeElement)) {
+        event.preventDefault();
+        (event.shiftKey ? last : first).focus();
+      } else if (event.shiftKey && activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener("keydown", trapFocus);
+    return () => {
+      document.body.style.overflow = "";
+      document.removeEventListener("keydown", trapFocus);
+      previousFocus.current?.focus();
+    };
+  }, [feedbackOpen]);
+
+  useEffect(() => {
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      if (feedbackOpen) {
+        if (!feedbackSending) setFeedbackOpen(false);
+        return;
+      }
+      closeDrawer();
+      setNotificationsOpen(false);
     };
     window.addEventListener("keydown", closeOnEscape);
     return () => window.removeEventListener("keydown", closeOnEscape);
-  }, [closeDrawer]);
+  }, [closeDrawer, feedbackOpen, feedbackSending]);
 
   /**
    * The search box replaces the button that opened it, so focus fell to the body on
@@ -1586,19 +1628,29 @@ export default function Home({ mode = "demo", organizationId, organizationName =
     setFeedbackOpen(true);
   };
 
+  const closeFeedback = () => {
+    if (feedbackSending) return;
+    setFeedbackOpen(false);
+  };
+
   const submitFeedback = async (event: FormEvent) => {
     event.preventDefault();
     const body = feedbackBody.trim();
     if (!onSubmitFeedback || !body || feedbackSending) return;
+    const request = feedbackRequest?.body === body
+      ? feedbackRequest
+      : { body, requestId: crypto.randomUUID() };
+    setFeedbackRequest(request);
     setFeedbackSending(true);
     try {
       await onSubmitFeedback({
-        requestId: crypto.randomUUID(),
+        requestId: request.requestId,
         body,
         sourceScreen: activeNav,
       });
       setFeedbackBody("");
       setFeedbackOpen(false);
+      setFeedbackRequest(null);
       setToast("気づきを送りました");
     } catch (error) {
       setToast(error instanceof Error ? error.message : "気づきを送れませんでした");
@@ -3157,7 +3209,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
 
   return (
     <main className="app-shell">
-      <aside className="sidebar" inert={drawer ? true : undefined}>
+      <aside className="sidebar" inert={(drawer || feedbackOpen) ? true : undefined}>
         <div className="brand">
           <span className="brand-mark" aria-hidden="true"><i /><i /><i /><i /></span>
           <span className="brand-copy"><strong>MOSAIC</strong><small>Resource orchestration</small></span>
@@ -3215,7 +3267,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
         </div>
       </aside>
 
-      <section className="workspace" id="board" inert={drawer ? true : undefined}>
+      <section className="workspace" id="board" inert={(drawer || feedbackOpen) ? true : undefined}>
         {/* The accent bar, as an element rather than `.workspace::before`, so that the
             contrast of the text below it can be measured at all. `src/styles.css` has the
             reason next to the rule (#312). */}
@@ -3514,7 +3566,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
       </section>
 
       {unsavedChanges > 0 && (
-        <div className="change-bar" ref={observeChangeBar} role="status" inert={drawer ? true : undefined}>
+        <div className="change-bar" ref={observeChangeBar} role="status" inert={(drawer || feedbackOpen) ? true : undefined}>
           <span className="change-count">{unsavedChanges}</span><span><strong>{unsavedChanges}件の変更があります</strong><small>保存するまで確定データには反映されません</small></span>
           <button className="undo-button" disabled={operationLocked || saveOutcomePending} onClick={undoChanges}><Undo2 size={14} />元に戻す</button><button className="save-button" disabled={operationLocked} onClick={() => void saveChanges()}><Save size={14} />{syncStatus === "saving" ? "保存中…" : syncStatus === "refreshing" ? "確認中…" : mode === "shared" ? "チームへ保存" : "デモへ保存"}</button>
         </div>
@@ -3956,17 +4008,17 @@ export default function Home({ mode = "demo", organizationId, organizationName =
         syncBusy={operationLocked || saveOutcomePending}
         onActionBusyChange={setAiActionBusy}
         onWorkspaceRevision={handleAiWorkspaceRevision}
-        suspended={Boolean(drawer)}
+        suspended={Boolean(drawer || feedbackOpen)}
         elevated={unsavedChanges > 0}
         unavailableReason={mode === "demo" ? "AIチャットは、共有モードでログインすると利用できます。" : undefined}
       />
       {feedbackOpen && onSubmitFeedback && (
         <div className="overlay feedback-overlay">
-          <button className="overlay-backdrop" type="button" aria-label="気づきの送信を閉じる" onClick={() => { if (!feedbackSending) setFeedbackOpen(false); }} />
-          <section className="drawer feedback-dialog" role="dialog" aria-modal="true" aria-labelledby="feedback-title">
+          <div className="overlay-backdrop" aria-hidden="true" onClick={closeFeedback} />
+          <section className="drawer feedback-dialog" ref={feedbackDialogRef} role="dialog" aria-modal="true" aria-labelledby="feedback-title" tabIndex={-1}>
             <div className="drawer-top">
               <span className="drawer-kicker">FEEDBACK</span>
-              <button className="close-button" type="button" aria-label="気づきの送信を閉じる" disabled={feedbackSending} onClick={() => setFeedbackOpen(false)}><X size={18} /></button>
+              <button className="close-button" type="button" aria-label="気づきの送信を閉じる" disabled={feedbackSending} onClick={closeFeedback}><X size={18} /></button>
             </div>
             <div className="drawer-heading">
               <span className="drawer-icon cobalt"><MessageSquarePlus size={19} /></span>

@@ -497,6 +497,55 @@ describe("role-aware workspace", () => {
     })));
   });
 
+  it("reuses the same request id when a failed send is retried", async () => {
+    const user = userEvent.setup();
+    const onSubmitFeedback = vi.fn()
+      .mockRejectedValueOnce(new Error("一時的に送れません"))
+      .mockResolvedValueOnce({ id: "fb-3", requestId: "req-3", replayed: false });
+    render(
+      <App
+        mode="shared"
+        organizationName="Example Inc."
+        identity={{ name: "閲覧 太郎", email: "viewer@example.com", role: "viewer" }}
+        shared={sharedAdapter()}
+        onSubmitFeedback={onSubmitFeedback}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "気づきを送る" }));
+    const dialog = screen.getByRole("dialog", { name: "気づきを送る" });
+    await user.type(within(dialog).getByLabelText("内容"), "ボードの空き列が狭い");
+    await user.click(within(dialog).getByRole("button", { name: "送る" }));
+    expect(await screen.findByText("一時的に送れません")).toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: "送る" }));
+    await waitFor(() => expect(onSubmitFeedback).toHaveBeenCalledTimes(2));
+    expect(onSubmitFeedback.mock.calls[0][0].requestId).toEqual(onSubmitFeedback.mock.calls[1][0].requestId);
+    expect(onSubmitFeedback.mock.calls[0][0].requestId).toMatch(/^[0-9a-f-]{36}$/u);
+  });
+
+  it("names closing the feedback dialog once, and the backdrop is not a button", async () => {
+    const user = userEvent.setup();
+    render(
+      <App
+        mode="shared"
+        organizationName="Example Inc."
+        identity={{ name: "閲覧 太郎", email: "viewer@example.com", role: "viewer" }}
+        shared={sharedAdapter()}
+        onSubmitFeedback={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "気づきを送る" }));
+    const close = screen.getByRole("button", { name: "気づきの送信を閉じる" });
+    const dialog = screen.getByRole("dialog", { name: "気づきを送る" });
+    expect(dialog.contains(close)).toBe(true);
+    const backdrop = document.querySelector(".feedback-overlay .overlay-backdrop")!;
+    expect(backdrop.tagName).toBe("DIV");
+    expect(backdrop.getAttribute("aria-hidden")).toBe("true");
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "気づきを送る" })).not.toBeInTheDocument());
+  });
+
   it("edits a persisted assignment as a draft and saves its interval and allocation", async () => {
     const user = userEvent.setup();
     const adapter = sharedAdapter();

@@ -138,6 +138,7 @@ export function OperationsPanel({
   const [feedbackNextBefore, setFeedbackNextBefore] = useState<string>();
   const [feedbackAction, setFeedbackAction] = useState("");
   const [loadingMoreFeedback, setLoadingMoreFeedback] = useState(false);
+  const feedbackStatusRequests = useRef(new Map<string, ReturnType<typeof crypto.randomUUID>>());
   const panelRef = useRef<HTMLElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
   const onCloseRef = useRef(onClose);
@@ -495,10 +496,14 @@ export function OperationsPanel({
 
   const markFeedback = async (item: FeedbackItem, status: FeedbackItem["status"]) => {
     if (feedbackAction) return;
+    const requestKey = `${item.id}:${status}`;
+    const requestId = feedbackStatusRequests.current.get(requestKey) ?? crypto.randomUUID();
+    feedbackStatusRequests.current.set(requestKey, requestId);
     setFeedbackAction(item.id);
     setError("");
     try {
-      const result = await repository.updateFeedbackStatus(currentOrganization.id, item.id, status);
+      const result = await repository.updateFeedbackStatus(currentOrganization.id, item.id, status, requestId);
+      feedbackStatusRequests.current.delete(requestKey);
       setFeedback((current) => current.map((entry) => entry.id === item.id ? { ...entry, status: result.status } : entry));
     } catch (reason) {
       setError(messageFrom(reason));
@@ -850,7 +855,7 @@ export function OperationsPanel({
                     disabled={Boolean(feedbackAction)}
                     onClick={() => void markFeedback(item, item.status === "open" ? "done" : "open")}
                   >
-                    {feedbackAction === item.id ? "更新中" : item.status === "open" ? "完了にする" : "未読に戻す"}
+                    {feedbackAction === item.id ? "更新中" : item.status === "open" ? "完了にする" : "未完了に戻す"}
                   </button>
                 </div>
               ))}

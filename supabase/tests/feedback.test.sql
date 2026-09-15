@@ -58,7 +58,10 @@ select ok(
   and has_function_privilege('authenticated', 'public.list_feedback(uuid,integer,bigint)', 'EXECUTE')
   and has_function_privilege('authenticated', 'public.update_feedback_status(uuid,uuid,text,uuid)', 'EXECUTE')
   and not has_function_privilege('anon', 'public.submit_feedback(uuid,uuid,text,text)', 'EXECUTE')
-  and not has_function_privilege('service_role', 'public.submit_feedback(uuid,uuid,text,text)', 'EXECUTE'),
+  and not has_function_privilege('service_role', 'public.submit_feedback(uuid,uuid,text,text)', 'EXECUTE')
+  and not has_function_privilege('service_role', 'public.list_feedback(uuid,integer,bigint)', 'EXECUTE')
+  and not has_function_privilege('service_role', 'public.update_feedback_status(uuid,uuid,text,uuid)', 'EXECUTE')
+  and not has_function_privilege('service_role', 'private.normalize_feedback_screen(text)', 'EXECUTE'),
   'only authenticated may execute the feedback RPCs'
 );
 
