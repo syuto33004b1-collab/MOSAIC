@@ -795,6 +795,8 @@ export type PeriodBucketStats = PeriodBucket & {
 export type PeriodMemberStats = {
   exceeds: boolean;
   open: boolean;
+  /** First bucket that contains a day over the ceiling, or null. */
+  firstExceedOffset: number | null;
   buckets: PeriodBucketStats[];
 };
 
@@ -874,9 +876,20 @@ export function periodStatsFromDays(days: DailyLoad[], buckets: PeriodBucket[]):
   const exceeds = days.some((day) => day.load > day.capacity);
   const bearing = days.filter((day) => !day.weekend && day.capacity > 0);
   const open = bearing.length > 0 && bearing.every((day) => day.load <= day.capacity * 0.6);
+  let firstExceedOffset: number | null = null;
+  if (exceeds) {
+    for (let index = 0; index < buckets.length; index += 1) {
+      const bucket = buckets[index];
+      if (days.some((day) => day.date >= bucket.from && day.date <= bucket.to && day.load > day.capacity)) {
+        firstExceedOffset = index;
+        break;
+      }
+    }
+  }
   return {
     exceeds,
     open,
+    firstExceedOffset,
     buckets: buckets.map((bucket) => {
       const inside = days.filter((day) => day.date >= bucket.from && day.date <= bucket.to);
       const load = inside.reduce((sum, day) => sum + day.load, 0);
@@ -899,7 +912,7 @@ export function periodMemberStats(
   dailyLoads: typeof memberDailyLoads = memberDailyLoads,
 ): PeriodMemberStats {
   if (!range.from || !range.to || range.to < range.from) {
-    return { exceeds: false, open: false, buckets: range.buckets.map((bucket) => ({ ...bucket, load: 0, capacity: 0, average: 0 })) };
+    return { exceeds: false, open: false, firstExceedOffset: null, buckets: range.buckets.map((bucket) => ({ ...bucket, load: 0, capacity: 0, average: 0 })) };
   }
   return periodStatsFromDays(dailyLoads(state, member.id, range.from, range.to), range.buckets);
 }
@@ -2213,11 +2226,15 @@ export function opportunitySearchText(opportunity: Opportunity, needs: Opportuni
   return [opportunity.code, opportunity.name, opportunity.summary, opportunity.ownerName ?? "", OPPORTUNITY_STAGE_LABELS[opportunity.stage], ...needText].join(" ").toLocaleLowerCase();
 }
 
-export function pipelineDemandForWeek(state: Pick<WorkspaceState, "opportunities">, weekStart: string) {
-  const weekClose = weekEnd(weekStart);
+export function pipelineDemandForSpan(state: Pick<WorkspaceState, "opportunities">, from: string, to: string) {
+  if (!from || !to || from > to) return 0;
   return (state.opportunities ?? [])
-    .filter((opportunity) => isActiveOpportunity(opportunity) && overlaps(opportunity.startDate, opportunity.endDate, weekStart, weekClose))
+    .filter((opportunity) => isActiveOpportunity(opportunity) && overlaps(opportunity.startDate, opportunity.endDate, from, to))
     .reduce((sum, opportunity) => sum + opportunity.demand, 0);
+}
+
+export function pipelineDemandForWeek(state: Pick<WorkspaceState, "opportunities">, weekStart: string) {
+  return pipelineDemandForSpan(state, weekStart, weekEnd(weekStart));
 }
 
 function nextEntityId(prefix: string, seed: string) {

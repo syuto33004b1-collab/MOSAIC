@@ -147,25 +147,23 @@ test("stripComments trades two known holes for being a regex", () => {
  * by letting the board show a month, where these figures cover the month's *first*
  * week. Paging moved the number and left the word.
  *
- * The word is now reserved for a figure computed from `getWeekStart(0)`. That is
- * the reports screen, which takes no week from the board. Everywhere else names its
- * week through `weekLabel()`: 「8/17週の空き」.
+ * Reports used to be the exception because it measured from `getWeekStart(0)`.
+ * #365 moved those figures onto a chosen span (up to 12 months), so the word is
+ * wrong there too. Every screen now names its range, or says nothing.
  *
  * ## What this checks, and what it cannot
  *
  * Scoped by `export function` chunks — the same approximation
  * `filter-label-contract.test.mjs` uses, and it has the same limit: it cannot see
  * which `weekStart` a given line reads. What it can see is that the word is absent
- * from every component that takes the board's week, and present in the one that
- * does not. The rendered counterpart is in `src/App.test.tsx`, which walks the
- * screens and asserts the text; this covers the branches those tests do not enter.
+ * from the exported components. The rendered counterpart is in `src/App.test.tsx`.
  *
- * The reason for the exception is asserted too, rather than trusted: the excused
- * chunk has to read `getWeekStart(0)` and must not read the board's offset. An
- * exception that stops being true should fail here instead of quietly widening.
+ * An exception, if one is added later, still has to read `getWeekStart(0)` and
+ * must not take the board's offset. An exception that stops being true should
+ * fail here instead of quietly widening.
  */
 const CURRENT_WEEK = "今週";
-const MAY_SAY_CURRENT_WEEK = { "src/App.tsx": [], "src/expanded-views.tsx": ["ReportsView"] };
+const MAY_SAY_CURRENT_WEEK = { "src/App.tsx": [], "src/expanded-views.tsx": [] };
 
 /** `export function Name(` → its body, up to the next top-level export. */
 function exportedFunctions(source) {

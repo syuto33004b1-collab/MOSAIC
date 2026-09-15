@@ -72,6 +72,10 @@ import {
   formatWorkHistoryPeriod,
   getWeekStart,
   isActiveOpportunity,
+  PERIOD_CHOICES,
+  periodChoiceLabel,
+  periodMemberStats,
+  periodRange,
   isActiveProfileRequest,
   matchMembers,
   skillInputProblems,
@@ -79,12 +83,9 @@ import {
   matchScoreMax,
   memberById,
   needCandidatePersonIds,
-  memberDailyLoads,
   weekendDatesBetween,
   memberLabel,
   memberLabelParts,
-  memberLoad,
-  memberExceedsCapacity,
   memberWeekStats,
   memberOrgMemberships,
   memberSearchText,
@@ -96,13 +97,13 @@ import {
   opportunitySearchText,
   orgManagers,
   orgUnitArchiveBlocker,
-  orgUnitLoadRows,
   orgUnitPath,
+  overlaps,
   orgUnitTree,
   ownerLabel,
   parseSkillInput,
   PERSON_SCOPES,
-  pipelineDemandForWeek,
+  pipelineDemandForSpan,
   PROFICIENCY_LABELS,
   profileRequestScopeLabel,
   profileRequestStatusLabel,
@@ -117,8 +118,9 @@ import {
   UNAVAILABILITY_ROW_LIMIT,
   visibleCustomFields,
   weekdaySupplyCapacity,
-  weekEnd,
   weekLabel,
+  type BoardUnit,
+  type PeriodChoice,
   type CustomFieldDefinition,
   type DailyLoad,
   type CustomFieldEntity,
@@ -201,7 +203,7 @@ type ProposalViewProps = {
 
 type ReportsViewProps = {
   state: WorkspaceState;
-  onOpenWeek: (offset: number) => void;
+  onOpenWeek: (offset: number, unit: BoardUnit) => void;
   onResolveNeed: (needId: string) => void;
   onOpenOpportunity?: (opportunityId: string) => void;
   onAddReport: (input: { name: string; source: ReportSource; groupBy: ReportGroupBy; metric: ReportMetric }) => void;
@@ -1444,35 +1446,76 @@ export function ProposalView({
   );
 }
 
-export function ReportsView({ state, onOpenWeek, onResolveNeed, onOpenOpportunity, onAddReport, onDeleteReport, canEdit = true, canManageReports = false }: ReportsViewProps) {
-  const [range, setRange] = useState(8);
+export function ReportsView({ state, onOpenWeek, onResolveNeed, onOpenOpportunity, onAddReport, onDeleteReport, canManageReports = false }: ReportsViewProps) {
+  const [choice, setChoice] = useState<PeriodChoice>(PERIOD_CHOICES[1]);
   const [reportId, setReportId] = useState((state.savedReports ?? [])[0]?.id ?? "");
   const [reportName, setReportName] = useState("");
   const [source, setSource] = useState<ReportSource>("members");
   const [groupBy, setGroupBy] = useState<ReportGroupBy>("department");
   const [metric, setMetric] = useState<ReportMetric>("count");
   const [error, setError] = useState("");
-  const weekOffsets = useMemo(() => Array.from({ length: range }, (_, index) => index), [range]);
-  const horizon = weekOffsets.map((offset) => {
-    const weekStart = getWeekStart(offset);
-    const capacity = state.members.reduce((sum, member) => sum + weekdaySupplyCapacity(state, member, weekStart, addDays(weekStart, 4)), 0);
-    const load = state.members.reduce((sum, member) => sum + memberDailyLoads(state, member.id, weekStart, addDays(weekStart, 4)).reduce((dailySum, day) => dailySum + day.load, 0), 0);
-    const confirmed = state.assignments.filter((assignment) => assignment.status === "confirmed" && assignment.startDate <= addDays(weekStart, 4) && assignment.endDate >= weekStart).length;
-    const draft = state.assignments.filter((assignment) => assignment.status === "draft" && assignment.startDate <= addDays(weekStart, 4) && assignment.endDate >= weekStart).length;
-    return { offset, weekStart, average: capacity > 0 ? Math.round(load / capacity * 100) : 0, confirmed, draft, pipelineDemand: pipelineDemandForWeek(state, weekStart) };
+  const origin = currentLocalDate();
+  const range = periodRange(choice, origin);
+  const memberPeriodStats = state.members.map((member) => ({
+    member,
+    stats: periodMemberStats(state, member, range),
+  }));
+  const horizon = range.buckets.map((bucket, offset) => {
+    const load = memberPeriodStats.reduce((sum, row) => sum + (row.stats.buckets[offset]?.load ?? 0), 0);
+    const capacity = memberPeriodStats.reduce((sum, row) => sum + (row.stats.buckets[offset]?.capacity ?? 0), 0);
+    const draft = state.assignments.filter((assignment) => (
+      assignment.status === "draft" && overlaps(assignment.startDate, assignment.endDate, bucket.from, bucket.to)
+    )).length;
+    const month = Number(bucket.from.slice(5, 7));
+    return {
+      offset,
+      from: bucket.from,
+      to: bucket.to,
+      average: capacity > 0 ? Math.round(load / capacity * 100) : 0,
+      draft,
+      pipelineDemand: pipelineDemandForSpan(state, bucket.from, bucket.to),
+      label: choice.unit === "month" ? `${month}月` : `${formatMonthDay(bucket.from)}週`,
+    };
   });
-  const orgRows = (state.orgUnits ?? []).length > 0
-    ? orgUnitLoadRows(state, getWeekStart(0))
-    : Array.from(new Set(state.members.map((member) => member.department))).map((department) => {
-      const people = state.members.filter((member) => member.department === department);
-      const weekStart = getWeekStart(0);
-      const capacity = people.reduce((sum, member) => sum + weekdaySupplyCapacity(state, member, weekStart, addDays(weekStart, 4)), 0);
-      const load = people.reduce((sum, member) => sum + memberDailyLoads(state, member.id, weekStart, addDays(weekStart, 4)).reduce((dailySum, day) => dailySum + day.load, 0), 0);
-      return { id: department, name: department, path: [department], depth: 0, count: people.length, average: capacity > 0 ? Math.round(load / capacity * 100) : 0, managers: [] as string[] };
-    }).sort((a, b) => b.average - a.average);
-  const currentOverloads = state.members.filter((member) => memberExceedsCapacity(state, member, getWeekStart(0), weekEnd(getWeekStart(0))));
+  const statsByMember = new Map(memberPeriodStats.map((row) => [row.member.id, row.stats]));
+  const loadFromPeople = (people: typeof state.members) => {
+    let load = 0;
+    let capacity = 0;
+    for (const member of people) {
+      const stats = statsByMember.get(member.id);
+      if (!stats) continue;
+      for (const bucket of stats.buckets) {
+        load += bucket.load;
+        capacity += bucket.capacity;
+      }
+    }
+    return { count: people.length, average: capacity > 0 ? Math.round(load / capacity * 100) : 0 };
+  };
+  const orgRows = !range.from || !range.to
+    ? []
+    : (state.orgUnits ?? []).length > 0
+      ? orgUnitTree(state.orgUnits).map((unit) => {
+        const people = membersInOrgSubtree(state, unit.id, "primary");
+        const totals = loadFromPeople(people);
+        return {
+          id: unit.id,
+          name: unit.name,
+          path: orgUnitPath(state.orgUnits, unit.id),
+          depth: Math.max(0, orgUnitPath(state.orgUnits, unit.id).length - 1),
+          count: totals.count,
+          average: totals.average,
+          managers: orgManagers(state, unit.id).map((member) => member.name),
+        };
+      })
+      : Array.from(new Set(state.members.map((member) => member.department))).map((department) => {
+        const people = state.members.filter((member) => member.department === department);
+        const totals = loadFromPeople(people);
+        return { id: department, name: department, path: [department], depth: 0, count: totals.count, average: totals.average, managers: [] as string[] };
+      }).sort((a, b) => b.average - a.average);
+  const periodOverloads = memberPeriodStats.filter((row) => row.stats.exceeds);
+  const periodIdle = memberPeriodStats.filter((row) => row.stats.open);
   // The same list the board warns about (#255): unfilled and not yet over.
-  const activeNeeds = openNeeds(state, currentLocalDate());
+  const activeNeeds = openNeeds(state, origin);
   const activeOpportunities = (state.opportunities ?? []).filter(isActiveOpportunity);
   const pipelineNeeds = (state.opportunityNeeds ?? []).filter((need) => activeOpportunities.some((opportunity) => opportunity.id === need.opportunityId));
   const reports = state.savedReports ?? [];
@@ -1489,12 +1532,17 @@ export function ReportsView({ state, onOpenWeek, onResolveNeed, onOpenOpportunit
       setError(caught instanceof Error ? caught.message : "レポートを保存できませんでした");
     }
   };
+  const openBoard = (offset: number) => onOpenWeek(offset, choice.unit);
 
   return (
     <section className="section-view reports-view" aria-labelledby="reports-heading">
       <div className="report-toolbar">
         <div><small>CAPACITY HORIZON</small><h2 id="reports-heading">需給バランスの見通し</h2><p>確定稼働と受注前の想定人数を分けて確認します。</p></div>
-        <div className="range-tabs" aria-label="表示期間">{[4, 8, 12].map((weeks) => <button className={range === weeks ? "selected" : ""} aria-pressed={range === weeks} onClick={() => setRange(weeks)} key={weeks}>{weeks}週間</button>)}</div>
+        <div className="range-tabs" aria-label="表示期間">{PERIOD_CHOICES.map((option) => {
+          const selected = choice.unit === option.unit && choice.count === option.count;
+          const label = periodChoiceLabel(option);
+          return <button className={selected ? "selected" : ""} aria-pressed={selected} onClick={() => setChoice(option)} key={label}>{label}</button>;
+        })}</div>
       </div>
 
       <section className="balance-card saved-report-card" aria-labelledby="saved-report-heading">
@@ -1548,19 +1596,20 @@ export function ReportsView({ state, onOpenWeek, onResolveNeed, onOpenOpportunit
             line drawn at 100% and a reader pairing them read a different value (#133). */}
         <div className="horizon-plot">
           <div className="horizon-y-labels"><span className="t100">100%</span><span className="t60">60%</span><span className="t0">0</span></div>
-          <div className="horizon-grid">
+          <div className="horizon-grid" style={{ gridTemplateColumns: `repeat(${Math.max(horizon.length, 1)}, minmax(42px, 1fr))` }}>
             <div className="horizon-guide g100" /><div className="horizon-guide g60" />
-            {horizon.map((week) => (
-            <button className="horizon-week" onClick={() => onOpenWeek(week.offset)} key={week.weekStart}>
-              <span className="horizon-bar"><i className={week.average > 100 ? "over" : ""} style={{ height: Math.min(100, week.average / 120 * 100) + "%" }} />{week.draft > 0 && <b style={{ bottom: Math.min(100, week.average / 120 * 100) + "%" }} />}</span>
-              <strong>{week.average}%</strong>
-              {week.pipelineDemand > 0 && <span className="pipeline-chip">+{week.pipelineDemand}名</span>}
-              <small>{formatMonthDay(week.weekStart)}週</small>
+            {horizon.map((bucket) => (
+            <button className="horizon-week" type="button" onClick={() => openBoard(bucket.offset)} key={`${bucket.from}:${bucket.to}`} aria-label={`${bucket.label} ${bucket.average}%${bucket.pipelineDemand > 0 ? ` 受注前+${bucket.pipelineDemand}名` : ""}`}>
+              <span className="horizon-bar"><i className={bucket.average > 100 ? "over" : ""} style={{ height: Math.min(100, bucket.average / 120 * 100) + "%" }} />{bucket.draft > 0 && <b style={{ bottom: Math.min(100, bucket.average / 120 * 100) + "%" }} />}</span>
+              <strong>{bucket.average}%</strong>
+              {bucket.pipelineDemand > 0 && <span className="pipeline-chip">+{bucket.pipelineDemand}名</span>}
+              <small>{bucket.label}</small>
             </button>
             ))}
           </div>
         </div>
-        <div className="horizon-caption"><span><i className="confirmed" />確定稼働</span><span><i className="draft" />仮置きあり</span><span><i className="pipeline" />受注前の想定人数</span><button onClick={() => onOpenWeek(0)}>ボードで確認 <ArrowRight size={13} /></button></div>
+        {range.clipped && <p className="horizon-clip-note" role="note">祝日カレンダーは2016年から2035年までです。この見通しはその範囲で切れています。</p>}
+        <div className="horizon-caption"><span><i className="confirmed" />確定稼働</span><span><i className="draft" />仮置きあり</span><span><i className="pipeline" />受注前の想定人数</span><button type="button" onClick={() => openBoard(0)}>ボードで確認 <ArrowRight size={13} /></button></div>
       </div>
 
       <div className="report-lower-grid">
@@ -1570,19 +1619,18 @@ export function ReportsView({ state, onOpenWeek, onResolveNeed, onOpenOpportunit
         </section>
 
         <section className="exceptions-card">
-          <div className="card-heading"><div><small>EXCEPTIONS</small><h3>判断が必要な項目</h3></div><span>{currentOverloads.length + activeNeeds.length + pipelineNeeds.length}</span></div>
+          <div className="card-heading"><div><small>EXCEPTIONS</small><h3>判断が必要な項目</h3></div><span>{periodOverloads.length + periodIdle.length + activeNeeds.length + pipelineNeeds.length}</span></div>
           <div className="exception-list">
-            {currentOverloads.map((member) => <button onClick={() => onOpenWeek(0)} key={member.id}><span className="exception-icon risk"><CircleAlert size={14} /></span><span><strong>{memberLabel(state, member)}さんが{memberLoad(state, member.id, getWeekStart(0))}%</strong><small>今週の稼働を調整してください</small></span><ChevronRight size={15} /></button>)}
-            {activeNeeds.map((need) => <button onClick={() => onResolveNeed(need.id)} key={need.id}><span className={"exception-icon " + (need.status === "planned" ? "planned" : "open")}><CalendarClock size={14} /></span><span><strong>{state.projects.find((project) => project.id === need.projectId)?.name}</strong><small>{need.role} {need.allocation}% · {need.status === "planned" ? "解消予定" : "担当未定"}</small></span><ChevronRight size={15} /></button>)}
+            {periodOverloads.map(({ member, stats }) => <button type="button" onClick={() => openBoard(stats.firstExceedOffset ?? 0)} key={member.id}><span className="exception-icon risk"><CircleAlert size={14} /></span><span><strong>{memberLabel(state, member)}さんが期間中に超過</strong><small>稼働を調整してください</small></span><ChevronRight size={15} /></button>)}
+            {periodIdle.map(({ member }) => <button type="button" onClick={() => openBoard(0)} key={member.id}><span className="exception-icon idle"><UsersRound size={14} /></span><span><strong>{memberLabel(state, member)}さんが期間中ずっと空き</strong><small>配置を検討してください</small></span><ChevronRight size={15} /></button>)}
+            {activeNeeds.map((need) => <button type="button" onClick={() => onResolveNeed(need.id)} key={need.id}><span className={"exception-icon " + (need.status === "planned" ? "planned" : "open")}><CalendarClock size={14} /></span><span><strong>{state.projects.find((project) => project.id === need.projectId)?.name}</strong><small>{need.role} {need.allocation}% · {need.status === "planned" ? "解消予定" : "担当未定"}</small></span><ChevronRight size={15} /></button>)}
             {pipelineNeeds.map((need) => {
               const opportunity = activeOpportunities.find((item) => item.id === need.opportunityId);
-              return <button onClick={() => onOpenOpportunity?.(need.opportunityId)} key={need.id}><span className="exception-icon pipeline"><BriefcaseBusiness size={14} /></span><span><strong>{opportunity?.name ?? "受注前案件"}</strong><small>{need.role} {need.allocation}% · {OPPORTUNITY_STAGE_LABELS[opportunity?.stage ?? "inquiry"]}の要員計画</small></span><ChevronRight size={15} /></button>;
+              return <button type="button" onClick={() => onOpenOpportunity?.(need.opportunityId)} key={need.id}><span className="exception-icon pipeline"><BriefcaseBusiness size={14} /></span><span><strong>{opportunity?.name ?? "受注前案件"}</strong><small>{need.role} {need.allocation}% · {OPPORTUNITY_STAGE_LABELS[opportunity?.stage ?? "inquiry"]}の要員計画</small></span><ChevronRight size={15} /></button>;
             })}
           </div>
         </section>
       </div>
-
-      <div className="report-insight"><span><Sparkles size={17} /></span><div><strong>今週の示唆</strong><p>確定プロジェクトの不足と、受注前案件の想定人数を分けて照合できます。</p></div>{activeNeeds[0] && <button onClick={() => onResolveNeed(activeNeeds[0].id)}>{canEdit ? "候補を見る" : "候補を確認"} <ArrowRight size={13} /></button>}</div>
     </section>
   );
 }

@@ -62,6 +62,7 @@ import {
   openNeeds,
   parseSkillInput,
   skillInputProblems,
+  pipelineDemandForSpan,
   pipelineDemandForWeek,
   projectSearchText,
   addSearchScene,
@@ -890,6 +891,8 @@ describe("pre-award opportunities", () => {
       ...initialWorkspace,
       opportunities: (initialWorkspace.opportunities ?? []).map((opportunity) => opportunity.id === "opp-ledger" ? { ...opportunity, stage: "lost" as const } : opportunity),
     }, "2026-08-24")).toBe(0);
+    expect(pipelineDemandForSpan(initialWorkspace, "2026-08-24", "2026-08-30")).toBe(2);
+    expect(pipelineDemandForSpan(initialWorkspace, "", "2026-08-30")).toBe(0);
   });
 
   it("converts an active opportunity into a project and open staffing needs", () => {
@@ -1465,6 +1468,7 @@ describe("period range (#329 / #364)", () => {
     expect(periodMemberStats(initialWorkspace, member, four).exceeds).toBe(
       memberExceedsCapacity(initialWorkspace, member, four.from, four.to),
     );
+    expect(periodMemberStats(initialWorkspace, member, four).firstExceedOffset).toBe(0);
     let calls = 0;
     const counting = ((...args: Parameters<typeof memberDailyLoads>) => {
       calls += 1;
@@ -1491,7 +1495,18 @@ describe("period range (#329 / #364)", () => {
     const stats = periodMemberStats(state, member, range);
     expect(stats.exceeds).toBe(true);
     expect(stats.open).toBe(false);
+    expect(stats.firstExceedOffset).toBe(0);
     expect(stats.buckets[0]?.average).toBeGreaterThan(100);
+    const later: WorkspaceState = {
+      ...state,
+      assignments: [{
+        id: "a", personId: "m", projectId: "p", startDate: "2026-08-31", endDate: "2026-09-04",
+        allocation: 90, status: "confirmed",
+      }],
+    };
+    const laterStats = periodMemberStats(later, member, range);
+    expect(laterStats.exceeds).toBe(true);
+    expect(laterStats.firstExceedOffset).toBe(2);
     const holiday = periodRange({ unit: "week", count: 4 }, "2026-05-04");
     const holidayState: WorkspaceState = {
       ...state,

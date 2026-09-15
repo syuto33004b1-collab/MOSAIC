@@ -2321,6 +2321,7 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .horizon-caption i.confirmed { background: #8391e6; }.horizon-caption i.draft { border: 1px dashed #6070c9; background: #dfe3ff; }.horizon-caption i.pipeline { background: #f3c8b5; }
 .pipeline-chip { margin-top: 3px; color: #b9472c; font-size: var(--text-min); font-weight: 700; }
 .horizon-caption button { margin-left: auto; border: 0; background: transparent; color: #5967bd; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; font-size: 8px; font-weight: 700; }
+.horizon-clip-note { grid-column: 2; margin: 8px 0 0; color: #8b94a5; font-size: 7px; line-height: 1.5; }
 .report-lower-grid { margin-bottom: 16px; display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 .balance-card, .exceptions-card {
   padding: 17px;
@@ -2385,7 +2386,7 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .exception-list strong { font-size: 8px; }.exception-list small { margin-top: 3px; color: #9199a9; font-size: 7px; }
 .exception-list button > svg { color: #a0a7b5; }
 .exception-icon { width: 28px; height: 28px; flex: 0 0 28px; border-radius: 8px; display: grid; place-items: center; }
-.exception-icon.risk { background: #fff0ee; color: #cf6259; }.exception-icon.open { background: #fff1e7; color: #bb7148; }.exception-icon.planned { background: #eaedff; color: #6070c8; }.exception-icon.pipeline { background: #f8e2da; color: #b9472c; }
+.exception-icon.risk { background: #fff0ee; color: #cf6259; }.exception-icon.open { background: #fff1e7; color: #bb7148; }.exception-icon.planned { background: #eaedff; color: #6070c8; }.exception-icon.pipeline { background: #f8e2da; color: #b9472c; }.exception-icon.idle { background: #eef6f1; color: #4b6757; }
 .report-insight {
   padding: 14px 16px;
   border: 1px solid #cfd5f3;
@@ -2994,6 +2995,7 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .horizon-week small,
 .horizon-caption,
 .horizon-caption button,
+.horizon-clip-note,
 .card-heading small,
 .card-heading > span,
 .department-list strong,
@@ -3052,6 +3054,7 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .horizon-y-labels,
 .horizon-week small,
 .horizon-caption,
+.horizon-clip-note,
 .department-list small,
 .exception-list small,
 .report-insight p,
@@ -3921,6 +3924,7 @@ h1 {
 .horizon-bar b { border-color: var(--coral-deep); border-radius: 2px; background: var(--coral-soft); }
 .horizon-week:hover .horizon-bar { box-shadow: 0 0 0 3px var(--coral-soft); }
 .horizon-caption { border-top-color: var(--line); color: var(--muted); }
+.horizon-clip-note { color: var(--muted); }
 .horizon-caption i.confirmed { background: var(--sage); }
 .horizon-caption i.draft { border-color: var(--coral-deep); background: var(--coral-soft); }
 .horizon-caption i.pipeline { background: var(--coral-soft); }
@@ -3946,6 +3950,7 @@ h1 {
 .exception-icon.open { background: #f9e8d9; color: #8c512c; }
 .exception-icon.planned { background: var(--sage-soft); color: var(--sage); }
 .exception-icon.pipeline { background: var(--coral-soft); color: var(--coral-deep); }
+.exception-icon.idle { background: var(--sage-soft); color: var(--sage); }
 .report-insight {
   border-color: #b9d4c5;
   border-radius: 3px;
