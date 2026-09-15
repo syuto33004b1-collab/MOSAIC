@@ -980,7 +980,7 @@ describe("feedback RPCs", () => {
         },
         error: null,
       })
-      .mockResolvedValueOnce({ data: { id: "fb-1", status: "done", requestId: "req-2", replayed: false }, error: null });
+      .mockResolvedValueOnce({ data: { id: "fb-1", status: "done", requestId: "00000000-0000-4000-8000-000000000002", replayed: false }, error: null });
     const repository = new ProductionRepository({ rpc } as unknown as SupabaseClient);
 
     await expect(repository.submitFeedback("org-1", "req-1", "  空き列が狭い  ", "board")).resolves.toMatchObject({
@@ -1004,14 +1004,14 @@ describe("feedback RPCs", () => {
       p_organization_id: "org-1",
     });
 
-    await expect(repository.updateFeedbackStatus("org-1", "fb-1", "done", "req-2")).resolves.toMatchObject({
+    await expect(repository.updateFeedbackStatus("org-1", "fb-1", "done", "00000000-0000-4000-8000-000000000002")).resolves.toMatchObject({
       status: "done",
       replayed: false,
     });
     expect(rpc).toHaveBeenNthCalledWith(3, "update_feedback_status", {
       p_id: "fb-1",
       p_organization_id: "org-1",
-      p_request_id: "req-2",
+      p_request_id: "00000000-0000-4000-8000-000000000002",
       p_status: "done",
     });
   });
