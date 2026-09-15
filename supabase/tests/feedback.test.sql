@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions, pg_catalog;
 
-select plan(22);
+select plan(23);
 
 insert into auth.users (id, email, raw_user_meta_data) values
   ('11000000-0000-4000-8000-000000000331', 'fb-owner@test.local', '{"full_name":"気づき Owner"}'::jsonb),
@@ -247,6 +247,22 @@ select throws_ok(
 );
 
 set local request.jwt.claim.sub = '11000000-0000-4000-8000-000000000332';
+
+select lives_ok(
+  $$select public.update_feedback_status(
+      '21000000-0000-4000-8000-000000000333',
+      (
+        select (item ->> 'id')::uuid
+        from jsonb_array_elements(
+          public.list_feedback('21000000-0000-4000-8000-000000000333', 50, null) -> 'items'
+        ) as item
+        where item ->> 'body' = '運用パネルから送りたい'
+      ),
+      'done',
+      '91000000-0000-4000-8000-000000000340'
+    )$$,
+  'admin may mark feedback done'
+);
 
 select is(
   jsonb_array_length(public.list_feedback('21000000-0000-4000-8000-000000000333', 1, null) -> 'items'),
