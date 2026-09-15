@@ -2995,6 +2995,7 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .horizon-week small,
 .horizon-caption,
 .horizon-caption button,
+.horizon-clip-note,
 .card-heading small,
 .card-heading > span,
 .department-list strong,
@@ -3053,6 +3054,7 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .horizon-y-labels,
 .horizon-week small,
 .horizon-caption,
+.horizon-clip-note,
 .department-list small,
 .exception-list small,
 .report-insight p,
@@ -3922,6 +3924,7 @@ h1 {
 .horizon-bar b { border-color: var(--coral-deep); border-radius: 2px; background: var(--coral-soft); }
 .horizon-week:hover .horizon-bar { box-shadow: 0 0 0 3px var(--coral-soft); }
 .horizon-caption { border-top-color: var(--line); color: var(--muted); }
+.horizon-clip-note { color: var(--muted); }
 .horizon-caption i.confirmed { background: var(--sage); }
 .horizon-caption i.draft { border-color: var(--coral-deep); background: var(--coral-soft); }
 .horizon-caption i.pipeline { background: var(--coral-soft); }
