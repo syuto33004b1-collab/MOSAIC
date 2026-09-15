@@ -46,6 +46,13 @@ insert into app.organization_memberships (
   ('21000000-0000-4000-8000-000000000334', '11000000-0000-4000-8000-000000000335', 'owner', 'active',
    '11000000-0000-4000-8000-000000000335', '11000000-0000-4000-8000-000000000335');
 
+-- IDs from list_feedback. authenticated has no table privilege on app.feedback.
+create temporary table test_runtime (
+  label text primary key,
+  payload jsonb not null
+) on commit drop;
+grant select, insert, update, delete on table test_runtime to authenticated;
+
 select ok(
   not has_table_privilege('authenticated', 'app.feedback', 'SELECT')
   and not has_table_privilege('authenticated', 'app.feedback', 'INSERT')
@@ -102,13 +109,14 @@ select is(
 );
 
 select is(
-  (
-    select feedback.source_screen
-    from app.feedback as feedback
-    where feedback.request_id = '91000000-0000-4000-8000-000000000332'
-  ),
-  'unknown',
-  'operations and other unknown screens are stored as unknown'
+  public.submit_feedback(
+    '21000000-0000-4000-8000-000000000333',
+    '91000000-0000-4000-8000-000000000332',
+    '運用パネルから送りたい',
+    'operations'
+  ) ->> 'replayed',
+  'true',
+  'an unknown-screen request id also replays'
 );
 
 select throws_ok(
@@ -178,14 +186,19 @@ select is(
   'owner sees the rounded unknown screen'
 );
 
+insert into test_runtime (label, payload)
+select
+  'first_feedback_id',
+  to_jsonb((item ->> 'id')::uuid)
+from jsonb_array_elements(
+  public.list_feedback('21000000-0000-4000-8000-000000000333', 50, null) -> 'items'
+) as item
+where item ->> 'body' = 'ボードの空き列が狭い';
+
 select lives_ok(
   $$select public.update_feedback_status(
       '21000000-0000-4000-8000-000000000333',
-      (
-        select feedback.id
-        from app.feedback as feedback
-        where feedback.request_id = '91000000-0000-4000-8000-000000000331'
-      ),
+      (select (payload #>> '{}')::uuid from test_runtime where label = 'first_feedback_id'),
       'done',
       '91000000-0000-4000-8000-000000000335'
     )$$,
@@ -195,11 +208,7 @@ select lives_ok(
 select is(
   public.update_feedback_status(
     '21000000-0000-4000-8000-000000000333',
-    (
-      select feedback.id
-      from app.feedback as feedback
-      where feedback.request_id = '91000000-0000-4000-8000-000000000331'
-    ),
+    (select (payload #>> '{}')::uuid from test_runtime where label = 'first_feedback_id'),
     'done',
     '91000000-0000-4000-8000-000000000336'
   ) ->> 'replayed',
@@ -228,11 +237,7 @@ select is(
 select throws_ok(
   $$select public.update_feedback_status(
       '21000000-0000-4000-8000-000000000334',
-      (
-        select feedback.id
-        from app.feedback as feedback
-        where feedback.request_id = '91000000-0000-4000-8000-000000000331'
-      ),
+      (select (payload #>> '{}')::uuid from test_runtime where label = 'first_feedback_id'),
       'done',
       '91000000-0000-4000-8000-000000000338'
     )$$,
