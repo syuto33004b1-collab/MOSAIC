@@ -482,6 +482,7 @@ describe("legal notice route", () => {
     supabaseClient.auth.onAuthStateChange.mockReturnValue({ data: { subscription: { unsubscribe: vi.fn() } } });
     render(createElement(RootApp));
     expect(screen.queryByRole("heading", { name: "プライバシーと利用規約" })).not.toBeInTheDocument();
-    expect(await screen.findByRole("heading", { name: "セッションを確認中" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { level: 1, name: "パスワードを再設定" })).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent("有効期限");
   });
 });

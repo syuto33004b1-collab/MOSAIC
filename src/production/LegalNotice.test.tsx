@@ -9,7 +9,7 @@ describe("LegalNotice", () => {
 
     expect(screen.getByRole("heading", { level: 1, name: "プライバシーと利用規約" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { level: 2, name: "社外へ出る経路" })).toBeInTheDocument();
-    expect(screen.getByRole("cell", { name: /モデル提供者/ })).toBeInTheDocument();
+    expect(screen.getByRole("cell", { name: /接続しているモデル提供者へ渡ります/ })).toBeInTheDocument();
     expect(screen.getByRole("rowheader", { name: "Remote MCP" })).toBeInTheDocument();
     expect(screen.getByRole("cell", { name: /ホストが確認を人に見せるかは/ })).toBeInTheDocument();
     expect(screen.getByRole("cell", { name: /認証済み外部 API リクエスト/ })).toBeInTheDocument();
