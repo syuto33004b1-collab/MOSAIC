@@ -6075,4 +6075,23 @@ describe("the project drawer's next milestone", () => {
     const dateOnly = await openProject(user, "日付だけの案件");
     expect(factValue(dateOnly, "次の節目")).toBe("8月21日");
   });
+
+  it("treats a date that is not YYYY-MM-DD as missing", async () => {
+    const user = userEvent.setup();
+    const adapter = sharedAdapter();
+    adapter.initialState = {
+      ...initialWorkspace,
+      projects: [
+        { ...initialWorkspace.projects[0], nextMilestone: "β版レビュー", nextMilestoneDate: "not-a-date" },
+        { ...initialWorkspace.projects[1], name: "日付だけ不正", nextMilestone: "  ", nextMilestoneDate: "8/28" },
+      ],
+    };
+    render(<App mode="shared" organizationName="Example Inc." identity={owner} shared={adapter} />);
+    const named = await openProject(user, "Atlas リニューアル");
+    expect(factValue(named, "次の節目")).toBe("β版レビュー");
+    expect(named.queryByText("—")).not.toBeInTheDocument();
+    await user.click(named.getByRole("button", { name: "詳細パネルを閉じる" }));
+    const blank = await openProject(user, "日付だけ不正");
+    expect(factValue(blank, "次の節目")).toBe("未設定");
+  });
 });

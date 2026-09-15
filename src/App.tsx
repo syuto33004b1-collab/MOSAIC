@@ -308,14 +308,18 @@ const shortDate = (iso: string) => /^\d{4}-\d{2}-\d{2}$/u.test(iso) ? formatDate
  * Missing parts drop out. Both missing, or a date that is not `YYYY-MM-DD`,
  * reads 「未設定」 rather than shortDate's dash.
  */
-function projectMilestoneFact(project: Pick<Project, "nextMilestone" | "nextMilestoneDate">) {
+function projectMilestoneParts(project: Pick<Project, "nextMilestone" | "nextMilestoneDate">) {
   const name = project.nextMilestone.trim();
   const dateIso = project.nextMilestoneDate?.trim() ?? "";
   const date = /^\d{4}-\d{2}-\d{2}$/u.test(dateIso) ? shortDate(dateIso) : "";
-  if (name && date) return `${name} · ${date}`;
-  if (name) return name;
-  if (date) return date;
-  return "未設定";
+  return { name, date };
+}
+
+function ProjectMilestoneValue({ project }: { project: Pick<Project, "nextMilestone" | "nextMilestoneDate"> }) {
+  const { name, date } = projectMilestoneParts(project);
+  if (!name && !date) return "未設定";
+  if (!date) return name;
+  return <>{name ? `${name} ` : null}<span className="milestone-date">{name ? "· " : ""}{date}</span></>;
 }
 
 const navItems = [
@@ -3457,7 +3461,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
             {drawer === "project" && selectedProject && (
               <div className="drawer-content">
                 <div className="drawer-heading"><span className={"project-code drawer-code " + selectedProject.tone}><span>{selectedProject.code}</span></span><div><h2>{selectedProject.name}</h2><p>{selectedProject.summary}</p></div></div>
-                <div className="detail-facts"><div><span>状態</span><strong>{selectedProject.status}</strong></div><div><span>進捗</span><strong>{selectedProject.progress}%</strong></div><div><span>責任者</span><strong>{ownerLabel(workspace, selectedProject) ?? "未設定"}</strong></div><div><span>完了予定</span><strong>{formatDate(selectedProject.endDate).replace(/^\d{4}年/, "")}</strong></div><div className="fact-wide"><span>次の節目</span><strong>{projectMilestoneFact(selectedProject)}</strong></div></div>
+                <div className="detail-facts"><div><span>状態</span><strong>{selectedProject.status}</strong></div><div><span>進捗</span><strong>{selectedProject.progress}%</strong></div><div><span>責任者</span><strong>{ownerLabel(workspace, selectedProject) ?? "未設定"}</strong></div><div><span>完了予定</span><strong>{formatDate(selectedProject.endDate).replace(/^\d{4}年/, "")}</strong></div><div className="fact-wide"><span>次の節目</span><strong><ProjectMilestoneValue project={selectedProject} /></strong></div></div>
                 <CustomFieldFacts fields={visibleCustomFields(workspace.customFields, "project", "detail")} values={selectedProject.customValues} />
                 {(workspace.opportunities ?? []).some((opportunity) => opportunity.convertedProjectId === selectedProject.id) && (
                   <button className="drawer-secondary" onClick={() => openOpportunity((workspace.opportunities ?? []).find((opportunity) => opportunity.convertedProjectId === selectedProject.id)!.id)}>元の受注前案件を開く</button>
