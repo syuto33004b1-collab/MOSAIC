@@ -2452,7 +2452,8 @@ export default function Home({ mode = "demo", organizationId, organizationName =
     setToast("要員要件を取消予定にしました");
   };
 
-  const openWeekFromReport = (offset: number) => {
+  const openWeekFromReport = (offset: number, unit: BoardUnit) => {
+    setBoardUnit(unit);
     setWeekOffset(offset);
     setActiveNav("board");
     setViewMode("members");

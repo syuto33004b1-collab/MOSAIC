@@ -2213,11 +2213,15 @@ export function opportunitySearchText(opportunity: Opportunity, needs: Opportuni
   return [opportunity.code, opportunity.name, opportunity.summary, opportunity.ownerName ?? "", OPPORTUNITY_STAGE_LABELS[opportunity.stage], ...needText].join(" ").toLocaleLowerCase();
 }
 
-export function pipelineDemandForWeek(state: Pick<WorkspaceState, "opportunities">, weekStart: string) {
-  const weekClose = weekEnd(weekStart);
+export function pipelineDemandForSpan(state: Pick<WorkspaceState, "opportunities">, from: string, to: string) {
+  if (!from || !to || from > to) return 0;
   return (state.opportunities ?? [])
-    .filter((opportunity) => isActiveOpportunity(opportunity) && overlaps(opportunity.startDate, opportunity.endDate, weekStart, weekClose))
+    .filter((opportunity) => isActiveOpportunity(opportunity) && overlaps(opportunity.startDate, opportunity.endDate, from, to))
     .reduce((sum, opportunity) => sum + opportunity.demand, 0);
+}
+
+export function pipelineDemandForWeek(state: Pick<WorkspaceState, "opportunities">, weekStart: string) {
+  return pipelineDemandForSpan(state, weekStart, weekEnd(weekStart));
 }
 
 function nextEntityId(prefix: string, seed: string) {

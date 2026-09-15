@@ -1211,6 +1211,63 @@ describe("role-aware workspace", () => {
     expect(saved.assignments).toHaveLength(initialWorkspace.assignments.length);
   });
 
+  describe("report period horizon", () => {
+    afterEach(() => { vi.useRealTimers(); });
+
+    it("extends the report horizon across the shared period choices", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      vi.setSystemTime(new Date("2026-08-19T09:00:00+09:00"));
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      render(<App />);
+      const navigation = within(screen.getByRole("navigation", { name: "メインナビゲーション" }));
+      await user.click(navigation.getByRole("button", { name: "レポート" }));
+
+      expect(screen.getByRole("button", { name: "12週間", pressed: true })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "8週間" })).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "4週間" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "6か月" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "12か月" })).toBeInTheDocument();
+      expect(document.querySelectorAll(".horizon-week")).toHaveLength(12);
+      expect(screen.getByRole("button", { name: /8\/17週/ })).toBeInTheDocument();
+
+      await user.click(screen.getByRole("button", { name: "6か月" }));
+      expect(document.querySelectorAll(".horizon-week")).toHaveLength(6);
+      expect(screen.getByRole("button", { name: /8月/ })).toBeInTheDocument();
+      await user.click(screen.getByRole("button", { name: /9月/ }));
+
+      expect(screen.getByRole("heading", { name: "チーム編成" })).toBeInTheDocument();
+      expect(within(screen.getByRole("group", { name: "表示する期間" })).getByRole("button", { name: "月", pressed: true })).toBeInTheDocument();
+      expect(document.querySelector(".date-range")!.textContent).toContain("2026年 9月");
+    });
+
+    it("lists idle members for the selected report period and notes a clipped calendar", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      vi.setSystemTime(new Date("2026-08-19T09:00:00+09:00"));
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      const adapter = sharedAdapter();
+      const idle = { ...initialWorkspace.members[0], id: "idle-one", name: "遊休 太郎", capacity: 100, unavailability: [] };
+      adapter.initialState = {
+        ...initialWorkspace,
+        members: [idle],
+        assignments: [],
+        needs: [],
+        opportunities: [],
+        opportunityNeeds: [],
+      };
+      render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "admin@example.com", role: "admin" }} shared={adapter} />);
+      const navigation = within(screen.getByRole("navigation", { name: "メインナビゲーション" }));
+      await user.click(navigation.getByRole("button", { name: "レポート" }));
+      expect(screen.getByText("遊休 太郎さんが期間中ずっと空き")).toBeInTheDocument();
+      expect(screen.queryByText("今週の示唆")).not.toBeInTheDocument();
+      expect(screen.queryByRole("note")).not.toBeInTheDocument();
+
+      vi.setSystemTime(new Date("2035-11-15T09:00:00+09:00"));
+      await user.click(screen.getByRole("button", { name: "12か月" }));
+      expect(screen.getByRole("note")).toHaveTextContent("2016年から2035年");
+      expect(document.querySelectorAll(".horizon-week").length).toBe(2);
+    });
+  });
+
   it("keeps pipeline demand distinct from confirmed utilization in reports", async () => {
     const user = userEvent.setup();
     render(<App />);
@@ -3639,9 +3696,9 @@ describe("a staffing need keeps its own candidates", () => {
  * made it worse — in month mode these figures cover the month's *first* week,
  * which can be several weeks from today.
  *
- * The word is now reserved for a figure computed from `getWeekStart(0)`, which is
- * the reports screen and nothing else. Every other week-scoped figure names its
- * week, the shape #119 already gave the sidebar.
+ * The word left the reports screen in #365: those figures now cover a chosen
+ * span, not getWeekStart(0). Every week-scoped figure names its week, the shape
+ * #119 already gave the sidebar.
  */
 /**
  * #194: the board named its position 「WEEK 34」 — an ISO week number, year-wide, and no
@@ -3897,10 +3954,10 @@ describe("a week-scoped figure names the week it measures", () => {
       await user.click(navigation.getByRole("button", { name: new RegExp(`^${screenName}( |$)`, "u") }));
       expect(document.body.textContent, `${screenName} should not claim 今週`).not.toContain("今週");
     }
-    // The reports screen may, and does: its figures come from getWeekStart(0) and
-    // it takes no week from the board. Asserted so the reservation is not vacuous.
+    // Reports used to keep the word because it measured getWeekStart(0). The
+    // horizon is now a chosen span (#365), so the word is wrong there too.
     await user.click(navigation.getByRole("button", { name: "レポート" }));
-    expect(document.body.textContent).toContain("今週");
+    expect(document.body.textContent, "レポート should not claim 今週").not.toContain("今週");
   });
 
   /**

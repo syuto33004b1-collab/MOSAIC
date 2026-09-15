@@ -62,6 +62,7 @@ import {
   openNeeds,
   parseSkillInput,
   skillInputProblems,
+  pipelineDemandForSpan,
   pipelineDemandForWeek,
   projectSearchText,
   addSearchScene,
@@ -890,6 +891,8 @@ describe("pre-award opportunities", () => {
       ...initialWorkspace,
       opportunities: (initialWorkspace.opportunities ?? []).map((opportunity) => opportunity.id === "opp-ledger" ? { ...opportunity, stage: "lost" as const } : opportunity),
     }, "2026-08-24")).toBe(0);
+    expect(pipelineDemandForSpan(initialWorkspace, "2026-08-24", "2026-08-30")).toBe(2);
+    expect(pipelineDemandForSpan(initialWorkspace, "", "2026-08-30")).toBe(0);
   });
 
   it("converts an active opportunity into a project and open staffing needs", () => {
