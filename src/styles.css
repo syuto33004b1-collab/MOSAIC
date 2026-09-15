@@ -2410,6 +2410,13 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 }
 .detail-facts span, .detail-facts strong { display: block; }
 .detail-facts span { color: #969eae; font-size: 7px; }.detail-facts strong { margin-top: 4px; font-size: 9px; }
+/* Five cells leave an odd last row. The leftover milestone is the longest
+   reading in this grid, so it takes the full row rather than wrapping inside
+   a quarter of the panel — Kite's 「データ品質レビュー · 9月2日」 split the date
+   at 1050px and 375px when it sat in a half-track. The name may wrap; the date
+   stays one token so 「9月2日」 is not split. */
+.detail-facts > .fact-wide { grid-column: 1 / -1; }
+.detail-facts > .fact-wide .milestone-date { display: inline; white-space: nowrap; }
 .detail-capacity-rail { margin-bottom: 21px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
 .detail-capacity-rail i { height: 7px; border-radius: 99px; background: #edf0f4; overflow: hidden; display: block; }
 .detail-capacity-rail b { display: block; height: 100%; border-radius: inherit; background: #8391e7; }

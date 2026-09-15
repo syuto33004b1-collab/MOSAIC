@@ -6015,3 +6015,83 @@ describe("coming back to the screen before", () => {
     expect(window.history.length).toBe(entries);
   });
 });
+
+/**
+ * #298: the project list already named the next milestone; the drawer did not, so
+ * reading a row meant going back to the table. The cell lives in `.detail-facts`
+ * beside 完了予定. Query the dialog — the table header is also 「次の節目」, and
+ * Atlas's name is on the row as well as here.
+ */
+describe("the project drawer's next milestone", () => {
+  const owner = { name: "管理 花子", email: "owner@example.com", role: "owner" as const };
+
+  async function openProject(user: ReturnType<typeof userEvent.setup>, name: string) {
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^プロジェクト( |$)/u }));
+    await user.click(screen.getByText(name).closest("button")!);
+    return within(screen.getByRole("dialog", { name: "詳細パネル" }));
+  }
+
+  function factValue(dialog: ReturnType<typeof within>, label: string) {
+    const cell = dialog.getByText(label).closest("div")!;
+    expect(cell.parentElement).toHaveClass("detail-facts");
+    if (label === "次の節目") expect(cell).toHaveClass("fact-wide");
+    return cell.querySelector("strong")?.textContent ?? "";
+  }
+
+  it("shows the seeded name and the same month-day as 完了予定", async () => {
+    const user = userEvent.setup();
+    render(<App mode="shared" organizationName="Example Inc." identity={owner} shared={sharedAdapter()} />);
+    const dialog = await openProject(user, "Atlas リニューアル");
+    expect(factValue(dialog, "次の節目")).toBe("β版レビュー · 8月28日");
+    expect(dialog.queryByText("8/28")).not.toBeInTheDocument();
+  });
+
+  it("keeps the row when the milestone is empty, and says 未設定", async () => {
+    const user = userEvent.setup();
+    const adapter = sharedAdapter();
+    adapter.initialState = {
+      ...initialWorkspace,
+      projects: [{ ...initialWorkspace.projects[0], nextMilestone: "  ", nextMilestoneDate: null }],
+    };
+    render(<App mode="shared" organizationName="Example Inc." identity={owner} shared={adapter} />);
+    const dialog = await openProject(user, "Atlas リニューアル");
+    expect(factValue(dialog, "次の節目")).toBe("未設定");
+  });
+
+  it("shows only the part that is present", async () => {
+    const user = userEvent.setup();
+    const adapter = sharedAdapter();
+    adapter.initialState = {
+      ...initialWorkspace,
+      projects: [
+        { ...initialWorkspace.projects[0], nextMilestone: "キックオフ", nextMilestoneDate: "" },
+        { ...initialWorkspace.projects[1], name: "日付だけの案件", nextMilestone: "", nextMilestoneDate: "2026-08-21" },
+      ],
+    };
+    render(<App mode="shared" organizationName="Example Inc." identity={owner} shared={adapter} />);
+    const nameOnly = await openProject(user, "Atlas リニューアル");
+    expect(factValue(nameOnly, "次の節目")).toBe("キックオフ");
+    await user.click(nameOnly.getByRole("button", { name: "詳細パネルを閉じる" }));
+    const dateOnly = await openProject(user, "日付だけの案件");
+    expect(factValue(dateOnly, "次の節目")).toBe("8月21日");
+  });
+
+  it("treats a date that is not YYYY-MM-DD as missing", async () => {
+    const user = userEvent.setup();
+    const adapter = sharedAdapter();
+    adapter.initialState = {
+      ...initialWorkspace,
+      projects: [
+        { ...initialWorkspace.projects[0], nextMilestone: "β版レビュー", nextMilestoneDate: "not-a-date" },
+        { ...initialWorkspace.projects[1], name: "日付だけ不正", nextMilestone: "  ", nextMilestoneDate: "8/28" },
+      ],
+    };
+    render(<App mode="shared" organizationName="Example Inc." identity={owner} shared={adapter} />);
+    const named = await openProject(user, "Atlas リニューアル");
+    expect(factValue(named, "次の節目")).toBe("β版レビュー");
+    expect(named.queryByText("—")).not.toBeInTheDocument();
+    await user.click(named.getByRole("button", { name: "詳細パネルを閉じる" }));
+    const blank = await openProject(user, "日付だけ不正");
+    expect(factValue(blank, "次の節目")).toBe("未設定");
+  });
+});
