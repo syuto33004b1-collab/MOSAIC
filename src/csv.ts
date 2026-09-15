@@ -25,6 +25,8 @@ import {
   type Member,
   type Project,
   type ProjectStatus,
+  parseMonthlyCostYen,
+  workspaceShowsMonthlyCost,
   type WorkspaceState,
 } from "./domain";
 
@@ -85,6 +87,8 @@ const MEMBER_CORE_COLUMNS: CsvColumn[] = [
   { key: "skills", label: "スキル" },
 ];
 
+const MONTHLY_COST_CSV_COLUMN: CsvColumn = { key: "monthlyCost", label: "月額原価" };
+
 const PROJECT_CORE_COLUMNS: CsvColumn[] = [
   { key: "id", label: "ID" },
   { key: "code", label: "コード" },
@@ -125,9 +129,15 @@ const ASSIGNMENT_CORE_COLUMNS: CsvColumn[] = [
 const AVATAR_TONES: AvatarTone[] = ["lavender", "peach", "sky", "mint", "sand", "rose"];
 const TARGET_ID_PATTERN = /^[\w:-]{1,80}$/;
 
-export function memberCsvColumns(catalog: CustomFieldDefinition[] | undefined): CsvColumn[] {
+export function memberCsvColumns(
+  catalog: CustomFieldDefinition[] | undefined,
+  options?: { includeMonthlyCost?: boolean },
+): CsvColumn[] {
+  const core = options?.includeMonthlyCost
+    ? [...MEMBER_CORE_COLUMNS.slice(0, 6), MONTHLY_COST_CSV_COLUMN, ...MEMBER_CORE_COLUMNS.slice(6)]
+    : MEMBER_CORE_COLUMNS;
   return [
-    ...MEMBER_CORE_COLUMNS,
+    ...core,
     ...orderedCustomFields(catalog, "member").map((field) => ({ key: `custom:${field.key}`, label: field.label })),
   ];
 }
@@ -168,7 +178,7 @@ export function serializeCsv(headers: string[], rows: string[][]) {
 }
 
 export function exportMembersCsv(state: WorkspaceState, columns: string[]) {
-  const available = memberCsvColumns(state.customFields);
+  const available = memberCsvColumns(state.customFields, { includeMonthlyCost: workspaceShowsMonthlyCost(state) });
   const selected = resolveColumns(available, columns);
   const rows = state.members.map((member) => selected.map((column) => memberCell(state, member, column.key)));
   return serializeCsv(selected.map((column) => column.key), rows);
@@ -459,6 +469,7 @@ function memberCell(state: WorkspaceState, member: Member, key: string) {
     return field ? member.customValues?.[field.id] ?? "" : "";
   }
   if (key === "skills") return formatSkillInput(memberSkillLevels(member));
+  if (key === "monthlyCost") return member.monthlyCost == null ? "" : String(member.monthlyCost);
   const value = member[key as keyof Member];
   return value == null ? "" : String(value);
 }
@@ -508,6 +519,11 @@ function memberActionFromRow(state: WorkspaceState, row: Record<string, string>,
   if (skillProblems.length > 0) throw new Error(skillProblems[0]);
   const skillLevels = parseSkillInput(skillInput);
   const customValues = customValuesFromRow(state.customFields, "member", row, existing?.customValues);
+  const monthlyCost = hasColumn(row, "monthlyCost")
+    ? parseMonthlyCostYen(cell(row, "monthlyCost"))
+    : existing && existing.monthlyCost !== undefined
+      ? existing.monthlyCost
+      : undefined;
   const member: Member = {
     id: existing?.id ?? newId(),
     initials: makeInitials(name),
@@ -519,6 +535,7 @@ function memberActionFromRow(state: WorkspaceState, row: Record<string, string>,
     skillLevels,
     location,
     capacity,
+    ...(monthlyCost !== undefined ? { monthlyCost } : {}),
     customValues,
     workHistory: existing?.workHistory ?? [],
   };

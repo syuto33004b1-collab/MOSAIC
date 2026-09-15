@@ -1128,6 +1128,10 @@ describe("role-aware workspace", () => {
 
     await user.click(navigation.getByRole("button", { name: "項目定義" }));
     expect(screen.getByRole("heading", { level: 1, name: "項目と経歴" })).toBeInTheDocument();
+    expect(screen.getByText("非表示の項目")).toBeInTheDocument();
+    expect(screen.getByText("計画担当・閲覧者には月額原価は常に非表示です。")).toBeInTheDocument();
+    await user.selectOptions(screen.getByLabelText("権限を設定するロール"), "admin");
+    expect(screen.getAllByRole("checkbox", { name: "月額原価" }).length).toBeGreaterThan(0);
     expect(screen.getAllByText("雇用形態").length).toBeGreaterThan(0);
     await user.type(screen.getByPlaceholderText("雇用形態"), "在留資格");
     await user.type(screen.getByPlaceholderText("employment_type"), "visa_status");
@@ -1248,7 +1252,7 @@ describe("role-aware workspace", () => {
       vi.setSystemTime(new Date("2026-08-19T09:00:00+09:00"));
       const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
       const adapter = sharedAdapter();
-      const idle = { ...initialWorkspace.members[0], id: "idle-one", name: "遊休 太郎", capacity: 100, unavailability: [] };
+      const idle = { ...initialWorkspace.members[0], id: "idle-one", name: "遊休 太郎", capacity: 100, monthlyCost: 600000, unavailability: [] };
       adapter.initialState = {
         ...initialWorkspace,
         members: [idle],
@@ -1261,6 +1265,7 @@ describe("role-aware workspace", () => {
       const navigation = within(screen.getByRole("navigation", { name: "メインナビゲーション" }));
       await user.click(navigation.getByRole("button", { name: "レポート" }));
       expect(screen.getByText("遊休 太郎さんが期間中ずっと空き")).toBeInTheDocument();
+      expect(screen.getByText("遊休 太郎さんが期間中ずっと空き").closest("button")).toHaveTextContent(/[¥￥]/);
       expect(screen.queryByText("今週の示唆")).not.toBeInTheDocument();
       expect(screen.queryByRole("note")).not.toBeInTheDocument();
 
@@ -1268,6 +1273,27 @@ describe("role-aware workspace", () => {
       await user.click(screen.getByRole("button", { name: "12か月" }));
       expect(screen.getByRole("note")).toHaveTextContent("2016年から2035年");
       expect(document.querySelectorAll(".horizon-week").length).toBe(2);
+    });
+
+    it("keeps the idle card without yen when the cost field is hidden or unset", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      vi.setSystemTime(new Date("2026-08-19T09:00:00+09:00"));
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      const adapter = sharedAdapter();
+      const hidden = { ...initialWorkspace.members[0], id: "idle-hidden", name: "隠した 太郎", capacity: 100, unavailability: [] };
+      delete hidden.monthlyCost;
+      adapter.initialState = {
+        ...initialWorkspace,
+        members: [hidden, { ...hidden, id: "idle-unset", name: "未設定 花子", monthlyCost: null }],
+        assignments: [],
+        needs: [],
+        opportunities: [],
+        opportunityNeeds: [],
+      };
+      render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "admin@example.com", role: "admin" }} shared={adapter} />);
+      await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: "レポート" }));
+      expect(screen.getByText("隠した 太郎さんが期間中ずっと空き").closest("button")).toHaveTextContent("配置を検討してください");
+      expect(screen.getByText("未設定 花子さんが期間中ずっと空き").closest("button")).toHaveTextContent("原価未設定");
     });
 
     it("changes organization load with the selected span and opens the first overloaded bucket", async () => {

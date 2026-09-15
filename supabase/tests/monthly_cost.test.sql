@@ -1,0 +1,221 @@
+begin;
+
+create extension if not exists pgtap with schema extensions;
+set local search_path = public, extensions, pg_catalog;
+
+select plan(12);
+
+insert into auth.users (id, email, raw_user_meta_data) values
+  ('11000000-0000-4000-8000-00000371', 'cost-owner@test.local', '{"full_name":"Cost Owner"}'::jsonb),
+  ('11000000-0000-4000-8000-00000372', 'cost-admin@test.local', '{"full_name":"Cost Admin"}'::jsonb),
+  ('11000000-0000-4000-8000-00000373', 'cost-planner@test.local', '{"full_name":"Cost Planner"}'::jsonb),
+  ('11000000-0000-4000-8000-00000374', 'cost-viewer@test.local', '{"full_name":"Cost Viewer"}'::jsonb);
+
+insert into app.organizations (
+  id, name, slug, workspace_changed_by, created_by, updated_by
+) values (
+  '21000000-0000-4000-8000-00000373',
+  'Monthly Cost Tenant',
+  'monthly-cost-tenant-test',
+  '11000000-0000-4000-8000-00000371',
+  '11000000-0000-4000-8000-00000371',
+  '11000000-0000-4000-8000-00000371'
+);
+
+insert into app.organization_memberships (
+  organization_id, user_id, role, status, created_by, updated_by
+) values
+  ('21000000-0000-4000-8000-00000373', '11000000-0000-4000-8000-00000371', 'owner', 'active',
+   '11000000-0000-4000-8000-00000371', '11000000-0000-4000-8000-00000371'),
+  ('21000000-0000-4000-8000-00000373', '11000000-0000-4000-8000-00000372', 'admin', 'active',
+   '11000000-0000-4000-8000-00000371', '11000000-0000-4000-8000-00000371'),
+  ('21000000-0000-4000-8000-00000373', '11000000-0000-4000-8000-00000373', 'planner', 'active',
+   '11000000-0000-4000-8000-00000371', '11000000-0000-4000-8000-00000371'),
+  ('21000000-0000-4000-8000-00000373', '11000000-0000-4000-8000-00000374', 'viewer', 'active',
+   '11000000-0000-4000-8000-00000371', '11000000-0000-4000-8000-00000371');
+
+insert into app.people (
+  id, organization_id, initials, name, role_title, department, location, monthly_cost_yen, created_by, updated_by
+) values (
+  '31000000-0000-4000-8000-00000373',
+  '21000000-0000-4000-8000-00000373',
+  'CT', '原価 太郎', 'Engineer', '第一本部', '東京', 600000,
+  '11000000-0000-4000-8000-00000371', '11000000-0000-4000-8000-00000371'
+);
+
+create temporary table test_runtime (
+  label text primary key,
+  payload jsonb not null
+) on commit drop;
+grant select, insert, update, delete on table test_runtime to authenticated, service_role;
+
+set local role authenticated;
+set local request.jwt.claim.role = 'authenticated';
+set local request.jwt.claim.sub = '11000000-0000-4000-8000-00000371';
+
+select ok(
+  (
+    select bool_and(member ? 'monthlyCost')
+      and bool_and((member ->> 'monthlyCost')::int = 600000)
+    from jsonb_array_elements(
+      public.get_workspace('21000000-0000-4000-8000-00000373') -> 'members'
+    ) as member
+  ),
+  'owner get_workspace includes monthlyCost'
+);
+
+set local request.jwt.claim.sub = '11000000-0000-4000-8000-00000373';
+
+select ok(
+  (
+    select bool_and(not (member ? 'monthlyCost'))
+    from jsonb_array_elements(
+      public.get_workspace('21000000-0000-4000-8000-00000373') -> 'members'
+    ) as member
+  ),
+  'planner get_workspace omits monthlyCost even with no role_permissions row'
+);
+
+set local request.jwt.claim.sub = '11000000-0000-4000-8000-00000374';
+
+select ok(
+  (
+    select bool_and(not (member ? 'monthlyCost'))
+    from jsonb_array_elements(
+      public.get_workspace('21000000-0000-4000-8000-00000373') -> 'members'
+    ) as member
+  ),
+  'viewer get_workspace omits monthlyCost'
+);
+
+set local request.jwt.claim.sub = '11000000-0000-4000-8000-00000371';
+
+select lives_ok(
+  $$select public.save_workspace(
+      '21000000-0000-4000-8000-00000373',
+      0,
+      '91000000-0000-4000-8000-00000371',
+      '{"rolePermissions":{"upsert":[{"role":"admin","hiddenFieldKeys":["monthlyCost"]}]}}'::jsonb,
+      repeat('a', 64)
+    )$$,
+  'owner may hide monthlyCost on admin'
+);
+
+set local request.jwt.claim.sub = '11000000-0000-4000-8000-00000372';
+
+select ok(
+  (
+    select bool_and(not (member ? 'monthlyCost'))
+    from jsonb_array_elements(
+      public.get_workspace('21000000-0000-4000-8000-00000373') -> 'members'
+    ) as member
+  ),
+  'admin with hidden monthlyCost does not receive the key'
+);
+
+select throws_ok(
+  $$select public.save_workspace(
+      '21000000-0000-4000-8000-00000373',
+      1,
+      '91000000-0000-4000-8000-00000372',
+      '{"members":{"upsert":[{"id":"31000000-0000-4000-8000-00000373","initials":"CT","name":"原価 太郎","role":"Engineer","department":"第一本部","location":"東京","capacity":100,"monthlyCost":1}],"archiveIds":[]}}'::jsonb,
+      repeat('b', 64)
+    )$$,
+  '42501',
+  'monthlyCost cannot be changed by this role',
+  'hidden admin cannot write monthlyCost'
+);
+
+select lives_ok(
+  $$select public.save_workspace(
+      '21000000-0000-4000-8000-00000373',
+      1,
+      '91000000-0000-4000-8000-00000373',
+      '{"members":{"upsert":[{"id":"31000000-0000-4000-8000-00000373","initials":"CT","name":"原価 改","role":"Engineer","department":"第一本部","location":"東京","capacity":100}],"archiveIds":[]}}'::jsonb,
+      repeat('c', 64)
+    )$$,
+  'hidden admin can save other member fields without monthlyCost'
+);
+
+reset role;
+
+select is(
+  (
+    select person.monthly_cost_yen
+    from app.people as person
+    where person.id = '31000000-0000-4000-8000-00000373'
+  ),
+  600000,
+  'omitting monthlyCost on save keeps the stored yen'
+);
+
+set local role authenticated;
+set local request.jwt.claim.role = 'authenticated';
+set local request.jwt.claim.sub = '11000000-0000-4000-8000-00000371';
+
+select throws_ok(
+  $$select public.save_workspace(
+      '21000000-0000-4000-8000-00000373',
+      2,
+      '91000000-0000-4000-8000-00000374',
+      '{"rolePermissions":{"upsert":[{"role":"admin","readonlyFieldKeys":["monthlyCost"]}]}}'::jsonb,
+      repeat('d', 64)
+    )$$,
+  '22023',
+  'monthlyCost cannot be read-only',
+  'monthlyCost is refused in readonlyFieldKeys'
+);
+
+insert into test_runtime (label, payload)
+select 'client', public.create_integration_client(
+  '21000000-0000-4000-8000-00000373',
+  'Cost API',
+  array['workspace:read']::text[],
+  '91000000-0000-4000-8000-00000375'
+);
+
+reset role;
+set local role service_role;
+
+select ok(
+  (
+    select bool_and(not (member ? 'monthlyCost'))
+    from jsonb_array_elements(
+      public.integration_get_workspace(
+        (select (payload -> 'client' ->> 'id')::uuid from test_runtime where label = 'client')
+      ) -> 'members'
+    ) as member
+  ),
+  'integration_get_workspace omits monthlyCost even when the issuer is owner'
+);
+
+reset role;
+set local role authenticated;
+set local request.jwt.claim.role = 'authenticated';
+set local request.jwt.claim.sub = '11000000-0000-4000-8000-00000371';
+
+select lives_ok(
+  $$select public.save_workspace(
+      '21000000-0000-4000-8000-00000373',
+      2,
+      '91000000-0000-4000-8000-00000376',
+      '{"members":{"upsert":[{"id":"31000000-0000-4000-8000-00000373","initials":"CT","name":"原価 改","role":"Engineer","department":"第一本部","location":"東京","capacity":100,"monthlyCost":750000}],"archiveIds":[]}}'::jsonb,
+      repeat('e', 64)
+    )$$,
+  'owner can set monthlyCost'
+);
+
+reset role;
+
+select is(
+  (
+    select person.monthly_cost_yen
+    from app.people as person
+    where person.id = '31000000-0000-4000-8000-00000373'
+  ),
+  750000,
+  'owner write updates monthly_cost_yen'
+);
+
+select * from finish();
+rollback;

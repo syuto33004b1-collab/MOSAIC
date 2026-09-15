@@ -59,6 +59,9 @@ import {
   PERIOD_CLIP_NOTE,
   periodBucketLabel,
   periodChoiceLabel,
+  monthBusinessDayCount,
+  parseMonthlyCostYen,
+  periodIdleCostYen,
   periodMemberStats,
   periodRange,
   periodStatsFromDays,
@@ -1127,6 +1130,8 @@ describe("role permissions", () => {
       readonlyFieldKeys: ["english"],
     })).toThrow("両方");
     expect(() => setRolePermission([], customFields, { role: "viewer", personScope: "team" as never })).toThrow("参照範囲");
+    expect(setRolePermission([], customFields, { role: "admin", hiddenFieldKeys: ["monthlyCost"] })[0].hiddenFieldKeys).toEqual(["monthlyCost"]);
+    expect(() => setRolePermission([], customFields, { role: "admin", readonlyFieldKeys: ["monthlyCost"] })).toThrow("編集不可");
   });
 
   it("keeps read-only fields out of the editors but leaves them readable", () => {
@@ -1634,5 +1639,56 @@ describe("normalizeMemberUnavailability", () => {
       { id: "b", startDate: "2026-08-20", endDate: "2026-08-21", capacityPercent: 40, note: "  " },
       { id: "a", startDate: "2026-08-17", endDate: "2026-08-19", capacityPercent: 50 },
     ]).map((entry) => entry.id)).toEqual(["a", "b"]);
+  });
+});
+
+describe("monthly cost", () => {
+  const member = {
+    id: "m",
+    initials: "M",
+    name: "Member",
+    role: "QA",
+    department: "QA",
+    avatarTone: "mint" as const,
+    skills: [] as string[],
+    location: "Tokyo",
+    capacity: 100,
+    monthlyCost: 600_000,
+  };
+
+  it("counts August 2026 business days with 山の日 and weekends removed", () => {
+    expect(monthBusinessDayCount("2026-08-01")).toBe(20);
+    expect(monthBusinessDayCount("2026-08")).toBe(20);
+    expect(monthBusinessDayCount("9999-01-01")).toBe(0);
+  });
+
+  it("prices a fully idle August as one month of cost", () => {
+    const state = { ...initialWorkspace, members: [member], assignments: [] };
+    expect(periodIdleCostYen(state, member, "2026-08-01", "2026-08-31")).toBe(600_000);
+  });
+
+  it("uses the short-time ceiling as available capacity, not full pay", () => {
+    const short = {
+      ...member,
+      unavailability: [{ id: "u", startDate: "2026-08-01", endDate: "2026-08-31", capacityPercent: 50 }],
+    };
+    const state = { ...initialWorkspace, members: [short], assignments: [] };
+    expect(periodIdleCostYen(state, short, "2026-08-01", "2026-08-31")).toBe(300_000);
+  });
+
+  it("returns null when the cost is hidden or unset", () => {
+    const unset = { ...member, monthlyCost: null };
+    const hidden = { ...member, monthlyCost: undefined };
+    const state = { ...initialWorkspace, members: [unset], assignments: [] };
+    expect(periodIdleCostYen(state, unset, "2026-08-01", "2026-08-31")).toBeNull();
+    expect(periodIdleCostYen(state, hidden, "2026-08-01", "2026-08-31")).toBeNull();
+  });
+
+  it("parses yen text and rejects a decimal", () => {
+    expect(parseMonthlyCostYen("")).toBeNull();
+    expect(parseMonthlyCostYen(" 0 ")).toBe(0);
+    expect(parseMonthlyCostYen("1000000000")).toBe(1_000_000_000);
+    expect(() => parseMonthlyCostYen("1.5")).toThrow("整数");
+    expect(() => parseMonthlyCostYen("1000000001")).toThrow("整数");
   });
 });

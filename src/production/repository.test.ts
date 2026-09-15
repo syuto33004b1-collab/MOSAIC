@@ -105,6 +105,21 @@ describe("production repository response adapters", () => {
 
     const workspace = normalizeWorkspace({ workspaceRevision: 2, ...boundary });
     expect(workspace.state.members[0].capacity).toBe(0);
+    expect(normalizeWorkspace({
+      workspaceRevision: 2,
+      ...boundary,
+      members: boundary.members.map((member, index) => index === 0 ? { ...member, monthlyCost: 600000 } : member),
+    }).state.members[0].monthlyCost).toBe(600000);
+    expect(normalizeWorkspace({
+      workspaceRevision: 2,
+      ...boundary,
+      members: boundary.members.map((member, index) => index === 0 ? { ...member, monthlyCost: null } : member),
+    }).state.members[0].monthlyCost).toBeNull();
+    expect(() => normalizeWorkspace({
+      workspaceRevision: 2,
+      ...boundary,
+      members: boundary.members.map((member, index) => index === 0 ? { ...member, monthlyCost: 1.5 } : member),
+    })).toThrow("共有ワークスペースのデータ形式が正しくありません");
     expect(workspace.state.projects[0]).toMatchObject({ status: "完了", demand: 0 });
 
     expect(() => normalizeWorkspace({ workspaceRevision: 2, ...boundary, members: boundary.members.map((member, index) => index === 0 ? { ...member, capacity: 101 } : member) })).toThrow("共有ワークスペースのデータ形式が正しくありません");
