@@ -7,7 +7,10 @@ export type AuthScreenMode = "sign-in" | "update-password" | "onboard" | "invali
 type AuthScreenProps = {
   mode?: AuthScreenMode;
   recoveryMessage?: string;
+  initialError?: string;
+  googleAuthEnabled?: boolean;
   onSignIn: (email: string, password: string) => Promise<void>;
+  onGoogleSignIn?: () => Promise<void>;
   onRequestReset: (email: string) => Promise<void>;
   onUpdatePassword: (password: string) => Promise<void>;
   onCompleteOnboarding?: (displayName: string, password: string) => Promise<void>;
@@ -30,7 +33,10 @@ function initialView(mode: AuthScreenMode): AuthView {
 export function AuthScreen({
   mode = "sign-in",
   recoveryMessage = "",
+  initialError = "",
+  googleAuthEnabled = false,
   onSignIn,
+  onGoogleSignIn,
   onRequestReset,
   onUpdatePassword,
   onCompleteOnboarding,
@@ -42,7 +48,9 @@ export function AuthScreen({
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState(mode === "invalid-link" ? recoveryMessage : "");
+  const [googleSubmitting, setGoogleSubmitting] = useState(false);
+  const [error, setError] = useState(mode === "invalid-link" ? recoveryMessage : initialError);
+  const busy = submitting || googleSubmitting;
 
   const heading = view === "onboard"
     ? "表示名とパスワードを設定"
@@ -68,7 +76,7 @@ export function AuthScreen({
 
   const handleSignIn = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (submitting) return;
+    if (busy) return;
     setSubmitting(true);
     setError("");
     try {
@@ -82,7 +90,7 @@ export function AuthScreen({
 
   const handleRequestReset = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (submitting) return;
+    if (busy) return;
     setSubmitting(true);
     setError("");
     try {
@@ -97,7 +105,7 @@ export function AuthScreen({
 
   const handleUpdatePassword = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (submitting) return;
+    if (busy) return;
     if (password !== confirmPassword) {
       setError("確認用パスワードが一致しません");
       return;
@@ -115,7 +123,7 @@ export function AuthScreen({
 
   const handleOnboard = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (submitting) return;
+    if (busy) return;
     if (!displayName.trim()) {
       setError("表示名を入力してください。");
       return;
@@ -136,6 +144,19 @@ export function AuthScreen({
       setError(messageFrom(reason));
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const handleGoogleSignIn = async () => {
+    if (busy || !onGoogleSignIn) return;
+    setGoogleSubmitting(true);
+    setError("");
+    try {
+      await onGoogleSignIn();
+    } catch (reason) {
+      setError(messageFrom(reason));
+    } finally {
+      setGoogleSubmitting(false);
     }
   };
 
@@ -263,9 +284,23 @@ export function AuthScreen({
 
         {view === "login" && (
           <>
-            <button className="drawer-primary" type="submit" disabled={submitting} aria-busy={submitting}>
+            <button className="drawer-primary" type="submit" disabled={busy} aria-busy={submitting}>
               <Check size={16} />{submitting ? "確認しています…" : "ログイン"}
             </button>
+            {googleAuthEnabled && onGoogleSignIn && (
+              <>
+                <p className="production-auth-separator">または</p>
+                <button
+                  className="drawer-secondary"
+                  type="button"
+                  onClick={() => void handleGoogleSignIn()}
+                  disabled={busy}
+                  aria-busy={googleSubmitting}
+                >
+                  {googleSubmitting ? "Google へ移動しています…" : "Google でログイン"}
+                </button>
+              </>
+            )}
             <button className="production-auth-link" type="button" onClick={() => { setView("request"); setError(""); }}>
               パスワードを忘れた場合
             </button>

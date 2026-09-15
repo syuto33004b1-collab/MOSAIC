@@ -5,13 +5,15 @@ import { getSupabaseClient, getSupabaseRuntimeConfiguration } from "../lib/supab
 import { createSupabaseChatTransport, type ChatTransport } from "../lib/ai/chatClient";
 import { AuthScreen } from "./AuthScreen";
 import {
+  authCallbackNotice,
   hasAuthCallbackParams,
   isInviteCallback,
   isInviteOnboardingUser,
-  passwordRecoveryLinkError,
   stripAuthCallback,
   stripAuthCallbackError,
 } from "./authRecovery";
+import { isGoogleAuthEnabled } from "./googleAuth";
+import { consumeOAuthPending } from "./oauthPending";
 import { OperationsPanel } from "./OperationsPanel";
 import { OrganizationSetup } from "./OrganizationSetup";
 import { ProductionFrame, ProductionState } from "./ProductionFrame";
@@ -246,7 +248,8 @@ export function ProductionGate() {
   const [selectedOrganizationId, setSelectedOrganizationId] = useState<string | null>(null);
   const [passwordRecovery, setPasswordRecovery] = useState(false);
   const [onboarding, setOnboarding] = useState(false);
-  const [recoveryLinkError, setRecoveryLinkError] = useState(() => passwordRecoveryLinkError(window.location.search, window.location.hash));
+  const [recoveryLinkError, setRecoveryLinkError] = useState(() => authCallbackNotice(window.location.search, window.location.hash).recoveryError);
+  const [oauthSignInError, setOauthSignInError] = useState(() => authCallbackNotice(window.location.search, window.location.hash).oauthError);
   const processedInvitationRef = useRef("");
   const passwordRecoveryRef = useRef(false);
   const onboardingRef = useRef(false);
@@ -256,10 +259,14 @@ export function ProductionGate() {
 
   useEffect(() => {
     let active = true;
-    const linkError = passwordRecoveryLinkError(window.location.search, window.location.hash);
-    awaitingCallbackRef.current = hasAuthCallbackParams(window.location.search, window.location.hash) && !linkError;
-    if (linkError) {
+    const notice = authCallbackNotice(window.location.search, window.location.hash);
+    const hasCallback = hasAuthCallbackParams(window.location.search, window.location.hash);
+    awaitingCallbackRef.current = hasCallback && !notice.recoveryError && !notice.oauthError;
+    if (notice.oauthError) consumeOAuthPending();
+    if (notice.recoveryError || notice.oauthError) {
       window.history.replaceState({}, "", stripAuthCallbackError(window.location.href));
+    } else if (!hasCallback) {
+      consumeOAuthPending();
     }
 
     client.auth.getUser().then(({ data, error }) => {
@@ -290,6 +297,7 @@ export function ProductionGate() {
       );
       if (event === "PASSWORD_RECOVERY" && session?.user) {
         awaitingCallbackRef.current = false;
+        consumeOAuthPending();
         if (inviteSession) {
           onboardingRef.current = true;
           passwordRecoveryRef.current = false;
@@ -319,15 +327,27 @@ export function ProductionGate() {
       if (awaitingCallbackRef.current && event === "INITIAL_SESSION") {
         if (!session?.user) {
           awaitingCallbackRef.current = false;
-          setRecoveryLinkError((current) => current || "リンクを利用できません。もう一度メールを送信するか、管理者に連絡してください。");
+          const oauth = consumeOAuthPending();
+          if (oauth) {
+            setOauthSignInError((current) => current || "Google でログインできませんでした。もう一度お試しください。");
+          } else {
+            setRecoveryLinkError((current) => current || "リンクを利用できません。もう一度メールを送信するか、管理者に連絡してください。");
+          }
           setAuth({ status: "ready", user: null, error: "" });
           return;
         }
         awaitingCallbackRef.current = false;
+        const oauth = consumeOAuthPending();
         if (inviteSession) {
           onboardingRef.current = true;
           setOnboarding(true);
           setPasswordRecovery(false);
+        } else if (oauth) {
+          passwordRecoveryRef.current = false;
+          onboardingRef.current = false;
+          setPasswordRecovery(false);
+          setOnboarding(false);
+          setOauthSignInError("");
         } else {
           passwordRecoveryRef.current = true;
           setPasswordRecovery(true);
@@ -339,6 +359,7 @@ export function ProductionGate() {
       }
       if (session?.user && inviteSession && event !== "USER_UPDATED") {
         awaitingCallbackRef.current = false;
+        consumeOAuthPending();
         onboardingRef.current = true;
         setOnboarding(true);
         setPasswordRecovery(false);
@@ -346,6 +367,7 @@ export function ProductionGate() {
         window.history.replaceState({}, "", stripAuthCallback(window.location.href));
         return;
       }
+      if (awaitingCallbackRef.current) consumeOAuthPending();
       awaitingCallbackRef.current = false;
       setAuth({ status: "ready", user: session?.user ?? null, error: "" });
       if (!session?.user) {
@@ -467,6 +489,10 @@ export function ProductionGate() {
     if (user) setAuth({ status: "ready", user, error: "" });
   };
 
+  const signInWithGoogle = async () => {
+    await repository.signInWithGoogle();
+  };
+
   const requestPasswordReset = async (email: string) => {
     await repository.requestPasswordReset(email);
   };
@@ -476,6 +502,7 @@ export function ProductionGate() {
     passwordRecoveryRef.current = false;
     setPasswordRecovery(false);
     setRecoveryLinkError("");
+    setOauthSignInError("");
   };
 
   const completeOnboarding = async (displayName: string, password: string) => {
@@ -509,6 +536,7 @@ export function ProductionGate() {
       setPasswordRecovery(false);
       setOnboarding(false);
       setRecoveryLinkError("");
+      setOauthSignInError("");
       setAuth({ status: "ready", user: null, error: "" });
       setContext(null);
       setSelectedOrganizationId(null);
@@ -522,12 +550,16 @@ export function ProductionGate() {
     <AuthScreen
       mode={mode}
       recoveryMessage={recoveryLinkError}
+      initialError={oauthSignInError}
+      googleAuthEnabled={isGoogleAuthEnabled()}
       onSignIn={signIn}
+      onGoogleSignIn={signInWithGoogle}
       onRequestReset={requestPasswordReset}
       onUpdatePassword={updatePassword}
       onCompleteOnboarding={completeOnboarding}
       onCancelRecovery={() => {
         setRecoveryLinkError("");
+        setOauthSignInError("");
         if (passwordRecoveryRef.current || onboardingRef.current) void signOut();
       }}
     />

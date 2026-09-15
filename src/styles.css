@@ -2629,6 +2629,23 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   text-decoration: underline;
   cursor: pointer;
 }
+.production-auth-separator {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 8px 0 0;
+  color: #68758e;
+  font-size: var(--text-min);
+  font-weight: 700;
+  line-height: var(--leading);
+}
+.production-auth-separator::before,
+.production-auth-separator::after {
+  content: "";
+  flex: 1 1 0;
+  height: 1px;
+  background: #d5dbe8;
+}
 .production-error { border: 1px solid #efc2be; background: #fff4f3; color: #a74740; }
 .production-invitation-notice { pointer-events: auto; }
 .production-invitation-notice span { min-width: 0; line-height: 1.5; }
