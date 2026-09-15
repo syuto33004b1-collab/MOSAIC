@@ -169,4 +169,16 @@ describe("AuthScreen Google sign-in", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("キャンセル");
     expect(screen.queryByRole("button", { name: "再設定メールを送る" })).not.toBeInTheDocument();
   });
+
+  it("keeps a legal notice link on the login form", () => {
+    renderAuth();
+    expect(screen.getByRole("link", { name: "プライバシーポリシーと利用規約" })).toHaveAttribute("href", expect.stringContaining("legal=1"));
+  });
+
+  it("places a legal notice link next to the Google button", () => {
+    renderAuth({ googleAuthEnabled: true, onGoogleSignIn: vi.fn() });
+    const links = screen.getAllByRole("link", { name: "プライバシーポリシーと利用規約" });
+    expect(links).toHaveLength(2);
+    expect(screen.getByText(/Google でログインする前に/)).toBeInTheDocument();
+  });
 });

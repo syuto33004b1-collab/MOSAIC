@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { Building2, Check, LogOut, MailCheck, Plus, UsersRound } from "lucide-react";
 import type { MyContext, OrganizationSummary, PendingInvitation } from "./types";
+import { LegalLink } from "./LegalLink";
 import { ProductionFrame } from "./ProductionFrame";
 
 type OrganizationSetupProps = {
@@ -122,6 +123,7 @@ export function OrganizationSetup({ context, onAcceptInvitation, onCreate, onSel
         </form>
 
         <button className="drawer-secondary production-sign-out" type="button" disabled={Boolean(pendingAction)} onClick={() => void onSignOut()}><LogOut size={15} />別のアカウントでログイン</button>
+        <p className="production-legal-footer"><LegalLink /></p>
         {context.organizations.length === 0 && context.invitations.length === 0 && (
           <div className="form-note"><Check size={15} /><span>まだ所属組織はありません。組織を作成するか、管理者からの招待をお待ちください。</span></div>
         )}

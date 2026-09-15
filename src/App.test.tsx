@@ -443,6 +443,12 @@ describe("role-aware workspace", () => {
     expect(screen.queryByRole("button", { name: "気づきを送る" })).not.toBeInTheDocument();
   });
 
+  it("offers the legal notice from the demo workspace", () => {
+    render(<App />);
+    const link = screen.getByRole("link", { name: "プライバシーポリシーと利用規約" });
+    expect(link).toHaveAttribute("href", expect.stringContaining("legal=1"));
+  });
+
   it("sends feedback from the current screen in shared mode", async () => {
     const user = userEvent.setup();
     const onSubmitFeedback = vi.fn().mockResolvedValue({ id: "fb-1", requestId: "req-1", replayed: false });
