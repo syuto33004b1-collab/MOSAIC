@@ -8,6 +8,7 @@ import {
   makeInitials,
   matchMembers,
   memberById,
+  memberExceedsCapacity,
   memberLabel,
   memberLoad,
   memberPeakLoad,
@@ -379,7 +380,7 @@ function overloadWarnings(state: WorkspaceState, actions: AssignmentImportAction
       // of the assignment form. Whether the file caused the overload is not asked, because
       // the form does not ask it either.
       const projected = memberPeakLoad(applied, personId, stretch.start, stretch.end);
-      if (projected <= member.capacity) continue;
+      if (!memberExceedsCapacity(applied, member, stretch.start, stretch.end)) continue;
       warnings.push(`${stretch.rows.sort((left, right) => left - right).join("・")}行目: ${memberLabel(state, member)}さんの稼働が${projected}%になります（稼働上限${member.capacity}%）。仮置きはできます。`);
     }
   }

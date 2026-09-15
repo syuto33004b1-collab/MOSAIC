@@ -1,6 +1,6 @@
 import type { AuthError, PostgrestError, SupabaseClient, User } from "@supabase/supabase-js";
-import type { Assignment, CustomFieldDefinition, CustomFieldEntity, CustomFieldType, Member, Opportunity, OpportunityNeed, OpportunityStage, OrgMembership, OrgUnit, PersonScope, ProfileRequest, ProfileRequestScope, ProfileRequestStatus, Project, ReportGroupBy, ReportMetric, ReportSource, RestrictableFeature, RestrictableRole, RolePermission, SavedReport, SearchScene, SearchSkillFilter, SkillDefinition, SkillImportance, SkillKind, StaffingNeed, WorkHistoryEntry, WorkspaceState } from "../domain";
-import { hydrateWorkspaceSkills, OPPORTUNITY_STAGES, normalizeSkillProficiency, normalizeWorkHistory, parseSkillInput, PERSON_SCOPES, PROFILE_REQUEST_SCOPES, PROFILE_REQUEST_STATUSES, RESTRICTABLE_FEATURES, RESTRICTABLE_ROLES } from "../domain";
+import type { Assignment, CustomFieldDefinition, CustomFieldEntity, CustomFieldType, Member, MemberUnavailability, Opportunity, OpportunityNeed, OpportunityStage, OrgMembership, OrgUnit, PersonScope, ProfileRequest, ProfileRequestScope, ProfileRequestStatus, Project, ReportGroupBy, ReportMetric, ReportSource, RestrictableFeature, RestrictableRole, RolePermission, SavedReport, SearchScene, SearchSkillFilter, SkillDefinition, SkillImportance, SkillKind, StaffingNeed, WorkHistoryEntry, WorkspaceState } from "../domain";
+import { hydrateWorkspaceSkills, OPPORTUNITY_STAGES, normalizeMemberUnavailability, normalizeSkillProficiency, normalizeWorkHistory, parseSkillInput, PERSON_SCOPES, PROFILE_REQUEST_SCOPES, PROFILE_REQUEST_STATUSES, RESTRICTABLE_FEATURES, RESTRICTABLE_ROLES } from "../domain";
 import { normalizeFavorites, type Favorite, type FavoriteKind } from "../collaboration";
 import { appAuthRedirectUrl } from "./authRecovery";
 import { consumeOAuthPending, markOAuthPending } from "./oauthPending";
@@ -134,6 +134,30 @@ function normalizeIncomingCustomValues(value: unknown): Record<string, string> |
     if (trimmed) next[key] = trimmed;
   }
   return next;
+}
+
+function normalizeIncomingUnavailability(value: unknown): MemberUnavailability[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value)) return undefined;
+  try {
+    return normalizeMemberUnavailability(value.map((entry) => {
+      const record = asRecord(entry);
+      const id = readString(record, "id");
+      const capacityPercent = record ? finiteNumber(record, "capacityPercent") : undefined;
+      if (!id || !record || !validDate(record.startDate) || !validDate(record.endDate) || capacityPercent === undefined) {
+        throw new Error("invalid unavailability");
+      }
+      return {
+        id,
+        startDate: record.startDate,
+        endDate: record.endDate,
+        capacityPercent,
+        note: optionalString(record, "note"),
+      };
+    }));
+  } catch {
+    return undefined;
+  }
 }
 
 function normalizeIncomingWorkHistory(value: unknown): WorkHistoryEntry[] | undefined {
@@ -346,6 +370,8 @@ function normalizeWorkspaceMember(value: unknown): Member | undefined {
   if (record.customValues !== undefined && customValues === null) return undefined;
   const workHistory = record.workHistory === undefined ? undefined : normalizeIncomingWorkHistory(record.workHistory);
   if (record.workHistory !== undefined && workHistory === undefined) return undefined;
+  const unavailability = record.unavailability === undefined ? undefined : normalizeIncomingUnavailability(record.unavailability);
+  if (record.unavailability !== undefined && unavailability === undefined) return undefined;
   const authUserId = readString(record, "authUserId");
   return {
     id,
@@ -361,6 +387,7 @@ function normalizeWorkspaceMember(value: unknown): Member | undefined {
     ...(skillLevels.length ? { skillLevels } : {}),
     ...(customValues && Object.keys(customValues).length ? { customValues } : {}),
     ...(workHistory ? { workHistory } : {}),
+    ...(unavailability ? { unavailability } : {}),
   };
 }
 

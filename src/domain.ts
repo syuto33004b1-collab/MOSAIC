@@ -1,3 +1,5 @@
+import { isJapanHoliday } from "./japanHolidays";
+
 export type Tone = "blue" | "mint" | "orange" | "plum" | "sky";
 /** Every tone needs a `--<tone>` custom property and an `.avatar.<tone>` rule in
  *  styles.css. This list exists at runtime so a test can check that. */
@@ -129,7 +131,27 @@ export type Member = {
   capacity: number;
   customValues?: Record<string, string>;
   workHistory?: WorkHistoryEntry[];
+  /**
+   * Periods when this person's weekday ceiling is lower than `capacity`.
+   *
+   * Absolute percent, min'd with `capacity` — 時短 50% on a 80% person is 50,
+   * not 40. 0 means the days take no load, the same way an unrecorded weekend
+   * does (#323, and #222 for the weekend half).
+   */
+  unavailability?: MemberUnavailability[];
 };
+
+/** One person's reduced weekday ceiling for a date range. */
+export type MemberUnavailability = {
+  id: string;
+  startDate: string;
+  endDate: string;
+  capacityPercent: number;
+  note?: string;
+};
+
+export const UNAVAILABILITY_ROW_LIMIT = 50;
+export const UNAVAILABILITY_NOTE_MAX = 80;
 
 export type Project = {
   id: string;
@@ -738,6 +760,12 @@ export type DailyLoad = {
    * (#222).
    */
   weekend: boolean;
+  /**
+   * Usable ceiling this day. 0 when the day takes no load (unrecorded weekend,
+   * national holiday, remaining-0 unavailability). Recorded weekends keep the
+   * person's usual ceiling so stacked weekend work can still exceed it (#323).
+   */
+  capacity: number;
 };
 
 const millisecondsPerDay = 86_400_000;
@@ -750,19 +778,42 @@ function isoDayNumber(value: string) {
 /**
  * Does this assignment put load on this date?
  *
- * Inside its range on a weekday, and on a weekend only if that day was recorded.
- * The set is built per assignment rather than scanned, because the daily loop asks
- * this question once per day per assignment.
+ * Inside its range on a weekday that has a usable ceiling, and on a weekend only
+ * if that day was recorded. National holidays and remaining-0 unavailability
+ * take no load — the same opt-out weekends already had, without a recording
+ * checkbox (#323). The set is built per assignment rather than scanned, because
+ * the daily loop asks this question once per day per assignment.
  */
-function assignmentCoversDate(assignment: Assignment, date: string, weekend: boolean) {
+export function assignmentPutsLoadOnDate(state: WorkspaceState, assignment: Assignment, date: string) {
   if (assignment.startDate > date || assignment.endDate < date) return false;
-  if (!weekend) return true;
-  return (assignment.weekendWorkDates ?? []).includes(date);
+  if (isWeekendDate(date)) return (assignment.weekendWorkDates ?? []).includes(date);
+  const member = memberById(state, assignment.personId);
+  if (!member) return false;
+  return memberCapacityOnDate(state, member, date) > 0;
 }
 
 export function isWeekendDate(iso: string) {
   const day = new Date(iso + "T00:00:00Z").getUTCDay();
   return day === 0 || day === 6;
+}
+
+/**
+ * The usable ceiling on this civil date.
+ *
+ * One function, so holidays and unavailability are never subtracted on
+ * separate paths. Weekends return the usual ceiling: unused weekend hours are
+ * not 空き, and recorded weekend work is excess above that ceiling (#222).
+ */
+export function memberCapacityOnDate(state: WorkspaceState, member: Member, date: string) {
+  if (isWeekendDate(date)) return member.capacity;
+  if (isJapanHoliday(date)) return 0;
+  let capacity = member.capacity;
+  for (const leave of member.unavailability ?? []) {
+    if (leave.startDate <= date && leave.endDate >= date) {
+      capacity = Math.min(capacity, leave.capacityPercent);
+    }
+  }
+  return capacity;
 }
 
 /**
@@ -773,20 +824,29 @@ export function isWeekendDate(iso: string) {
  * enters the figures. Every caller that treats capacity as five weekdays has to
  * filter on `weekend` itself: the ceiling did not move, so a weekend day's load is
  * excess, and its unused hours are not 空き (#222).
+ *
+ * National holidays and remaining-0 unavailability carry no load and a 0
+ * ceiling, so they drop out of both the peak and the supply denominator (#323).
  */
 export function memberDailyLoads(state: WorkspaceState, memberId: string, startDate: string, endDate: string): DailyLoad[] {
   // The same guard `memberPeakLoad` has. Every caller used to pass a week the
   // board had computed; the assignment form now passes its own date inputs, and a
   // half-typed one makes `addDays` return NaN rather than a date (#199).
   if (isoDayNumber(startDate) === null || isoDayNumber(endDate) === null) return [];
+  const member = memberById(state, memberId);
   const mine = state.assignments.filter((assignment) => assignment.personId === memberId);
   const days: DailyLoad[] = [];
   for (let date = startDate; date <= endDate; date = addDays(date, 1)) {
     const weekend = isWeekendDate(date);
     const load = mine
-      .filter((assignment) => assignmentCoversDate(assignment, date, weekend))
+      .filter((assignment) => assignmentPutsLoadOnDate(state, assignment, date))
       .reduce((sum, assignment) => sum + assignment.allocation, 0);
-    days.push({ date, load, weekend });
+    const capacity = !member
+      ? 0
+      : weekend
+        ? (load > 0 ? member.capacity : 0)
+        : memberCapacityOnDate(state, member, date);
+    days.push({ date, load, weekend, capacity });
   }
   return days;
 }
@@ -821,6 +881,12 @@ export function memberPeakLoad(state: WorkspaceState, memberId: string, startDat
   const rangeStart = isoDayNumber(startDate);
   const rangeEnd = isoDayNumber(endDate);
   if (rangeStart === null || rangeEnd === null || rangeEnd < rangeStart) return 0;
+  // Short spans can be all holidays (Golden Week). The sweep would still count
+  // those weekdays. Walk the days when that is cheap — 9999-12-31 is why the
+  // sweep exists, and a 3-week clip is not that (#323).
+  if (rangeEnd - rangeStart <= 21) {
+    return memberDailyLoads(state, memberId, startDate, endDate).reduce((peak, day) => Math.max(peak, day.load), 0);
+  }
   const mine = state.assignments.filter((assignment) => assignment.personId === memberId);
 
   const events = new Map<number, number>();
@@ -890,6 +956,52 @@ export function weekendDatesBetween(startDate: string, endDate: string, limit = 
 
 export function memberLoad(state: WorkspaceState, memberId: string, weekStart: string) {
   return memberPeakLoad(state, memberId, weekStart, weekEnd(weekStart));
+}
+
+export function memberExceedsCapacity(state: WorkspaceState, member: Member, startDate: string, endDate: string) {
+  const rangeStart = isoDayNumber(startDate);
+  const rangeEnd = isoDayNumber(endDate);
+  if (rangeStart === null || rangeEnd === null || rangeEnd < rangeStart) return false;
+  if (rangeEnd - rangeStart <= 366) {
+    return memberDailyLoads(state, member.id, startDate, endDate).some((day) => day.load > day.capacity);
+  }
+  if (memberPeakLoad(state, member.id, startDate, endDate) > member.capacity) return true;
+  for (const leave of member.unavailability ?? []) {
+    if (leave.capacityPercent >= member.capacity) continue;
+    const clipStart = leave.startDate > startDate ? leave.startDate : startDate;
+    const clipEnd = leave.endDate < endDate ? leave.endDate : endDate;
+    if (clipEnd < clipStart) continue;
+    if (memberDailyLoads(state, member.id, clipStart, clipEnd).some((day) => day.load > day.capacity)) return true;
+  }
+  return false;
+}
+
+export function weekdaySupplyCapacity(state: WorkspaceState, member: Member, startDate: string, endDate: string) {
+  return memberDailyLoads(state, member.id, startDate, endDate)
+    .filter((day) => !day.weekend)
+    .reduce((sum, day) => sum + day.capacity, 0);
+}
+
+/**
+ * One week's peak, over/open flags, and slack, against that week's daily
+ * ceilings rather than `member.capacity` alone (#323).
+ */
+export function memberWeekStats(state: WorkspaceState, member: Member, weekStart: string) {
+  const days = memberDailyLoads(state, member.id, weekStart, weekEnd(weekStart));
+  const peak = days.reduce((highest, day) => Math.max(highest, day.load), 0);
+  const exceeds = days.some((day) => day.load > day.capacity);
+  const bearing = days.filter((day) => !day.weekend && day.capacity > 0);
+  const open = bearing.length > 0 && bearing.every((day) => day.load <= day.capacity * 0.6);
+  const slack = bearing.length === 0
+    ? 0
+    : bearing.reduce((lowest, day) => Math.min(lowest, Math.max(0, day.capacity - day.load)), Number.POSITIVE_INFINITY);
+  const utilization = member.capacity <= 0 || bearing.length === 0
+    ? Number.POSITIVE_INFINITY
+    : Math.max(...bearing.map((day) => day.load / day.capacity));
+  const ratio = !Number.isFinite(utilization)
+    ? (peak > 0 ? 100 : 0)
+    : Math.min(100, Math.round(utilization * 100));
+  return { peak, exceeds, open, slack, utilization, ratio };
 }
 
 /**
@@ -1679,6 +1791,33 @@ export function normalizeWorkHistory(entries: WorkHistoryEntry[] | undefined) {
   });
 }
 
+export function normalizeMemberUnavailability(entries: MemberUnavailability[] | undefined): MemberUnavailability[] {
+  const list = entries ?? [];
+  if (list.length > UNAVAILABILITY_ROW_LIMIT) throw new Error(`期間指定の稼働上限は${UNAVAILABILITY_ROW_LIMIT}件までです`);
+  const seen = new Set<string>();
+  return list.map((entry) => {
+    if (!entry.id?.trim()) throw new Error("期間指定の稼働上限のIDを確認してください");
+    if (seen.has(entry.id)) throw new Error("期間指定の稼働上限のIDが重複しています");
+    seen.add(entry.id);
+    if (isoDayNumber(entry.startDate) === null || isoDayNumber(entry.endDate) === null) {
+      throw new Error("期間指定の稼働上限の日付を確認してください");
+    }
+    if (entry.endDate < entry.startDate) throw new Error("期間指定の稼働上限の終了日は開始日以降にしてください");
+    if (!Number.isFinite(entry.capacityPercent) || entry.capacityPercent < 0 || entry.capacityPercent > 100) {
+      throw new Error("期間指定の稼働上限は0〜100で入力してください");
+    }
+    const note = entry.note?.trim() ?? "";
+    if (note.length > UNAVAILABILITY_NOTE_MAX) throw new Error(`メモは${UNAVAILABILITY_NOTE_MAX}文字以内にしてください`);
+    return {
+      id: entry.id,
+      startDate: entry.startDate,
+      endDate: entry.endDate,
+      capacityPercent: entry.capacityPercent,
+      ...(note ? { note } : {}),
+    };
+  }).sort((left, right) => left.startDate.localeCompare(right.startDate) || left.id.localeCompare(right.id));
+}
+
 export const PROFILE_REQUEST_SCOPES: ProfileRequestScope[] = ["skills", "workHistory", "all"];
 export const PROFILE_REQUEST_STATUSES: ProfileRequestStatus[] = ["open", "submitted", "done", "cancelled"];
 
@@ -2214,7 +2353,7 @@ export function orgUnitLoadRows(state: WorkspaceState, weekStart: string): OrgUn
   const weekClose = addDays(weekStart, 4);
   return orgUnitTree(state.orgUnits).map((unit) => {
     const people = membersInOrgSubtree(state, unit.id, "primary");
-    const capacity = people.reduce((sum, member) => sum + member.capacity, 0) * 5;
+    const capacity = people.reduce((sum, member) => weekdaySupplyCapacity(state, member, weekStart, weekClose), 0);
     const load = people.reduce((sum, member) => sum + memberDailyLoads(state, member.id, weekStart, weekClose).reduce((dailySum, day) => dailySum + day.load, 0), 0);
     return {
       id: unit.id,
@@ -2323,7 +2462,25 @@ export function addSearchScene(scenes: SearchScene[], input: {
 
 export function memberAvailablePercent(state: WorkspaceState, member: Member, startDate?: string, endDate?: string) {
   if (!startDate || !endDate) return member.capacity;
-  return Math.max(0, member.capacity - memberPeakLoad(state, member.id, startDate, endDate));
+  const rangeStart = isoDayNumber(startDate);
+  const rangeEnd = isoDayNumber(endDate);
+  if (rangeStart === null || rangeEnd === null || rangeEnd < rangeStart) return 0;
+  if (rangeEnd - rangeStart > 366) {
+    let slack = Math.max(0, member.capacity - memberPeakLoad(state, member.id, startDate, endDate));
+    for (const leave of member.unavailability ?? []) {
+      if (leave.capacityPercent <= 0) continue;
+      const clipStart = leave.startDate > startDate ? leave.startDate : startDate;
+      const clipEnd = leave.endDate < endDate ? leave.endDate : endDate;
+      if (clipEnd < clipStart) continue;
+      const ceiling = Math.min(member.capacity, leave.capacityPercent);
+      slack = Math.min(slack, Math.max(0, ceiling - memberPeakLoad(state, member.id, clipStart, clipEnd)));
+    }
+    return slack;
+  }
+  const bearing = memberDailyLoads(state, member.id, startDate, endDate)
+    .filter((day) => !day.weekend && day.capacity > 0);
+  if (bearing.length === 0) return 0;
+  return bearing.reduce((lowest, day) => Math.min(lowest, Math.max(0, day.capacity - day.load)), Infinity);
 }
 
 export function matchScore(availablePercent: number, matchedNiceCount: number) {

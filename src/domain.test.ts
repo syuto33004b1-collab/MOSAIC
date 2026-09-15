@@ -32,6 +32,9 @@ import {
   inferSkillCatalog,
   initialWorkspace,
   memberDailyLoads,
+  memberAvailablePercent,
+  memberCapacityOnDate,
+  memberExceedsCapacity,
   overlaps,
   WEEKEND_PICKER_LIMIT,
   weekendDatesBetween,
@@ -39,11 +42,14 @@ import {
   memberLoad,
   memberMatchesNeed,
   memberPeakLoad,
+  weekdaySupplyCapacity,
+  memberWeekStats,
   memberSearchText,
   membersInOrgSubtree,
   moveOrgUnit,
   normalizeCustomValues,
   normalizeWorkHistory,
+  normalizeMemberUnavailability,
   orgManagers,
   orgUnitArchiveBlocker,
   orgUnitLoadRows,
@@ -1311,5 +1317,86 @@ describe("weekend work", () => {
     // And in the week that holds it, it is there in full.
     expect(memberPeakLoad(later, "m", "2026-08-24", "2026-08-30")).toBe(110);
     expect(memberDailyLoads(later, "m", "2026-08-29", "2026-08-29")[0].load).toBe(110);
+  });
+});
+
+describe("weekday capacity with holidays and unavailability", () => {
+  const member = (unavailability?: Member["unavailability"]): Member => ({
+    id: "m", initials: "M", name: "Member", role: "QA", department: "QA", avatarTone: "mint", skills: [], location: "Tokyo", capacity: 80,
+    ...(unavailability ? { unavailability } : {}),
+  });
+  const assigned = (startDate: string, endDate: string, unavailability?: Member["unavailability"]): WorkspaceState => ({
+    members: [member(unavailability)],
+    projects: [],
+    needs: [],
+    assignments: [{ id: "a", personId: "m", projectId: "p", startDate, endDate, allocation: 60, status: "confirmed" }],
+  });
+
+  it("drops load on a national holiday instead of treating it as a zero ceiling", () => {
+    const state = assigned("2026-05-06", "2026-05-07");
+    // 5/6 is the 振替 for Sunday 5/3; 5/7 is a working Thursday.
+    expect(memberCapacityOnDate(state, member(), "2026-05-06")).toBe(0);
+    expect(memberCapacityOnDate(state, member(), "2026-05-07")).toBe(80);
+    const days = memberDailyLoads(state, "m", "2026-05-06", "2026-05-07");
+    expect(days.map((day) => `${day.date}:${day.load}/${day.capacity}`)).toEqual([
+      "2026-05-06:0/0",
+      "2026-05-07:60/80",
+    ]);
+    expect(memberPeakLoad(state, "m", "2026-05-06", "2026-05-07")).toBe(60);
+    expect(memberExceedsCapacity(state, member(), "2026-05-06", "2026-05-07")).toBe(false);
+    expect(memberAvailablePercent(state, member(), "2026-05-06", "2026-05-07")).toBe(20);
+  });
+
+  it("keeps load on a reduced-hours day and compares it to the absolute ceiling", () => {
+    const leave = [{ id: "u", startDate: "2026-08-17", endDate: "2026-08-21", capacityPercent: 50 }];
+    const state = assigned("2026-08-17", "2026-08-21", leave);
+    expect(memberCapacityOnDate(state, member(leave), "2026-08-17")).toBe(50);
+    expect(memberExceedsCapacity(state, member(leave), "2026-08-17", "2026-08-21")).toBe(true);
+    expect(memberAvailablePercent(state, member(leave), "2026-08-17", "2026-08-21")).toBe(0);
+    expect(memberPeakLoad(state, member(leave).id, "2026-08-17", "2026-08-21")).toBe(60);
+  });
+
+  it("takes remaining-0 days out of load, like an unrecorded weekend", () => {
+    const leave = [{ id: "u", startDate: "2026-08-18", endDate: "2026-08-18", capacityPercent: 0 }];
+    const state = assigned("2026-08-17", "2026-08-19", leave);
+    expect(memberDailyLoads(state, "m", "2026-08-17", "2026-08-19").map((day) => day.load)).toEqual([60, 0, 60]);
+    expect(memberExceedsCapacity(state, member(leave), "2026-08-17", "2026-08-19")).toBe(false);
+  });
+
+  it("does not let a holiday-only assignment raise the long-range peak", () => {
+    const state = assigned("2026-05-06", "2026-05-06");
+    expect(memberPeakLoad(state, "m", "2026-05-06", "2026-05-06")).toBe(0);
+  });
+
+  it("drops remaining-0 and holiday weekdays from the supply denominator", () => {
+    const leave = [{ id: "u", startDate: "2026-08-17", endDate: "2026-08-17", capacityPercent: 0 }];
+    const state = assigned("2026-08-17", "2026-08-21", leave);
+    // Mon remaining-0, Tue–Fri usual 80. Weekends are not supply.
+    expect(weekdaySupplyCapacity(state, member(leave), "2026-08-17", "2026-08-21")).toBe(320);
+    const gw = assigned("2026-05-04", "2026-05-08");
+    // 5/4・5/5 holidays, 5/6 振替, 5/7–5/8 working.
+    expect(weekdaySupplyCapacity(gw, member(), "2026-05-04", "2026-05-08")).toBe(160);
+  });
+
+  it("treats a 時短 week as over and not open when load sits above the reduced ceiling", () => {
+    const leave = [{ id: "u", startDate: "2026-08-17", endDate: "2026-08-21", capacityPercent: 50 }];
+    const state = assigned("2026-08-17", "2026-08-21", leave);
+    const stats = memberWeekStats(state, member(leave), "2026-08-17");
+    expect(stats.peak).toBe(60);
+    expect(stats.exceeds).toBe(true);
+    expect(stats.open).toBe(false);
+    expect(stats.slack).toBe(0);
+  });
+});
+
+describe("normalizeMemberUnavailability", () => {
+  it("caps the note and the row count, and mins overlapping ranges at read time not write time", () => {
+    expect(() => normalizeMemberUnavailability([{
+      id: "u", startDate: "2026-08-17", endDate: "2026-08-16", capacityPercent: 50,
+    }])).toThrow("終了日");
+    expect(normalizeMemberUnavailability([
+      { id: "b", startDate: "2026-08-20", endDate: "2026-08-21", capacityPercent: 40, note: "  " },
+      { id: "a", startDate: "2026-08-17", endDate: "2026-08-19", capacityPercent: 50 },
+    ]).map((entry) => entry.id)).toEqual(["a", "b"]);
   });
 });

@@ -1795,6 +1795,27 @@ describe("the member screen's scene form", () => {
     expect(screen.getByText("書式 花子")).toBeInTheDocument();
   });
 
+  it("saves a reduced-hours period from the member form", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: "メンバー" }));
+    await user.click(screen.getAllByRole("button", { name: "メンバーを追加" }).find((button) => !button.hasAttribute("disabled"))!);
+    const dialog = within(screen.getByRole("dialog", { name: "詳細パネル" }));
+    expect(dialog.getByText("期間指定の稼働上限")).toBeInTheDocument();
+    await user.type(dialog.getByLabelText("氏名"), "時短 花子");
+    await user.click(dialog.getByRole("button", { name: "期間を追加" }));
+    await user.type(dialog.getByLabelText("期間1の開始日"), "2026-08-17");
+    await user.type(dialog.getByLabelText("期間1の終了日"), "2026-08-21");
+    const cap = dialog.getByLabelText("期間1の稼働上限");
+    await user.clear(cap);
+    await user.type(cap, "50");
+    await user.click(dialog.getByRole("button", { name: "メンバーを追加" }));
+    expect(screen.getByText("時短 花子")).toBeInTheDocument();
+    await user.click(screen.getByText("時短 花子").closest("button")!);
+    expect(await screen.findByText("上限 50%")).toBeInTheDocument();
+    expect(screen.getByText(/2026年8月17日/u)).toBeInTheDocument();
+  });
+
   it("drops the name error as soon as a name is typed", async () => {
     const user = userEvent.setup();
     render(<App />);

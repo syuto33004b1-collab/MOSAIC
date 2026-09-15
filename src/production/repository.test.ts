@@ -109,6 +109,22 @@ describe("production repository response adapters", () => {
 
     expect(() => normalizeWorkspace({ workspaceRevision: 2, ...boundary, members: boundary.members.map((member, index) => index === 0 ? { ...member, capacity: 101 } : member) })).toThrow("共有ワークスペースのデータ形式が正しくありません");
     expect(() => normalizeWorkspace({ workspaceRevision: 2, ...boundary, projects: boundary.projects.map((project, index) => index === 0 ? { ...project, demand: 10001 } : project) })).toThrow("共有ワークスペースのデータ形式が正しくありません");
+    expect(() => normalizeWorkspace({
+      workspaceRevision: 2,
+      ...boundary,
+      members: boundary.members.map((member, index) => index === 0
+        ? { ...member, unavailability: [{ id: "bad", startDate: "2026-08-21", endDate: "2026-08-17", capacityPercent: 50 }] }
+        : member),
+    })).toThrow("共有ワークスペースのデータ形式が正しくありません");
+    expect(normalizeWorkspace({
+      workspaceRevision: 2,
+      ...boundary,
+      members: boundary.members.map((member, index) => index === 0
+        ? { ...member, unavailability: [{ id: "u1", startDate: "2026-08-17", endDate: "2026-08-21", capacityPercent: 50, note: "時短" }] }
+        : member),
+    }).state.members[0].unavailability).toEqual([
+      { id: "u1", startDate: "2026-08-17", endDate: "2026-08-21", capacityPercent: 50, note: "時短" },
+    ]);
   });
 
   it("does not send an unchanged demo leave row with a member-only update", () => {

@@ -5068,6 +5068,7 @@ h1 {
    683.8px, measured at 1440px. They are Fragments now and take the form's own spacing
    (#164). */
 .work-history-editor { display: grid; gap: 10px; }
+.unavailability-editor-note { margin: 0; color: var(--muted-readable); font-size: var(--text-min); line-height: var(--leading); }
 .work-history-list { display: grid; gap: 10px; }
 .work-history-list article {
   display: grid;
