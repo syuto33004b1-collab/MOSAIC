@@ -2,7 +2,7 @@
  * Outbound MCP client for the AI secretary.
  *
  * This is deliberately NOT the MOSAIC MCP Server in supabase/functions/mcp/.
- * That module is the inbound read-only surface for external AI hosts; this one
+ * That module is the inbound surface for external AI hosts; this one
  * is the outbound path from the AI secretary to servers an administrator
  * approved. Credential handling and audit reuse the integration foundation, the
  * execution path does not.

@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import { test } from "node:test";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { createActionToken, verifyActionToken } from "../supabase/functions/chat/action-token.mjs";
+import { ACTION_TOKEN_DOMAIN, createActionToken, MCP_CONFIRM_DOMAIN, verifyActionToken } from "../supabase/functions/chat/action-token.mjs";
 import { CHAT_LIMITS, ChatContractError, errorBody, parseChatRequest } from "../supabase/functions/chat/contract.mjs";
 import { createContinuationToken, verifyContinuationToken } from "../supabase/functions/chat/continuation.mjs";
 import {
@@ -198,6 +198,31 @@ test("signs expiring action state for one user and organization", async () => {
   assert.equal(await verifyActionToken(created.token, { now: 2_000, organizationId: "org-1", secret: "server-secret", userId: "user-2" }), null);
   assert.equal(await verifyActionToken(`${created.token}tampered`, { now: 2_000, organizationId: "org-1", secret: "server-secret", userId: "user-1" }), null);
   assert.equal(await verifyActionToken(created.token, { now: 62_000, organizationId: "org-1", secret: "server-secret", userId: "user-1" }), null);
+});
+
+test("keeps chat action tokens out of the MCP confirmation domain", async () => {
+  const created = await createActionToken({ requestId: "request-2", body: "気づき" }, {
+    domain: MCP_CONFIRM_DOMAIN,
+    now: 1_000,
+    organizationId: "org-1",
+    secret: "server-secret",
+    ttlMs: 60_000,
+    userId: "client-1",
+  });
+  assert.equal(await verifyActionToken(created.token, {
+    domain: ACTION_TOKEN_DOMAIN,
+    now: 2_000,
+    organizationId: "org-1",
+    secret: "server-secret",
+    userId: "client-1",
+  }), null);
+  assert.equal((await verifyActionToken(created.token, {
+    domain: MCP_CONFIRM_DOMAIN,
+    now: 2_000,
+    organizationId: "org-1",
+    secret: "server-secret",
+    userId: "client-1",
+  })).action.body, "気づき");
 });
 
 test("retries a confirmed action through save_workspace idempotency after a lost response", async () => {
