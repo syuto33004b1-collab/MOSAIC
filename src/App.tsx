@@ -77,7 +77,6 @@ import {
   memberOrgMemberships,
   membersInOrgSubtree,
   memberPeakLoad,
-  memberWeekStats,
   matchMembers,
   memberSearchText,
   memberSkillLevels,
@@ -126,6 +125,7 @@ import {
   type OpportunityNeed,
   type OpportunityStage,
   type PeriodChoice,
+  type PeriodMemberStats,
   type PersonScope,
   type ProfileRequestScope,
   type Project,
@@ -401,6 +401,23 @@ function worstLoadOverCapacity<T extends { load: number; capacity: number }>(day
   return days.reduce((worst, day) => (day.load - day.capacity) > (worst.load - worst.capacity) ? day : worst);
 }
 
+function firstExceedWindow(stats: PeriodMemberStats | null | undefined, choice: PeriodChoice) {
+  if (!stats || stats.firstExceedOffset == null) return null;
+  const bucket = stats.buckets[stats.firstExceedOffset];
+  if (!bucket) return null;
+  return {
+    from: bucket.from,
+    to: bucket.to,
+    label: periodBucketLabel(choice, bucket, stats.firstExceedOffset),
+  };
+}
+
+function attentionBreakdownText(periodLabel: string, overloadCount: number, needCount: number, plannedCount: number) {
+  const parts = [periodLabel, `過負荷${overloadCount}人`, `未充足ニーズ${needCount}件`];
+  if (plannedCount > 0) parts.push(`予定超過${plannedCount}人`);
+  return parts.join(" · ");
+}
+
 function incompleteUnavailabilityPeriod(entries: MemberUnavailability[]) {
   return entries.some((entry) => Boolean(entry.startDate) !== Boolean(entry.endDate));
 }
@@ -532,14 +549,17 @@ export default function Home({ mode = "demo", organizationId, organizationName =
   const [viewMode, setViewMode] = useState<"members" | "projects">("members");
   const [weekOffset, setWeekOffset] = useState(0);
   /**
-   * The board's span. Only the board's — everything else on the page stays
-   * week-scoped, because the sidebar's utilisation card and the attention panel
-   * carry the word 「週」 in their labels (#119) and a month behind a week's label
-   * is the defect #115 was about. `weekStart` below is the week containing
-   * this range's start, which in week mode is the range itself.
+   * The board's span. Only the board's — pulse average/slack and the bell stay
+   * week-scoped, because those labels name a week (#119) and a month behind a
+   * week's label is the defect #115 was about. The attention panel's overload
+   * count is the selected period (#367), not this week. `weekStart` below is the
+   * week containing this range's start, which in week mode is the range itself.
    */
   const [boardUnit, setBoardUnit] = useState<BoardUnit>("week");
   const [drawerPeriod, setDrawerPeriod] = useState<PeriodChoice>(PERIOD_CHOICES[0]);
+  const [attentionPeriod, setAttentionPeriod] = useState<PeriodChoice>(PERIOD_CHOICES[0]);
+  const [overloadDrawerId, setOverloadDrawerId] = useState("");
+  const [overloadDrawerFromWeek, setOverloadDrawerFromWeek] = useState(false);
   const [filter, setFilter] = useState("すべて");
   /**
    * The board's other conditions. They live behind a trigger rather than on the
@@ -672,6 +692,8 @@ export default function Home({ mode = "demo", organizationId, organizationName =
 
   const closeDrawer = useCallback(() => {
     clearFormDraft();
+    setOverloadDrawerId("");
+    setOverloadDrawerFromWeek(false);
     setDrawer(null);
   }, [clearFormDraft]);
 
@@ -1088,6 +1110,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
   const weekStart = boardBasisWeek(range);
   const drawerOrigin = boardBasisDay(range);
   const drawerRange = periodRange(drawerPeriod, drawerOrigin);
+  const attentionRange = periodRange(attentionPeriod, drawerOrigin);
   const visibleProposalIds = retainedMemberIds(proposalMemberIds, workspace.members.map((member) => member.id));
   /** The same week, as a count of weeks from this one, for the screens that take one. */
   const viewWeekOffset = Math.round((Date.parse(weekStart + "T00:00:00Z") - Date.parse(getWeekStart(0) + "T00:00:00Z")) / 604_800_000);
@@ -1115,35 +1138,43 @@ export default function Home({ mode = "demo", organizationId, organizationName =
   const committedOverloads = committedWorkspace.members.filter((member) => memberExceedsCapacity(committedWorkspace, member, weekStart, weekEnd(weekStart)));
   const overloadMember = currentOverloads[0] ?? committedOverloads.find((member) => !memberExceedsCapacity(workspace, member, weekStart, weekEnd(weekStart)));
   const overloadPlanned = Boolean(overloadMember && committedOverloads.some((member) => member.id === overloadMember.id) && !memberExceedsCapacity(workspace, overloadMember, weekStart, weekEnd(weekStart)));
-  const overloadDates = overloadMember ? (() => {
-    const current = memberDailyLoads(workspace, overloadMember.id, weekStart, weekEnd(weekStart)).filter((day) => day.load > day.capacity).map((day) => day.date);
-    return current.length > 0 ? current : memberDailyLoads(committedWorkspace, overloadMember.id, weekStart, weekEnd(weekStart)).filter((day) => day.load > day.capacity).map((day) => day.date);
-  })() : [];
-  const overloadAssignments = overloadMember ? workspace.assignments
-    .filter((assignment) => assignment.personId === overloadMember.id && overloadDates.some((date) => assignment.startDate <= date && assignment.endDate >= date))
-    .sort((a, b) => a.allocation - b.allocation) : [];
-  const overloadStats = overloadMember ? memberWeekStats(workspace, overloadMember, weekStart) : null;
-  const overloadDays = overloadMember
-    ? memberDailyLoads(workspace, overloadMember.id, weekStart, weekEnd(weekStart))
-    : [];
-  const overloadWorst = worstLoadOverCapacity(overloadDays);
-  const overloadPeak = overloadWorst?.load ?? 0;
-  const overloadCeiling = overloadWorst?.capacity ?? overloadMember?.capacity ?? 0;
-  const overloadOverage = overloadWorst ? Math.max(0, overloadWorst.load - overloadWorst.capacity) : 0;
+  const attentionMemberStats = workspace.members.map((member) => ({ member, stats: periodMemberStats(workspace, member, attentionRange) }));
+  const attentionCommittedStats = committedWorkspace.members.map((member) => ({ member, stats: periodMemberStats(committedWorkspace, member, attentionRange) }));
+  const attentionOverloads = attentionMemberStats.filter((entry) => entry.stats.exceeds);
+  const attentionCommittedOverloads = attentionCommittedStats.filter((entry) => entry.stats.exceeds);
+  const weekOverloadIds = new Set(currentOverloads.map((member) => member.id));
+  const rankedAttentionOverloads = [
+    ...attentionOverloads.filter((entry) => weekOverloadIds.has(entry.member.id)),
+    ...attentionOverloads.filter((entry) => !weekOverloadIds.has(entry.member.id)),
+  ];
+  const attentionPlannedEntry = attentionCommittedOverloads.find((entry) => !attentionMemberStats.find((current) => current.member.id === entry.member.id)?.stats.exceeds);
+  const attentionOverloadEntry = rankedAttentionOverloads[0] ?? attentionPlannedEntry;
+  const attentionOverloadMember = attentionOverloadEntry?.member;
+  const attentionOverloadPlanned = Boolean(
+    attentionOverloadMember
+    && attentionCommittedOverloads.some((entry) => entry.member.id === attentionOverloadMember.id)
+    && !attentionMemberStats.find((entry) => entry.member.id === attentionOverloadMember.id)?.stats.exceeds,
+  );
   // Dated as well as unfilled (#255): a need whose end has passed stops being a
   // warning here, in the popover and in the report, all of which read this list.
   const todayIso = currentLocalDate();
   const activeNeeds = openNeeds(workspace, todayIso);
   const selectedNeed = workspace.needs.find((need) => need.id === selectedNeedId);
   const candidateMatches = selectedNeed ? matchMembers(workspace, searchSceneFromNeed(selectedNeed)).slice(0, 5) : [];
-  const adjustmentCount = currentOverloads.length + (overloadPlanned ? 1 : 0) + activeNeeds.length;
+  const adjustmentCount = attentionOverloads.length + (attentionOverloadPlanned ? 1 : 0) + activeNeeds.length;
+  const attentionBreakdown = attentionBreakdownText(
+    periodChoiceLabel(attentionPeriod),
+    attentionOverloads.length,
+    activeNeeds.length,
+    attentionOverloadPlanned ? 1 : 0,
+  );
   /**
    * What the bell's popover would actually list.
    *
    * Derived once because the dot and the panel used to be written apart: the dot was a
    * string literal and was always on, so it promised something the panel often did not
-   * have (#291). Not `adjustmentCount` — that counts every overloaded member, and the
-   * panel shows one.
+   * have (#291). Still the week set, not `adjustmentCount` — that now counts every
+   * member who exceeds in the selected period, and the panel still shows one (#367).
    */
   const overloadNotice = (currentOverloads.length > 0 || overloadPlanned) && overloadMember ? overloadMember : null;
   const notificationCount = (overloadNotice ? 1 : 0) + activeNeeds.length;
@@ -1416,6 +1447,75 @@ export default function Home({ mode = "demo", organizationId, organizationName =
   const unitWord = range.unit === "week" ? "週" : "月";
   /** The week the week-scoped figures cover, for the labels that name it. */
   const measuredWeekLabel = weekLabel(weekStart);
+  const drawerOverloadMember = (overloadDrawerId
+    ? memberById(workspace, overloadDrawerId) ?? memberById(committedWorkspace, overloadDrawerId)
+    : null) ?? attentionOverloadMember ?? overloadMember;
+  const drawerOverloadDraftStats = drawerOverloadMember
+    ? attentionMemberStats.find((entry) => entry.member.id === drawerOverloadMember.id)?.stats
+      ?? periodMemberStats(workspace, drawerOverloadMember, attentionRange)
+    : undefined;
+  const drawerOverloadCommittedStats = drawerOverloadMember
+    ? attentionCommittedStats.find((entry) => entry.member.id === drawerOverloadMember.id)?.stats
+      ?? periodMemberStats(committedWorkspace, drawerOverloadMember, attentionRange)
+    : undefined;
+  const drawerWeekDays = drawerOverloadMember
+    ? memberDailyLoads(workspace, drawerOverloadMember.id, weekStart, weekEnd(weekStart))
+    : [];
+  const drawerWeekExceeds = drawerWeekDays.some((day) => day.load > day.capacity);
+  const useWeekOverloadWindow = overloadDrawerFromWeek || drawerWeekExceeds;
+  const periodOverloadWindow = firstExceedWindow(drawerOverloadDraftStats, attentionPeriod)
+    ?? firstExceedWindow(drawerOverloadCommittedStats, attentionPeriod);
+  const overloadWindow = useWeekOverloadWindow
+    ? { from: weekStart, to: weekEnd(weekStart), label: measuredWeekLabel }
+    : periodOverloadWindow;
+  const overloadSource = useWeekOverloadWindow
+    ? (drawerWeekExceeds ? workspace : committedWorkspace)
+    : (drawerOverloadDraftStats?.exceeds ? workspace : committedWorkspace);
+  const overloadDates = drawerOverloadMember && overloadWindow
+    ? memberDailyLoads(overloadSource, drawerOverloadMember.id, overloadWindow.from, overloadWindow.to)
+      .filter((day) => day.load > day.capacity)
+      .map((day) => day.date)
+    : [];
+  const overloadAssignments = drawerOverloadMember ? workspace.assignments
+    .filter((assignment) => assignment.personId === drawerOverloadMember.id && overloadDates.some((date) => assignment.startDate <= date && assignment.endDate >= date))
+    .sort((a, b) => a.allocation - b.allocation) : [];
+  const resolveDates = drawerWeekDays.filter((day) => day.load > day.capacity).map((day) => day.date);
+  const resolveAssignments = drawerOverloadMember ? workspace.assignments
+    .filter((assignment) => assignment.personId === drawerOverloadMember.id && resolveDates.some((date) => assignmentPutsLoadOnDate(workspace, assignment, date)))
+    .sort((a, b) => a.allocation - b.allocation) : [];
+  const overloadDays = drawerOverloadMember && overloadWindow
+    ? memberDailyLoads(overloadSource, drawerOverloadMember.id, overloadWindow.from, overloadWindow.to)
+    : [];
+  const overloadWorst = worstLoadOverCapacity(overloadDays.filter((day) => day.load > day.capacity));
+  const overloadPeak = overloadWorst?.load ?? 0;
+  const overloadCeiling = overloadWorst?.capacity ?? drawerOverloadMember?.capacity ?? 0;
+  const overloadOverage = overloadWorst ? Math.max(0, overloadWorst.load - overloadWorst.capacity) : 0;
+  const drawerOverloadPlanned = Boolean(
+    drawerOverloadMember && (
+      useWeekOverloadWindow
+        ? committedOverloads.some((member) => member.id === drawerOverloadMember.id) && !drawerWeekExceeds
+        : attentionCommittedOverloads.some((entry) => entry.member.id === drawerOverloadMember.id)
+          && !drawerOverloadDraftStats?.exceeds
+    ),
+  );
+  const attentionCardUsesWeek = Boolean(
+    attentionOverloadMember
+    && memberDailyLoads(workspace, attentionOverloadMember.id, weekStart, weekEnd(weekStart)).some((day) => day.load > day.capacity),
+  );
+  const attentionCardWindow = attentionCardUsesWeek && attentionOverloadMember
+    ? { label: measuredWeekLabel, peak: memberLoad(workspace, attentionOverloadMember.id, weekStart) }
+    : (() => {
+        const window = firstExceedWindow(attentionOverloadEntry?.stats, attentionPeriod);
+        if (!window || !attentionOverloadMember) return { label: periodChoiceLabel(attentionPeriod), peak: null as number | null };
+        const days = memberDailyLoads(
+          attentionOverloadPlanned ? committedWorkspace : workspace,
+          attentionOverloadMember.id,
+          window.from,
+          window.to,
+        );
+        const worst = worstLoadOverCapacity(days.filter((day) => day.load > day.capacity));
+        return { label: window.label, peak: worst ? Math.round(worst.load) : null };
+      })();
   const rangeEndDay = days[days.length - 1];
   // The end's year only when it differs: a week can straddle New Year, and
   // 「2026年 12月28日 — 1月1日」 leaves the reader to guess which January.
@@ -1855,13 +1955,13 @@ export default function Home({ mode = "demo", organizationId, organizationName =
   };
 
   const resolveOverload = () => {
-    if (!canEdit || !overloadMember || overloadAssignments.length === 0) return;
-    const allocations = new Map(workspace.assignments.filter((assignment) => assignment.personId === overloadMember.id).map((assignment) => [assignment.id, assignment.allocation]));
+    if (!canEdit || !drawerOverloadMember || resolveAssignments.length === 0) return;
+    const allocations = new Map(workspace.assignments.filter((assignment) => assignment.personId === drawerOverloadMember.id).map((assignment) => [assignment.id, assignment.allocation]));
     const reductions = new Map<string, number>();
-    for (const day of memberDailyLoads(workspace, overloadMember.id, weekStart, weekEnd(weekStart))) {
+    for (const day of memberDailyLoads(workspace, drawerOverloadMember.id, weekStart, weekEnd(weekStart))) {
       if (day.load <= day.capacity) continue;
       const activeAssignments = workspace.assignments
-        .filter((assignment) => assignment.personId === overloadMember.id && assignmentPutsLoadOnDate(workspace, assignment, day.date))
+        .filter((assignment) => assignment.personId === drawerOverloadMember.id && assignmentPutsLoadOnDate(workspace, assignment, day.date))
         .sort((a, b) => (allocations.get(a.id) ?? 0) - (allocations.get(b.id) ?? 0));
       let remaining = Math.max(0, activeAssignments.reduce((sum, assignment) => sum + (allocations.get(assignment.id) ?? 0), 0) - day.capacity);
       for (const assignment of activeAssignments) {
@@ -1875,7 +1975,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
     }
     const reduced = Array.from(reductions.values()).reduce((sum, reduction) => sum + reduction, 0);
     if (reduced === 0) {
-      setToast(overloadMember.name + "さんの超過はすでに解消予定です");
+      setToast(drawerOverloadMember.name + "さんの超過はすでに解消予定です");
       return;
     }
     const reopenedNeedIds = new Set<string>();
@@ -1900,7 +2000,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
     });
     markUnsaved();
     closeDrawer();
-    setToast(overloadMember.name + "さんの案件配分を合計" + reduced + "%減らしました");
+    setToast(drawerOverloadMember.name + "さんの案件配分を合計" + reduced + "%減らしました");
   };
 
   const placeCandidate = (personId: string, need: StaffingNeed) => {
@@ -3101,7 +3201,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
               {notificationsOpen && (
                 <div className="notification-popover">
                   <div className="popover-head"><strong>通知</strong><button aria-label="通知を閉じる" onClick={() => setNotificationsOpen(false)}><X size={15} /></button></div>
-                  {overloadNotice && <button onClick={() => { setDrawer("overload"); setNotificationsOpen(false); }}><span className={"notice-icon " + (overloadPlanned ? "planned" : "danger")}><AlertTriangle size={14} /></span><span><strong>{overloadPlanned ? "上限超過は解消予定" : "上限超過を検知"}</strong><small>{overloadNotice.name}さん · {measuredWeekLabel}</small></span></button>}
+                  {overloadNotice && <button onClick={() => { setOverloadDrawerId(overloadNotice.id); setOverloadDrawerFromWeek(true); setDrawer("overload"); setNotificationsOpen(false); }}><span className={"notice-icon " + (overloadPlanned ? "planned" : "danger")}><AlertTriangle size={14} /></span><span><strong>{overloadPlanned ? "上限超過は解消予定" : "上限超過を検知"}</strong><small>{overloadNotice.name}さん · {measuredWeekLabel}</small></span></button>}
                   {activeNeeds.map((need) => <button onClick={() => openStaffingNeed(need.id)} key={need.id}><span className={"notice-icon " + (need.status === "planned" ? "planned" : "info")}><UserRoundPlus size={14} /></span><span><strong>{need.status === "planned" ? `${need.role}は解消予定` : `${need.role}担当が未定`}</strong><small>{projectById(workspace, need.projectId)?.name} · {formatDate(need.startDate)}</small></span></button>)}
                   {/* A bell that opens onto a heading and nothing else says less than no
                       bell at all. The dot above is off in this state, so the two agree. */}
@@ -3143,7 +3243,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
               {/* To the list, not into one of its items: a count is a summary, and 「3件」 that
                   opens one thing is one label over two operations (#88, #124, #197). The
                   panel’s own cards are the way into each. */}
-              <button className="pulse-metric warning" onClick={showAttentionPanel}><strong>{adjustmentCount}<small>件</small></strong><span>要調整</span><ArrowRight size={14} /></button>
+              <button className="pulse-metric warning" onClick={showAttentionPanel}><strong>{adjustmentCount}<small>件</small></strong><span>{periodChoiceLabel(attentionPeriod)}の要調整</span><ArrowRight size={14} /></button>
             </section>
 
             <div className="board-layout">
@@ -3306,12 +3406,21 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                   finds this panel by the literal `className="attention-panel"` to check
                   the order of its children, and a template would hide it from that. */}
               <aside className="attention-panel" data-landed={attentionLanded ? "" : undefined} ref={attentionPanelRef} tabIndex={-1} aria-labelledby="attention-heading">
-                <div className="attention-title"><div><small>NEEDS ATTENTION</small><h2 id="attention-heading">要調整</h2></div><span>{adjustmentCount}</span></div>
-                {(currentOverloads.length > 0 || overloadPlanned) && overloadMember && (
-                  <button className={"alert-card urgent " + (overloadPlanned ? "planned" : "")} onClick={() => setDrawer("overload")}>
-                    <div className="alert-top"><span>{overloadPlanned ? <CheckCircle2 size={11} /> : <AlertTriangle size={11} />} {overloadPlanned ? "解消予定" : "上限超過"}</span><small>{memberLoad(workspace, overloadMember.id, weekStart)}%</small></div>
-                    <h3>{overloadMember.name}さんの超過は{overloadPlanned ? "解消予定" : "要調整"}</h3><p>{overloadPlanned ? "変更を保存すると警告が解消されます。" : `${measuredWeekLabel}の稼働配分が稼働上限を超えています。`}</p>
-                    <div className="alert-people"><span className={"avatar " + overloadMember.avatarTone}>{overloadMember.initials}</span><span>{overloadPlanned || !canEdit ? "内容を確認" : "調整する"} <ArrowRight size={13} /></span></div>
+                <div className="attention-title">
+                  <div>
+                    <small>NEEDS ATTENTION</small>
+                    <h2 id="attention-heading">要調整</h2>
+                    <PeriodRangeTabs choice={attentionPeriod} onChange={setAttentionPeriod} namePrefix="要調整" />
+                    <p className="attention-breakdown">{attentionBreakdown}</p>
+                    {attentionRange.clipped && <p className="horizon-clip-note" role="note">{PERIOD_CLIP_NOTE}</p>}
+                  </div>
+                  <span>{adjustmentCount}</span>
+                </div>
+                {(attentionOverloads.length > 0 || attentionOverloadPlanned) && attentionOverloadMember && (
+                  <button className={"alert-card urgent " + (attentionOverloadPlanned ? "planned" : "")} onClick={() => { setOverloadDrawerId(attentionOverloadMember.id); setOverloadDrawerFromWeek(false); setDrawer("overload"); }}>
+                    <div className="alert-top"><span>{attentionOverloadPlanned ? <CheckCircle2 size={11} /> : <AlertTriangle size={11} />} {attentionOverloadPlanned ? "解消予定" : "上限超過"}</span><small>{attentionCardWindow.peak == null ? "—" : `${attentionCardWindow.peak}%`}</small></div>
+                    <h3>{attentionOverloadMember.name}さんの超過は{attentionOverloadPlanned ? "解消予定" : "要調整"}</h3><p>{attentionOverloadPlanned ? "変更を保存すると警告が解消されます。" : `${attentionCardWindow.label}の稼働配分が稼働上限を超えています。`}</p>
+                    <div className="alert-people"><span className={"avatar " + attentionOverloadMember.avatarTone}>{attentionOverloadMember.initials}</span><span>{attentionOverloadPlanned || !canEdit ? "内容を確認" : "調整する"} <ArrowRight size={13} /></span></div>
                   </button>
                 )}
                 {activeNeeds.map((need) => (
@@ -3472,13 +3581,17 @@ export default function Home({ mode = "demo", organizationId, organizationName =
               </form>
             )}
 
-            {drawer === "overload" && overloadMember && (
+            {drawer === "overload" && drawerOverloadMember && (
               <div className="drawer-content">
-                <div className="drawer-heading"><span className={"drawer-icon " + (overloadPlanned ? "mint" : "coral")}>{overloadPlanned ? <CheckCircle2 size={19} /> : <AlertTriangle size={19} />}</span><div><h2>{overloadPlanned ? "解消予定を確認" : "上限超過を調整"}</h2><p>{overloadMember.name}さん · {overloadMember.role}</p></div></div>
-                <div className={"capacity-card " + (overloadPlanned ? "resolved" : "")}><div><span>{measuredWeekLabel}の稼働</span><strong>{Math.round(overloadPeak)}% / 稼働上限{overloadCeiling}%</strong></div><div className="capacity-meter"><span style={{ width: Math.min(100, overloadPeak) + "%" }} /><i>{overloadCeiling}%</i></div><p>{overloadPlanned ? "保存すると超過警告が解消されます。" : `稼働上限を${Math.max(0, Math.round(overloadOverage))}%超えています。`}</p></div>
-                <div className="drawer-section-title"><span>現在の配分</span><small>合計 {overloadStats?.peak}%</small></div>
+                <div className="drawer-heading"><span className={"drawer-icon " + (drawerOverloadPlanned ? "mint" : "coral")}>{drawerOverloadPlanned ? <CheckCircle2 size={19} /> : <AlertTriangle size={19} />}</span><div><h2>{drawerOverloadPlanned ? "解消予定を確認" : "上限超過を調整"}</h2><p>{drawerOverloadMember.name}さん · {drawerOverloadMember.role}</p></div></div>
+                {overloadWorst ? (
+                  <div className={"capacity-card " + (drawerOverloadPlanned ? "resolved" : "")}><div><span>{(overloadWindow?.label ?? measuredWeekLabel)}の稼働</span><strong>{Math.round(overloadPeak)}% / 稼働上限{overloadCeiling}%</strong></div><div className="capacity-meter"><span style={{ width: Math.min(100, overloadPeak) + "%" }} /><i>{overloadCeiling}%</i></div><p>{drawerOverloadPlanned ? "保存すると超過警告が解消されます。" : `稼働上限を${Math.max(0, Math.round(overloadOverage))}%超えています。`}</p></div>
+                ) : (
+                  <div className="capacity-card"><div><span>{(overloadWindow?.label ?? periodChoiceLabel(attentionPeriod))}の稼働</span><strong>超過日はありません</strong></div><p>この期間に上限を超えた日はありません。</p></div>
+                )}
+                <div className="drawer-section-title"><span>現在の配分</span><small>合計 {overloadWorst ? `${Math.round(overloadPeak)}%` : "—"}</small></div>
                 <div className="allocation-list">{overloadAssignments.map((assignment) => <div key={assignment.id}><span className={"project-dot " + (projectById(workspace, assignment.projectId)?.tone || "blue")} /><span><strong>{projectById(workspace, assignment.projectId)?.name}</strong><small>{formatDate(assignment.startDate)} — {formatDate(assignment.endDate)}</small></span><b>{assignment.allocation}%</b></div>)}</div>
-                {!overloadPlanned && canEdit && overloadAssignments.length > 0 ? <><div className="suggestion-card"><span><Sparkles size={15} /></span><div><strong>おすすめの調整</strong><p>超過している各営業日の案件配分を順に減らし、すべての日を稼働上限内へ収めます。</p></div></div><button className="drawer-primary" onClick={resolveOverload}><CheckCircle2 size={16} />推奨配分へ調整</button></> : <button className="drawer-primary" onClick={closeDrawer}><Check size={16} />閉じる</button>}
+                {!drawerOverloadPlanned && canEdit && resolveAssignments.length > 0 ? <><div className="suggestion-card"><span><Sparkles size={15} /></span><div><strong>おすすめの調整</strong><p>超過している各営業日の案件配分を順に減らし、すべての日を稼働上限内へ収めます。</p></div></div><button className="drawer-primary" onClick={resolveOverload}><CheckCircle2 size={16} />推奨配分へ調整</button></> : <button className="drawer-primary" onClick={closeDrawer}><Check size={16} />閉じる</button>}
               </div>
             )}
 

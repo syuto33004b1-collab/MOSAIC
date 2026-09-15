@@ -226,10 +226,14 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
    because `styles.css` keeps one `:focus-visible` rule on purpose and a ring would stay
    until the next click. `--cobalt` is whichever accent the theme in force defines. */
 .attention-panel[data-landed] { box-shadow: 0 0 0 2px var(--cobalt); }
-.attention-title { margin-bottom: 15px; display: flex; align-items: center; justify-content: space-between; }
+.attention-title { margin-bottom: 15px; display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.attention-title > div { min-width: 0; flex: 1; }
 .attention-title small { color: #9aa2b2; font-family: var(--font-data); font-size: 7px; font-weight: 800; letter-spacing: .16em; }
 .attention-title h2 { margin: 3px 0 0; font-size: 17px; letter-spacing: -.04em; }
-.attention-title > span { width: 26px; height: 26px; border-radius: 9px; background: #ffebe9; color: #d95f55; display: grid; place-items: center; font-family: var(--font-data); font-size: var(--text-min); font-weight: 800; }
+.attention-title .range-tabs { width: 100%; margin: 8px 0 0; flex-wrap: wrap; }
+.attention-breakdown { margin: 6px 0 0; color: #858e9f; font-size: 8px; line-height: 1.5; }
+.attention-title .horizon-clip-note { grid-column: auto; margin: 6px 0 0; }
+.attention-title > span { width: 26px; height: 26px; flex: 0 0 26px; border-radius: 9px; background: #ffebe9; color: #d95f55; display: grid; place-items: center; font-family: var(--font-data); font-size: var(--text-min); font-weight: 800; }
 .alert-card { margin-bottom: 10px; padding: 14px; border: 1px solid var(--line); border-radius: 13px; background: #fbfcfd; }
 .alert-card.urgent { border-color: #f4c7c3; background: #fff9f8; }
 .alert-top { display: flex; align-items: center; justify-content: space-between; }
@@ -2902,6 +2906,7 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .assignment,
 .assignment small,
 .attention-title small,
+.attention-breakdown,
 .alert-top span,
 .alert-top small,
 .alert-card p,
@@ -3025,6 +3030,7 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 }
 
 .alert-card p,
+.attention-breakdown,
 .notification-popover > button small,
 .empty-state p,
 .drawer-heading p,

@@ -3050,9 +3050,9 @@ describe("the board's row header opens the row", () => {
   });
 });
 describe("the 要調整 count takes you to the list", () => {
-  // The summary button, by its own shape: 「3件要調整」. The overload card in the panel also
-  // has 要調整 in its long accessible name, so the anchor matters.
-  const countButton = () => screen.getByRole("button", { name: /^\d+件要調整$/u });
+  // The summary button, by its own shape: 「3件4週間の要調整」. The overload card in the
+  // panel also has 要調整 in its long accessible name, so the anchor matters.
+  const countButton = () => screen.getByRole("button", { name: /^\d+件(4週間|12週間|6か月|12か月)の要調整$/u });
 
   it("goes to the panel instead of opening one of the items", async () => {
     const user = userEvent.setup();
@@ -3062,7 +3062,10 @@ describe("the 要調整 count takes you to the list", () => {
     const panel = document.querySelector(".attention-panel") as HTMLElement;
     // More than one thing to adjust, or this test would pass on a screen with one.
     expect(panel.querySelectorAll(".alert-card").length).toBeGreaterThan(1);
-    expect(countButton().textContent).toContain(String(panel.querySelectorAll(".alert-card").length));
+    const breakdown = panel.querySelector(".attention-breakdown");
+    expect(breakdown).not.toBeNull();
+    expect(breakdown!.textContent).toBe("4週間 · 過負荷1人 · 未充足ニーズ2件");
+    expect(countButton().textContent).toContain("3件");
 
     await user.click(countButton());
     // No drawer: the list is the destination, and its cards are the way into each item.
@@ -3128,6 +3131,101 @@ describe("the 要調整 count takes you to the list", () => {
     expect(document.querySelector(".drawer")).not.toBeNull();
   });
 });
+
+describe("the 要調整 panel names the period it counts (#367)", () => {
+  const owner = { name: "管理 花子", email: "owner@example.com", role: "owner" as const };
+  const countButton = () => screen.getByRole("button", { name: /^\d+件(4週間|12週間|6か月|12か月)の要調整$/u });
+
+  it("keeps the count equal to the breakdown, not to the number of cards", async () => {
+    const weekStart = getWeekStart(0);
+    const first = { ...initialWorkspace.members[0], id: "first", name: "超過 一郎", capacity: 50 };
+    const second = { ...initialWorkspace.members[1], id: "second", name: "超過 二郎", capacity: 50 };
+    const project = { ...initialWorkspace.projects[0], id: "project", ownerPersonId: first.id };
+    const adapter = sharedAdapter();
+    adapter.initialState = {
+      members: [first, second],
+      projects: [project],
+      assignments: [
+        { id: "a", personId: first.id, projectId: project.id, startDate: weekStart, endDate: addDays(weekStart, 4), allocation: 100, status: "confirmed" },
+        { id: "b", personId: second.id, projectId: project.id, startDate: weekStart, endDate: addDays(weekStart, 4), allocation: 100, status: "confirmed" },
+      ],
+      needs: [{
+        id: "need",
+        projectId: project.id,
+        role: "QA Engineer",
+        skills: ["QA"],
+        startDate: addDays(weekStart, 7),
+        endDate: addDays(weekStart, 18),
+        allocation: 40,
+        status: "open",
+      }],
+    } as unknown as WorkspaceState;
+    render(<App mode="shared" organizationName="Example Inc." identity={owner} shared={adapter} />);
+
+    const panel = document.querySelector(".attention-panel") as HTMLElement;
+    expect(panel.querySelector(".attention-breakdown")!.textContent).toBe("4週間 · 過負荷2人 · 未充足ニーズ1件");
+    expect(countButton().textContent).toContain("3件");
+    expect(panel.querySelectorAll(".alert-card")).toHaveLength(2);
+  });
+
+  it("counts a later overload only after the period covers it, and does not tell the bell", async () => {
+    const user = userEvent.setup();
+    const later = { ...initialWorkspace.members[0], id: "later", name: "後週 花子", capacity: 50 };
+    const project = { ...initialWorkspace.projects[0], id: "project", ownerPersonId: later.id };
+    const adapter = sharedAdapter();
+    adapter.initialState = {
+      members: [later],
+      projects: [project],
+      assignments: [{
+        id: "oct",
+        personId: later.id,
+        projectId: project.id,
+        startDate: "2026-10-05",
+        endDate: "2026-10-09",
+        allocation: 100,
+        status: "confirmed",
+      }],
+      needs: [],
+    } as unknown as WorkspaceState;
+    render(<App mode="shared" organizationName="Example Inc." identity={owner} shared={adapter} />);
+
+    expect(countButton()).toHaveAccessibleName("0件4週間の要調整");
+    expect(document.querySelector(".attention-breakdown")!.textContent).toBe("4週間 · 過負荷0人 · 未充足ニーズ0件");
+    expect(document.querySelector(".attention-panel .alert-card")).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "通知" }));
+    expect(screen.queryByText("上限超過を検知")).toBeNull();
+    await user.keyboard("{Escape}");
+
+    await user.click(screen.getByRole("button", { name: "要調整の12週間" }));
+    expect(countButton()).toHaveAccessibleName("1件12週間の要調整");
+    expect(document.querySelector(".attention-breakdown")!.textContent).toBe("12週間 · 過負荷1人 · 未充足ニーズ0件");
+    expect(screen.getByText("8週後の稼働配分が稼働上限を超えています。")).toBeInTheDocument();
+
+    await user.click(screen.getByText("上限超過").closest("button")!);
+    const dialog = within(screen.getByRole("dialog", { name: "詳細パネル" }));
+    expect(dialog.getByText("8週後の稼働")).toBeInTheDocument();
+    expect(dialog.getByText(/100% \/ 稼働上限50%/u)).toBeInTheDocument();
+    expect(dialog.queryByText(/0% \/ 稼働上限0%/u)).toBeNull();
+    expect(dialog.queryByRole("button", { name: "推奨配分へ調整" })).toBeNull();
+  });
+
+  it("names the holiday clip in the title when the span runs past 2035", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date("2035-11-15T09:00:00+09:00"));
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    try {
+      render(<App />);
+      await user.click(screen.getByRole("button", { name: "要調整の12か月" }));
+      const note = document.querySelector(".attention-title .horizon-clip-note");
+      expect(note).not.toBeNull();
+      expect(note).toHaveTextContent("2016年から2035年");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
 describe("the board can show a month", () => {
   const openBoard = async () => {
     const user = userEvent.setup();

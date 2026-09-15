@@ -1447,12 +1447,13 @@ export function ProposalView({
   );
 }
 
-export function PeriodRangeTabs({ choice, onChange }: { choice: PeriodChoice; onChange: (choice: PeriodChoice) => void }) {
+export function PeriodRangeTabs({ choice, onChange, namePrefix }: { choice: PeriodChoice; onChange: (choice: PeriodChoice) => void; namePrefix?: string }) {
   return (
-    <div className="range-tabs" aria-label="表示期間">{PERIOD_CHOICES.map((option) => {
+    <div className="range-tabs" aria-label={namePrefix ? `${namePrefix}の表示期間` : "表示期間"}>{PERIOD_CHOICES.map((option) => {
       const selected = choice.unit === option.unit && choice.count === option.count;
       const label = periodChoiceLabel(option);
-      return <button type="button" className={selected ? "selected" : ""} aria-pressed={selected} onClick={() => onChange(option)} key={label}>{label}</button>;
+      const name = namePrefix ? `${namePrefix}の${label}` : label;
+      return <button type="button" className={selected ? "selected" : ""} aria-label={name} aria-pressed={selected} onClick={() => onChange(option)} key={label}>{label}</button>;
     })}</div>
   );
 }
