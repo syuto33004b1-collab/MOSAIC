@@ -5374,7 +5374,7 @@ h1 {
 
   /* The proposal itself.
      The ribbon stays: it already says what this is for — the requirement, its dates, the
-     allocation, how many candidates, and whether names are shown — so paper needs no header of
+     allocation, and how many candidates — so paper needs no header of
      its own, and no print-only element in the DOM to hold one. Everything that is a control
      goes: the toolbar with the pickers and the two buttons that started this, the candidate
      picker down the left, and the per-card 「外す」 / 「詳細を開く」 / favourite star. */

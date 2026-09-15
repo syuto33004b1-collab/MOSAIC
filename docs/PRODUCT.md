@@ -29,6 +29,7 @@ MOSAIC は**社内利用の自社の道具**です。主たる利用者は、全
 | --- | --- |
 | 解除できない共有ビュー・不透明 ID・失効付きの**ライブ社外共有** | [#148](https://github.com/syuto33004b1-collab/MOSAIC/issues/148) の利用者判断。社外提出はファイル書き出しとし、リンクの社外共有ページは作らない |
 | 履歴書・職務経歴書の様式 | [#326](https://github.com/syuto33004b1-collab/MOSAIC/issues/326)。社外提案用の文書であり、社内では不要（スキルシートは別に扱う） |
+| 提案画面の表示モードとしての氏名秘匿（候補A ラベル） | [#332](https://github.com/syuto33004b1-collab/MOSAIC/issues/332)。社内の決裁者が使う画面であり、氏名を隠す要件ではない（[#326](https://github.com/syuto33004b1-collab/MOSAIC/issues/326)）。参照範囲の制限（`personScope`）は権限モデルの機能であり別物 |
 | 価格設計・ランディング・セルフサーブ登録 | [#326](https://github.com/syuto33004b1-collab/MOSAIC/issues/326)。自社の道具で確定している |
 | 工数実績（タイムシート） | [#330](https://github.com/syuto33004b1-collab/MOSAIC/issues/330)。計画側のコストで足り、事後の集計は会計・勤怠側が持つ |
 | 対外請求・請求単価・売上・粗利・見積・請求書 | [#330](https://github.com/syuto33004b1-collab/MOSAIC/issues/330)。販売・会計の領域 |

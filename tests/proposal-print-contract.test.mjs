@@ -32,9 +32,9 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
  * | with background colours suppressed | nothing left the same colour as the paper |
  *
  * The last row is the one that changed the design. Chrome prints with 「Background graphics」
- * off unless the reader turns it on, and the ribbon that carries the subject, the dates and
- * whether names are shown is a dark block with near-white text: on paper, the header of the
- * handout was disappearing. It is redrawn as ink on white here rather than made to print its
+ * off unless the reader turns it on, and the ribbon that carries the subject and the
+ * dates is a dark block with near-white text: on paper, the header of the handout was
+ * disappearing. It is redrawn as ink on white here rather than made to print its
  * background.
  *
  * Left to a person, and said out loud in #179: where the pages actually break, the `@page`
@@ -200,7 +200,7 @@ test("nothing rides along with a field that was chosen", async () => {
  * here. A line per card certainly prints.
  *
  * What this holds is that the line is paper-only and reaches paper. Its content — the
- * subject and the display mode — is in `src/App.test.tsx`, where there is a DOM.
+ * subject — is in `src/App.test.tsx`, where there is a DOM.
  */
 test("every printed candidate says whose proposal it is", async () => {
   const [body] = await printBlock();
