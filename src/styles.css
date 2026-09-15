@@ -2663,12 +2663,11 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   display: inline;
   min-height: 0;
 }
-.production-legal { display: grid; gap: 22px; outline: none; }
-.production-legal:focus-visible { outline: 2px solid #4a5bb8; outline-offset: 4px; }
+.production-legal { display: grid; gap: 22px; }
 .production-legal-toc { display: flex; flex-wrap: wrap; gap: 10px 16px; }
 .production-legal-toc a,
 .production-legal-back { font-size: 12px; font-weight: 700; }
-.production-legal h2 { margin: 0 0 8px; font-size: 16px; }
+.production-legal h2 { margin: 0 0 8px; font-size: var(--text-lg); }
 .production-legal p,
 .production-legal li { font-size: var(--text-min); line-height: 1.7; }
 .production-legal-facts,

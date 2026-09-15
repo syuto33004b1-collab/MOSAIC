@@ -38,10 +38,10 @@ function DraftNote() {
 }
 
 export function LegalNotice() {
-  const panelRef = useRef<HTMLDivElement>(null);
+  const firstLinkRef = useRef<HTMLAnchorElement>(null);
 
   useEffect(() => {
-    panelRef.current?.focus();
+    firstLinkRef.current?.focus();
   }, []);
 
   return (
@@ -52,9 +52,9 @@ export function LegalNotice() {
       sidebarLabel="LEGAL"
       sidebarDescription="公開文書"
     >
-      <div className="production-legal" ref={panelRef} tabIndex={-1}>
+      <div className="production-legal">
         <nav className="production-legal-toc" aria-label="この文書の節">
-          <a href="#legal-outbound">社外へ出る経路</a>
+          <a ref={firstLinkRef} href="#legal-outbound">社外へ出る経路</a>
           <a href="#legal-privacy">プライバシーポリシー</a>
           <a href="#legal-terms">利用規約</a>
         </nav>
