@@ -187,8 +187,9 @@ async function runSubmitFeedback(args, session, options) {
   const organizationId = readClientOrganizationId(session.client);
   const bodyArg = args.body;
   const tokenArg = args.confirmationToken;
-  if (args.sourceScreen !== undefined || args.source_screen !== undefined) {
-    throw new FeedbackToolError("送信元画面は指定できません。");
+  const allowedKeys = new Set(["body", "confirmationToken"]);
+  if (Object.keys(args).some((key) => !allowedKeys.has(key))) {
+    throw new FeedbackToolError("submit_feedback が受け取るのは body と confirmationToken だけです。");
   }
   if (tokenArg !== undefined && bodyArg !== undefined) {
     throw new FeedbackToolError("確認するときは confirmationToken だけを送ってください。");
@@ -206,7 +207,7 @@ async function runSubmitFeedback(args, session, options) {
     throw new FeedbackToolError("1回目は本文を送り、2回目は confirmationToken だけを送ってください。");
   }
   const body = bodyArg.trim();
-  if (body.length < 1 || body.length > 2000) {
+  if ([...body].length < 1 || [...body].length > 2000) {
     throw new FeedbackToolError("本文は1文字以上2000文字以下です。");
   }
   const requestId = crypto.randomUUID();

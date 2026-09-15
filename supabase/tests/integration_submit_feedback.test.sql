@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions, pg_catalog;
 
-select plan(11);
+select plan(12);
 
 insert into auth.users (id, email, raw_user_meta_data) values
   ('11000000-0000-4000-8000-000000000381', 'mcp-owner@test.local', '{"full_name":"MCP Owner"}'::jsonb),
@@ -46,6 +46,25 @@ create temporary table test_runtime (
 ) on commit drop;
 grant select, insert, update, delete on table test_runtime to authenticated, service_role;
 
+insert into app.integration_clients (
+  id, organization_id, name, key_prefix, secret_hash, scopes, created_by, updated_by
+) values (
+  '61000000-0000-4000-8000-000000000381',
+  '21000000-0000-4000-8000-000000000381',
+  'Planner MCP',
+  'bbbbbbbbbbbb',
+  repeat('b', 64),
+  array['workspace:read', 'assignments:write']::text[],
+  '11000000-0000-4000-8000-000000000382',
+  '11000000-0000-4000-8000-000000000382'
+);
+
+insert into test_runtime (label, payload)
+values (
+  'planner_client',
+  jsonb_build_object('client', jsonb_build_object('id', '61000000-0000-4000-8000-000000000381'))
+);
+
 select ok(
   has_function_privilege('service_role', 'public.integration_submit_feedback(uuid,uuid,text)', 'EXECUTE')
   and not has_function_privilege('authenticated', 'public.integration_submit_feedback(uuid,uuid,text)', 'EXECUTE')
@@ -64,16 +83,6 @@ select 'owner_client', public.create_integration_client(
   'Owner MCP',
   array['workspace:read']::text[],
   '91000000-0000-4000-8000-000000000381'
-);
-
-set local request.jwt.claim.sub = '11000000-0000-4000-8000-000000000382';
-
-insert into test_runtime (label, payload)
-select 'planner_client', public.create_integration_client(
-  '21000000-0000-4000-8000-000000000381',
-  'Planner MCP',
-  array['workspace:read', 'assignments:write']::text[],
-  '91000000-0000-4000-8000-000000000382'
 );
 
 set local request.jwt.claim.sub = '11000000-0000-4000-8000-000000000383';
@@ -126,6 +135,28 @@ select set_config('request.jwt.claim.role', '', true);
 select set_config('request.jwt.claims', '', true);
 
 reset role;
+
+select ok(
+  (
+    select bool_and(audit.caller_kind = 'integration')
+      and bool_and(audit.action = 'insert')
+      and bool_and(audit.entity_type = 'feedback')
+      and bool_and(audit.actor_user_id = '11000000-0000-4000-8000-000000000382')
+      and bool_and(audit.request_id = '91000000-0000-4000-8000-000000000385')
+      and bool_and(
+        audit.integration_client_id = (
+          select (payload -> 'client' ->> 'id')::uuid
+          from test_runtime
+          where label = 'planner_client'
+        )
+      )
+    from app.audit_events as audit
+    where audit.organization_id = '21000000-0000-4000-8000-000000000381'
+      and audit.entity_type = 'feedback'
+  ),
+  'audit records the integration client, issuer, and request on the insert'
+);
+
 set local role authenticated;
 set local request.jwt.claim.role = 'authenticated';
 set local request.jwt.claim.sub = '11000000-0000-4000-8000-000000000381';
@@ -191,19 +222,19 @@ insert into app.feedback (
 )
 select
   '21000000-0000-4000-8000-000000000381',
-  ('91000000-0000-4000-8000-00000003' || lpad(n::text, 3, '0'))::uuid,
+  ('91000000-0000-4000-8000-00000003' || lpad(n::text, 4, '0'))::uuid,
   'rate ' || n,
   'board',
-  '11000000-0000-4000-8000-000000000381',
-  '11000000-0000-4000-8000-000000000381',
+  '11000000-0000-4000-8000-000000000382',
+  '11000000-0000-4000-8000-000000000382',
   now()
-from generate_series(1, 20) as n;
+from generate_series(1, 19) as n;
 
 set local role service_role;
 
 select throws_ok(
   $$select public.integration_submit_feedback(
-      (select (payload -> 'client' ->> 'id')::uuid from test_runtime where label = 'owner_client'),
+      (select (payload -> 'client' ->> 'id')::uuid from test_runtime where label = 'planner_client'),
       '91000000-0000-4000-8000-000000000399',
       '21件目'
     )$$,
