@@ -7,16 +7,22 @@ import { fileURLToPath } from "node:url";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const dist = path.join(root, "dist");
 
-test("builds a GitHub Pages entry point under the MOSAIC base path", async () => {
+test("builds a root entry point for Cloudflare Workers", async () => {
   const html = await readFile(path.join(dist, "index.html"), "utf8");
   assert.match(html, /<html lang="ja">/);
-  assert.match(html, /\/MOSAIC\/assets\//);
+  assert.match(html, /\/assets\//);
+  assert.doesNotMatch(html, /\/MOSAIC\/assets\//);
   assert.match(html, /https:\/\/syuto33004b1-collab\.github\.io\/MOSAIC\/og\.png/);
-  assert.match(html, /\/MOSAIC\/favicon\.svg/);
+  assert.match(html, /\/favicon\.svg/);
   assert.doesNotMatch(html, /__MOSAIC_CONNECT_SRC__/);
   assert.doesNotMatch(html, /__MOSAIC_UPGRADE_INSECURE_REQUESTS__/);
   assert.match(html, /upgrade-insecure-requests/);
   assert.doesNotMatch(html, /https:\/\/\*\.supabase\.co/);
+
+  const headers = await readFile(path.join(dist, "_headers"), "utf8");
+  assert.match(headers, /frame-ancestors 'none'/);
+  assert.match(headers, /X-Frame-Options: DENY/);
+  assert.doesNotMatch(headers, /connect-src/);
 });
 
 test("ships the interactive assignment workspace and social image", async () => {

@@ -1,9 +1,9 @@
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const ROLES = new Set(["admin", "planner", "viewer"]);
-export const ALLOWED_INVITE_REDIRECTS = [
-  "http://127.0.0.1:5173/MOSAIC/",
-  "https://syuto33004b1-collab.github.io/MOSAIC/",
-];
+export const LOCAL_INVITE_REDIRECT = "http://127.0.0.1:5173/";
+export const PAGES_INVITE_REDIRECT = "https://syuto33004b1-collab.github.io/MOSAIC/";
+export const WORKERS_INVITE_REDIRECT = "https://mosaic.taps-desk.workers.dev/";
+export const ALLOWED_INVITE_REDIRECTS = [LOCAL_INVITE_REDIRECT, PAGES_INVITE_REDIRECT, WORKERS_INVITE_REDIRECT];
 
 export class InviteContractError extends Error {
   constructor(code, message, status = 400, retryable = false) {

@@ -8,9 +8,9 @@ MOSAICのsourceと静的フロントエンドはpublicです。source、schema�
 
 ## 現在の境界
 
-- GitHub Pagesは静的フロントエンドです。server-side secretを保持できません。
+- 静的フロントエンドは Cloudflare Workers で配信します。server-side secret は Worker に置きません。
 - Supabase未接続時はデモデータとブラウザ内保存だけを使います。実運用データを`localStorage`へ保存しません。
-- GitHub Pagesでは任意のHTTP security headerを設定できません。現行buildはmeta CSPを生成し、`connect-src`を設定済みSupabase originへ限定します。`frame-ancestors`などHTTP headerでしか強制できない要件がある場合は、headerを制御できるCDN/hostingへ移行します。
+- 現行buildはmeta CSPを生成し、`connect-src`を設定済みSupabase originへ限定します。`frame-ancestors` と `X-Frame-Options` は `public/_headers` で付けます。meta CSP の `connect-src` を header へ複製しません。
 
 ## 認証と認可
 
@@ -44,7 +44,7 @@ MOSAICのsourceと静的フロントエンドはpublicです。source、schema�
 | --- | --- | --- |
 | GitHub | `syuto33004b1-collab/MOSAIC` | `-R syuto33004b1-collab/MOSAIC`。`git push`は`git remote get-url`で照合する |
 | Supabase | project ref `ivsauhjnoiurpsriskqe` | `--project-ref ivsauhjnoiurpsriskqe` |
-| Cloudflare | 未使用 | 導入時に決める |
+| Cloudflare | Worker 名 `mosaic`。照合は公開 URL `https://mosaic.taps-desk.workers.dev/` | GitHub Environment `cloudflare` の secret。デプロイの**前に**、Environment の account ID が意図した社用アカウントであることをダッシュボードで照合する。account ID はここへ書かない |
 
 GitHubのowner `syuto33004b1-collab`はOrganizationではなくUser accountです。**個人用途ではなく、業務利用として承認済みです。** Supabaseのorganization表示名がこのアカウント名を含むのも同じ理由で、個人所有を意味しません。
 

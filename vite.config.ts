@@ -30,7 +30,7 @@ export default defineConfig(({ command, mode }) => {
     : [];
 
   return {
-    base: "/MOSAIC/",
+    base: "/",
     plugins: [contentSecurityPolicyPlugin([...new Set([...configuredOrigins, ...localOrigins])], command === "build"), react()],
     build: {
       outDir: "dist",
