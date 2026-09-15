@@ -6034,6 +6034,7 @@ describe("the project drawer's next milestone", () => {
   function factValue(dialog: ReturnType<typeof within>, label: string) {
     const cell = dialog.getByText(label).closest("div")!;
     expect(cell.parentElement).toHaveClass("detail-facts");
+    if (label === "次の節目") expect(cell).toHaveClass("fact-wide");
     return cell.querySelector("strong")?.textContent ?? "";
   }
 
