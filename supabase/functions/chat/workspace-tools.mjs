@@ -22,6 +22,7 @@
  */
 
 import { describeOperationDenial, INTEGRATION_LIMITS, normalizeCaller, OPERATION_CATALOG } from "./integration-core.mjs";
+import { isJapanHoliday } from "./japan-holidays.mjs";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/u;
@@ -1060,9 +1061,66 @@ function containsBusinessDay(start, end) {
   return false;
 }
 
+function isWeekendDate(iso) {
+  const day = new Date(`${iso}T00:00:00Z`).getUTCDay();
+  return day === 0 || day === 6;
+}
+
+function addDaysIso(iso, amount) {
+  const date = new Date(`${iso}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + amount);
+  return date.toISOString().slice(0, 10);
+}
+
+function memberCapacityOnDate(state, member, date) {
+  if (isWeekendDate(date)) return Number(member.capacity);
+  if (isJapanHoliday(date)) return 0;
+  let capacity = Number(member.capacity);
+  for (const leave of member.unavailability ?? []) {
+    if (leave.startDate <= date && leave.endDate >= date) {
+      capacity = Math.min(capacity, Number(leave.capacityPercent));
+    }
+  }
+  return capacity;
+}
+
+function assignmentPutsLoadOnDate(state, assignment, date) {
+  if (assignment.startDate > date || assignment.endDate < date) return false;
+  if (isWeekendDate(date)) return (assignment.weekendWorkDates ?? []).includes(date);
+  const member = state.members.find((candidate) => candidate.id === assignment.personId);
+  if (!member) return false;
+  return memberCapacityOnDate(state, member, date) > 0;
+}
+
+function memberDailyLoads(state, personId, startDate, endDate, excludedAssignmentId) {
+  if (!DATE_PATTERN.test(startDate) || !DATE_PATTERN.test(endDate)) return [];
+  const member = state.members.find((candidate) => candidate.id === personId);
+  const mine = state.assignments.filter((assignment) =>
+    assignment.id !== excludedAssignmentId && assignment.personId === personId && assignment.status !== "cancelled");
+  const days = [];
+  for (let date = startDate; date <= endDate; date = addDaysIso(date, 1)) {
+    const weekend = isWeekendDate(date);
+    const load = mine
+      .filter((assignment) => assignmentPutsLoadOnDate(state, assignment, date))
+      .reduce((sum, assignment) => sum + Number(assignment.allocation), 0);
+    const capacity = !member
+      ? 0
+      : weekend
+        ? (load > 0 ? Number(member.capacity) : 0)
+        : memberCapacityOnDate(state, member, date);
+    days.push({ date, load, weekend, capacity });
+  }
+  return days;
+}
+
 function memberPeakLoad(state, personId, startDate, endDate, excludedAssignmentId) {
   const rangeStart = dayNumber(startDate);
   const rangeEnd = dayNumber(endDate);
+  if (!Number.isFinite(rangeStart) || !Number.isFinite(rangeEnd) || rangeEnd < rangeStart) return 0;
+  if (rangeEnd - rangeStart <= 21) {
+    return memberDailyLoads(state, personId, startDate, endDate, excludedAssignmentId)
+      .reduce((peak, day) => Math.max(peak, day.load), 0);
+  }
   const events = new Map();
   for (const assignment of state.assignments) {
     if (assignment.id === excludedAssignmentId || assignment.personId !== personId || assignment.status === "cancelled") continue;
@@ -1082,10 +1140,6 @@ function memberPeakLoad(state, personId, startDate, endDate, excludedAssignmentI
     if (containsBusinessDay(day, Math.min(rangeEnd, next - 1))) peak = Math.max(peak, load);
   });
 
-  // The sweep above skips weekends, because a period only means the weekdays in
-  // it. A weekend counts only for the assignments that recorded that exact day,
-  // so it cannot be swept — but it needs no scan either: the recorded days are
-  // the list (#229, mirroring memberPeakLoad in src/domain.ts).
   const mine = state.assignments.filter((assignment) =>
     assignment.id !== excludedAssignmentId && assignment.personId === personId && assignment.status !== "cancelled");
   const recorded = new Set();
@@ -1102,6 +1156,48 @@ function memberPeakLoad(state, personId, startDate, endDate, excludedAssignmentI
     peak = Math.max(peak, dayLoad);
   }
   return peak;
+}
+
+function memberExceedsCapacity(state, member, startDate, endDate, excludedAssignmentId) {
+  const rangeStart = dayNumber(startDate);
+  const rangeEnd = dayNumber(endDate);
+  if (!Number.isFinite(rangeStart) || !Number.isFinite(rangeEnd) || rangeEnd < rangeStart) return false;
+  if (rangeEnd - rangeStart <= 366) {
+    return memberDailyLoads(state, member.id, startDate, endDate, excludedAssignmentId)
+      .some((day) => day.load > day.capacity);
+  }
+  if (memberPeakLoad(state, member.id, startDate, endDate, excludedAssignmentId) > Number(member.capacity)) return true;
+  for (const leave of member.unavailability ?? []) {
+    if (Number(leave.capacityPercent) >= Number(member.capacity)) continue;
+    const clipStart = leave.startDate > startDate ? leave.startDate : startDate;
+    const clipEnd = leave.endDate < endDate ? leave.endDate : endDate;
+    if (clipEnd < clipStart) continue;
+    if (memberDailyLoads(state, member.id, clipStart, clipEnd, excludedAssignmentId).some((day) => day.load > day.capacity)) return true;
+  }
+  return false;
+}
+
+function memberAvailablePercent(state, member, startDate, endDate) {
+  if (!startDate || !endDate) return Number(member.capacity);
+  const rangeStart = dayNumber(startDate);
+  const rangeEnd = dayNumber(endDate);
+  if (!Number.isFinite(rangeStart) || !Number.isFinite(rangeEnd) || rangeEnd < rangeStart) return 0;
+  if (rangeEnd - rangeStart > 366) {
+    let slack = Math.max(0, Number(member.capacity) - memberPeakLoad(state, member.id, startDate, endDate));
+    for (const leave of member.unavailability ?? []) {
+      if (Number(leave.capacityPercent) <= 0) continue;
+      const clipStart = leave.startDate > startDate ? leave.startDate : startDate;
+      const clipEnd = leave.endDate < endDate ? leave.endDate : endDate;
+      if (clipEnd < clipStart) continue;
+      const ceiling = Math.min(Number(member.capacity), Number(leave.capacityPercent));
+      slack = Math.min(slack, Math.max(0, ceiling - memberPeakLoad(state, member.id, clipStart, clipEnd)));
+    }
+    return slack;
+  }
+  const bearing = memberDailyLoads(state, member.id, startDate, endDate)
+    .filter((day) => !day.weekend && day.capacity > 0);
+  if (bearing.length === 0) return 0;
+  return bearing.reduce((lowest, day) => Math.min(lowest, Math.max(0, day.capacity - day.load)), Number.POSITIVE_INFINITY);
 }
 
 function buildSavedReportRows(state, report, startDate, endDate) {
@@ -1189,8 +1285,9 @@ export function readWorkspaceTool(snapshot, name, args, caller) {
 
   if (filters.resource === "summary") {
     const overloadedMembers = filters.startDate ? state.members.flatMap((member) => {
-      const peakAllocation = memberPeakLoad(state, member.id, filters.startDate, filters.endDate);
-      return peakAllocation > Number(member.capacity) ? [{ id: member.id, name: member.name, capacity: Number(member.capacity), peakAllocation }] : [];
+      return memberExceedsCapacity(state, member, filters.startDate, filters.endDate)
+        ? [{ id: member.id, name: member.name, capacity: Number(member.capacity), peakAllocation: memberPeakLoad(state, member.id, filters.startDate, filters.endDate) }]
+        : [];
     }) : [];
     return {
       resource: "summary",
@@ -1255,9 +1352,9 @@ export function readWorkspaceTool(snapshot, name, args, caller) {
       .map((member) => {
         const availability = filters.startDate ? (() => {
           const peakAllocation = memberPeakLoad(state, member.id, filters.startDate, filters.endDate);
-          return { peakAllocation, availablePercent: Math.max(0, Number(member.capacity) - peakAllocation) };
+          return { peakAllocation, availablePercent: memberAvailablePercent(state, member, filters.startDate, filters.endDate) };
         })() : {};
-        return { id: member.id, name: member.name, role: member.role, department: member.department, location: member.location, skills: member.skills ?? [], ...(Array.isArray(member.skillLevels) && member.skillLevels.length ? { skillLevels: member.skillLevels } : {}), ...(member.customValues && Object.keys(member.customValues).length ? { customValues: member.customValues } : {}), ...(Array.isArray(member.workHistory) && member.workHistory.length ? { workHistory: member.workHistory } : {}), capacity: Number(member.capacity), ...availability };
+        return { id: member.id, name: member.name, role: member.role, department: member.department, location: member.location, skills: member.skills ?? [], ...(Array.isArray(member.skillLevels) && member.skillLevels.length ? { skillLevels: member.skillLevels } : {}), ...(member.customValues && Object.keys(member.customValues).length ? { customValues: member.customValues } : {}), ...(Array.isArray(member.workHistory) && member.workHistory.length ? { workHistory: member.workHistory } : {}), ...(Array.isArray(member.unavailability) && member.unavailability.length ? { unavailability: member.unavailability } : {}), capacity: Number(member.capacity), ...availability };
       })
       .filter((member) => filters.minAvailablePercent === undefined || member.availablePercent >= filters.minAvailablePercent);
     return { resource: filters.resource, revision: state.revision, ...bounded(values, filters.limit) };
@@ -1517,7 +1614,7 @@ function memberMatchesScene(state, member, scene) {
     return proficiency !== undefined && proficiency >= Number(requirement.minProficiency ?? 1) ? [requirement.name] : [];
   });
   const availablePercent = scene.startDate && scene.endDate
-    ? Math.max(0, Number(member.capacity) - memberPeakLoad(state, member.id, scene.startDate, scene.endDate))
+    ? memberAvailablePercent(state, member, scene.startDate, scene.endDate)
     : Number(member.capacity);
   if (scene.minAvailablePercent !== undefined && scene.minAvailablePercent !== null && availablePercent < Number(scene.minAvailablePercent)) return null;
   return {
@@ -1530,15 +1627,12 @@ function memberMatchesScene(state, member, scene) {
 
 function assignmentMatchesNeed(state, assignment, need) {
   const member = state.members.find((candidate) => candidate.id === assignment.personId);
-  const otherPeak = member
-    ? memberPeakLoad(state, member.id, need.startDate, need.endDate, assignment.id)
-    : Number.POSITIVE_INFINITY;
   return Boolean(member && memberMatchesNeed(member, need))
     && assignment.projectId === need.projectId
     && assignment.startDate <= need.startDate
     && assignment.endDate >= need.endDate
     && Number(assignment.allocation) >= Number(need.allocation)
-    && otherPeak + Number(assignment.allocation) <= Number(member.capacity);
+    && !memberExceedsCapacity(state, member, need.startDate, need.endDate);
 }
 
 function cloneState(state) {
@@ -1583,7 +1677,14 @@ function removedIds(next, previous) {
 
 function workspacePayload(next, previous) {
   const payload = {};
-  const memberUpsert = changedRows(next.members, previous.members);
+  const memberUpsert = changedRows(next.members, previous.members).map((member) => {
+    // AI tools do not write period ceilings. Sending the nested key would replace
+    // the stored rows (empty or not). Omit it so the three-valued contract leaves
+    // them (#323).
+    const row = { ...member };
+    delete row.unavailability;
+    return row;
+  });
   const memberArchive = removedIds(next.members, previous.members);
   if (memberUpsert.length || memberArchive.length) payload.members = { upsert: memberUpsert, archiveIds: memberArchive };
   const projectUpsert = changedRows(next.projects, previous.projects);
@@ -1684,8 +1785,12 @@ function payloadIsDestructive(payload) {
 function overloadImpact(state, assignment) {
   const member = state.members.find((candidate) => candidate.id === assignment.personId);
   if (!member) return null;
-  const peak = memberPeakLoad(state, member.id, assignment.startDate, assignment.endDate);
-  return peak > Number(member.capacity) ? `${member.name}さんの最大稼働が${peak}%となり、稼働上限${Number(member.capacity)}%を超えます。` : null;
+  if (!memberExceedsCapacity(state, member, assignment.startDate, assignment.endDate)) return null;
+  const over = memberDailyLoads(state, member.id, assignment.startDate, assignment.endDate)
+    .filter((day) => day.load > day.capacity);
+  if (over.length === 0) return null;
+  const worst = over.reduce((lead, day) => (day.load - day.capacity) > (lead.load - lead.capacity) ? day : lead);
+  return `${member.name}さんの最大稼働が${worst.load}%となり、稼働上限${worst.capacity}%を超えます。`;
 }
 
 function actionLabels(toolName) {
@@ -2038,8 +2143,19 @@ function applyAction(state, toolName, args, newUuid, requestId) {
     const person = byId(next.members, args.personId, "メンバー");
     const project = byId(next.projects, need.projectId, "プロジェクト");
     if (!memberMatchesNeed(person, need)) fail("MEMBER_DOES_NOT_MATCH_NEED", "選択したメンバーは必要ロールまたはスキルを満たしていません。");
-    const currentPeak = memberPeakLoad(next, person.id, need.startDate, need.endDate);
-    if (currentPeak + Number(need.allocation) > Number(person.capacity)) fail("MEMBER_CAPACITY_EXCEEDED", `${person.name}さんの空き容量ではこの要員要件を満たせません。`);
+    const preview = {
+      ...next,
+      assignments: [...next.assignments, {
+        id: "capacity-preview",
+        personId: person.id,
+        projectId: project.id,
+        startDate: need.startDate,
+        endDate: need.endDate,
+        allocation: Number(need.allocation),
+        status: "confirmed",
+      }],
+    };
+    if (memberExceedsCapacity(preview, person, need.startDate, need.endDate)) fail("MEMBER_CAPACITY_EXCEEDED", `${person.name}さんの空き容量ではこの要員要件を満たせません。`);
     const assignment = { id: newUuid(), personId: person.id, projectId: project.id, staffingNeedId: need.id, startDate: need.startDate, endDate: need.endDate, allocation: Number(need.allocation), status: "confirmed", label: args.label ?? null, clientRequestId: requestId };
     next.assignments.push(assignment);
     next.needs = next.needs.map((candidate) => candidate.id === need.id ? { ...candidate, status: "filled", draftPersonId: person.id } : candidate);

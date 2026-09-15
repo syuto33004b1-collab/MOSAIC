@@ -608,4 +608,22 @@ describe("what an assignment file would do to a ceiling", () => {
     expect(withRefused.actions).toHaveLength(1);
     expect(withRefused.warnings).toEqual([]);
   });
+
+  it("warns when the file exceeds a reduced-hours ceiling, not only the usual one", () => {
+    const withLeave: WorkspaceState = {
+      ...initialWorkspace,
+      members: initialWorkspace.members.map((member) => member.id === "saeki"
+        ? { ...member, unavailability: [{ id: "u", startDate: "2026-09-22", endDate: "2026-09-25", capacityPercent: 50 }] }
+        : member),
+    };
+    const result = previewAssignmentImport(
+      withLeave,
+      parseCsv([head, `佐伯 優斗,${atlas.name},2026-09-22,2026-09-25,60`].join("\n") + "\n"),
+      () => crypto.randomUUID(),
+    );
+    expect(result.warnings).toEqual([
+      "2行目: 佐伯 優斗さんの稼働が60%になります（稼働上限100%）。仮置きはできます。",
+    ]);
+    expect(result.actions).toHaveLength(1);
+  });
 });

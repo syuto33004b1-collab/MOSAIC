@@ -85,6 +85,8 @@ import {
   memberLabel,
   memberLabelParts,
   memberLoad,
+  memberExceedsCapacity,
+  memberWeekStats,
   memberOrgMemberships,
   memberSearchText,
   membersInOrgSubtree,
@@ -112,13 +114,18 @@ import {
   RESTRICTABLE_ROLES,
   searchSceneFromNeed,
   sortedWorkHistory,
+  UNAVAILABILITY_NOTE_MAX,
+  UNAVAILABILITY_ROW_LIMIT,
   visibleCustomFields,
+  weekdaySupplyCapacity,
+  weekEnd,
   weekLabel,
   type CustomFieldDefinition,
   type DailyLoad,
   type CustomFieldEntity,
   type CustomFieldType,
   type Member,
+  type MemberUnavailability,
   type OpportunityStage,
   type OrgUnit,
   type PersonScope,
@@ -557,7 +564,7 @@ export function MemberPicker({
             <input type="radio" name={name} value={member.id} checked={value === member.id} disabled={disabled} onChange={() => onChange(member.id)} />
             <span className={"avatar " + member.avatarTone}>{member.initials}</span>
             <span className="member-picker-copy"><strong>{label}</strong><small>{member.role} · {member.department}</small></span>
-            <span className={"member-picker-load" + (measured ? (peak > member.capacity ? " over" : "") : " unmeasured")}>{measured ? `${peak}% / ${member.capacity}%` : "—"}</span>
+            <span className={"member-picker-load" + (measured ? (days.some((day) => day.load > day.capacity) ? " over" : "") : " unmeasured")}>{measured ? `${peak}% / ${member.capacity}%` : "—"}</span>
             {/* One cell per weekday in the range, filled to that day's share of the
                 ceiling. Decoration — the numbers beside it are what the row says out
                 loud — so past about 60 weekdays a cell is under 5px and the rail is a
@@ -565,8 +572,8 @@ export function MemberPicker({
             <span className="member-picker-rail" aria-hidden="true">
               {days.map((day) => <i
                 key={day.date}
-                className={day.load > member.capacity ? "over" : ""}
-                style={{ "--fill": (member.capacity > 0 ? Math.min(100, Math.round((day.load / member.capacity) * 100)) : day.load > 0 ? 100 : 0) + "%" } as React.CSSProperties}
+                className={day.load > day.capacity ? "over" : ""}
+                style={{ "--fill": (day.capacity > 0 ? Math.min(100, Math.round((day.load / day.capacity) * 100)) : day.load > 0 ? 100 : 0) + "%" } as React.CSSProperties}
               />)}
             </span>
           </label>
@@ -925,9 +932,7 @@ export function MembersView({
    * they are visible and can be overridden (#138).
    */
   const effectiveOrder: MemberOrder = selectedScene ? order : order === "score" ? "utilization" : order;
-  const utilization = (member: Member) => (member.capacity > 0
-    ? memberLoad(state, member.id, weekStart) / member.capacity
-    : Number.POSITIVE_INFINITY);
+  const utilization = (member: Member) => memberWeekStats(state, member, weekStart).utilization;
   const byOrder = (a: Member, b: Member) => {
     const byName = a.name.localeCompare(b.name, "ja");
     if (effectiveOrder === "name") return byName;
@@ -955,8 +960,8 @@ export function MembersView({
     return textMatch && favoriteMatch && (role === "すべて" || member.role === role);
   }).sort(byOrder);
 
-  const available = state.members.filter((member) => member.capacity > 0 && memberLoad(state, member.id, weekStart) <= member.capacity * .6).length;
-  const overloaded = state.members.filter((member) => memberLoad(state, member.id, weekStart) > member.capacity).length;
+  const available = state.members.filter((member) => memberWeekStats(state, member, weekStart).open).length;
+  const overloaded = state.members.filter((member) => memberWeekStats(state, member, weekStart).exceeds).length;
   const listFields = visibleCustomFields(state.customFields, "member", "list");
 
   const submitScene = () => {
@@ -1097,10 +1102,11 @@ export function MembersView({
           <thead><tr><th className="col-favorite"><span className="sr-only">お気に入り</span></th><th className="col-name">メンバー</th><th className="col-skills">スキル</th>{selectedScene && <th className="col-score">スコア</th>}{listFields.map((field) => <th key={field.id} className="col-custom">{field.label}</th>)}<th className="col-week">{weekName}の稼働</th><th className="col-rail">4週間の稼働</th><th className="col-next">次に稼働率60%以下</th><th className="col-actions"><span className="sr-only">操作</span></th></tr></thead>
           <tbody>
             {filtered.map((member) => {
-              const load = memberLoad(state, member.id, weekStart);
-              const weeklyLoads = [0, 1, 2, 3].map((offset) => memberLoad(state, member.id, addDays(weekStart, offset * 7)));
-              const nextOpen = member.capacity > 0 ? weeklyLoads.findIndex((value) => value <= member.capacity * .6) : -1;
-              const loadRatio = member.capacity > 0 ? load / member.capacity * 100 : load > 0 ? 100 : 0;
+              const stats = memberWeekStats(state, member, weekStart);
+              const weeklyStats = [0, 1, 2, 3].map((offset) => memberWeekStats(state, member, addDays(weekStart, offset * 7)));
+              const nextOpen = weeklyStats.findIndex((week) => week.open);
+              const load = stats.peak;
+              const loadRatio = stats.ratio;
               const match = scoreById.get(member.id);
               // The name and the tag that tells it from a namesake's, sized separately by
               // the cell: the name shrinks, the tag does not (#163).
@@ -1112,9 +1118,9 @@ export function MembersView({
                   <td><div className="member-skills">{memberSkillLevels(member).slice(0, 3).map((level) => <span key={level.name}>{level.name}<small>{level.proficiency}</small></span>)}</div></td>
                   {selectedScene && <td><span className="match-score">{match?.score ?? 0}/{scoreCeiling}点<small>空き{match?.availablePercent ?? 0}%</small></span></td>}
                   {listFields.map((field) => <td key={field.id}><span className="custom-field-cell">{formatCustomValue(field, customValue(member.customValues, field.id))}</span></td>)}
-                  <td><span className={"load-ring " + (load > member.capacity ? "over" : member.capacity > 0 && load <= member.capacity * .6 ? "open" : "")} style={{ "--load": Math.min(100, loadRatio) } as React.CSSProperties}><strong>{load}%</strong></span><small className="capacity-limit">稼働上限 {member.capacity}%</small></td>
-                  <td><div className="member-week-rail">{weeklyLoads.map((value, index) => { const ratio = member.capacity > 0 ? value / member.capacity * 100 : value > 0 ? 100 : 0; /* The label is a sibling of the bar, not a child: it belongs to its own grid track so it cannot overlap the next week's. */ return <Fragment key={index}><i className={value > member.capacity ? "over" : member.capacity > 0 && value <= member.capacity * .6 ? "open" : ""}><b style={{ height: Math.max(12, Math.min(100, ratio)) + "%" }} /></i><small>{value}%</small></Fragment>; })}</div></td>
-                  <td><span className="next-open">{member.capacity === 0 ? "稼働不可 · 稼働上限0%" : nextOpen === -1 ? "4週間で該当なし" : nextOpen === 0 ? weekName + " 空き" + Math.max(0, member.capacity - load) + "%" : (nextOpen + 1) + "週後"}<small>{member.location}</small></span></td>
+                  <td><span className={"load-ring " + (stats.exceeds ? "over" : stats.open ? "open" : "")} style={{ "--load": Math.min(100, loadRatio) } as React.CSSProperties}><strong>{load}%</strong></span><small className="capacity-limit">稼働上限 {member.capacity}%</small></td>
+                  <td><div className="member-week-rail">{weeklyStats.map((week, index) => { /* The label is a sibling of the bar, not a child: it belongs to its own grid track so it cannot overlap the next week's. */ return <Fragment key={index}><i className={week.exceeds ? "over" : week.open ? "open" : ""}><b style={{ height: Math.max(12, Math.min(100, week.ratio)) + "%" }} /></i><small>{week.peak}%</small></Fragment>; })}</div></td>
+                  <td><span className="next-open">{member.capacity === 0 || weekdaySupplyCapacity(state, member, weekStart, addDays(weekStart, 4)) === 0 ? (member.capacity === 0 ? "稼働不可 · 稼働上限0%" : "稼働できる日がありません") : nextOpen === -1 ? "4週間で該当なし" : nextOpen === 0 ? weekName + " 空き" + stats.slack + "%" : (nextOpen + 1) + "週後"}<small>{member.location}</small></span></td>
                   {/* The flex box is the div, not the td: a flex td is no longer a table cell,
                       so it stopped at its content's height and the sticky column let the
                       scrolled columns show through beneath the buttons (#261). */}
@@ -1132,7 +1138,7 @@ export function MembersView({
 
 
 function proposalWeeklyLoads(state: WorkspaceState, member: Member, weekStart: string) {
-  return [0, 1, 2, 3].map((offset) => memberLoad(state, member.id, addDays(weekStart, offset * 7)));
+  return [0, 1, 2, 3].map((offset) => memberWeekStats(state, member, addDays(weekStart, offset * 7)));
 }
 
 export function ProposalView({
@@ -1415,16 +1421,13 @@ export function ProposalView({
                   );
                 })()}
                 <div className="proposal-weeks" aria-label={`${label}の4週間の稼働`}>
-                  {weeklyLoads.map((load, weekIndex) => {
-                    const ratio = member.capacity > 0 ? load / member.capacity * 100 : load > 0 ? 100 : 0;
-                    return (
+                  {weeklyLoads.map((week, weekIndex) => (
                       <div key={weekIndex}>
                         <span>{weekIndex === 0 ? weekName : `${weekIndex + 1}週後`}</span>
-                        <i><b className={load > member.capacity ? "over" : ""} style={{ width: Math.min(100, ratio) + "%" }} /></i>
-                        <strong>{load}% / {member.capacity}%</strong>
+                        <i><b className={week.exceeds ? "over" : ""} style={{ width: week.ratio + "%" }} /></i>
+                        <strong>{week.peak}% / {member.capacity}%</strong>
                       </div>
-                    );
-                  })}
+                    ))}
                 </div>
                 {!anonymous && <button type="button" className="proposal-open" onClick={() => onOpenMember(member.id)}>詳細を開く</button>}
               </article>
@@ -1447,7 +1450,7 @@ export function ReportsView({ state, onOpenWeek, onResolveNeed, onOpenOpportunit
   const weekOffsets = useMemo(() => Array.from({ length: range }, (_, index) => index), [range]);
   const horizon = weekOffsets.map((offset) => {
     const weekStart = getWeekStart(offset);
-    const capacity = state.members.reduce((sum, member) => sum + member.capacity, 0) * 5;
+    const capacity = state.members.reduce((sum, member) => sum + weekdaySupplyCapacity(state, member, weekStart, addDays(weekStart, 4)), 0);
     const load = state.members.reduce((sum, member) => sum + memberDailyLoads(state, member.id, weekStart, addDays(weekStart, 4)).reduce((dailySum, day) => dailySum + day.load, 0), 0);
     const confirmed = state.assignments.filter((assignment) => assignment.status === "confirmed" && assignment.startDate <= addDays(weekStart, 4) && assignment.endDate >= weekStart).length;
     const draft = state.assignments.filter((assignment) => assignment.status === "draft" && assignment.startDate <= addDays(weekStart, 4) && assignment.endDate >= weekStart).length;
@@ -1458,11 +1461,11 @@ export function ReportsView({ state, onOpenWeek, onResolveNeed, onOpenOpportunit
     : Array.from(new Set(state.members.map((member) => member.department))).map((department) => {
       const people = state.members.filter((member) => member.department === department);
       const weekStart = getWeekStart(0);
-      const capacity = people.reduce((sum, member) => sum + member.capacity, 0) * 5;
+      const capacity = people.reduce((sum, member) => sum + weekdaySupplyCapacity(state, member, weekStart, addDays(weekStart, 4)), 0);
       const load = people.reduce((sum, member) => sum + memberDailyLoads(state, member.id, weekStart, addDays(weekStart, 4)).reduce((dailySum, day) => dailySum + day.load, 0), 0);
       return { id: department, name: department, path: [department], depth: 0, count: people.length, average: capacity > 0 ? Math.round(load / capacity * 100) : 0, managers: [] as string[] };
     }).sort((a, b) => b.average - a.average);
-  const currentOverloads = state.members.filter((member) => memberLoad(state, member.id, getWeekStart(0)) > member.capacity);
+  const currentOverloads = state.members.filter((member) => memberExceedsCapacity(state, member, getWeekStart(0), weekEnd(getWeekStart(0))));
   // The same list the board warns about (#255): unfilled and not yet over.
   const activeNeeds = openNeeds(state, currentLocalDate());
   const activeOpportunities = (state.opportunities ?? []).filter(isActiveOpportunity);
@@ -1807,6 +1810,59 @@ export function WorkHistoryEditor({
       ))}
       <button type="button" className="drawer-secondary" onClick={() => onChange([...entries, { id: crypto.randomUUID(), title: "", organization: "", startDate: "", endDate: null, description: "" }])}>
         <Plus size={15} />経歴を追加
+      </button>
+    </div>
+  );
+}
+
+export function UnavailabilityList({ entries }: { entries?: MemberUnavailability[] }) {
+  const rows = [...(entries ?? [])].sort((left, right) => left.startDate.localeCompare(right.startDate) || left.id.localeCompare(right.id));
+  if (rows.length === 0) return <div className="candidate-empty"><CalendarClock size={18} /><span><strong>期間指定の稼働上限はありません</strong><small>時短や休業の期間を、通常の稼働上限より低い値で残せます。</small></span></div>;
+  return (
+    <div className="work-history-list">
+      {rows.map((entry) => (
+        <article key={entry.id}>
+          <span><strong>上限 {entry.capacityPercent}%</strong></span>
+          <em>{formatDate(entry.startDate)} — {formatDate(entry.endDate)}</em>
+          {entry.note && <p>{entry.note}</p>}
+        </article>
+      ))}
+    </div>
+  );
+}
+
+export function UnavailabilityEditor({
+  entries,
+  onChange,
+}: {
+  entries: MemberUnavailability[];
+  onChange: (entries: MemberUnavailability[]) => void;
+}) {
+  const update = (index: number, patch: Partial<MemberUnavailability>) => {
+    onChange(entries.map((entry, current) => current === index ? { ...entry, ...patch } : entry));
+  };
+  return (
+    <div className="work-history-editor unavailability-editor">
+      <div className="drawer-section-title"><span>期間指定の稼働上限</span><small>{entries.length}件</small></div>
+      <p className="unavailability-editor-note">通常の稼働上限より低い期間です。0%の日にはアサインを載せません。メモに健康情報は書かないでください。</p>
+      {entries.map((entry, index) => (
+        <div className="work-history-form" key={entry.id}>
+          <div className="form-grid">
+            <label>開始日<input aria-label={`期間${index + 1}の開始日`} type="date" value={entry.startDate} onChange={(event) => update(index, { startDate: event.target.value })} /></label>
+            <label>終了日<input aria-label={`期間${index + 1}の終了日`} type="date" min={entry.startDate || undefined} value={entry.endDate} onChange={(event) => update(index, { endDate: event.target.value })} /></label>
+          </div>
+          <label>この期間の稼働上限（%）<input aria-label={`期間${index + 1}の稼働上限`} required type="number" min="0" max="100" step="1" value={Number.isFinite(entry.capacityPercent) ? entry.capacityPercent : ""} onChange={(event) => update(index, { capacityPercent: Number(event.target.value) })} /></label>
+          <label>メモ（任意）<input aria-label={`期間${index + 1}のメモ`} maxLength={UNAVAILABILITY_NOTE_MAX} value={entry.note ?? ""} onChange={(event) => update(index, { note: event.target.value })} placeholder="社内向けの短いメモ" /></label>
+          <button type="button" className="drawer-danger compact" onClick={() => onChange(entries.filter((_, current) => current !== index))}>この期間を削除</button>
+        </div>
+      ))}
+      <button
+        type="button"
+        className="drawer-secondary"
+        disabled={entries.length >= UNAVAILABILITY_ROW_LIMIT}
+        onClick={() => onChange([...entries, { id: crypto.randomUUID(), startDate: "", endDate: "", capacityPercent: 100 }])}
+      >
+        <Plus size={15} />期間を追加
       </button>
     </div>
   );

@@ -29,7 +29,7 @@ import {
   X,
   type LucideIcon,
 } from "lucide-react";
-import { ActiveFilters, CustomFieldFacts, CustomFieldInputs, MemberPicker, WeekendWorkPicker, type MemberCandidate, CsvTransferPanel, FavoriteStar, FieldsView, MemberOrgFields, MembersView, OpportunitiesView, OrgFacts, OrgView, ProjectsView, ProposalView, ReportsView, SkillsView, WorkHistoryEditor, WorkHistoryList } from "./expanded-views";
+import { ActiveFilters, CustomFieldFacts, CustomFieldInputs, MemberPicker, WeekendWorkPicker, type MemberCandidate, CsvTransferPanel, FavoriteStar, FieldsView, MemberOrgFields, MembersView, OpportunitiesView, OrgFacts, OrgView, ProjectsView, ProposalView, ReportsView, SkillsView, UnavailabilityEditor, UnavailabilityList, WorkHistoryEditor, WorkHistoryList } from "./expanded-views";
 import { AiChat } from "./components/ai-chat/AiChat";
 import type { ChatTransport } from "./lib/ai/chatClient";
 import {
@@ -67,12 +67,15 @@ import {
   isActiveOpportunity,
   makeInitials,
   memberById,
+  memberAvailablePercent,
   memberDailyLoads,
+  memberExceedsCapacity,
   memberLoad,
   memberMatchesNeed,
   memberOrgMemberships,
   membersInOrgSubtree,
   memberPeakLoad,
+  memberWeekStats,
   matchMembers,
   memberSearchText,
   memberSkillLevels,
@@ -80,6 +83,7 @@ import {
   orgUnitPath,
   needSkillRequirements,
   normalizeCustomValues,
+  normalizeMemberUnavailability,
   normalizeWorkHistory,
   OPPORTUNITY_STAGE_LABELS,
   opportunityById,
@@ -100,12 +104,15 @@ import {
   submitProfileRequest,
   editableCustomFields,
   visibleCustomFields,
+  weekdaySupplyCapacity,
   weekEnd,
+  assignmentPutsLoadOnDate,
   type Assignment,
   type AvatarTone,
   type CustomFieldEntity,
   type CustomFieldType,
   type Member,
+  type MemberUnavailability,
   type Opportunity,
   type OpportunityNeed,
   type OpportunityStage,
@@ -202,6 +209,7 @@ type MemberForm = {
   capacity: string;
   customValues: Record<string, string>;
   workHistory: WorkHistoryEntry[];
+  unavailability: MemberUnavailability[];
   primaryUnitId: string;
   extraUnitIds: string[];
   managerUnitIds: string[];
@@ -357,6 +365,15 @@ function formRangeHint(startDate: string, endDate: string, measured: string) {
   return measured;
 }
 
+function worstLoadOverCapacity<T extends { load: number; capacity: number }>(days: T[]): T | undefined {
+  if (days.length === 0) return undefined;
+  return days.reduce((worst, day) => (day.load - day.capacity) > (worst.load - worst.capacity) ? day : worst);
+}
+
+function incompleteUnavailabilityPeriod(entries: MemberUnavailability[]) {
+  return entries.some((entry) => Boolean(entry.startDate) !== Boolean(entry.endDate));
+}
+
 function cloneState(state: WorkspaceState): WorkspaceState {
   return JSON.parse(JSON.stringify(state)) as WorkspaceState;
 }
@@ -415,6 +432,7 @@ function emptyMemberForm(state: WorkspaceState): MemberForm {
     capacity: "100",
     customValues: {},
     workHistory: [],
+    unavailability: [],
     primaryUnitId,
     extraUnitIds: [],
     managerUnitIds: [],
@@ -432,6 +450,7 @@ function memberFormFrom(state: WorkspaceState, member: Member): MemberForm {
     capacity: String(member.capacity),
     customValues: { ...(member.customValues ?? {}) },
     workHistory: member.workHistory ? member.workHistory.map((entry) => ({ ...entry })) : [],
+    unavailability: (member.unavailability ?? []).map((entry) => ({ ...entry })),
     primaryUnitId: memberships.find((item) => item.isPrimary)?.orgUnitId ?? "",
     extraUnitIds: memberships.filter((item) => !item.isPrimary).map((item) => item.orgUnitId),
     managerUnitIds: memberships.filter((item) => item.isManager).map((item) => item.orgUnitId),
@@ -1041,14 +1060,18 @@ export default function Home({ mode = "demo", organizationId, organizationName =
   const visibleProposalIds = retainedMemberIds(proposalMemberIds, workspace.members.map((member) => member.id));
   /** The same week, as a count of weeks from this one, for the screens that take one. */
   const viewWeekOffset = Math.round((Date.parse(weekStart + "T00:00:00Z") - Date.parse(getWeekStart(0) + "T00:00:00Z")) / 604_800_000);
-  const currentDailyLoads = workspace.members.flatMap((member) => memberDailyLoads(workspace, member.id, weekStart, weekEnd(weekStart)).map((day) => ({ ...day, capacity: member.capacity })));
+  const currentDailyLoads = workspace.members.flatMap((member) => memberDailyLoads(workspace, member.id, weekStart, weekEnd(weekStart)));
+  const weekdayEnd = addDays(weekStart, 4);
   /*
-   * Five weekdays, still. Weekend work does not raise anyone's ceiling — it is the
-   * excess above it — so the denominator stays where it was and a recorded Saturday
-   * pushes the average past 100% rather than making room for itself (#222).
+   * Weekdays only, and holidays/remaining-0 days contribute 0. Weekend work does
+   * not raise the ceiling — it is the excess above it — so a recorded Saturday
+   * still pushes the average past 100% rather than making room for itself (#222,
+   * #323).
    */
-  const totalCapacity = workspace.members.reduce((sum, member) => sum + member.capacity, 0) * 5;
-  const averageLoad = totalCapacity > 0 ? Math.round(currentDailyLoads.reduce((sum, day) => sum + day.load, 0) / totalCapacity * 100) : 0;
+  const totalCapacity = workspace.members.reduce((sum, member) => sum + weekdaySupplyCapacity(workspace, member, weekStart, weekdayEnd), 0);
+  const loadSum = currentDailyLoads.reduce((sum, day) => sum + day.load, 0);
+  const averageLoad = totalCapacity > 0 ? Math.round(loadSum / totalCapacity * 100) : 0;
+  const hasMemberCeiling = workspace.members.some((member) => member.capacity > 0);
   /*
    * Weekdays only, and this is the asymmetry: an unbooked Saturday is not capacity
    * anyone can spend. Counting it would have added two days a week of imaginary
@@ -1057,17 +1080,25 @@ export default function Home({ mode = "demo", organizationId, organizationName =
   const freeDays = (currentDailyLoads
     .filter((day) => !day.weekend)
     .reduce((sum, day) => sum + Math.max(0, day.capacity - day.load), 0) / 100).toFixed(1);
-  const currentOverloads = workspace.members.filter((member) => memberLoad(workspace, member.id, weekStart) > member.capacity);
-  const committedOverloads = committedWorkspace.members.filter((member) => memberLoad(committedWorkspace, member.id, weekStart) > member.capacity);
-  const overloadMember = currentOverloads[0] ?? committedOverloads.find((member) => memberLoad(workspace, member.id, weekStart) <= member.capacity);
-  const overloadPlanned = Boolean(overloadMember && committedOverloads.some((member) => member.id === overloadMember.id) && memberLoad(workspace, overloadMember.id, weekStart) <= overloadMember.capacity);
+  const currentOverloads = workspace.members.filter((member) => memberExceedsCapacity(workspace, member, weekStart, weekEnd(weekStart)));
+  const committedOverloads = committedWorkspace.members.filter((member) => memberExceedsCapacity(committedWorkspace, member, weekStart, weekEnd(weekStart)));
+  const overloadMember = currentOverloads[0] ?? committedOverloads.find((member) => !memberExceedsCapacity(workspace, member, weekStart, weekEnd(weekStart)));
+  const overloadPlanned = Boolean(overloadMember && committedOverloads.some((member) => member.id === overloadMember.id) && !memberExceedsCapacity(workspace, overloadMember, weekStart, weekEnd(weekStart)));
   const overloadDates = overloadMember ? (() => {
-    const current = memberDailyLoads(workspace, overloadMember.id, weekStart, weekEnd(weekStart)).filter((day) => day.load > overloadMember.capacity).map((day) => day.date);
-    return current.length > 0 ? current : memberDailyLoads(committedWorkspace, overloadMember.id, weekStart, weekEnd(weekStart)).filter((day) => day.load > overloadMember.capacity).map((day) => day.date);
+    const current = memberDailyLoads(workspace, overloadMember.id, weekStart, weekEnd(weekStart)).filter((day) => day.load > day.capacity).map((day) => day.date);
+    return current.length > 0 ? current : memberDailyLoads(committedWorkspace, overloadMember.id, weekStart, weekEnd(weekStart)).filter((day) => day.load > day.capacity).map((day) => day.date);
   })() : [];
   const overloadAssignments = overloadMember ? workspace.assignments
     .filter((assignment) => assignment.personId === overloadMember.id && overloadDates.some((date) => assignment.startDate <= date && assignment.endDate >= date))
     .sort((a, b) => a.allocation - b.allocation) : [];
+  const overloadStats = overloadMember ? memberWeekStats(workspace, overloadMember, weekStart) : null;
+  const overloadDays = overloadMember
+    ? memberDailyLoads(workspace, overloadMember.id, weekStart, weekEnd(weekStart))
+    : [];
+  const overloadWorst = worstLoadOverCapacity(overloadDays);
+  const overloadPeak = overloadWorst?.load ?? 0;
+  const overloadCeiling = overloadWorst?.capacity ?? overloadMember?.capacity ?? 0;
+  const overloadOverage = overloadWorst ? Math.max(0, overloadWorst.load - overloadWorst.capacity) : 0;
   // Dated as well as unfilled (#255): a need whose end has passed stops being a
   // warning here, in the popover and in the report, all of which read this list.
   const todayIso = currentLocalDate();
@@ -1095,7 +1126,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
   const selectedOpportunityNeeds = selectedOpportunity ? opportunityNeedsFor(workspace, selectedOpportunity.id) : [];
   const selectedOpportunityNeed = selectedOpportunityNeeds.find((need) => need.id === selectedOpportunityNeedId) ?? selectedOpportunityNeeds[0];
   const opportunityCandidates = selectedOpportunityNeed ? workspace.members.filter((member) => {
-    const available = member.capacity - memberPeakLoad(workspace, member.id, selectedOpportunityNeed.startDate, selectedOpportunityNeed.endDate);
+    const available = memberAvailablePercent(workspace, member, selectedOpportunityNeed.startDate, selectedOpportunityNeed.endDate);
     return memberMatchesNeed(member, selectedOpportunityNeed) && available >= selectedOpportunityNeed.allocation;
   }).slice(0, 3) : [];
   const role = identity?.role ?? (mode === "demo" ? "owner" : "viewer");
@@ -1185,13 +1216,18 @@ export default function Home({ mode = "demo", organizationId, organizationName =
         weekendWorkDates: form.weekendWorkDates,
       }],
     };
-    const projected = memberPeakLoad(preview, member.id, form.startDate, form.endDate);
-    return projected > member.capacity ? { projected, capacity: member.capacity } : null;
+    const days = memberDailyLoads(preview, member.id, form.startDate, form.endDate).filter((day) => day.load > day.capacity);
+    const worst = worstLoadOverCapacity(days);
+    if (!worst) return null;
+    return { projected: worst.load, capacity: worst.capacity };
   })();
   const editOverload = (() => {
     // `editCandidates` already measures with the moved assignment in place.
     const chosen = editCandidates.find((candidate) => candidate.member.id === assignmentEditForm.personId);
-    return chosen && chosen.peak > chosen.member.capacity ? { projected: chosen.peak, capacity: chosen.member.capacity } : null;
+    if (!chosen) return null;
+    const worst = worstLoadOverCapacity(chosen.days.filter((day) => day.load > day.capacity));
+    if (!worst) return null;
+    return { projected: worst.load, capacity: worst.capacity };
   })();
   const canAddAssignment = canEdit && workspace.members.length > 0 && workspace.projects.length > 0;
 
@@ -1232,7 +1268,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
       role: member.role + " · " + member.department,
       avatarTone: member.avatarTone,
       tagLabel: load + "%",
-      alert: load > member.capacity,
+      alert: memberExceedsCapacity(workspace, member, range.start, range.end),
       filterKey: member.role,
       assignments,
       weekendWorked: new Set(workspace.assignments
@@ -1792,10 +1828,11 @@ export default function Home({ mode = "demo", organizationId, organizationName =
     const allocations = new Map(workspace.assignments.filter((assignment) => assignment.personId === overloadMember.id).map((assignment) => [assignment.id, assignment.allocation]));
     const reductions = new Map<string, number>();
     for (const day of memberDailyLoads(workspace, overloadMember.id, weekStart, weekEnd(weekStart))) {
+      if (day.load <= day.capacity) continue;
       const activeAssignments = workspace.assignments
-        .filter((assignment) => assignment.personId === overloadMember.id && assignment.startDate <= day.date && assignment.endDate >= day.date)
+        .filter((assignment) => assignment.personId === overloadMember.id && assignmentPutsLoadOnDate(workspace, assignment, day.date))
         .sort((a, b) => (allocations.get(a.id) ?? 0) - (allocations.get(b.id) ?? 0));
-      let remaining = Math.max(0, activeAssignments.reduce((sum, assignment) => sum + (allocations.get(assignment.id) ?? 0), 0) - overloadMember.capacity);
+      let remaining = Math.max(0, activeAssignments.reduce((sum, assignment) => sum + (allocations.get(assignment.id) ?? 0), 0) - day.capacity);
       for (const assignment of activeAssignments) {
         if (remaining <= 0) break;
         const currentAllocation = allocations.get(assignment.id) ?? 0;
@@ -2020,13 +2057,19 @@ export default function Home({ mode = "demo", organizationId, organizationName =
       setToast(skillProblems[0]);
       return;
     }
+    if (incompleteUnavailabilityPeriod(memberForm.unavailability)) {
+      setToast("期間指定の稼働上限は開始日と終了日の両方を入力してください");
+      return;
+    }
     const id = newId();
     const skillLevels = parseSkillInput(memberForm.skills);
     let customValues: Record<string, string>;
     let workHistory: WorkHistoryEntry[];
+    let unavailability: MemberUnavailability[];
     try {
       customValues = normalizeCustomValues(workspace.customFields, "member", memberForm.customValues);
       workHistory = normalizeWorkHistory(memberForm.workHistory.filter((entry) => entry.title.trim() && entry.organization.trim() && entry.startDate));
+      unavailability = normalizeMemberUnavailability(memberForm.unavailability.filter((entry) => entry.startDate && entry.endDate));
     } catch (caught) {
       setToast(caught instanceof Error ? caught.message : "入力内容を確認してください");
       return;
@@ -2048,6 +2091,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
           capacity,
           customValues,
           workHistory,
+          unavailability,
         }],
       }), id, memberForm));
     } catch (caught) {
@@ -2080,12 +2124,18 @@ export default function Home({ mode = "demo", organizationId, organizationName =
       setToast(skillProblems[0]);
       return;
     }
+    if (incompleteUnavailabilityPeriod(memberEditForm.unavailability)) {
+      setToast("期間指定の稼働上限は開始日と終了日の両方を入力してください");
+      return;
+    }
     const skillLevels = parseSkillInput(memberEditForm.skills);
     let customValues: Record<string, string>;
     let workHistory: WorkHistoryEntry[];
+    let unavailability: MemberUnavailability[];
     try {
       customValues = normalizeCustomValues(workspace.customFields, "member", memberEditForm.customValues);
       workHistory = normalizeWorkHistory(memberEditForm.workHistory.filter((entry) => entry.title.trim() && entry.organization.trim() && entry.startDate));
+      unavailability = normalizeMemberUnavailability(memberEditForm.unavailability.filter((entry) => entry.startDate && entry.endDate));
     } catch (caught) {
       setToast(caught instanceof Error ? caught.message : "入力内容を確認してください");
       return;
@@ -2103,6 +2153,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
       capacity,
       customValues,
       workHistory,
+      unavailability,
     };
     const members = workspace.members.map((member) => member.id === updatedMember.id ? updatedMember : member);
     let memberState: WorkspaceState;
@@ -2926,9 +2977,11 @@ export default function Home({ mode = "demo", organizationId, organizationName =
 
         <div className="sidebar-spacer" />
         <div className="month-card">
-          {/* `averageLoad` is week-scoped: memberDailyLoads skips Saturday and
-              Sunday, and capacity is a per-day percentage, so the denominator is
-              capacity x 5 weekdays. This label said 「{month}月のチーム稼働」,
+          {/* `averageLoad` is week-scoped: memberDailyLoads includes Saturday and
+              Sunday only when they were recorded, and the denominator is the
+              weekday ceilings after holidays and remaining-0 days drop out.
+              Weekend work is excess above that ceiling, not extra room (#222,
+              #323). This label said 「{month}月のチーム稼働」,
               presenting a week's figure as a month's — and paging the board moved
               the month in the label while the metric stayed week-scoped (#115).
               It names the Monday now, the way the board's own header does.
@@ -2942,7 +2995,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
               which is #115 again, from the other end (#139). */}
           <div className="month-card-label"><span>{measuredWeekLabel}の平均稼働率</span><strong>{averageLoad}%</strong></div>
           <div className="month-track"><span style={{ width: Math.min(100, averageLoad) + "%" }} /></div>
-          <p>{totalCapacity === 0 ? "稼働上限が未設定です。" : averageLoad > 100 ? `稼働上限を ${averageLoad - 100}% 超えています。` : `稼働上限まであと ${100 - averageLoad}%。`}{mode === "shared" ? "変更は組織内で共有されます。" : "サンプルデータはこの端末だけに保存されます。"}</p>
+          <p>{totalCapacity === 0 ? (hasMemberCeiling ? "この週は稼働できる日がありません。" : "稼働上限が未設定です。") : averageLoad > 100 ? `稼働上限を ${averageLoad - 100}% 超えています。` : `稼働上限まであと ${100 - averageLoad}%。`}{mode === "shared" ? "変更は組織内で共有されます。" : "サンプルデータはこの端末だけに保存されます。"}</p>
         </div>
         <div className="profile-row">
           <span className="avatar avatar-dark">{makeInitials(displayName)}</span><span><strong>{displayName}</strong><small>{roleLabel[role]}</small></span>
@@ -3361,8 +3414,8 @@ export default function Home({ mode = "demo", organizationId, organizationName =
             {drawer === "overload" && overloadMember && (
               <div className="drawer-content">
                 <div className="drawer-heading"><span className={"drawer-icon " + (overloadPlanned ? "mint" : "coral")}>{overloadPlanned ? <CheckCircle2 size={19} /> : <AlertTriangle size={19} />}</span><div><h2>{overloadPlanned ? "解消予定を確認" : "上限超過を調整"}</h2><p>{overloadMember.name}さん · {overloadMember.role}</p></div></div>
-                <div className={"capacity-card " + (overloadPlanned ? "resolved" : "")}><div><span>{measuredWeekLabel}の稼働</span><strong>{memberLoad(workspace, overloadMember.id, weekStart)}% / 稼働上限{overloadMember.capacity}%</strong></div><div className="capacity-meter"><span style={{ width: Math.min(100, memberLoad(workspace, overloadMember.id, weekStart) / overloadMember.capacity * 100) + "%" }} /><i>{overloadMember.capacity}%</i></div><p>{overloadPlanned ? "保存すると超過警告が解消されます。" : `稼働上限を${Math.max(0, memberLoad(workspace, overloadMember.id, weekStart) - overloadMember.capacity)}%超えています。`}</p></div>
-                <div className="drawer-section-title"><span>現在の配分</span><small>合計 {memberLoad(workspace, overloadMember.id, weekStart)}%</small></div>
+                <div className={"capacity-card " + (overloadPlanned ? "resolved" : "")}><div><span>{measuredWeekLabel}の稼働</span><strong>{Math.round(overloadPeak)}% / 稼働上限{overloadCeiling}%</strong></div><div className="capacity-meter"><span style={{ width: Math.min(100, overloadPeak) + "%" }} /><i>{overloadCeiling}%</i></div><p>{overloadPlanned ? "保存すると超過警告が解消されます。" : `稼働上限を${Math.max(0, Math.round(overloadOverage))}%超えています。`}</p></div>
+                <div className="drawer-section-title"><span>現在の配分</span><small>合計 {overloadStats?.peak}%</small></div>
                 <div className="allocation-list">{overloadAssignments.map((assignment) => <div key={assignment.id}><span className={"project-dot " + (projectById(workspace, assignment.projectId)?.tone || "blue")} /><span><strong>{projectById(workspace, assignment.projectId)?.name}</strong><small>{formatDate(assignment.startDate)} — {formatDate(assignment.endDate)}</small></span><b>{assignment.allocation}%</b></div>)}</div>
                 {!overloadPlanned && canEdit && overloadAssignments.length > 0 ? <><div className="suggestion-card"><span><Sparkles size={15} /></span><div><strong>おすすめの調整</strong><p>超過している各営業日の案件配分を順に減らし、すべての日を稼働上限内へ収めます。</p></div></div><button className="drawer-primary" onClick={resolveOverload}><CheckCircle2 size={16} />推奨配分へ調整</button></> : <button className="drawer-primary" onClick={closeDrawer}><Check size={16} />閉じる</button>}
               </div>
@@ -3426,8 +3479,10 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                 <CustomFieldFacts fields={visibleCustomFields(workspace.customFields, "member", "detail")} values={selectedMember.customValues} />
                 <div className="drawer-section-title"><span>業務経歴</span><small>{(selectedMember.workHistory ?? []).length}件</small></div>
                 <WorkHistoryList entries={selectedMember.workHistory} />
+                <div className="drawer-section-title"><span>期間指定の稼働上限</span><small>{(selectedMember.unavailability ?? []).length}件</small></div>
+                <UnavailabilityList entries={selectedMember.unavailability} />
                 <div className="drawer-section-title"><span>4週間の稼働</span><small>稼働上限 {selectedMember.capacity}%</small></div>
-                <div className="profile-capacity">{[0, 1, 2, 3].map((offset) => { const load = memberLoad(workspace, selectedMember.id, addDays(weekStart, offset * 7)); const ratio = selectedMember.capacity > 0 ? load / selectedMember.capacity * 100 : load > 0 ? 100 : 0; return <div key={offset}><span>{offset === 0 ? measuredWeekLabel : offset + 1 + "週後"}</span><i><b className={load > selectedMember.capacity ? "over" : ""} style={{ width: Math.min(100, ratio) + "%" }} /></i><strong>{load}% / {selectedMember.capacity}%</strong></div>; })}</div>
+                <div className="profile-capacity">{[0, 1, 2, 3].map((offset) => { const stats = memberWeekStats(workspace, selectedMember, addDays(weekStart, offset * 7)); return <div key={offset}><span>{offset === 0 ? measuredWeekLabel : offset + 1 + "週後"}</span><i><b className={stats.exceeds ? "over" : ""} style={{ width: stats.ratio + "%" }} /></i><strong>{stats.peak}% / {selectedMember.capacity}%</strong></div>; })}</div>
                 <div className="drawer-section-title"><span>現在のアサイン</span><small>{workspace.assignments.filter((assignment) => assignment.personId === selectedMember.id && overlaps(assignment.startDate, assignment.endDate, weekStart, weekEnd(weekStart))).length}件</small></div>
                 <div className="allocation-list">{workspace.assignments.filter((assignment) => assignment.personId === selectedMember.id && overlaps(assignment.startDate, assignment.endDate, weekStart, weekEnd(weekStart))).map((assignment) => <div key={assignment.id}><span className={"project-dot " + (projectById(workspace, assignment.projectId)?.tone || "plum")} /><span><strong>{assignment.label || projectById(workspace, assignment.projectId)?.name || "プロジェクト未登録"}</strong><small>{formatDate(assignment.startDate)} — {formatDate(assignment.endDate)}</small></span><b>{assignment.allocation}%</b></div>)}</div>
                 <div className="entity-action-row">
@@ -3458,6 +3513,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                 <label>稼働上限（%）<input required type="number" min="0" max="100" step="1" value={memberEditForm.capacity} onChange={(event) => setMemberEditForm({ ...memberEditForm, capacity: event.target.value })} /></label>
                 <CustomFieldInputs fields={editableCustomFields(workspace.customFields, "member", "detail")} values={memberEditForm.customValues} onChange={(customValues) => setMemberEditForm({ ...memberEditForm, customValues })} />
                 <WorkHistoryEditor entries={memberEditForm.workHistory} onChange={(workHistory) => setMemberEditForm({ ...memberEditForm, workHistory })} />
+                <UnavailabilityEditor entries={memberEditForm.unavailability} onChange={(unavailability) => setMemberEditForm({ ...memberEditForm, unavailability })} />
                 <div className="form-note"><SlidersHorizontal size={15} /><span>変更後に満たせない要員要件がある場合、紐づくアサインを取消予定にして要件を再オープンします。</span></div>
                 <button className="drawer-primary" type="submit" disabled={!canManageMembers}><Check size={16} />変更を仮置き</button>
               </form>
@@ -3525,7 +3581,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                             <span className={"avatar " + member.avatarTone}>{member.initials}</span>
                             <span>
                               <strong>{memberLabel(workspace, member)}</strong>
-                              <small>{member.role} · 要件期間の最小空き {member.capacity - memberPeakLoad(workspace, member.id, selectedOpportunityNeed.startDate, selectedOpportunityNeed.endDate)}%</small>
+                              <small>{member.role} · 要件期間の最小空き {memberAvailablePercent(workspace, member, selectedOpportunityNeed.startDate, selectedOpportunityNeed.endDate)}%</small>
                               <em><Check size={10} />{selectedOpportunityNeed.skills.length > 0 ? `${member.skills.filter((skill) => selectedOpportunityNeed.skills.some((neededSkill) => neededSkill.toLocaleLowerCase() === skill.toLocaleLowerCase())).join("・")}に適合` : `${selectedOpportunityNeed.role}に適合`}</em>
                             </span>
                             <button type="button" onClick={() => openMember(member.id)}>詳細</button>
@@ -3626,6 +3682,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                 <label>稼働上限（%）<input required type="number" min="0" max="100" step="1" value={memberForm.capacity} onChange={(event) => setMemberForm({ ...memberForm, capacity: event.target.value })} /></label>
                 <CustomFieldInputs fields={editableCustomFields(workspace.customFields, "member", "detail")} values={memberForm.customValues} onChange={(customValues) => setMemberForm({ ...memberForm, customValues })} />
                 <WorkHistoryEditor entries={memberForm.workHistory} onChange={(workHistory) => setMemberForm({ ...memberForm, workHistory })} />
+                <UnavailabilityEditor entries={memberForm.unavailability} onChange={(unavailability) => setMemberForm({ ...memberForm, unavailability })} />
                 <button className="drawer-primary" type="submit" disabled={!canManageMembers}><Check size={16} />メンバーを追加</button>
               </form>
             )}

@@ -288,6 +288,7 @@ test("enforces the organization role matrix before planning writes", async () =>
   await assert.rejects(() => planWorkspaceAction(plannerOptions("create_profile_request", { personIds: [ids.bob], scope: "skills" })), (error) => error.code === "FORBIDDEN");
   const adminPlan = await planWorkspaceAction(plannerOptions("create_member", { name: "D", role: "QA", department: "品質", location: "東京", capacity: 100, skills: [] }, { role: "admin" }));
   assert.equal(adminPlan.payload.members.upsert[0].name, "D");
+  assert.equal("unavailability" in adminPlan.payload.members.upsert[0], false);
 });
 
 test("plans a confirmed assignment with server IDs, deterministic hash, overload warning, and RPC arguments", async () => {
@@ -1041,12 +1042,102 @@ test("counts the weekend the same way the screens do at the edges", async () => 
     { id: ids.secondAssignment, personId: ids.bob, projectId: ids.secondProject, staffingNeedId: null, startDate: "2026-08-01", endDate: "2026-08-31", allocation: 60, status: "cancelled", label: null, weekendWorkDates: ["2026-08-22"] },
   ];
   const read = readWorkspaceTool(state, "read_workspace", { resource: "members", query: "Bob", startDate: "2026-08-22", endDate: "2026-08-22" });
-  // 30 from the boundary day, and nothing from the cancelled 60.
+  // 30 from the boundary day. A Saturday-only window has no weekday supply, so
+  // 空き is 0 rather than capacity minus weekend load (#323, and #222 for the
+  // weekend half).
   assert.equal(read.items[0].peakAllocation, 30);
-  assert.equal(read.items[0].availablePercent, 50);
+  assert.equal(read.items[0].availablePercent, 0);
 
   // Raising the same assignment to 70 is measured without its own old 30.
   const plan = await planWorkspaceAction(plannerOptions("update_assignment",
     { assignmentId: ids.assignment, patch: { allocation: 70 } }, { snapshot: state }));
   assert.deepEqual(plan.preview.impacts.filter((line) => line.includes("を超えます")), []);
+});
+
+test("drops holiday load and compares 時短 against the absolute ceiling, same as the screens", async () => {
+  const state = snapshot();
+  state.members = state.members.map((member) => member.id === ids.bob
+    ? {
+      ...member,
+      unavailability: [{ id: "u", startDate: "2026-08-17", endDate: "2026-08-21", capacityPercent: 50 }],
+    }
+    : member);
+  state.assignments = [
+    {
+      id: ids.assignment,
+      personId: ids.bob,
+      projectId: ids.secondProject,
+      staffingNeedId: null,
+      startDate: "2026-05-06",
+      endDate: "2026-05-07",
+      allocation: 60,
+      status: "confirmed",
+      label: null,
+    },
+  ];
+  const holiday = readWorkspaceTool(state, "read_workspace", {
+    resource: "members",
+    query: "Bob",
+    startDate: "2026-05-06",
+    endDate: "2026-05-07",
+  });
+  assert.equal(holiday.items[0].peakAllocation, 60);
+  assert.equal(holiday.items[0].availablePercent, 20);
+  const holidayOnly = readWorkspaceTool(state, "read_workspace", {
+    resource: "members",
+    query: "Bob",
+    startDate: "2026-05-06",
+    endDate: "2026-05-06",
+  });
+  // 5/6 is a 振替 holiday. Peak 60 here would mean the holiday check was skipped.
+  assert.equal(holidayOnly.items[0].peakAllocation, 0);
+  assert.equal(holidayOnly.items[0].availablePercent, 0);
+
+  const shortHours = snapshot();
+  shortHours.members = state.members;
+  shortHours.assignments = [{
+    id: ids.assignment,
+    personId: ids.bob,
+    projectId: ids.secondProject,
+    staffingNeedId: null,
+    startDate: "2026-08-17",
+    endDate: "2026-08-21",
+    allocation: 60,
+    status: "confirmed",
+    label: null,
+  }];
+  const over = readWorkspaceTool(shortHours, "read_workspace", {
+    resource: "summary",
+    startDate: "2026-08-17",
+    endDate: "2026-08-21",
+  });
+  assert.equal(over.overloadedMembers[0].id, ids.bob);
+  assert.equal(over.overloadedMembers[0].peakAllocation, 60);
+
+  const plan = await planWorkspaceAction(plannerOptions("create_assignment", {
+    personId: ids.bob,
+    projectId: ids.secondProject,
+    startDate: "2026-08-17",
+    endDate: "2026-08-21",
+    allocation: 60,
+  }, { snapshot: { ...snapshot(), members: state.members, assignments: [] } }));
+  assert.deepEqual(plan.preview.impacts.filter((line) => line.includes("を超えます")),
+    ["Bob Bさんの最大稼働が60%となり、稼働上限50%を超えます。"]);
+});
+
+test("omits unavailability from member upserts so a name change does not clear stored rows", async () => {
+  const state = snapshot();
+  state.members = state.members.map((member) => member.id === ids.bob
+    ? {
+      ...member,
+      unavailability: [{ id: "u", startDate: "2026-08-17", endDate: "2026-08-21", capacityPercent: 50 }],
+    }
+    : member);
+  const plan = await planWorkspaceAction(plannerOptions("update_member", {
+    memberId: ids.bob,
+    patch: { name: "Bob Changed" },
+  }, { role: "admin", snapshot: state }));
+  const row = plan.payload.members.upsert.find((member) => member.id === ids.bob);
+  assert.equal(row.name, "Bob Changed");
+  assert.equal("unavailability" in row, false);
 });
