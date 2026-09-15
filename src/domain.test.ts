@@ -54,6 +54,11 @@ import {
   orgUnitArchiveBlocker,
   orgUnitLoadRows,
   orgUnitPath,
+  PERIOD_CHOICES,
+  periodChoiceLabel,
+  periodMemberStats,
+  periodRange,
+  periodStatsFromDays,
   openNeeds,
   parseSkillInput,
   skillInputProblems,
@@ -1388,6 +1393,126 @@ describe("weekday capacity with holidays and unavailability", () => {
     expect(stats.exceeds).toBe(true);
     expect(stats.open).toBe(false);
     expect(stats.slack).toBe(0);
+  });
+});
+
+describe("period range (#329 / #364)", () => {
+  it("keeps every built-in choice at or under 12 buckets", () => {
+    expect(PERIOD_CHOICES.map((choice) => periodChoiceLabel(choice))).toEqual(["4週間", "12週間", "6か月", "12か月"]);
+    for (const choice of PERIOD_CHOICES) {
+      const range = periodRange(choice, "2026-08-17");
+      expect(range.buckets.length).toBeLessThanOrEqual(12);
+      expect(range.buckets.length).toBe(choice.count);
+      expect(range.clipped).toBe(false);
+    }
+  });
+
+  it("aligns weeks to Monday and months to the calendar month", () => {
+    const weeks = periodRange({ unit: "week", count: 4 }, "2026-08-21");
+    expect(weeks).toMatchObject({ from: "2026-08-17", to: "2026-09-13", clipped: false });
+    expect(weeks.buckets).toEqual([
+      { from: "2026-08-17", to: "2026-08-23" },
+      { from: "2026-08-24", to: "2026-08-30" },
+      { from: "2026-08-31", to: "2026-09-06" },
+      { from: "2026-09-07", to: "2026-09-13" },
+    ]);
+    const months = periodRange({ unit: "month", count: 12 }, "2026-08-17");
+    expect(months.from).toBe("2026-08-01");
+    expect(months.to).toBe("2027-07-31");
+    expect(months.buckets[0]).toEqual({ from: "2026-08-01", to: "2026-08-31" });
+    expect(months.buckets[11]).toEqual({ from: "2027-07-01", to: "2027-07-31" });
+  });
+
+  it("clips overflow past 2035 and leaves a 2036 origin empty", () => {
+    const clipped = periodRange({ unit: "month", count: 12 }, "2035-08-17");
+    expect(clipped.clipped).toBe(true);
+    expect(clipped.from).toBe("2035-08-01");
+    expect(clipped.to).toBe("2035-12-31");
+    expect(clipped.buckets.length).toBeLessThanOrEqual(12);
+    expect(clipped.buckets.at(-1)).toEqual({ from: "2035-12-01", to: "2035-12-31" });
+    expect(periodRange({ unit: "week", count: 4 }, "2036-01-01")).toEqual({ from: "", to: "", buckets: [], clipped: true });
+    const lastWeek = periodRange({ unit: "week", count: 4 }, "2035-12-29");
+    expect(lastWeek.clipped).toBe(true);
+    expect(lastWeek.from).toBe(getWeekStartForDate("2035-12-29"));
+    expect(lastWeek.to).toBe("2035-12-31");
+    expect(lastWeek.buckets.at(-1)?.to).toBe("2035-12-31");
+    expect(lastWeek.buckets.every((bucket) => bucket.to <= "2035-12-31")).toBe(true);
+    const early = periodRange({ unit: "month", count: 12 }, "2015-06-01");
+    expect(early.clipped).toBe(true);
+    expect(early.from).toBe("2016-01-01");
+    expect(early.to).toBe("2016-05-31");
+    expect(periodRange({ unit: "week", count: 4 }, "not-a-date").buckets).toEqual([]);
+  });
+
+  it("walks the member once and matches stats built from that walk", () => {
+    const member = initialWorkspace.members.find((item) => item.id === "suzuki")!;
+    const four = periodRange({ unit: "week", count: 4 }, "2026-08-17");
+    const year = periodRange({ unit: "month", count: 12 }, "2026-08-17");
+    expect(four.buckets.length).toBeLessThan(year.buckets.length);
+    const fourDays = memberDailyLoads(initialWorkspace, member.id, four.from, four.to);
+    const yearDays = memberDailyLoads(initialWorkspace, member.id, year.from, year.to);
+    expect(periodMemberStats(initialWorkspace, member, four)).toEqual(periodStatsFromDays(fourDays, four.buckets));
+    expect(periodMemberStats(initialWorkspace, member, year)).toEqual(periodStatsFromDays(yearDays, year.buckets));
+    const first = four.buckets[0];
+    const firstDays = fourDays.filter((day) => day.date >= first.from && day.date <= first.to);
+    const firstLoad = firstDays.reduce((sum, day) => sum + day.load, 0);
+    const firstCapacity = firstDays.filter((day) => !day.weekend).reduce((sum, day) => sum + day.capacity, 0);
+    expect(periodMemberStats(initialWorkspace, member, four).buckets[0]).toMatchObject({
+      load: firstLoad,
+      capacity: firstCapacity,
+      average: firstCapacity > 0 ? Math.round(firstLoad / firstCapacity * 100) : 0,
+    });
+    expect(periodMemberStats(initialWorkspace, member, four).exceeds).toBe(
+      memberExceedsCapacity(initialWorkspace, member, four.from, four.to),
+    );
+    let calls = 0;
+    const counting = ((...args: Parameters<typeof memberDailyLoads>) => {
+      calls += 1;
+      return memberDailyLoads(...args);
+    }) as typeof memberDailyLoads;
+    periodMemberStats(initialWorkspace, member, year, counting);
+    expect(calls).toBe(1);
+  });
+
+  it("treats a 時短 week as over and a holiday weekday as no supply", () => {
+    const member: Member = {
+      id: "m", initials: "M", name: "Member", role: "QA", department: "QA", avatarTone: "mint", skills: [], location: "Tokyo", capacity: 80,
+      unavailability: [{ id: "u", startDate: "2026-08-17", endDate: "2026-08-21", capacityPercent: 50 }],
+    };
+    const state: WorkspaceState = {
+      ...initialWorkspace,
+      members: [member],
+      assignments: [{
+        id: "a", personId: "m", projectId: "p", startDate: "2026-08-17", endDate: "2026-08-21",
+        allocation: 60, status: "confirmed",
+      }],
+    };
+    const range = periodRange({ unit: "week", count: 4 }, "2026-08-17");
+    const stats = periodMemberStats(state, member, range);
+    expect(stats.exceeds).toBe(true);
+    expect(stats.open).toBe(false);
+    expect(stats.buckets[0]?.average).toBeGreaterThan(100);
+    const holiday = periodRange({ unit: "week", count: 4 }, "2026-05-04");
+    const holidayState: WorkspaceState = {
+      ...state,
+      members: [{ ...member, unavailability: undefined }],
+      assignments: [{
+        id: "a", personId: "m", projectId: "p", startDate: "2026-05-04", endDate: "2026-05-08",
+        allocation: 60, status: "confirmed",
+      }],
+    };
+    const holidayStats = periodMemberStats(holidayState, { ...member, unavailability: undefined }, holiday);
+    expect(holidayStats.buckets[0]?.capacity).toBe(160);
+  });
+
+  it("keeps the one-argument org-unit rows and accepts a longer span", () => {
+    const week = orgUnitLoadRows(initialWorkspace, "2026-08-17");
+    const same = orgUnitLoadRows(initialWorkspace, "2026-08-17", "2026-08-21");
+    expect(same).toEqual(week);
+    const year = periodRange({ unit: "month", count: 12 }, "2026-08-17");
+    const yearRows = orgUnitLoadRows(initialWorkspace, year.from, year.to);
+    expect(yearRows.find((row) => row.id === "org-engineering")?.count).toBe(5);
+    expect(yearRows.every((row) => Number.isFinite(row.average))).toBe(true);
   });
 });
 
