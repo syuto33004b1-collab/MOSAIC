@@ -1,6 +1,7 @@
 import type { SupabaseClient, User } from "@supabase/supabase-js";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { convertOpportunityToProject, initialWorkspace } from "../domain";
+import { peekOAuthPending } from "./oauthPending";
 import { normalizeAuditEvent, normalizeIntegrationClient, normalizeMcpServer, normalizeMyContext, normalizeOrganizationInvitation, normalizeWorkspace, ProductionRepository, sha256Hex, workspaceChangesPayload } from "./repository";
 
 const user = {
@@ -500,6 +501,44 @@ describe("password recovery repository", () => {
       code: "WEAK_PASSWORD",
     });
     await expect(repository.updatePassword("short")).rejects.toSatisfy((error: unknown) => error instanceof Error && !error.message.includes("abcABC123"));
+  });
+});
+
+describe("Google OAuth repository", () => {
+  afterEach(() => {
+    sessionStorage.clear();
+  });
+
+  it("starts Google OAuth with the app URL and records a pending marker", async () => {
+    const signInWithOAuth = vi.fn().mockResolvedValue({ data: { provider: "google", url: "https://example.test/auth" }, error: null });
+    const repository = new ProductionRepository({
+      auth: { signInWithOAuth },
+    } as unknown as SupabaseClient);
+
+    await repository.signInWithGoogle();
+
+    expect(signInWithOAuth).toHaveBeenCalledWith({
+      provider: "google",
+      options: { redirectTo: expect.stringMatching(/\/$/) },
+    });
+    expect(peekOAuthPending()).toEqual({ provider: "google" });
+  });
+
+  it("clears the pending marker and hides the provider error when Google cannot start", async () => {
+    const signInWithOAuth = vi.fn().mockResolvedValue({
+      data: { provider: "google", url: null },
+      error: { code: "validation_failed", message: "Provider is not enabled" },
+    });
+    const repository = new ProductionRepository({
+      auth: { signInWithOAuth },
+    } as unknown as SupabaseClient);
+
+    await expect(repository.signInWithGoogle()).rejects.toSatisfy((error: unknown) => (
+      error instanceof Error
+      && error.message.includes("Google")
+      && !error.message.includes("Provider is not enabled")
+    ));
+    expect(peekOAuthPending()).toBeNull();
   });
 });
 

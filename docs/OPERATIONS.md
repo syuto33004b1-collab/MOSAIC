@@ -29,6 +29,7 @@ GitHub Repository Variablesには次を設定します。
 | `VITE_SUPABASE_URL` | 本番プロジェクトのAPI URL | いいえ |
 | `VITE_SUPABASE_PUBLISHABLE_KEY` | 有効なpublishable key | いいえ。ただしローテーション対象 |
 | `VITE_REQUIRE_SHARED_MODE` | 本番切替後は`true`。接続値欠落時のデモ公開を禁止 | いいえ |
+| `VITE_ENABLE_GOOGLE_AUTH` | `true`のときだけログイン画面に Google ボタンを出す。未設定と`false`は非表示 | いいえ |
 
 `VITE_*`は生成されたJavaScriptへ含まれ、誰でも閲覧できます。`service_role`、secret key、DBパスワード、Supabase access tokenをRepository Variablesやフロントエンドのビルドへ渡してはいけません。
 
@@ -55,7 +56,7 @@ GitHub Repository Variablesには次を設定します。
 
 - 公開URLとJavaScript/CSS assetがHTTP 200で返る。
 - 未ログイン状態で業務データが表示されない。
-- ログイン、ログアウト、セッション復元が成功する。
+- ログイン、ログアウト、セッション復元が成功する。Google ログインを有効にしている環境では、招待済みアカウントの Google ログインと、未招待 Google の拒否も確認する。
 - viewerは閲覧のみ、plannerはアサイン変更、admin/ownerは許可された管理操作ができる。
 - owner/adminが運用パネルから招待メールを送信・再送・取消でき、停止済み利用者は再招待・再受諾で復帰できない。
 - owner/adminが連携資格とWebhook URLを発行・失効でき、秘密鍵は再表示されない。

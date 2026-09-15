@@ -3,6 +3,7 @@ import type { Assignment, CustomFieldDefinition, CustomFieldEntity, CustomFieldT
 import { hydrateWorkspaceSkills, OPPORTUNITY_STAGES, normalizeSkillProficiency, normalizeWorkHistory, parseSkillInput, PERSON_SCOPES, PROFILE_REQUEST_SCOPES, PROFILE_REQUEST_STATUSES, RESTRICTABLE_FEATURES, RESTRICTABLE_ROLES } from "../domain";
 import { normalizeFavorites, type Favorite, type FavoriteKind } from "../collaboration";
 import { appAuthRedirectUrl } from "./authRecovery";
+import { consumeOAuthPending, markOAuthPending } from "./oauthPending";
 import {
   ProductionRepositoryError,
   WorkspaceConflictError,
@@ -1202,6 +1203,21 @@ export class ProductionRepository {
     const { data, error } = await this.client.auth.signInWithPassword({ email, password });
     if (error) throw authError(error);
     return data.user;
+  }
+
+  async signInWithGoogle() {
+    markOAuthPending("google");
+    const { error } = await this.client.auth.signInWithOAuth({
+      provider: "google",
+      options: { redirectTo: appAuthRedirectUrl() },
+    });
+    if (!error) return;
+    consumeOAuthPending();
+    throw new ProductionRepositoryError("Google でログインを開始できませんでした。通信状況を確認してください。", {
+      cause: error,
+      code: error.code ?? "OAUTH_START_ERROR",
+      retryable: true,
+    });
   }
 
   async signOut() {

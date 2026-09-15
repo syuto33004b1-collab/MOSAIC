@@ -58,6 +58,7 @@ npm run typecheck
 VITE_SUPABASE_URL=https://PROJECT_REF.supabase.co
 VITE_SUPABASE_PUBLISHABLE_KEY=sb_publishable_REPLACE_ME
 VITE_REQUIRE_SHARED_MODE=false
+VITE_ENABLE_GOOGLE_AUTH=false
 ```
 
 本番切替後は`VITE_REQUIRE_SHARED_MODE=true`を設定します。これにより接続値が消えたデプロイをデモとして公開せず、設定エラーで停止します。
