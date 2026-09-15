@@ -83,7 +83,6 @@ import {
   matchScoreMax,
   memberById,
   needCandidatePersonIds,
-  memberDailyLoads,
   weekendDatesBetween,
   memberLabel,
   memberLabelParts,
@@ -1448,7 +1447,7 @@ export function ProposalView({
   );
 }
 
-export function ReportsView({ state, onOpenWeek, onResolveNeed, onOpenOpportunity, onAddReport, onDeleteReport, canEdit = true, canManageReports = false }: ReportsViewProps) {
+export function ReportsView({ state, onOpenWeek, onResolveNeed, onOpenOpportunity, onAddReport, onDeleteReport, canManageReports = false }: ReportsViewProps) {
   const [choice, setChoice] = useState<PeriodChoice>(PERIOD_CHOICES[1]);
   const [reportId, setReportId] = useState((state.savedReports ?? [])[0]?.id ?? "");
   const [reportName, setReportName] = useState("");
