@@ -35,6 +35,7 @@ export function ProductionFrame({
       </aside>
 
       <section className="workspace production-workspace">
+        <i className="workspace-accent" aria-hidden="true" />
         <header className="topbar production-topbar">
           <div>
             <p className="eyebrow">{eyebrow} <span>/</span> MOSAIC</p>
@@ -43,6 +44,7 @@ export function ProductionFrame({
           </div>
         </header>
         <section className="schedule-card production-card" aria-live="polite">
+          <i className="production-card-accent" aria-hidden="true" />
           <div className="attention-panel production-card-body">{children}</div>
         </section>
       </section>
