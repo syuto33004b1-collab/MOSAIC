@@ -73,6 +73,8 @@ import {
   MONTHLY_COST_FIELD_LABEL,
   memberHasMonthlyCostField,
   periodIdleCostYen,
+  buildPlanCostRows,
+  workspaceHasPricedMonthlyCost,
   workspaceShowsMonthlyCost,
   formatWorkHistoryPeriod,
   getWeekStart,
@@ -131,6 +133,7 @@ import {
   type PeriodChoice,
   type PeriodMemberStats,
   type PeriodRange,
+  type PlanCostAxis,
   type CustomFieldDefinition,
   type DailyLoad,
   type CustomFieldEntity,
@@ -1542,6 +1545,21 @@ export function PeriodRangeTabs({ choice, onChange, namePrefix }: { choice: Peri
   );
 }
 
+const PLAN_COST_AXES: { axis: PlanCostAxis; label: string }[] = [
+  { axis: "project", label: "プロジェクト" },
+  { axis: "department", label: "部門" },
+  { axis: "month", label: "月" },
+];
+
+function PlanCostAxisTabs({ axis, onChange }: { axis: PlanCostAxis; onChange: (axis: PlanCostAxis) => void }) {
+  return (
+    <div className="range-tabs" aria-label="計画コストの集計軸">{PLAN_COST_AXES.map((option) => {
+      const selected = axis === option.axis;
+      return <button type="button" className={selected ? "selected" : ""} aria-label={`計画コストの${option.label}`} aria-pressed={selected} onClick={() => onChange(option.axis)} key={option.axis}>{option.label}</button>;
+    })}</div>
+  );
+}
+
 export function ReportsView({ state, onOpenWeek, onResolveNeed, onOpenOpportunity, onAddReport, onDeleteReport, canManageReports = false }: ReportsViewProps) {
   const [choice, setChoice] = useState<PeriodChoice>(PERIOD_CHOICES[1]);
   const [reportId, setReportId] = useState((state.savedReports ?? [])[0]?.id ?? "");
@@ -1550,8 +1568,14 @@ export function ReportsView({ state, onOpenWeek, onResolveNeed, onOpenOpportunit
   const [groupBy, setGroupBy] = useState<ReportGroupBy>("department");
   const [metric, setMetric] = useState<ReportMetric>("count");
   const [error, setError] = useState("");
+  const [planCostAxis, setPlanCostAxis] = useState<PlanCostAxis>("project");
   const origin = currentLocalDate();
   const range = periodRange(choice, origin);
+  const showPlanCost = workspaceShowsMonthlyCost(state);
+  const planCost = showPlanCost && range.from && range.to
+    ? buildPlanCostRows(state, range, planCostAxis)
+    : { rows: [], totalYen: 0, unsetCount: 0 };
+  const planCostMaxYen = Math.max(1, ...planCost.rows.map((row) => row.yen));
   const memberPeriodStats = state.members.map((member) => ({
     member,
     stats: periodMemberStats(state, member, range),
@@ -1706,6 +1730,33 @@ export function ReportsView({ state, onOpenWeek, onResolveNeed, onOpenOpportunit
         {range.clipped && <p className="horizon-clip-note" role="note">{PERIOD_CLIP_NOTE}</p>}
         <div className="horizon-caption"><span><i className="confirmed" />確定稼働</span><span><i className="draft" />仮置きあり</span><span><i className="pipeline" />受注前の想定人数</span><button type="button" onClick={() => openBoard(0)}>ボードで確認 <ArrowRight size={13} /></button></div>
       </div>
+
+      {showPlanCost && (
+        <section className="balance-card plan-cost-card" aria-labelledby="plan-cost-heading">
+          <div className="card-heading"><div><small>PLAN COST</small><h3 id="plan-cost-heading">計画コスト</h3></div><Layers3 size={18} /></div>
+          <p className="viz-caption" id="plan-cost-caption">仮置きを含みます。合計は給与総額を超え得ます。親部門は子を含みます。表示できるメンバーの範囲で集計します。</p>
+          <PlanCostAxisTabs axis={planCostAxis} onChange={setPlanCostAxis} />
+          {!workspaceHasPricedMonthlyCost(state) || planCost.rows.length === 0 ? (
+            <p className="view-empty">表示できる集計がありません。</p>
+          ) : (
+            <>
+              <p className="plan-cost-total">合計 {formatYen(planCost.totalYen)}{planCost.unsetCount > 0 ? ` · 未設定 ${planCost.unsetCount}名` : ""}</p>
+              <div className="plan-cost-list" aria-describedby="plan-cost-caption">
+                {planCost.rows.map((row) => (
+                  <div key={row.key}>
+                    <span style={row.depth > 0 ? { paddingInlineStart: `${row.depth * 12}px` } : undefined}>
+                      <strong>{row.label}</strong>
+                      {row.unsetCount > 0 && <small>未設定 {row.unsetCount}名</small>}
+                    </span>
+                    <i><b style={{ width: `${Math.min(100, row.yen / planCostMaxYen * 100)}%` }} /></i>
+                    <em>{row.yen === 0 && row.unsetCount > 0 ? "未設定" : formatYen(row.yen)}</em>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </section>
+      )}
 
       <div className="report-lower-grid">
         <section className="balance-card">

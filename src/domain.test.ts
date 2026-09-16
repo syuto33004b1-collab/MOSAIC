@@ -64,6 +64,10 @@ import {
   monthBusinessDayCount,
   parseMonthlyCostYen,
   periodIdleCostYen,
+  buildPlanCostRows,
+  monthsTouching,
+  workspaceHasPricedMonthlyCost,
+  workspaceShowsMonthlyCost,
   periodMemberStats,
   periodRange,
   periodStatsFromDays,
@@ -1840,5 +1844,168 @@ describe("monthly cost", () => {
     expect(parseMonthlyCostYen("1000000000")).toBe(1_000_000_000);
     expect(() => parseMonthlyCostYen("1.5")).toThrow("整数");
     expect(() => parseMonthlyCostYen("1000000001")).toThrow("整数");
+  });
+});
+
+describe("plan cost", () => {
+  const member = {
+    id: "m",
+    initials: "M",
+    name: "Member",
+    role: "QA",
+    department: "QA",
+    avatarTone: "mint" as const,
+    skills: [] as string[],
+    location: "Tokyo",
+    capacity: 100,
+    monthlyCost: 600_000,
+  };
+  const project = { ...initialWorkspace.projects[0], id: "p", name: "Proj" };
+  const assignment = {
+    id: "a",
+    personId: "m",
+    projectId: "p",
+    startDate: "2026-08-01",
+    endDate: "2026-08-31",
+    allocation: 100,
+    status: "confirmed" as const,
+  };
+  const range = { from: "2026-08-01", to: "2026-08-31" };
+
+  it("lists the calendar months that touch a span", () => {
+    expect(monthsTouching("2026-08-10", "2026-10-02")).toEqual(["2026-08", "2026-09", "2026-10"]);
+    expect(monthsTouching("bad", "2026-08-31")).toEqual([]);
+  });
+
+  it("prices a full-month 100% assignment as one month of cost on every axis", () => {
+    const state = {
+      ...initialWorkspace,
+      members: [member],
+      projects: [project],
+      assignments: [assignment],
+      orgUnits: [],
+      orgMemberships: [],
+    };
+    const totals = (["project", "department", "month"] as const).map((axis) => buildPlanCostRows(state, range, axis));
+    expect(new Set(totals.map((item) => item.totalYen))).toEqual(new Set([600_000]));
+    expect(totals.every((item) => item.unsetCount === 0)).toBe(true);
+    expect(totals[0].rows).toEqual([expect.objectContaining({ label: "Proj", yen: 600_000 })]);
+    expect(totals[1].rows).toEqual([expect.objectContaining({ label: "QA", yen: 600_000 })]);
+    expect(totals[2].rows).toEqual([expect.objectContaining({ label: "8月", yen: 600_000 })]);
+  });
+
+  it("includes a recorded Saturday as one extra business-day share", () => {
+    const state = {
+      ...initialWorkspace,
+      members: [member],
+      projects: [project],
+      assignments: [{ ...assignment, weekendWorkDates: ["2026-08-01"] }],
+      orgUnits: [],
+      orgMemberships: [],
+    };
+    expect(buildPlanCostRows(state, range, "project").totalYen).toBe(630_000);
+  });
+
+  it("keeps a null cost out of the yen total", () => {
+    const state = {
+      ...initialWorkspace,
+      members: [{ ...member, monthlyCost: null }],
+      projects: [project],
+      assignments: [assignment],
+      orgUnits: [],
+      orgMemberships: [],
+    };
+    const result = buildPlanCostRows(state, range, "project");
+    expect(result.totalYen).toBe(0);
+    expect(result.unsetCount).toBe(1);
+    expect(result.rows[0]).toMatchObject({ yen: 0, unsetCount: 1 });
+  });
+
+  it("includes draft assignments", () => {
+    const state = {
+      ...initialWorkspace,
+      members: [member],
+      projects: [project],
+      assignments: [{ ...assignment, status: "draft" as const }],
+      orgUnits: [],
+      orgMemberships: [],
+    };
+    expect(buildPlanCostRows(state, range, "project").totalYen).toBe(600_000);
+  });
+
+  it("marks a partial month and keeps parent org rows inclusive", () => {
+    const state = {
+      ...initialWorkspace,
+      members: [member],
+      projects: [project],
+      assignments: [assignment],
+      orgUnits: [
+        { id: "org-eng", name: "開発本部", sortOrder: 10 },
+        { id: "org-prod", name: "プロダクト開発", parentId: "org-eng", sortOrder: 10 },
+      ],
+      orgMemberships: [{ id: "om", personId: "m", orgUnitId: "org-prod", isPrimary: true, isManager: false }],
+    };
+    expect(buildPlanCostRows(state, { from: "2026-08-10", to: "2026-08-31" }, "month").rows[0].label).toBe("8月 (一部)");
+    const dept = buildPlanCostRows(state, range, "department");
+    expect(dept.totalYen).toBe(600_000);
+    expect(dept.rows.find((row) => row.label === "開発本部")).toMatchObject({ yen: 600_000, depth: 0 });
+    expect(dept.rows.find((row) => row.label === "プロダクト開発")).toMatchObject({ yen: 600_000, depth: 1 });
+    expect(dept.rows.reduce((sum, row) => sum + row.yen, 0)).toBe(1_200_000);
+  });
+
+  it("does not prorate a person across projects or cap stacked allocations at 100%", () => {
+    const state = {
+      ...initialWorkspace,
+      members: [member],
+      projects: [project, { ...project, id: "q", name: "Other" }],
+      assignments: [
+        { ...assignment, id: "a1", allocation: 80 },
+        { ...assignment, id: "a2", projectId: "q", allocation: 80 },
+      ],
+      orgUnits: [],
+      orgMemberships: [],
+    };
+    const result = buildPlanCostRows(state, range, "project");
+    expect(result.totalYen).toBe(960_000);
+    expect(result.rows.map((row) => row.yen).sort((left, right) => right - left)).toEqual([480_000, 480_000]);
+  });
+
+  it("rounds once at the total, not once per day", () => {
+    const odd = { ...member, monthlyCost: 100_001 };
+    const state = {
+      ...initialWorkspace,
+      members: [odd],
+      projects: [project],
+      assignments: [assignment],
+      orgUnits: [],
+      orgMemberships: [],
+    };
+    expect(buildPlanCostRows(state, range, "project").totalYen).toBe(100_001);
+  });
+
+  it("keeps inactive months in the selected span at zero yen", () => {
+    const state = {
+      ...initialWorkspace,
+      members: [member],
+      projects: [project],
+      assignments: [assignment],
+      orgUnits: [],
+      orgMemberships: [],
+    };
+    const result = buildPlanCostRows(state, { from: "2026-08-01", to: "2026-10-31" }, "month");
+    expect(result.rows.map((row) => [row.label, row.yen])).toEqual([
+      ["8月", 600_000],
+      ["9月", 0],
+      ["10月", 0],
+    ]);
+    expect(result.totalYen).toBe(600_000);
+  });
+
+  it("treats a hidden field as absent from the workspace, and an unset value as unpriced", () => {
+    expect(workspaceShowsMonthlyCost({ members: [{ ...member, monthlyCost: undefined }] })).toBe(false);
+    expect(workspaceHasPricedMonthlyCost({ members: [{ ...member, monthlyCost: undefined }] })).toBe(false);
+    expect(workspaceShowsMonthlyCost({ members: [{ ...member, monthlyCost: null }] })).toBe(true);
+    expect(workspaceHasPricedMonthlyCost({ members: [{ ...member, monthlyCost: null }] })).toBe(false);
+    expect(workspaceHasPricedMonthlyCost({ members: [member] })).toBe(true);
   });
 });

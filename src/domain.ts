@@ -1027,6 +1027,183 @@ export function periodIdleCostYen(
   return Math.round(yen);
 }
 
+export type PlanCostAxis = "project" | "department" | "month";
+
+export type PlanCostSlice = {
+  personId: string;
+  projectId: string;
+  month: string;
+  /** Unrounded yen. Null when the member's monthly cost is hidden or unset. */
+  yen: number | null;
+};
+
+export type PlanCostRow = {
+  key: string;
+  label: string;
+  yen: number;
+  unsetCount: number;
+  depth: number;
+};
+
+/**
+ * Calendar months that overlap `[from, to]`, as `YYYY-MM`. Empty when the span
+ * is not a pair of civil days.
+ */
+export function monthsTouching(from: string, to: string) {
+  if (isoDayNumber(from) === null || isoDayNumber(to) === null || to < from) return [];
+  const months: string[] = [];
+  let cursor = `${from.slice(0, 7)}-01`;
+  const last = `${to.slice(0, 7)}-01`;
+  while (cursor <= last) {
+    months.push(cursor.slice(0, 7));
+    cursor = addCalendarMonths(cursor, 1);
+  }
+  return months;
+}
+
+/**
+ * One row per person × project × month of planned cost. Walks assignments, not
+ * `memberDailyLoads`, so a project axis can exist. Draft is included because
+ * load already is. Recorded weekends are included; unused weekends are not.
+ * Does not prorate a person's month across projects, and does not cap over 100%.
+ */
+export function planCostSlices(state: WorkspaceState, from: string, to: string): PlanCostSlice[] {
+  if (isoDayNumber(from) === null || isoDayNumber(to) === null || to < from) return [];
+  const denomByMonth = new Map<string, number>();
+  const denom = (month: string) => {
+    let count = denomByMonth.get(month);
+    if (count === undefined) {
+      count = monthBusinessDayCount(`${month}-01`);
+      denomByMonth.set(month, count);
+    }
+    return count;
+  };
+  const acc = new Map<string, PlanCostSlice>();
+  const keyOf = (personId: string, projectId: string, month: string) => `${personId}\0${projectId}\0${month}`;
+  for (const assignment of state.assignments) {
+    if (assignment.endDate < from || assignment.startDate > to) continue;
+    const member = memberById(state, assignment.personId);
+    const start = assignment.startDate > from ? assignment.startDate : from;
+    const end = assignment.endDate < to ? assignment.endDate : to;
+    if (start > end) continue;
+    for (let date = start; date <= end; date = addDays(date, 1)) {
+      if (!assignmentPutsLoadOnDate(state, assignment, date)) continue;
+      const month = date.slice(0, 7);
+      const days = denom(month);
+      if (days <= 0) continue;
+      const key = keyOf(assignment.personId, assignment.projectId, month);
+      const current = acc.get(key) ?? {
+        personId: assignment.personId,
+        projectId: assignment.projectId,
+        month,
+        yen: member?.monthlyCost == null ? null : 0,
+      };
+      if (member?.monthlyCost == null) {
+        acc.set(key, { ...current, yen: null });
+        continue;
+      }
+      acc.set(key, {
+        ...current,
+        yen: (current.yen ?? 0) + member.monthlyCost * (assignment.allocation / 100) / days,
+      });
+    }
+  }
+  return [...acc.values()];
+}
+
+function planCostTotals(slices: PlanCostSlice[]) {
+  let yen = 0;
+  const unset = new Set<string>();
+  for (const slice of slices) {
+    if (slice.yen == null) unset.add(slice.personId);
+    else yen += slice.yen;
+  }
+  return { totalYen: Math.round(yen), unsetCount: unset.size };
+}
+
+function sortPlanCostRows(rows: PlanCostRow[]) {
+  return rows.sort((left, right) => right.yen - left.yen || left.label.localeCompare(right.label, "ja"));
+}
+
+export function workspaceHasPricedMonthlyCost(state: Pick<WorkspaceState, "members">) {
+  return state.members.some((member) => member.monthlyCost != null);
+}
+
+export function buildPlanCostRows(
+  state: WorkspaceState,
+  range: Pick<PeriodRange, "from" | "to">,
+  axis: PlanCostAxis,
+): { rows: PlanCostRow[]; totalYen: number; unsetCount: number } {
+  const slices = planCostSlices(state, range.from, range.to);
+  const totals = planCostTotals(slices);
+  if (axis === "project") {
+    const grouped = new Map<string, PlanCostSlice[]>();
+    for (const slice of slices) {
+      const list = grouped.get(slice.projectId) ?? [];
+      list.push(slice);
+      grouped.set(slice.projectId, list);
+    }
+    const rows = [...grouped.entries()].map(([projectId, group]) => {
+      const part = planCostTotals(group);
+      const project = projectById(state, projectId);
+      return {
+        key: projectId,
+        label: project?.name ?? projectId,
+        yen: part.totalYen,
+        unsetCount: part.unsetCount,
+        depth: 0,
+      };
+    });
+    return { ...totals, rows: sortPlanCostRows(rows) };
+  }
+  if (axis === "month") {
+    if (slices.length === 0) return { ...totals, rows: [] };
+    const rows = monthsTouching(range.from, range.to).map((month) => {
+      const monthFrom = `${month}-01`;
+      const monthTo = monthEndIso(monthFrom);
+      const partial = range.from > monthFrom || range.to < monthTo;
+      const part = planCostTotals(slices.filter((slice) => slice.month === month));
+      return {
+        key: month,
+        label: `${Number(month.slice(5, 7))}月${partial ? " (一部)" : ""}`,
+        yen: part.totalYen,
+        unsetCount: part.unsetCount,
+        depth: 0,
+      };
+    });
+    return { ...totals, rows };
+  }
+  if ((state.orgUnits ?? []).length > 0) {
+    const rows = orgUnitTree(state.orgUnits).map((unit) => {
+      const people = new Set(membersInOrgSubtree(state, unit.id, "primary").map((member) => member.id));
+      const group = slices.filter((slice) => people.has(slice.personId));
+      const part = planCostTotals(group);
+      const path = orgUnitPath(state.orgUnits, unit.id);
+      return {
+        key: unit.id,
+        label: unit.name,
+        yen: part.totalYen,
+        unsetCount: part.unsetCount,
+        depth: Math.max(0, path.length - 1),
+      };
+    }).filter((row) => row.yen > 0 || row.unsetCount > 0);
+    return { ...totals, rows };
+  }
+  const grouped = new Map<string, PlanCostSlice[]>();
+  for (const slice of slices) {
+    const member = memberById(state, slice.personId);
+    const label = member?.department?.trim() || "未設定";
+    const list = grouped.get(label) ?? [];
+    list.push(slice);
+    grouped.set(label, list);
+  }
+  const rows = [...grouped.entries()].map(([label, group]) => {
+    const part = planCostTotals(group);
+    return { key: label, label, yen: part.totalYen, unsetCount: part.unsetCount, depth: 0 };
+  });
+  return { ...totals, rows: sortPlanCostRows(rows) };
+}
+
 export type DailyLoad = {
   date: string;
   load: number;

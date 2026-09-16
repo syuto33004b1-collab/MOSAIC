@@ -2381,6 +2381,26 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .department-list b { display: block; height: 100%; border-radius: inherit; background: #8391e7; }
 .department-list b.over { background: #e87970; }
 .department-list em { color: #687285; font-family: var(--font-data); font-size: 7px; font-style: normal; text-align: right; }
+.plan-cost-card { margin-bottom: 16px; }
+.plan-cost-card .range-tabs { margin: 0 0 12px; width: fit-content; }
+.plan-cost-total {
+  margin: 0 0 10px;
+  color: #687285;
+  font-family: var(--font-data);
+  font-size: 8px;
+  font-weight: 700;
+}
+/* Dedicated tracks so the yen column can hold `￥1,000,000,000` — `.department-list`'s
+   32px third column is for `100%` and would clip every amount (#383). */
+.plan-cost-list { display: grid; grid-template-columns: minmax(100px, max-content) minmax(48px, 1fr) minmax(7.5em, max-content); align-items: center; gap: 11px 8px; }
+.plan-cost-list > div { display: contents; }
+.plan-cost-list > div > span { min-width: 0; }
+.plan-cost-list > .view-empty { grid-column: 1 / -1; }
+.plan-cost-list strong, .plan-cost-list small { display: block; }
+.plan-cost-list strong { font-size: 8px; overflow-wrap: anywhere; }.plan-cost-list small { margin-top: 2px; color: #9aa2b0; font-size: 6px; }
+.plan-cost-list i { height: 6px; border-radius: 99px; background: #edf0f4; overflow: hidden; }
+.plan-cost-list b { display: block; height: 100%; border-radius: inherit; background: #8391e7; }
+.plan-cost-list em { color: #687285; font-family: var(--font-data); font-size: 7px; font-style: normal; text-align: right; }
 .exception-list { display: flex; flex-direction: column; gap: 5px; }
 .exception-list button {
   width: 100%;
@@ -3060,6 +3080,10 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .department-list strong,
 .department-list small,
 .department-list em,
+.plan-cost-total,
+.plan-cost-list strong,
+.plan-cost-list small,
+.plan-cost-list em,
 .exception-list strong,
 .exception-list small,
 .report-insight strong,
@@ -3114,6 +3138,7 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .horizon-caption,
 .horizon-clip-note,
 .department-list small,
+.plan-cost-list small,
 .exception-list small,
 .report-insight p,
 .detail-facts span,
@@ -3701,6 +3726,7 @@ h1 {
 .member-table-wrap,
 .horizon-card,
 .balance-card,
+.plan-cost-card,
 .exceptions-card {
   border-color: var(--line);
   border-radius: 4px;
@@ -4012,6 +4038,9 @@ h1 {
 .department-list i { background: var(--paper-deep); }
 .department-list b { background: var(--sage); }
 .department-list b.over { background: var(--coral); }
+.plan-cost-list i { background: var(--paper-deep); }
+.plan-cost-list b { background: var(--sage); }
+.plan-cost-total { color: var(--muted); }
 .exception-list button { border-radius: 3px; }
 .exception-list button:hover { background: var(--canvas); }
 .exception-icon.risk { background: var(--coral-soft); color: var(--coral-deep); }
