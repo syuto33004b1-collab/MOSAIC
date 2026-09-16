@@ -1589,6 +1589,23 @@ describe("period range (#329 / #364)", () => {
     expect(yearRows.every((row) => Number.isFinite(row.average))).toBe(true);
   });
 
+  it("keeps each week bucket identical to memberWeekStats on that Monday", () => {
+    const member = initialWorkspace.members.find((item) => item.id === "suzuki")!;
+    const range = periodRange({ unit: "week", count: 4 }, "2026-08-17");
+    const stats = periodMemberStats(initialWorkspace, member, range);
+    expect(stats.buckets).toHaveLength(4);
+    for (const bucket of stats.buckets) {
+      const week = memberWeekStats(initialWorkspace, member, bucket.from);
+      expect(bucket).toMatchObject({
+        open: week.open,
+        peak: week.peak,
+        slack: week.slack,
+        ratio: week.ratio,
+        exceeds: week.exceeds,
+      });
+    }
+  });
+
   it("marks a bucket over when one day exceeds even if the average does not", () => {
     const member: Member = {
       id: "m", initials: "M", name: "Member", role: "QA", department: "QA", avatarTone: "mint", skills: [], location: "Tokyo", capacity: 100,

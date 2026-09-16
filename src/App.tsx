@@ -362,7 +362,7 @@ const pageMeta = {
   board: { eyebrow: "RESOURCE PLANNING", title: "チーム編成", description: "日ごとの重なりと、期間全体の稼働を確認します。" },
   projects: { eyebrow: "PORTFOLIO CONTROL", title: "プロジェクト・ポートフォリオ", description: "案件ごとの充足と次の節目を横断して管理します。" },
   opportunities: { eyebrow: "PRE-AWARD PIPELINE", title: "受注前案件", description: "引き合いから商談までの要員計画を、確定プロジェクトと分けて検討します。" },
-  members: { eyebrow: "TEAM AVAILABILITY", title: "メンバーと空き状況", description: "スキルと4週間の稼働から、次の担当者を探します。" },
+  members: { eyebrow: "TEAM AVAILABILITY", title: "メンバーと空き状況", description: "スキルと稼働の見通しから、次の担当者を探します。" },
   proposal: { eyebrow: "CANDIDATE PROPOSAL", title: "候補者提案", description: "要件に合う候補を並べて、スキルと空きで比較します。" },
   org: { eyebrow: "ORGANIZATION TREE", title: "組織階層", description: "部門の階層、責任者、兼務を管理し、検索とレポートへ使います。" },
   skills: { eyebrow: "SKILL TAXONOMY", title: "スキルマップ", description: "分類、習熟度、不足領域を組織全体で確認します。" },
@@ -3543,7 +3543,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
 
         {activeNav === "projects" && <ProjectsView state={workspace} weekOffset={viewWeekOffset} onOpen={openProject} query={projectQuery} onQueryChange={setProjectQuery} favorites={favorites} favoritesOnly={favoritesOnly} onFavoritesOnlyChange={setFavoritesOnly} onToggleFavorite={(projectId) => void toggleFavoriteTarget("project", projectId)} onCopyQuery={() => void copyShareLink({ nav: "projects", q: projectQuery }, "検索リンクをコピーしました")} />}
         {activeNav === "opportunities" && <OpportunitiesView state={workspace} onOpen={openOpportunity} />}
-        {activeNav === "members" && <MembersView state={workspace} weekOffset={viewWeekOffset} onOpen={openMember} onAssign={openAssignmentFor} onAddScene={handleAddSearchScene} onDeleteScene={handleDeleteSearchScene} canEdit={canEdit} canManageScenes={canManageMembers && featureEnabled("searchScenes")} query={memberQuery} onQueryChange={setMemberQuery} favorites={favorites} favoritesOnly={favoritesOnly} onFavoritesOnlyChange={setFavoritesOnly} onToggleFavorite={(memberId) => void toggleFavoriteTarget("member", memberId)} onAddToProposal={addMemberToProposal} onCopyQuery={() => void copyShareLink({ nav: "members", q: memberQuery }, "検索リンクをコピーしました")} />}
+        {activeNav === "members" && <MembersView state={workspace} weekOffset={viewWeekOffset} origin={drawerOrigin} onOpen={openMember} onAssign={openAssignmentFor} onAddScene={handleAddSearchScene} onDeleteScene={handleDeleteSearchScene} canEdit={canEdit} canManageScenes={canManageMembers && featureEnabled("searchScenes")} query={memberQuery} onQueryChange={setMemberQuery} favorites={favorites} favoritesOnly={favoritesOnly} onFavoritesOnlyChange={setFavoritesOnly} onToggleFavorite={(memberId) => void toggleFavoriteTarget("member", memberId)} onAddToProposal={addMemberToProposal} onCopyQuery={() => void copyShareLink({ nav: "members", q: memberQuery }, "検索リンクをコピーしました")} />}
         {activeNav === "proposal" && <ProposalView state={workspace} weekOffset={viewWeekOffset} selectedIds={visibleProposalIds} favorites={favorites} needId={proposalNeedId || undefined} onNeedIdChange={setProposalNeedId} onSelectedIdsChange={setProposalMemberIds} onOpenMember={openMember} onToggleFavorite={(memberId) => void toggleFavoriteTarget("member", memberId)} canEdit={canEdit} onToggleNeedCandidate={toggleNeedCandidate} />}
         {activeNav === "org" && <OrgView
           state={workspace}
