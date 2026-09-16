@@ -199,7 +199,7 @@ type MembersViewProps = {
 
 type ProposalViewProps = {
   state: WorkspaceState;
-  weekOffset: number;
+  origin: string;
   selectedIds: string[];
   favorites?: Favorite[];
   /** The staffing need or staffing plan this proposal answers, if one was picked. */
@@ -1180,13 +1180,9 @@ export function MembersView({
 }
 
 
-function proposalWeeklyLoads(state: WorkspaceState, member: Member, weekStart: string) {
-  return [0, 1, 2, 3].map((offset) => memberWeekStats(state, member, addDays(weekStart, offset * 7)));
-}
-
 export function ProposalView({
   state,
-  weekOffset,
+  origin,
   selectedIds,
   favorites = [],
   onSelectedIdsChange,
@@ -1200,9 +1196,8 @@ export function ProposalView({
   const [pickerQuery, setPickerQuery] = useState("");
   /** Which columns the file carries. Minimal until the sender adds to it (#148). */
   const [exportColumns, setExportColumns] = useState<string[]>([...DEFAULT_PROPOSAL_CSV_COLUMNS]);
-  const weekStart = getWeekStart(weekOffset);
-  // Named, not 「今週」: these screens follow the board's paging (#146).
-  const weekName = weekLabel(weekStart);
+  const [choice, setChoice] = useState<PeriodChoice>(PERIOD_CHOICES[0]);
+  const range = useMemo(() => periodRange(choice, origin), [choice, origin]);
   /**
    * What the proposal answers. A project's unfilled staffing need or an
    * opportunity's staffing plan — the screen could build a list of people and
@@ -1247,6 +1242,14 @@ export function ProposalView({
   const selected = selectedIds
     .map((id) => memberById(state, id))
     .filter((member): member is Member => Boolean(member));
+  const periodStatsById = useMemo(() => {
+    const next = new Map<string, PeriodMemberStats>();
+    for (const id of selectedIds) {
+      const member = memberById(state, id);
+      if (member) next.set(member.id, periodMemberStats(state, member, range));
+    }
+    return next;
+  }, [state, selectedIds, range]);
   const needle = pickerQuery.toLowerCase();
   const pickerMembers = state.members.filter((member) => {
     if (selectedIds.includes(member.id)) return false;
@@ -1291,6 +1294,9 @@ export function ProposalView({
           <option value="">未選択</option>
           {subjects.map((item) => <option value={item.id} key={item.id}>{item.label}</option>)}
         </select></label>
+        {/* Inside the toolbar so `@media print` that already hides `.view-toolbar`
+            takes the tabs with it. The clip note sits after this box and prints. */}
+        <PeriodRangeTabs choice={choice} onChange={setChoice} namePrefix="候補者提案" />
         <span className="toolbar-result">最大{MAX_PROPOSAL_MEMBERS}名。社内リンクはログインが必要です。社外へ出すときはファイルか紙にします。</span>
         {/* The answer #148 settled on. A link cannot be sent outside — it carries real
             member ids — and a file can: no ids in it. What a file cannot do is expire, so
@@ -1327,7 +1333,8 @@ export function ProposalView({
             onClick={() => downloadCsv("mosaic-proposal.csv", exportProposalCsv(state, {
               memberIds: selected.map((member) => member.id),
               columns: exportColumns,
-              weekStart,
+              choice,
+              origin,
               needId: subject?.need.id,
             }))}
           >
@@ -1352,6 +1359,7 @@ export function ProposalView({
           </button>
         </details>
       </div>
+      {range.clipped && <p className="horizon-clip-note" role="note">{PERIOD_CLIP_NOTE}</p>}
 
       <div className="proposal-layout">
         <aside className="proposal-picker">
@@ -1409,7 +1417,7 @@ export function ProposalView({
           )}
           {selected.map((member) => {
             const label = memberLabel(state, member);
-            const weeklyLoads = proposalWeeklyLoads(state, member, weekStart);
+            const periodStats = periodStatsById.get(member.id);
             return (
               <article className="proposal-card" key={member.id}>
                 {/* Paper only, and on every card. The ribbon that names the proposal is one
@@ -1469,12 +1477,14 @@ export function ProposalView({
                     </p>
                   );
                 })()}
-                <div className="proposal-weeks" aria-label={`${label}の4週間の稼働`}>
-                  {weeklyLoads.map((week, weekIndex) => (
-                      <div key={weekIndex}>
-                        <span>{weekIndex === 0 ? weekName : `${weekIndex + 1}週後`}</span>
-                        <i><b className={week.exceeds ? "over" : ""} style={{ width: week.ratio + "%" }} /></i>
-                        <strong>{week.peak}% / {member.capacity}%</strong>
+                <div className="proposal-weeks" aria-label={`${label}の${periodChoiceLabel(choice)}の稼働`}>
+                  {range.buckets.length === 0
+                    ? <p className="proposal-weeks-empty">この期間は表示できません</p>
+                    : (periodStats?.buckets ?? []).map((bucket, index) => (
+                      <div key={`${bucket.from}:${bucket.to}`}>
+                        <span>{periodBucketLabel(choice, bucket, index)}</span>
+                        <i><b className={bucket.exceeds ? "over" : ""} style={{ width: bucket.ratio + "%" }} /></i>
+                        <strong>{bucket.peak}% / {member.capacity}%</strong>
                       </div>
                     ))}
                 </div>

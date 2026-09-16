@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import axe from "axe-core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import App, { type SharedWorkspaceAdapter } from "./App";
-import { MembersView } from "./expanded-views";
+import { MembersView, ProposalView } from "./expanded-views";
 import { DEMO_FAVORITES_KEY } from "./collaboration";
 import { addDays, boardRange, getWeekDays, getWeekStart, initialWorkspace, memberDailyLoads, memberLoad, memberPeakLoad, periodMemberStats, periodRange, type StaffingNeed, type WorkspaceState } from "./domain";
 import type { ChatTransport } from "./lib/ai/chatClient";
@@ -5619,6 +5619,8 @@ describe("writing the proposal out as a file", () => {
     await openPanel(user);
     const offered = [...document.querySelectorAll(".proposal-export-columns label")].map((label) => label.textContent!.trim());
     expect(offered).toContain("勤務地");
+    expect(offered).toContain("見通しの稼働率");
+    expect(offered).not.toContain("4週間の稼働率");
   });
 
   it("writes a file named without an id once somebody is picked", async () => {
@@ -5765,6 +5767,46 @@ describe("printing the proposal", () => {
     expect(note).toContain("取り消せません");
     // And the legend covers both, since one set of boxes decides both.
     expect(document.querySelector(".proposal-export-columns legend")!.textContent).toContain("ファイルと紙");
+  });
+});
+
+/**
+ * #381. The cards used to draw `[0,1,2,3]` from `weekStart`. They now share
+ * `periodRange` / `periodMemberStats` with the member list, and the file writes
+ * the same buckets. Tabs live in the toolbar so they print-hide with it.
+ */
+describe("the proposal rail follows the selected period", () => {
+  it("defaults to four weeks and can show twelve", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^提案( |$)/u }));
+    await user.click(document.querySelectorAll(".proposal-picker-item")[0]);
+
+    const rail = document.querySelector(".proposal-weeks")!;
+    expect(rail.querySelectorAll(":scope > div")).toHaveLength(4);
+    expect(rail.getAttribute("aria-label")).toMatch(/の4週間の稼働$/u);
+    expect(document.querySelector(".proposal-view .view-toolbar .range-tabs")).not.toBeNull();
+    expect(document.querySelector(".proposal-view > .horizon-clip-note")).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "候補者提案の12週間" }));
+    expect(document.querySelector(".proposal-weeks")!.querySelectorAll(":scope > div")).toHaveLength(12);
+    expect(document.querySelector(".proposal-weeks")!.getAttribute("aria-label")).toMatch(/の12週間の稼働$/u);
+  });
+
+  it("names an empty holiday-calendar span instead of drawing bars", () => {
+    render(
+      <ProposalView
+        state={initialWorkspace}
+        origin="2036-01-01"
+        selectedIds={["saeki"]}
+        onNeedIdChange={() => undefined}
+        onSelectedIdsChange={() => undefined}
+        onOpenMember={() => undefined}
+      />,
+    );
+    expect(document.querySelector(".proposal-weeks")!.textContent).toContain("この期間は表示できません");
+    expect(document.querySelectorAll(".proposal-weeks > div")).toHaveLength(0);
+    expect(screen.getByRole("note")).toHaveTextContent("祝日カレンダーは2016年から2035年までです");
   });
 });
 

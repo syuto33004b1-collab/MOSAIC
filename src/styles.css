@@ -1747,7 +1747,10 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
    separate objects (#185). */
 .proposal-card-provenance { display: none; }
 .proposal-weeks { display: grid; gap: 7px; }
-.proposal-weeks > div { display: grid; grid-template-columns: 52px minmax(0, 1fr) 72px; gap: 8px; align-items: center; font-size: var(--text-min); }
+.proposal-weeks > div { display: grid; grid-template-columns: minmax(52px, max-content) minmax(0, 1fr) minmax(72px, max-content); gap: 8px; align-items: center; font-size: var(--text-min); }
+.proposal-weeks > div > span { white-space: nowrap; }
+.proposal-weeks-empty { margin: 0; color: var(--muted); }
+.proposal-view > .horizon-clip-note { grid-column: auto; margin: 8px 0 0; }
 .proposal-weeks i { height: 8px; border-radius: 99px; background: #eef1f6; overflow: hidden; }
 .proposal-weeks b { display: block; height: 100%; background: #8c99ed; }
 .proposal-weeks b.over { background: #ec847b; }
@@ -5518,7 +5521,7 @@ h1 {
   .proposal-cards:not([data-print~="勤務地"]) .proposal-card-location,
   .proposal-cards:not([data-print~="スキル"]) .member-skills,
   .proposal-cards:not([data-print~="要件期間の最小空き"]) .proposal-match,
-  .proposal-cards:not([data-print~="4週間の稼働率"]) .proposal-weeks,
+  .proposal-cards:not([data-print~="見通しの稼働率"]) .proposal-weeks,
   /* Skill data, so it goes with the skills rather than with the percentage it sits beside. */
   .proposal-cards:not([data-print~="スキル"]) .proposal-match-skills { display: none; }
   /* On paper it is the only thing on a later page that says whose proposal this is.

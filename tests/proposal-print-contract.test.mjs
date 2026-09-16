@@ -27,7 +27,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
  * | ribbon, cards, and the five fields | visible |
  * | card box | 688 x 267, three candidates and the header in 991px, page 1017 |
  * | document overflow at 688px | none |
- * | ticking off 勤務地 and 4週間の稼働率 | card 267 → 148px |
+ * | ticking off 勤務地 and 見通しの稼働率 | card 267 → 148px |
  * | ticking everything off | card 68px, the candidate's name alone |
  * | with background colours suppressed | nothing left the same colour as the paper |
  *
