@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import axe from "axe-core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import App, { type SharedWorkspaceAdapter } from "./App";
+import { parseCsv } from "./csv";
 import { MembersView, ProposalView } from "./expanded-views";
 import { DEMO_FAVORITES_KEY } from "./collaboration";
 import { addDays, boardRange, getWeekDays, getWeekStart, initialWorkspace, memberDailyLoads, memberLoad, memberPeakLoad, periodMemberStats, periodRange, type StaffingNeed, type WorkspaceState } from "./domain";
@@ -5791,6 +5792,41 @@ describe("the proposal rail follows the selected period", () => {
     await user.click(screen.getByRole("button", { name: "候補者提案の12週間" }));
     expect(document.querySelector(".proposal-weeks")!.querySelectorAll(":scope > div")).toHaveLength(12);
     expect(document.querySelector(".proposal-weeks")!.getAttribute("aria-label")).toMatch(/の12週間の稼働$/u);
+  });
+
+  it("writes the same peaks the cards show after the period changes", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^提案( |$)/u }));
+    await user.click(document.querySelectorAll(".proposal-picker-item")[0]);
+    await user.click(screen.getByRole("button", { name: "候補者提案の12週間" }));
+
+    const rail = document.querySelector(".proposal-weeks")!;
+    const labels = [...rail.querySelectorAll(":scope > div > span")].map((el) => el.textContent);
+    const peaks = [...rail.querySelectorAll(":scope > div strong")].map((el) => el.textContent!.split(" / ")[0]);
+    expect(labels).toHaveLength(12);
+    expect(peaks).toHaveLength(12);
+
+    await user.click(screen.getByText("書き出す・印刷する"));
+    const box = [...document.querySelectorAll<HTMLInputElement>(".proposal-export-columns input")]
+      .find((input) => input.closest("label")!.textContent!.trim() === "見通しの稼働率")!;
+    await user.click(box);
+
+    const created: Blob[] = [];
+    const realCreate = URL.createObjectURL;
+    const realRevoke = URL.revokeObjectURL;
+    URL.createObjectURL = ((blob: Blob) => { created.push(blob); return "blob:proposal"; }) as typeof URL.createObjectURL;
+    URL.revokeObjectURL = (() => {}) as typeof URL.revokeObjectURL;
+    const realClick = HTMLAnchorElement.prototype.click;
+    HTMLAnchorElement.prototype.click = function (this: HTMLAnchorElement) { /* download name is not under test */ };
+    try {
+      await user.click(screen.getByRole("button", { name: /1名を書き出す/u }));
+    } finally {
+      URL.createObjectURL = realCreate;
+      URL.revokeObjectURL = realRevoke;
+      HTMLAnchorElement.prototype.click = realClick;
+    }
+    expect(parseCsv(await created[0].text()).rows[0]["見通しの稼働率"]).toBe(`12週間 ${labels[0]}起点 ${peaks.join(" / ")}`);
   });
 
   it("names an empty holiday-calendar span instead of drawing bars", () => {

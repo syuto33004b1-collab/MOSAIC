@@ -167,7 +167,24 @@ describe("writing a proposal out", () => {
     const csv = exportProposalCsv(initialWorkspace, {
       memberIds: ["saeki"], columns: ["見通しの稼働率"], choice, origin: "2036-01-01",
     });
-    expect(rows(csv)[1][1]).toBe("");
+    expect(parseCsv(csv).rows[0]["見通しの稼働率"]).toBe("");
+  });
+
+  it("writes the remaining clipped buckets, still as peaks", () => {
+    const clippedChoice: PeriodChoice = { unit: "month", count: 12 };
+    const clippedOrigin = "2035-11-01";
+    const range = periodRange(clippedChoice, clippedOrigin);
+    expect(range.clipped).toBe(true);
+    expect(range.buckets.length).toBeGreaterThan(0);
+    expect(range.buckets.length).toBeLessThan(12);
+    const member = initialWorkspace.members.find((item) => item.id === "saeki")!;
+    const stats = periodMemberStats(initialWorkspace, member, range);
+    const csv = exportProposalCsv(initialWorkspace, {
+      memberIds: ["saeki"], columns: ["見通しの稼働率"], choice: clippedChoice, origin: clippedOrigin,
+    });
+    expect(parseCsv(csv).rows[0]["見通しの稼働率"]).toBe(
+      `${periodChoiceLabel(clippedChoice)} ${periodBucketLabel(clippedChoice, range.buckets[0], 0)}起点 ${stats.buckets.map((bucket) => `${bucket.peak}%`).join(" / ")}`,
+    );
   });
 
   it("writes each bucket's peak, not its average", () => {
