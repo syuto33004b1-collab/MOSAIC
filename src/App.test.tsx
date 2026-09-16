@@ -1411,6 +1411,55 @@ describe("role-aware workspace", () => {
       expect(screen.getByText("未設定 花子さんが期間中ずっと空き").closest("button")).toHaveTextContent("原価未設定");
     });
 
+    it("moves saved-report avgLoad with the shared period tabs", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      vi.setSystemTime(new Date("2026-08-19T09:00:00+09:00"));
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      render(<App />);
+      await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: "レポート" }));
+      const reportSelect = screen.getByLabelText("レポートを選ぶ");
+      await user.selectOptions(reportSelect, within(reportSelect).getByRole("option", { name: "職種別稼働" }));
+      const card = document.querySelector(".saved-report-card") as HTMLElement;
+      expect(card).toHaveTextContent("12週間の平均稼働率");
+      const list = () => card.querySelector(".department-list") as HTMLElement;
+      const twelveWeekRows = list().textContent;
+      expect(twelveWeekRows).toMatch(/Frontend Engineer/u);
+      await user.click(screen.getByRole("button", { name: "4週間" }));
+      expect(card).toHaveTextContent("4週間の平均稼働率");
+      expect(list().textContent).not.toEqual(twelveWeekRows);
+      await user.selectOptions(reportSelect, within(reportSelect).getByRole("option", { name: "部署別人数" }));
+      expect(card.querySelector(".viz-caption")).toBeNull();
+    });
+
+    it("marks a saved-report avgLoad bar over when the period average exceeds 100", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      vi.setSystemTime(new Date("2026-08-19T09:00:00+09:00"));
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      const adapter = sharedAdapter();
+      const overloaded = { ...initialWorkspace.members[0], id: "over-avg", name: "超過 太郎", role: "Over Role", department: "超過", capacity: 40, unavailability: [] };
+      adapter.initialState = {
+        ...initialWorkspace,
+        members: [overloaded],
+        assignments: [{
+          id: "over-now",
+          personId: "over-avg",
+          projectId: initialWorkspace.projects[0].id,
+          startDate: "2026-08-17",
+          endDate: "2026-09-11",
+          allocation: 120,
+          status: "confirmed",
+        }],
+        savedReports: [{ id: "report-role-load", name: "職種別稼働", source: "members", groupBy: "role", metric: "avgLoad" }],
+      };
+      render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "admin@example.com", role: "admin" }} shared={adapter} />);
+      await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: "レポート" }));
+      await user.click(screen.getByRole("button", { name: "4週間" }));
+      const card = document.querySelector(".saved-report-card") as HTMLElement;
+      const percent = card.querySelector(".department-list em")?.textContent;
+      expect(Number(percent?.replace("%", ""))).toBeGreaterThan(100);
+      expect(card.querySelector("b.over")).not.toBeNull();
+    });
+
     it("changes organization load with the selected span and opens the first overloaded bucket", async () => {
       vi.useFakeTimers({ shouldAdvanceTime: true });
       vi.setSystemTime(new Date("2026-08-19T09:00:00+09:00"));

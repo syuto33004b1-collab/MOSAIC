@@ -1573,7 +1573,9 @@ export function ReportsView({ state, onOpenWeek, onResolveNeed, onOpenOpportunit
   const pipelineNeeds = (state.opportunityNeeds ?? []).filter((need) => activeOpportunities.some((opportunity) => opportunity.id === need.opportunityId));
   const reports = state.savedReports ?? [];
   const selectedReport = reports.find((report) => report.id === reportId) ?? reports[0];
-  const reportRows = selectedReport ? buildSavedReport(state, selectedReport, getWeekStart(0)) : [];
+  const reportRows = selectedReport
+    ? buildSavedReport(state, selectedReport, range, (member) => statsByMember.get(member.id) ?? periodMemberStats(state, member, range))
+    : [];
   const maxValue = Math.max(1, ...reportRows.map((row) => row.value));
   const groupOptions = allowedReportGroupBy(source);
   const submitReport = () => {
@@ -1596,6 +1598,7 @@ export function ReportsView({ state, onOpenWeek, onResolveNeed, onOpenOpportunit
 
       <section className="balance-card saved-report-card" aria-labelledby="saved-report-heading">
         <div className="card-heading"><div><small>SAVED REPORTS</small><h3 id="saved-report-heading">任意項目レポート</h3></div><Gauge size={18} /></div>
+        {selectedReport?.metric === "avgLoad" && <p className="viz-caption">{periodChoiceLabel(choice)}の平均稼働率</p>}
         <div className="view-toolbar">
           <label className="view-filter"><span className="filter-label">レポート</span><select value={selectedReport?.id ?? ""} onChange={(event) => setReportId(event.target.value)} aria-label="レポートを選ぶ">
             {reports.length === 0 && <option value="">レポートなし</option>}
