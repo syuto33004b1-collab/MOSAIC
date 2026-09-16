@@ -56,7 +56,6 @@ import {
   CSV_PRESETS_KEY,
 } from "./csv";
 import {
-  addDays,
   addOrgUnit,
   addSkillCatalogEntry,
   allowedReportGroupBy,
@@ -117,6 +116,7 @@ import {
   profileRequestStatusLabel,
   projectById,
   projectMembers,
+  projectPeriodCount,
   projectSearchText,
   RESTRICTABLE_FEATURES,
   RESTRICTABLE_ROLES,
@@ -127,6 +127,7 @@ import {
   visibleCustomFields,
   weekLabel,
   type BoardUnit,
+  type PeriodBucket,
   type PeriodChoice,
   type PeriodMemberStats,
   type PeriodRange,
@@ -155,7 +156,10 @@ import {
 
 type ProjectsViewProps = {
   state: WorkspaceState;
+  /** Monday the staffed-label still names. The rail starts from `origin`. */
   weekOffset: number;
+  /** Civil day the period helpers start from (`boardBasisDay`). */
+  origin: string;
   onOpen: (projectId: string) => void;
   query?: string;
   onQueryChange?: (query: string) => void;
@@ -302,12 +306,22 @@ function formatMonthDay(iso?: string | null) {
 
 
 /**
- * One week of a project's staffing, for both the bar's `title` and the rail's
- * accessible name. The rail carried neither the week numbers nor the counts in
- * its name, so a screen reader got 「4週間の充足人数」 and nothing else (#85).
+ * One period bucket of a project's staffing, for both the bar's `title` and
+ * the rail's accessible name. The rail carried neither the week numbers nor
+ * the counts in its name, so a screen reader got 「4週間の充足人数」 and
+ * nothing else (#85).
  */
-function weekStaffingLabel(index: number, count: number, demand: number) {
-  return demand === 0 ? `${index + 1}週目: 必要人数未設定` : `${index + 1}週目: ${count}/${demand}名`;
+function periodStaffingLabel(
+  choice: PeriodChoice,
+  bucket: PeriodBucket,
+  index: number,
+  count: number | null,
+  demand: number,
+) {
+  const when = periodBucketLabel(choice, bucket, index);
+  if (count === null) return `${when}: —`;
+  if (demand === 0) return `${when}: 必要人数未設定`;
+  return `${when}: ${count}/${demand}名`;
 }
 
 export function FavoriteStar({ name, pressed, onToggle }: { name: string; pressed: boolean; onToggle: () => void }) {
@@ -646,6 +660,7 @@ export function ActiveFilters({ applied, result, onClearAll }: {
 export function ProjectsView({
   state,
   weekOffset,
+  origin,
   onOpen,
   query,
   onQueryChange,
@@ -658,9 +673,11 @@ export function ProjectsView({
   const [localQuery, setLocalQuery] = useState("");
   const [status, setStatus] = useState("すべて");
   const [order, setOrder] = useState<ProjectOrder>("registered");
+  const [choice, setChoice] = useState<PeriodChoice>(PERIOD_CHOICES[0]);
   const weekStart = getWeekStart(weekOffset);
   // Named, not 「今週」: these screens follow the board's paging (#146).
   const weekName = weekLabel(weekStart);
+  const range = useMemo(() => periodRange(choice, origin), [choice, origin]);
   const searchValue = query ?? localQuery;
   // Trimmed, for the reason at MembersView: the chip and the filter have to agree
   // on what counts as searching (#138).
@@ -724,23 +741,30 @@ export function ProjectsView({
         />
       </div>
 
-      {/* The rail is four bars with no week labels and no key. `title` puts the
+      <div className="projects-period-bar">
+        <PeriodRangeTabs choice={choice} onChange={setChoice} namePrefix="プロジェクト一覧" />
+        {range.clipped && <p className="horizon-clip-note" role="note">{PERIOD_CLIP_NOTE}</p>}
+      </div>
+
+      {/* The rail is bars with no week labels and no key. `title` puts the
           numbers within reach of a mouse only, so the values go in each rail's
           accessible name and the reading of the bars goes here, once, rather
           than per row. `aria-describedby` rather than adjacency alone: jumping
           straight to the table would otherwise miss this (#85). */}
-      <p className="viz-caption" id="portfolio-rail-key">「4週間の充足」は、{weekName}から4週間の充足率を示します。バーの長さが充足率で、必要人数に届かない週は橙色、必要人数が未設定の週は空になります。</p>
+      <p className="viz-caption" id="portfolio-rail-key">{range.buckets[0]
+        ? `「${periodChoiceLabel(choice)}の充足」は、${periodBucketLabel(choice, range.buckets[0], 0)}から${periodChoiceLabel(choice)}の充足率を示します。バーの長さが充足率で、必要人数に届かないバケットは橙色、案件期間外は—、必要人数未設定のバケットは空になります。`
+        : `「${periodChoiceLabel(choice)}の充足」はこの期間では表示できません。`}</p>
 
       <div className="portfolio-table-wrap">
         <table className="portfolio-table" aria-describedby="portfolio-rail-key">
           <thead>
-            <tr><th className="col-favorite"><span className="sr-only">お気に入り</span></th><th className="col-name">プロジェクト</th><th className="col-status">状態</th>{listFields.map((field) => <th key={field.id} className="col-custom">{field.label}</th>)}<th className="col-rail">4週間の充足</th><th className="col-progress">進捗</th><th className="col-milestone">次の節目</th><th className="col-owner">責任者</th><th className="col-open"><span className="sr-only">詳細</span></th></tr>
+            <tr><th className="col-favorite"><span className="sr-only">お気に入り</span></th><th className="col-name">プロジェクト</th><th className="col-status">状態</th>{listFields.map((field) => <th key={field.id} className="col-custom">{field.label}</th>)}<th className="col-rail">{periodChoiceLabel(choice)}の充足</th><th className="col-progress">進捗</th><th className="col-milestone">次の節目</th><th className="col-owner">責任者</th><th className="col-open"><span className="sr-only">詳細</span></th></tr>
           </thead>
           <tbody>
             {filtered.map((project) => {
               const currentMembers = projectMembers(state, project.id, weekStart);
               const need = state.needs.find((item) => item.projectId === project.id && item.status !== "filled");
-              const weeks = [0, 1, 2, 3].map((offset) => projectMembers(state, project.id, addDays(weekStart, offset * 7)));
+              const counts = range.buckets.map((bucket) => projectPeriodCount(state, project, bucket.from, bucket.to));
               return (
                 <tr key={project.id}>
                   <td>{onToggleFavorite ? <FavoriteStar name={project.name} pressed={isFavorited(favorites, "project", project.id)} onToggle={() => onToggleFavorite(project.id)} /> : null}</td>
@@ -760,9 +784,18 @@ export function ProjectsView({
                         `img "…"`. The parts are decorative here: every value is
                         in the name, and each bar's `title` reached a pointer
                         only. */}
-                    <div className="four-week-rail" role="img" aria-label={project.name + "の4週間の充足人数：" + weeks.map((count, index) => weekStaffingLabel(index, count, project.demand)).join("、")}>
-                      {weeks.map((count, index) => <i key={index} title={weekStaffingLabel(index, count, project.demand)}><b className={project.demand > 0 && count < project.demand ? "short" : ""} style={{ width: (project.demand === 0 ? 0 : Math.min(100, count / project.demand * 100)) + "%" }} /></i>)}
+                    {range.buckets.length > 0 && (
+                    <div className="four-week-rail" role="img" aria-label={project.name + `の${periodChoiceLabel(choice)}の充足人数：` + range.buckets.map((bucket, index) => periodStaffingLabel(choice, bucket, index, counts[index] ?? null, project.demand)).join("、")}>
+                      {range.buckets.map((bucket, index) => {
+                        const count = counts[index] ?? null;
+                        const outside = count === null;
+                        const unset = project.demand === 0;
+                        const width = outside ? 0 : unset ? 0 : Math.min(100, count / project.demand * 100);
+                        const short = !outside && !unset && count < project.demand;
+                        return <i key={`${bucket.from}:${bucket.to}`} title={periodStaffingLabel(choice, bucket, index, count, project.demand)}><b className={short ? "short" : ""} style={{ width: width + "%" }} /></i>;
+                      })}
                     </div>
+                    )}
                     <span className="staffed-label">{project.demand === 0 ? "必要人数未設定" : `${weekName} ${currentMembers}/${project.demand}名`}</span>
                   </td>
                   <td><div className="progress-cell"><span><b style={{ width: project.progress + "%" }} /></span><strong>{project.progress}%</strong></div></td>
