@@ -4,7 +4,7 @@ import axe from "axe-core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import App, { type SharedWorkspaceAdapter } from "./App";
 import { parseCsv } from "./csv";
-import { MembersView, ProposalView } from "./expanded-views";
+import { MembersView, ProjectsView, ProposalView } from "./expanded-views";
 import { DEMO_FAVORITES_KEY } from "./collaboration";
 import { addDays, boardRange, getWeekDays, getWeekStart, initialWorkspace, memberDailyLoads, memberLoad, memberPeakLoad, periodMemberStats, periodRange, type StaffingNeed, type WorkspaceState } from "./domain";
 import type { ChatTransport } from "./lib/ai/chatClient";
@@ -2772,11 +2772,14 @@ describe("a key for what colour and position encode", () => {
     // div is a name on a generic node, which need not be exposed at all.
     const rail = screen.getAllByRole("img", { name: /の4週間の充足人数：/u })[0];
     const label = rail.getAttribute("aria-label") ?? "";
-    // Four bars, so four weeks named with their counts — a screen reader used to
-    // get the heading and nothing else.
-    for (const week of [1, 2, 3, 4]) {
-      expect(label, `week ${week} in ${label}`).toContain(`${week}週目: `);
-      expect(label, `week ${week} count in ${label}`).toMatch(new RegExp(`${week}週目: ([0-9]+/[0-9]+名|必要人数未設定)`, "u"));
+    // Four bars, so four buckets named with their counts — a screen reader used
+    // to get the heading and nothing else. The first bucket names its Monday;
+    // the rest stay relative (#146). The old 「N週目」 copy is gone.
+    expect(label).toMatch(/\d+\/\d+週: ([0-9]+\/[0-9]+名|必要人数未設定|—)/u);
+    expect(label).not.toContain("週目:");
+    for (const week of [2, 3, 4]) {
+      expect(label, `week ${week} in ${label}`).toContain(`${week}週後: `);
+      expect(label, `week ${week} count in ${label}`).toMatch(new RegExp(`${week}週後: ([0-9]+/[0-9]+名|必要人数未設定|—)`, "u"));
     }
     expect(rail.querySelectorAll("i")).toHaveLength(4);
 
@@ -2831,9 +2834,63 @@ describe("a key for what colour and position encode", () => {
     // A full bar would read as 100% staffed under 「バーの長さが充足率」, which is
     // not something the app knows here.
     const rail = screen.getByRole("img", { name: /人数未定 案件の4週間の充足人数：/u });
-    expect(rail.getAttribute("aria-label")).toContain("1週目: 必要人数未設定");
+    expect(rail.getAttribute("aria-label")).toMatch(/\d+\/\d+週: 必要人数未設定/u);
+    expect(rail.getAttribute("aria-label")).toContain("2週後: 必要人数未設定");
     for (const fill of rail.querySelectorAll("b")) expect((fill as HTMLElement).style.width).toBe("0%");
     expect(document.querySelector(".staffed-label")!.textContent).toBe("必要人数未設定");
+  });
+
+  it("grows the staffing rail to twelve bars when the 12-week tab is selected", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await goTo(user, /^プロジェクト 登録 \d+件$/u);
+    await user.click(screen.getByRole("button", { name: "プロジェクト一覧の12週間" }));
+
+    const rail = screen.getAllByRole("img", { name: /の12週間の充足人数：/u })[0];
+    expect(rail.querySelectorAll("i")).toHaveLength(12);
+    const headers = [...screen.getByRole("table").querySelectorAll("thead th")].map((th) => th.textContent ?? "");
+    expect(headers).toContain("12週間の充足");
+  });
+
+  it("names a bucket outside the project as —", () => {
+    const project = {
+      ...initialWorkspace.projects[0],
+      id: "short",
+      name: "短い案件",
+      startDate: "2026-09-14",
+      endDate: "2026-09-18",
+      demand: 2,
+    };
+    render(
+      <ProjectsView
+        state={{ ...initialWorkspace, members: [], projects: [project], assignments: [], needs: [] } as unknown as WorkspaceState}
+        weekOffset={0}
+        origin="2026-09-14"
+        onOpen={() => undefined}
+      />,
+    );
+    const rail = screen.getByRole("img", { name: /短い案件の4週間の充足人数：/u });
+    const label = rail.getAttribute("aria-label") ?? "";
+    expect(label).toContain("9/14週: 0/2名");
+    expect(label).toContain("2週後: —");
+    expect(label).toContain("3週後: —");
+    expect(label).toContain("4週後: —");
+    expect(rail.querySelectorAll("i")).toHaveLength(4);
+  });
+
+  it("names an empty holiday-calendar span instead of drawing a rail", () => {
+    render(
+      <ProjectsView
+        state={initialWorkspace}
+        weekOffset={0}
+        origin="2036-01-01"
+        onOpen={() => undefined}
+      />,
+    );
+    expect(document.querySelector(".four-week-rail")).toBeNull();
+    expect(document.querySelector(".viz-caption")!.textContent).toBe("「4週間の充足」はこの期間では表示できません。");
+    expect(screen.getByRole("note")).toHaveTextContent("祝日カレンダーは2016年から2035年までです");
+    expect(document.querySelectorAll(".staffed-label").length).toBeGreaterThan(0);
   });
 
   it("uses one unit down the 未充足 and 不足 columns", async () => {

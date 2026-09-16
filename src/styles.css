@@ -1896,7 +1896,11 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 /* min-width so widening the actions column cannot take space from here: the
    week labels in this cell already collide when a member sits at 100% for four
    weeks (#96), and at 820px the rail had 103px before. Do not make that worse. */
-.portfolio-table .col-rail,
+/* 12 buckets × 6px + 11 gaps × 3px + the 41px the rail leaves for the
+   staffed-label + the cell's 24px padding. Empty <i> has min-content 0, so
+   the column has to name a floor; `minmax(min-content, 1fr)` would collapse
+   unfilled bars. The member rail still shows four labelled weeks. */
+.portfolio-table .col-rail { width: 186px; min-width: 170px; }
 .member-table .col-rail { width: 124px; min-width: 104px; }
 .member-table .col-skills { width: 140px; }
 .member-table .col-next { width: 120px; }
@@ -2041,7 +2045,7 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .status-pill.closing { background: #f3effa; color: #786491; }.status-pill.closing i { background: #9c86b7; }
 .need-note { margin-top: 5px; display: block; color: #c06b45; font-size: 7px; }
 .need-note.planned { color: #6372c4; }
-.four-week-rail { width: calc(100% - 41px); display: grid; grid-template-columns: repeat(4, 1fr); gap: 3px; }
+.four-week-rail { width: calc(100% - 41px); display: grid; grid-auto-flow: column; grid-auto-columns: minmax(6px, 1fr); gap: 3px; }
 .four-week-rail i { height: 6px; border-radius: 99px; background: #edf0f4; overflow: hidden; }
 .four-week-rail b { display: block; height: 100%; border-radius: inherit; background: #8391ed; }
 .four-week-rail b.short { background: #eaa078; }
@@ -2176,8 +2180,10 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .member-week-rail small { text-align: center; white-space: nowrap; color: #a0a7b5; font-family: var(--font-data); font-size: 5.5px; }
 .next-open { font-size: 8px; }
 .next-open small { margin-top: 4px; display: block; color: #969eae; font-size: 7px; }
-.member-period-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 0 0 12px; }
-.member-period-bar .horizon-clip-note { grid-column: auto; margin: 0; }
+.member-period-bar,
+.projects-period-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 0 0 12px; }
+.member-period-bar .horizon-clip-note,
+.projects-period-bar .horizon-clip-note { grid-column: auto; margin: 0; }
 .quick-assign {
   padding: 7px 8px;
   border: 1px solid #d8ddea;
