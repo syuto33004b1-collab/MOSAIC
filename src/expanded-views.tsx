@@ -678,13 +678,6 @@ export function ProjectsView({
   // Named, not 「今週」: these screens follow the board's paging (#146).
   const weekName = weekLabel(weekStart);
   const range = useMemo(() => periodRange(choice, origin), [choice, origin]);
-  const periodCountsById = useMemo(() => {
-    const next = new Map<string, Array<number | null>>();
-    for (const project of state.projects) {
-      next.set(project.id, range.buckets.map((bucket) => projectPeriodCount(state, project, bucket.from, bucket.to)));
-    }
-    return next;
-  }, [state, range]);
   const searchValue = query ?? localQuery;
   // Trimmed, for the reason at MembersView: the chip and the filter have to agree
   // on what counts as searching (#138).
@@ -771,7 +764,7 @@ export function ProjectsView({
             {filtered.map((project) => {
               const currentMembers = projectMembers(state, project.id, weekStart);
               const need = state.needs.find((item) => item.projectId === project.id && item.status !== "filled");
-              const counts = periodCountsById.get(project.id) ?? [];
+              const counts = range.buckets.map((bucket) => projectPeriodCount(state, project, bucket.from, bucket.to));
               return (
                 <tr key={project.id}>
                   <td>{onToggleFavorite ? <FavoriteStar name={project.name} pressed={isFavorited(favorites, "project", project.id)} onToggle={() => onToggleFavorite(project.id)} /> : null}</td>
