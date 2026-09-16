@@ -2394,9 +2394,10 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
    32px third column is for `100%` and would clip every amount (#383). */
 .plan-cost-list { display: grid; grid-template-columns: minmax(100px, max-content) minmax(48px, 1fr) minmax(7.5em, max-content); align-items: center; gap: 11px 8px; }
 .plan-cost-list > div { display: contents; }
+.plan-cost-list > div > span { min-width: 0; }
 .plan-cost-list > .view-empty { grid-column: 1 / -1; }
 .plan-cost-list strong, .plan-cost-list small { display: block; }
-.plan-cost-list strong { font-size: 8px; }.plan-cost-list small { margin-top: 2px; color: #9aa2b0; font-size: 6px; }
+.plan-cost-list strong { font-size: 8px; overflow-wrap: anywhere; }.plan-cost-list small { margin-top: 2px; color: #9aa2b0; font-size: 6px; }
 .plan-cost-list i { height: 6px; border-radius: 99px; background: #edf0f4; overflow: hidden; }
 .plan-cost-list b { display: block; height: 100%; border-radius: inherit; background: #8391e7; }
 .plan-cost-list em { color: #687285; font-family: var(--font-data); font-size: 7px; font-style: normal; text-align: right; }
