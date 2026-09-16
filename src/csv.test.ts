@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { normalizeCsvPresets, applyAssignmentImport, applyMemberImport, applyProjectImport, assignmentCsvColumns, exportAssignmentsCsv, previewAssignmentImport, DEFAULT_PROPOSAL_CSV_COLUMNS, exportMembersCsv, exportProjectsCsv, exportProposalCsv, memberCsvColumns, parseCsv, previewMemberImport, previewProjectImport, proposalCsvColumns, PROPOSAL_CSV_COLUMNS, serializeCsv } from "./csv";
-import { getWeekStart, initialWorkspace, matchMembers, searchSceneFromNeed, type WorkspaceState } from "./domain";
+import { initialWorkspace, matchMembers, periodBucketLabel, periodChoiceLabel, periodMemberStats, periodRange, searchSceneFromNeed, type PeriodChoice, type WorkspaceState } from "./domain";
 
 describe("csv round-trip", () => {
   it("parses quoted commas and serializes a BOM", () => {
@@ -64,14 +64,15 @@ describe("csv round-trip", () => {
  * is expire, which the button says out loud.
  */
 describe("writing a proposal out", () => {
-  const weekStart = getWeekStart(0);
+  const origin = "2026-08-17";
+  const choice: PeriodChoice = { unit: "week", count: 4 };
   const ids = ["saeki", "nakamura"];
   /** Rows without the BOM, split on the CRLF `serializeCsv` writes. */
   const rows = (csv: string) => csv.replace(/^\uFEFF/u, "").trimEnd().split("\r\n").map((line) => line.split(","));
 
   it("says who and what they do, and nothing else, by default", () => {
     const csv = exportProposalCsv(initialWorkspace, {
-      memberIds: ids, columns: DEFAULT_PROPOSAL_CSV_COLUMNS, weekStart,
+      memberIds: ids, columns: DEFAULT_PROPOSAL_CSV_COLUMNS, choice, origin,
     });
     expect(rows(csv)).toEqual([
       ["候補", "職種"],
@@ -88,7 +89,7 @@ describe("writing a proposal out", () => {
   it("writes the candidates alone when nothing else is chosen", () => {
     expect(proposalCsvColumns()).not.toContain("候補");
     const csv = exportProposalCsv(initialWorkspace, {
-      memberIds: ids, columns: [], weekStart,
+      memberIds: ids, columns: [], choice, origin,
     });
     expect(rows(csv)).toEqual([["候補"], ["佐伯 優斗"], ["中村 美咲"]]);
   });
@@ -102,7 +103,7 @@ describe("writing a proposal out", () => {
   it("writes a name that starts like a formula so no spreadsheet runs it", () => {
     const hostile = { ...initialWorkspace.members[0], id: "hostile", name: '=HYPERLINK("http://example.test","click")' };
     const state = { ...initialWorkspace, members: [...initialWorkspace.members, hostile] };
-    const csv = exportProposalCsv(state, { memberIds: ["hostile"], columns: [], weekStart });
+    const csv = exportProposalCsv(state, { memberIds: ["hostile"], columns: [], choice, origin });
     const cell = rows(csv)[1].join(",");
     expect(cell.startsWith("=")).toBe(false);
     expect(csv).toContain("'=HYPERLINK");
@@ -114,7 +115,7 @@ describe("writing a proposal out", () => {
     expect(proposalCsvColumns()).toEqual(PROPOSAL_CSV_COLUMNS.filter((column) => column !== "候補"));
     expect(proposalCsvColumns()).toContain("勤務地");
     const csv = exportProposalCsv(initialWorkspace, {
-      memberIds: ["saeki"], columns: ["勤務地"], weekStart,
+      memberIds: ["saeki"], columns: ["勤務地"], choice, origin,
     });
     expect(rows(csv)).toEqual([["候補", "勤務地"], ["佐伯 優斗", "東京"]]);
   });
@@ -122,41 +123,96 @@ describe("writing a proposal out", () => {
   it("carries no member id in any column, whatever is asked for", () => {
     const csv = exportProposalCsv(initialWorkspace, {
       memberIds: initialWorkspace.members.map((member) => member.id),
-      columns: [...PROPOSAL_CSV_COLUMNS], weekStart,
+      columns: [...PROPOSAL_CSV_COLUMNS], choice, origin,
     });
     for (const member of initialWorkspace.members) {
       expect(csv, `${member.id} reached the file`).not.toContain(member.id);
     }
   });
 
-  it("writes the four weeks the cards show, and the availability the requirement gives", () => {
+  it("writes the period the cards show, and the availability the requirement gives", () => {
     const need = (initialWorkspace.needs ?? [])[0];
     expect(need, "the demo data should carry a staffing need").toBeDefined();
     const csv = exportProposalCsv(initialWorkspace, {
-      memberIds: ["matsumoto"], columns: ["4週間の稼働率", "要件期間の最小空き"],
-      weekStart, needId: need.id,
+      memberIds: ["matsumoto"], columns: ["見通しの稼働率", "要件期間の最小空き"],
+      choice, origin, needId: need.id,
     });
     const [header, row] = rows(csv);
     // The columns keep the order they are declared in, not the order they were asked for.
-    expect(header).toEqual(["候補", "要件期間の最小空き", "4週間の稼働率"]);
-    expect(row[2]).toMatch(/^\d+% \/ \d+% \/ \d+% \/ \d+%$/u);
+    expect(header).toEqual(["候補", "要件期間の最小空き", "見通しの稼働率"]);
+    const member = initialWorkspace.members.find((item) => item.id === "matsumoto")!;
+    const range = periodRange(choice, origin);
+    const stats = periodMemberStats(initialWorkspace, member, range);
+    expect(row[2]).toBe(`${periodChoiceLabel(choice)} ${periodBucketLabel(choice, range.buckets[0], 0)}起点 ${stats.buckets.map((bucket) => `${bucket.peak}%`).join(" / ")}`);
     // Blank rather than 0 when the requirement does not reach this person: an empty cell
     // says 「not scored」 and 「0%」 would say 「no room」. Somebody who certainly fails the
     // requirement, so this is the empty case and not a coincidence.
     const scored = matchMembers(initialWorkspace, searchSceneFromNeed(need)).map((match) => match.member.id);
-    const unscoredId = initialWorkspace.members.find((member) => !scored.includes(member.id))!.id;
+    const unscoredId = initialWorkspace.members.find((item) => !scored.includes(item.id))!.id;
     expect(scored, "the demo need should not match everybody").not.toContain(unscoredId);
     const unscored = exportProposalCsv(initialWorkspace, {
-      memberIds: [unscoredId], columns: ["要件期間の最小空き"], weekStart, needId: need.id,
+      memberIds: [unscoredId], columns: ["要件期間の最小空き"], choice, origin, needId: need.id,
     });
     expect(rows(unscored)[1][1]).toBe("");
   });
 
   it("keeps the declared column order, not the order they were asked for", () => {
     const csv = exportProposalCsv(initialWorkspace, {
-      memberIds: ["saeki"], columns: ["4週間の稼働率", "職種"], weekStart,
+      memberIds: ["saeki"], columns: ["見通しの稼働率", "職種"], choice, origin,
     });
-    expect(rows(csv)[0]).toEqual(["候補", "職種", "4週間の稼働率"]);
+    expect(rows(csv)[0]).toEqual(["候補", "職種", "見通しの稼働率"]);
+  });
+
+  it("writes an empty cell when the holiday calendar cannot cover the span", () => {
+    const csv = exportProposalCsv(initialWorkspace, {
+      memberIds: ["saeki"], columns: ["見通しの稼働率"], choice, origin: "2036-01-01",
+    });
+    expect(parseCsv(csv).rows[0]["見通しの稼働率"]).toBe("");
+  });
+
+  it("writes the remaining clipped buckets, still as peaks", () => {
+    const clippedChoice: PeriodChoice = { unit: "month", count: 12 };
+    const clippedOrigin = "2035-11-01";
+    const range = periodRange(clippedChoice, clippedOrigin);
+    expect(range.clipped).toBe(true);
+    expect(range.buckets.length).toBeGreaterThan(0);
+    expect(range.buckets.length).toBeLessThan(12);
+    const member = initialWorkspace.members.find((item) => item.id === "saeki")!;
+    const stats = periodMemberStats(initialWorkspace, member, range);
+    const csv = exportProposalCsv(initialWorkspace, {
+      memberIds: ["saeki"], columns: ["見通しの稼働率"], choice: clippedChoice, origin: clippedOrigin,
+    });
+    expect(parseCsv(csv).rows[0]["見通しの稼働率"]).toBe(
+      `${periodChoiceLabel(clippedChoice)} ${periodBucketLabel(clippedChoice, range.buckets[0], 0)}起点 ${stats.buckets.map((bucket) => `${bucket.peak}%`).join(" / ")}`,
+    );
+  });
+
+  it("writes each bucket's peak, not its average", () => {
+    const member = { ...initialWorkspace.members[0], id: "peakish", name: "山 高", capacity: 100 };
+    const state: WorkspaceState = {
+      ...initialWorkspace,
+      members: [...initialWorkspace.members, member],
+      assignments: [
+        ...initialWorkspace.assignments,
+        {
+          id: "one-day",
+          personId: member.id,
+          projectId: initialWorkspace.projects[0].id,
+          startDate: origin,
+          endDate: origin,
+          allocation: 80,
+          status: "confirmed",
+        },
+      ],
+    };
+    const stats = periodMemberStats(state, member, periodRange(choice, origin));
+    expect(stats.buckets[0].peak).toBe(80);
+    expect(stats.buckets[0].average).toBeLessThan(80);
+    const csv = exportProposalCsv(state, {
+      memberIds: [member.id], columns: ["見通しの稼働率"], choice, origin,
+    });
+    expect(rows(csv)[1][1]).toContain("80%");
+    expect(rows(csv)[1][1]).not.toContain(`${stats.buckets[0].average}%`);
   });
 });
 

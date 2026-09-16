@@ -1,5 +1,4 @@
 import {
-  addDays,
   createProjectCode,
   formatSkillInput,
   hydrateWorkspaceSkills,
@@ -9,8 +8,12 @@ import {
   memberById,
   memberExceedsCapacity,
   memberLabel,
-  memberLoad,
   memberPeakLoad,
+  periodBucketLabel,
+  periodChoiceLabel,
+  periodMemberStats,
+  periodRange,
+  type PeriodChoice,
   memberSkillLevels,
   normalizeCustomValues,
   orderedCustomFields,
@@ -205,7 +208,7 @@ export function exportAssignmentsCsv(state: WorkspaceState, columns: string[]) {
  * workspace's person records the way a `members=` link can. What it also cannot do is
  * expire, which the button says out loud.
  */
-export const PROPOSAL_CSV_COLUMNS = ["候補", "職種", "勤務地", "スキル", "要件期間の最小空き", "4週間の稼働率"] as const;
+export const PROPOSAL_CSV_COLUMNS = ["候補", "職種", "勤務地", "スキル", "要件期間の最小空き", "見通しの稼働率"] as const;
 export type ProposalCsvColumn = typeof PROPOSAL_CSV_COLUMNS[number];
 
 /**
@@ -230,8 +233,9 @@ export function proposalCsvColumns(): ProposalCsvColumn[] {
 export function exportProposalCsv(state: WorkspaceState, input: {
   memberIds: string[];
   columns: string[];
-  /** The four weeks the cards show, so the file and the screen agree. */
-  weekStart: string;
+  /** Same period the cards draw, so the file and the screen agree. */
+  choice: PeriodChoice;
+  origin: string;
   /** The requirement the proposal answers, for 要件期間の最小空き. */
   needId?: string;
 }) {
@@ -245,6 +249,7 @@ export function exportProposalCsv(state: WorkspaceState, input: {
   const need = input.needId ? (state.needs ?? []).find((item) => item.id === input.needId) : undefined;
   const matches = need ? matchMembers(state, searchSceneFromNeed(need)) : [];
   const availableById = new Map(matches.map((match) => [match.member.id, match.availablePercent]));
+  const range = periodRange(input.choice, input.origin);
   const rows = input.memberIds
     .map((id) => state.members.find((member) => member.id === id))
     .filter((member): member is Member => Boolean(member))
@@ -260,9 +265,12 @@ export function exportProposalCsv(state: WorkspaceState, input: {
           const available = availableById.get(member.id);
           return available === undefined ? "" : `${available}%`;
         }
-        case "4週間の稼働率": return [0, 1, 2, 3]
-          .map((offset) => `${memberLoad(state, member.id, addDays(input.weekStart, offset * 7))}%`)
-          .join(" / ");
+        case "見通しの稼働率": {
+          if (!range.from || range.buckets.length === 0) return "";
+          const stats = periodMemberStats(state, member, range);
+          const window = `${periodChoiceLabel(input.choice)} ${periodBucketLabel(input.choice, range.buckets[0], 0)}起点`;
+          return `${window} ${stats.buckets.map((bucket) => `${bucket.peak}%`).join(" / ")}`;
+        }
       }
     }));
   return serializeCsv([...columns], rows);
