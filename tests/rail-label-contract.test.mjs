@@ -99,21 +99,29 @@ test("no rule takes the week label out of the grid", async () => {
   );
 });
 
-const AUTO_COLUMN_PROPS = ["grid-auto-columns", "grid-template-columns", "grid-template", "grid"];
-
 test("the rail's tracks are never narrower than the label they hold", async () => {
   const css = withoutComments(await read()).replaceAll("\r\n", "\n");
-  const decls = railRules(css).flatMap(({ selector, body }) =>
-    AUTO_COLUMN_PROPS.flatMap((prop) => declarations(body, prop).map((value) => ({ selector, prop, value }))));
-  assert.ok(decls.length >= 1, "nothing sets the rail's columns");
-  const floor = /minmax\(\s*min-content\s*,/u;
-  const rogue = decls
+  const auto = railRules(css).flatMap(({ selector, body }) =>
+    declarations(body, "grid-auto-columns").map((value) => ({ selector, value })));
+  assert.ok(auto.length >= 1, "nothing sets the rail's implicit columns");
+  const floor = /^minmax\(\s*min-content\s*,\s*1fr\s*\)$/u;
+  const rogue = auto
     .filter((d) => !floor.test(d.value))
-    .map((d) => `${d.selector.slice(0, 50)} => ${d.prop}: ${d.value}`);
+    .map((d) => `${d.selector.slice(0, 50)} => grid-auto-columns: ${d.value}`);
   assert.deepEqual(
     rogue,
     [],
     "a track that can shrink below its label lets the text overflow into the next week:\n  " + rogue.join("\n  "),
+  );
+  const pinned = railRules(css).flatMap(({ selector, body }) =>
+    ["grid-template-columns", "grid-template", "grid"].flatMap((prop) =>
+      declarations(body, prop).map((value) => ({ selector, prop, value }))))
+    .filter((d) => /repeat\s*\(/u.test(d.value))
+    .map((d) => `${d.selector.slice(0, 50)} => ${d.prop}: ${d.value}`);
+  assert.deepEqual(
+    pinned,
+    [],
+    "an explicit repeat() pins the bucket count and defeats implicit tracks:\n  " + pinned.join("\n  "),
   );
 });
 

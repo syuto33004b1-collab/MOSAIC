@@ -125,7 +125,6 @@ import {
   UNAVAILABILITY_NOTE_MAX,
   UNAVAILABILITY_ROW_LIMIT,
   visibleCustomFields,
-  weekdaySupplyCapacity,
   weekLabel,
   type BoardUnit,
   type PeriodChoice,
@@ -889,11 +888,13 @@ function memberNextOpenCopy(
   stats: PeriodMemberStats | undefined,
   range: PeriodRange,
   choice: PeriodChoice,
-  state: WorkspaceState,
 ) {
   if (member.capacity === 0) return "稼働不可 · 稼働上限0%";
   if (!range.from || range.buckets.length === 0) return "この期間は表示できません";
-  if (weekdaySupplyCapacity(state, member, range.from, range.to) === 0) return "稼働できる日がありません";
+  // Same weekday capacity the supply helper would walk again: the buckets
+  // already partition `range.from`–`range.to`.
+  const supply = (stats?.buckets ?? []).reduce((sum, bucket) => sum + bucket.capacity, 0);
+  if (supply === 0) return "稼働できる日がありません";
   const nextOpen = stats?.buckets.findIndex((bucket) => bucket.open) ?? -1;
   if (nextOpen === -1 || !stats) return `${periodChoiceLabel(choice)}で該当なし`;
   const bucket = stats.buckets[nextOpen];
@@ -1162,7 +1163,7 @@ export function MembersView({
                   {listFields.map((field) => <td key={field.id}><span className="custom-field-cell">{formatCustomValue(field, customValue(member.customValues, field.id))}</span></td>)}
                   <td><span className={"load-ring " + (stats.exceeds ? "over" : stats.open ? "open" : "")} style={{ "--load": Math.min(100, loadRatio) } as React.CSSProperties}><strong>{load}%</strong></span><small className="capacity-limit">稼働上限 {member.capacity}%</small></td>
                   <td><div className="member-week-rail">{(periodStats?.buckets ?? []).map((bucket) => { /* The label is a sibling of the bar, not a child: it belongs to its own grid track so it cannot overlap the next week's. */ return <Fragment key={`${bucket.from}:${bucket.to}`}><i className={bucket.exceeds ? "over" : bucket.open ? "open" : ""}><b style={{ height: Math.max(12, Math.min(100, bucket.ratio)) + "%" }} /></i><small>{bucket.peak}%</small></Fragment>; })}</div></td>
-                  <td><span className="next-open">{memberNextOpenCopy(member, periodStats, range, choice, state)}<small>{member.location}</small></span></td>
+                  <td><span className="next-open">{memberNextOpenCopy(member, periodStats, range, choice)}<small>{member.location}</small></span></td>
                   {/* The flex box is the div, not the td: a flex td is no longer a table cell,
                       so it stopped at its content's height and the sticky column let the
                       scrolled columns show through beneath the buttons (#261). */}
