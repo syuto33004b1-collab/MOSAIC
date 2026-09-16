@@ -1508,6 +1508,63 @@ describe("role-aware workspace", () => {
       await user.click(navigation.getByRole("button", { name: "レポート" }));
       expect(screen.getByRole("heading", { name: "部署別の需給" })).toBeInTheDocument();
     });
+
+    it("shows plan-cost tables on the three axes and remounts the selected panel", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      vi.setSystemTime(new Date("2026-08-19T09:00:00+09:00"));
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      render(<App />);
+      await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: "レポート" }));
+      const card = document.querySelector(".plan-cost-card") as HTMLElement;
+      expect(screen.getByRole("heading", { name: "計画コスト" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "計画コストのプロジェクト", pressed: true })).toBeInTheDocument();
+      expect(card).toHaveTextContent("Atlas リニューアル");
+      const twelveWeekTotal = card.querySelector(".plan-cost-total")!.textContent;
+      await user.click(screen.getByRole("button", { name: "4週間" }));
+      expect(card.querySelector(".plan-cost-total")!.textContent).not.toEqual(twelveWeekTotal);
+      await user.click(screen.getByRole("button", { name: "計画コストの部門" }));
+      expect(screen.getByRole("button", { name: "計画コストの部門", pressed: true })).toBeInTheDocument();
+      expect(document.querySelectorAll(".plan-cost-list")).toHaveLength(1);
+      expect(card).toHaveTextContent("開発本部");
+      expect(card).not.toHaveTextContent("Atlas リニューアル");
+      await user.click(screen.getByRole("button", { name: "計画コストの月" }));
+      expect(card).toHaveTextContent("8月");
+      expect(card).not.toHaveTextContent("開発本部");
+    });
+
+    it("hides the plan-cost card when no member carries the field", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      vi.setSystemTime(new Date("2026-08-19T09:00:00+09:00"));
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      const adapter = sharedAdapter();
+      adapter.initialState = {
+        ...initialWorkspace,
+        members: initialWorkspace.members.map((member) => {
+          const next = { ...member };
+          delete next.monthlyCost;
+          return next;
+        }),
+      };
+      render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "admin@example.com", role: "admin" }} shared={adapter} />);
+      await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: "レポート" }));
+      expect(screen.queryByRole("heading", { name: "計画コスト" })).not.toBeInTheDocument();
+    });
+
+    it("shows an empty plan-cost table when every visible cost is unset", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      vi.setSystemTime(new Date("2026-08-19T09:00:00+09:00"));
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      const adapter = sharedAdapter();
+      adapter.initialState = {
+        ...initialWorkspace,
+        members: initialWorkspace.members.map((member) => ({ ...member, monthlyCost: null })),
+      };
+      render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "admin@example.com", role: "admin" }} shared={adapter} />);
+      await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: "レポート" }));
+      expect(screen.getByRole("heading", { name: "計画コスト" })).toBeInTheDocument();
+      expect(document.querySelector(".plan-cost-card")).toHaveTextContent("表示できる集計がありません。");
+      expect(document.querySelector(".plan-cost-list")).toBeNull();
+    });
   });
 
   it("keeps pipeline demand distinct from confirmed utilization in reports", async () => {
