@@ -1104,6 +1104,43 @@ describe("saved reports", () => {
     expect(row).toMatchObject({ count: design.length, value: periodAverageFor(design, range) });
   });
 
+  it("does not call the period resolver for count metrics", () => {
+    let calls = 0;
+    const rows = buildSavedReport(
+      initialWorkspace,
+      { id: "c", name: "件数", source: "members", groupBy: "department", metric: "count" },
+      weekRange,
+      () => {
+        calls += 1;
+        throw new Error("count must not walk period stats");
+      },
+    );
+    expect(calls).toBe(0);
+    expect(rows.find((row) => row.label === "デザイン")).toMatchObject({ count: 2, value: 2 });
+  });
+
+  it("keeps count rows and zeros avgLoad when the range is empty", () => {
+    const empty = periodRange({ unit: "week", count: 4 }, "2040-01-06");
+    expect(empty.buckets).toEqual([]);
+    const countRows = buildSavedReport(initialWorkspace, {
+      id: "c",
+      name: "件数",
+      source: "members",
+      groupBy: "department",
+      metric: "count",
+    }, empty);
+    expect(countRows.find((row) => row.label === "デザイン")).toMatchObject({ count: 2, value: 2 });
+    const loadRows = buildSavedReport(initialWorkspace, {
+      id: "l",
+      name: "稼働",
+      source: "members",
+      groupBy: "department",
+      metric: "avgLoad",
+    }, empty);
+    expect(loadRows.every((row) => row.value === 0)).toBe(true);
+    expect(loadRows.find((row) => row.label === "デザイン")?.count).toBe(2);
+  });
+
   it("keeps count metrics independent of the selected range", () => {
     const monthRange = periodRange({ unit: "month", count: 12 }, "2026-08-17");
     const department = (initialWorkspace.savedReports ?? []).find((report) => report.id === "report-dept-count")!;
