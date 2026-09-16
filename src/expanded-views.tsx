@@ -56,7 +56,6 @@ import {
   CSV_PRESETS_KEY,
 } from "./csv";
 import {
-  addDays,
   addOrgUnit,
   addSkillCatalogEntry,
   allowedReportGroupBy,
