@@ -806,6 +806,11 @@ export type PeriodBucketStats = PeriodBucket & {
   average: number;
   /** True when any day in the bucket is over that day's ceiling. */
   exceeds: boolean;
+  /** Same `open` as `memberWeekStats` on the days inside this bucket. */
+  open: boolean;
+  peak: number;
+  slack: number;
+  ratio: number;
 };
 
 export type PeriodMemberStats = {
@@ -910,13 +915,18 @@ export function periodStatsFromDays(days: DailyLoad[], buckets: PeriodBucket[]):
     const inside = days.filter((day) => day.date >= bucket.from && day.date <= bucket.to);
     const load = inside.reduce((sum, day) => sum + day.load, 0);
     const capacity = inside.filter((day) => !day.weekend).reduce((sum, day) => sum + day.capacity, 0);
+    const window = loadWindowStats(inside);
     return {
       from: bucket.from,
       to: bucket.to,
       load,
       capacity,
       average: capacity > 0 ? Math.round(load / capacity * 100) : 0,
-      exceeds: inside.some((day) => day.load > day.capacity),
+      exceeds: window.exceeds,
+      open: window.open,
+      peak: window.peak,
+      slack: window.slack,
+      ratio: window.ratio,
     };
   });
   const firstExceedOffset = bucketStats.findIndex((bucket) => bucket.exceeds);
@@ -935,7 +945,7 @@ export function periodMemberStats(
   dailyLoads: typeof memberDailyLoads = memberDailyLoads,
 ): PeriodMemberStats {
   if (!range.from || !range.to || range.to < range.from) {
-    return { exceeds: false, open: false, firstExceedOffset: null, buckets: range.buckets.map((bucket) => ({ ...bucket, load: 0, capacity: 0, average: 0, exceeds: false })) };
+    return { exceeds: false, open: false, firstExceedOffset: null, buckets: range.buckets.map((bucket) => ({ ...bucket, load: 0, capacity: 0, average: 0, exceeds: false, open: false, peak: 0, slack: 0, ratio: 0 })) };
   }
   return periodStatsFromDays(dailyLoads(state, member.id, range.from, range.to), range.buckets);
 }
@@ -1249,11 +1259,13 @@ export function weekdaySupplyCapacity(state: WorkspaceState, member: Member, sta
 }
 
 /**
- * One week's peak, over/open flags, and slack, against that week's daily
- * ceilings rather than `member.capacity` alone (#323).
+ * Peak, over/open, slack, and ratio for an already-walked day window.
+ *
+ * Days only: period buckets reuse this so a week bucket matches
+ * `memberWeekStats` on that Monday (#368). `member.capacity` is not read
+ * here — `memberWeekStats` still applies the 0% ceiling branch.
  */
-export function memberWeekStats(state: WorkspaceState, member: Member, weekStart: string) {
-  const days = memberDailyLoads(state, member.id, weekStart, weekEnd(weekStart));
+export function loadWindowStats(days: DailyLoad[]) {
   const peak = days.reduce((highest, day) => Math.max(highest, day.load), 0);
   const exceeds = days.some((day) => day.load > day.capacity);
   const bearing = days.filter((day) => !day.weekend && day.capacity > 0);
@@ -1261,13 +1273,23 @@ export function memberWeekStats(state: WorkspaceState, member: Member, weekStart
   const slack = bearing.length === 0
     ? 0
     : bearing.reduce((lowest, day) => Math.min(lowest, Math.max(0, day.capacity - day.load)), Number.POSITIVE_INFINITY);
-  const utilization = member.capacity <= 0 || bearing.length === 0
+  const utilization = bearing.length === 0
     ? Number.POSITIVE_INFINITY
     : Math.max(...bearing.map((day) => day.load / day.capacity));
   const ratio = !Number.isFinite(utilization)
     ? (peak > 0 ? 100 : 0)
     : Math.min(100, Math.round(utilization * 100));
   return { peak, exceeds, open, slack, utilization, ratio };
+}
+
+/**
+ * One week's peak, over/open flags, and slack, against that week's daily
+ * ceilings rather than `member.capacity` alone (#323).
+ */
+export function memberWeekStats(state: WorkspaceState, member: Member, weekStart: string) {
+  const stats = loadWindowStats(memberDailyLoads(state, member.id, weekStart, weekEnd(weekStart)));
+  if (member.capacity > 0) return stats;
+  return { ...stats, utilization: Number.POSITIVE_INFINITY, ratio: stats.peak > 0 ? 100 : 0 };
 }
 
 /**

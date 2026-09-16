@@ -74,9 +74,6 @@ function railRules(css) {
     }));
 }
 
-/** Longhand plus the shorthands that can also set the track lists. */
-const COLUMN_PROPS = ["grid-template-columns", "grid-template", "grid"];
-
 test("no rule takes the week label out of the grid", async () => {
   const css = withoutComments(await read()).replaceAll("\r\n", "\n");
   const rules = allRules(css, "\\.member-week-rail\\s+small");
@@ -102,13 +99,16 @@ test("no rule takes the week label out of the grid", async () => {
   );
 });
 
+const AUTO_COLUMN_PROPS = ["grid-auto-columns", "grid-template-columns", "grid-template", "grid"];
+
 test("the rail's tracks are never narrower than the label they hold", async () => {
   const css = withoutComments(await read()).replaceAll("\r\n", "\n");
   const decls = railRules(css).flatMap(({ selector, body }) =>
-    COLUMN_PROPS.flatMap((prop) => declarations(body, prop).map((value) => ({ selector, prop, value }))));
+    AUTO_COLUMN_PROPS.flatMap((prop) => declarations(body, prop).map((value) => ({ selector, prop, value }))));
   assert.ok(decls.length >= 1, "nothing sets the rail's columns");
+  const floor = /minmax\(\s*min-content\s*,/u;
   const rogue = decls
-    .filter((d) => !/repeat\(\s*4\s*,\s*minmax\(\s*min-content\s*,\s*1fr\s*\)\s*\)/u.test(d.value))
+    .filter((d) => !floor.test(d.value))
     .map((d) => `${d.selector.slice(0, 50)} => ${d.prop}: ${d.value}`);
   assert.deepEqual(
     rogue,

@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import axe from "axe-core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import App, { type SharedWorkspaceAdapter } from "./App";
+import { MembersView } from "./expanded-views";
 import { DEMO_FAVORITES_KEY } from "./collaboration";
 import { addDays, boardRange, getWeekDays, getWeekStart, initialWorkspace, memberDailyLoads, memberLoad, memberPeakLoad, periodMemberStats, periodRange, type StaffingNeed, type WorkspaceState } from "./domain";
 import type { ChatTransport } from "./lib/ai/chatClient";
@@ -1791,8 +1792,10 @@ describe("four-week capacity rail", () => {
       // before moving on, so the order has to be bar, its label, next bar, its
       // label. Counting 4 and 4 would also pass i,i,i,i,small,small,small,small,
       // which puts every label one to three weeks away from its own bar.
-      expect([...rail.children].map((child) => child.tagName.toLowerCase()))
-        .toEqual(["i", "small", "i", "small", "i", "small", "i", "small"]);
+      const tags = [...rail.children].map((child) => child.tagName.toLowerCase());
+      expect(tags.length % 2).toBe(0);
+      expect(tags).toEqual(Array.from({ length: tags.length / 2 }, () => ["i", "small"]).flat());
+      expect(tags).toHaveLength(8);
       // A label nested in its bar is out of the grid entirely — the original bug.
       expect(rail.querySelectorAll("i small")).toHaveLength(0);
       // Every label reads as a percentage, so a swapped or empty cell shows up.
@@ -1801,6 +1804,22 @@ describe("four-week capacity rail", () => {
         .filter((text) => !/^\d+%$/u.test(text));
       expect(notAPercentage).toEqual([]);
     }
+  });
+
+  it("grows the rail to twelve paired bars when the 12-week tab is selected", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: "メンバー" }));
+    await user.click(screen.getByRole("button", { name: "メンバー一覧の12週間" }));
+    const rails = document.querySelectorAll(".member-week-rail");
+    expect(rails.length).toBeGreaterThan(0);
+    for (const rail of rails) {
+      expect([...rail.children].map((child) => child.tagName.toLowerCase()))
+        .toEqual(Array.from({ length: 12 }, () => ["i", "small"] as const).flat());
+    }
+    const headers = [...screen.getByRole("table").querySelectorAll("thead th")].map((th) => th.textContent ?? "");
+    expect(headers).toContain("12週間の稼働");
+    expect(headers).toContain("次に稼働率60%以下");
   });
 });
 
@@ -2380,6 +2399,50 @@ describe("one word per quantity", () => {
     // 「2週後」 is what the member drawer and the proposal card call this week.
     expect(cell).toContain("2週後");
     expect(cell).not.toContain("週目から");
+  });
+
+  it("looks past a zero-supply first week when a later bucket is open", async () => {
+    const project = { ...initialWorkspace.projects[0], id: "project" };
+    const member = {
+      ...initialWorkspace.members[0],
+      id: "later-open",
+      name: "翌週空き 四郎",
+      capacity: 100,
+      unavailability: [{ id: "off", startDate: weekStart, endDate: addDays(weekStart, 4), capacityPercent: 0 }],
+    };
+    await openMembers({
+      members: [member],
+      projects: [project],
+      assignments: [{
+        id: "later", personId: member.id, projectId: project.id,
+        startDate: addDays(weekStart, 14), endDate: addDays(weekStart, 18),
+        allocation: 20, status: "confirmed",
+      }],
+      needs: [],
+    } as unknown as WorkspaceState);
+
+    const cell = document.querySelector(".next-open")!.textContent ?? "";
+    expect(cell).not.toContain("稼働できる日がありません");
+    expect(cell).toContain("2週後");
+  });
+
+  it("names an empty holiday-calendar span instead of drawing a four-bar rail", () => {
+    render(
+      <MembersView
+        state={initialWorkspace}
+        weekOffset={0}
+        origin="2036-01-01"
+        onOpen={() => undefined}
+        onAssign={() => undefined}
+        onAddScene={() => undefined}
+        onDeleteScene={() => undefined}
+      />,
+    );
+    const rails = document.querySelectorAll(".member-week-rail");
+    expect(rails.length).toBeGreaterThan(0);
+    for (const rail of rails) expect(rail.children).toHaveLength(0);
+    expect(document.querySelector(".next-open")!.textContent).toContain("この期間は表示できません");
+    expect(screen.getByRole("note")).toHaveTextContent("祝日カレンダーは2016年から2035年までです");
   });
 
   it("says which side of the 稼働上限 the team average is on", async () => {

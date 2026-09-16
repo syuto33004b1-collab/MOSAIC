@@ -80,6 +80,7 @@ import {
   isActiveOpportunity,
   PERIOD_CHOICES,
   PERIOD_CLIP_NOTE,
+  periodBucketLabel,
   periodChoiceLabel,
   periodMemberStats,
   periodRange,
@@ -128,6 +129,8 @@ import {
   weekLabel,
   type BoardUnit,
   type PeriodChoice,
+  type PeriodMemberStats,
+  type PeriodRange,
   type CustomFieldDefinition,
   type DailyLoad,
   type CustomFieldEntity,
@@ -167,6 +170,8 @@ type ProjectsViewProps = {
 type MembersViewProps = {
   state: WorkspaceState;
   weekOffset: number;
+  /** Civil day the period helpers start from (`boardBasisDay`). */
+  origin: string;
   onOpen: (memberId: string) => void;
   onAssign: (memberId: string) => void;
   onAddScene: (input: {
@@ -879,9 +884,27 @@ export function OpportunitiesView({ state, onOpen }: OpportunitiesViewProps) {
   );
 }
 
+function memberNextOpenCopy(
+  member: Member,
+  stats: PeriodMemberStats | undefined,
+  range: PeriodRange,
+  choice: PeriodChoice,
+  state: WorkspaceState,
+) {
+  if (member.capacity === 0) return "稼働不可 · 稼働上限0%";
+  if (!range.from || range.buckets.length === 0) return "この期間は表示できません";
+  if (weekdaySupplyCapacity(state, member, range.from, range.to) === 0) return "稼働できる日がありません";
+  const nextOpen = stats?.buckets.findIndex((bucket) => bucket.open) ?? -1;
+  if (nextOpen === -1 || !stats) return `${periodChoiceLabel(choice)}で該当なし`;
+  const bucket = stats.buckets[nextOpen];
+  const label = periodBucketLabel(choice, bucket, nextOpen);
+  return nextOpen === 0 ? `${label} 空き${bucket.slack}%` : label;
+}
+
 export function MembersView({
   state,
   weekOffset,
+  origin,
   onOpen,
   onAssign,
   onAddScene,
@@ -912,9 +935,16 @@ export function MembersView({
   const [sceneMinAvailable, setSceneMinAvailable] = useState("");
   const [order, setOrder] = useState<MemberOrder>("score");
   const [error, setError] = useState("");
+  const [choice, setChoice] = useState<PeriodChoice>(PERIOD_CHOICES[0]);
   const weekStart = getWeekStart(weekOffset);
   // Named, not 「今週」: these screens follow the board's paging (#146).
   const weekName = weekLabel(weekStart);
+  const range = useMemo(() => periodRange(choice, origin), [choice, origin]);
+  const periodStatsById = useMemo(() => {
+    const next = new Map<string, PeriodMemberStats>();
+    for (const member of state.members) next.set(member.id, periodMemberStats(state, member, range));
+    return next;
+  }, [state, range]);
   const roles = ["すべて", ...Array.from(new Set(state.members.map((member) => member.role)))];
   const orgUnits = orgUnitTree(state.orgUnits);
   const scenes = state.searchScenes ?? [];
@@ -1020,6 +1050,11 @@ export function MembersView({
         <div className="capacity-legend"><span>稼働率</span><span><i className="open" />60%以下</span><span><i className="steady" />適正</span><span><i className="hot" />上限超過</span></div>
       </div>
 
+      <div className="member-period-bar">
+        <PeriodRangeTabs choice={choice} onChange={setChoice} namePrefix="メンバー一覧" />
+        {range.clipped && <p className="horizon-clip-note" role="note">{PERIOD_CLIP_NOTE}</p>}
+      </div>
+
       <div className="view-toolbar">
         <label className="inline-search"><Search size={15} /><input value={searchValue} onChange={(event) => setSearchValue(event.target.value)} placeholder="名前・スキル・経歴を検索" aria-label="メンバーを検索" /></label>
         <label className="view-filter"><span className="filter-label">職種</span><select value={role} onChange={(event) => setRole(event.target.value)} aria-label="職種で絞り込み">{roles.map((option) => <option key={option}>{option}</option>)}</select></label>
@@ -1107,12 +1142,11 @@ export function MembersView({
 
       <div className="member-table-wrap">
         <table className="member-table" aria-describedby={selectedScene ? "member-score-key" : undefined}>
-          <thead><tr><th className="col-favorite"><span className="sr-only">お気に入り</span></th><th className="col-name">メンバー</th><th className="col-skills">スキル</th>{selectedScene && <th className="col-score">スコア</th>}{listFields.map((field) => <th key={field.id} className="col-custom">{field.label}</th>)}<th className="col-week">{weekName}の稼働</th><th className="col-rail">4週間の稼働</th><th className="col-next">次に稼働率60%以下</th><th className="col-actions"><span className="sr-only">操作</span></th></tr></thead>
+          <thead><tr><th className="col-favorite"><span className="sr-only">お気に入り</span></th><th className="col-name">メンバー</th><th className="col-skills">スキル</th>{selectedScene && <th className="col-score">スコア</th>}{listFields.map((field) => <th key={field.id} className="col-custom">{field.label}</th>)}<th className="col-week">{weekName}の稼働</th><th className="col-rail">{periodChoiceLabel(choice)}の稼働</th><th className="col-next">次に稼働率60%以下</th><th className="col-actions"><span className="sr-only">操作</span></th></tr></thead>
           <tbody>
             {filtered.map((member) => {
               const stats = memberWeekStats(state, member, weekStart);
-              const weeklyStats = [0, 1, 2, 3].map((offset) => memberWeekStats(state, member, addDays(weekStart, offset * 7)));
-              const nextOpen = weeklyStats.findIndex((week) => week.open);
+              const periodStats = periodStatsById.get(member.id);
               const load = stats.peak;
               const loadRatio = stats.ratio;
               const match = scoreById.get(member.id);
@@ -1127,8 +1161,8 @@ export function MembersView({
                   {selectedScene && <td><span className="match-score">{match?.score ?? 0}/{scoreCeiling}点<small>空き{match?.availablePercent ?? 0}%</small></span></td>}
                   {listFields.map((field) => <td key={field.id}><span className="custom-field-cell">{formatCustomValue(field, customValue(member.customValues, field.id))}</span></td>)}
                   <td><span className={"load-ring " + (stats.exceeds ? "over" : stats.open ? "open" : "")} style={{ "--load": Math.min(100, loadRatio) } as React.CSSProperties}><strong>{load}%</strong></span><small className="capacity-limit">稼働上限 {member.capacity}%</small></td>
-                  <td><div className="member-week-rail">{weeklyStats.map((week, index) => { /* The label is a sibling of the bar, not a child: it belongs to its own grid track so it cannot overlap the next week's. */ return <Fragment key={index}><i className={week.exceeds ? "over" : week.open ? "open" : ""}><b style={{ height: Math.max(12, Math.min(100, week.ratio)) + "%" }} /></i><small>{week.peak}%</small></Fragment>; })}</div></td>
-                  <td><span className="next-open">{member.capacity === 0 || weekdaySupplyCapacity(state, member, weekStart, addDays(weekStart, 4)) === 0 ? (member.capacity === 0 ? "稼働不可 · 稼働上限0%" : "稼働できる日がありません") : nextOpen === -1 ? "4週間で該当なし" : nextOpen === 0 ? weekName + " 空き" + stats.slack + "%" : (nextOpen + 1) + "週後"}<small>{member.location}</small></span></td>
+                  <td><div className="member-week-rail">{(periodStats?.buckets ?? []).map((bucket, index) => { /* The label is a sibling of the bar, not a child: it belongs to its own grid track so it cannot overlap the next week's. */ return <Fragment key={`${bucket.from}:${bucket.to}`}><i className={bucket.exceeds ? "over" : bucket.open ? "open" : ""}><b style={{ height: Math.max(12, Math.min(100, bucket.ratio)) + "%" }} /></i><small>{bucket.peak}%</small></Fragment>; })}</div></td>
+                  <td><span className="next-open">{memberNextOpenCopy(member, periodStats, range, choice, state)}<small>{member.location}</small></span></td>
                   {/* The flex box is the div, not the td: a flex td is no longer a table cell,
                       so it stopped at its content's height and the sticky column let the
                       scrolled columns show through beneath the buttons (#261). */}
