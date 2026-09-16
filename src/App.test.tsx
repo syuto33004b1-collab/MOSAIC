@@ -1411,6 +1411,24 @@ describe("role-aware workspace", () => {
       expect(screen.getByText("未設定 花子さんが期間中ずっと空き").closest("button")).toHaveTextContent("原価未設定");
     });
 
+    it("moves saved-report avgLoad with the shared period tabs", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      vi.setSystemTime(new Date("2026-08-19T09:00:00+09:00"));
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      render(<App />);
+      await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: "レポート" }));
+      const reportSelect = screen.getByLabelText("レポートを選ぶ");
+      await user.selectOptions(reportSelect, within(reportSelect).getByRole("option", { name: "職種別稼働" }));
+      const card = document.querySelector(".saved-report-card") as HTMLElement;
+      expect(card).toHaveTextContent("12週間の平均稼働率");
+      const twelveWeek = card.textContent;
+      await user.click(screen.getByRole("button", { name: "4週間" }));
+      expect(card).toHaveTextContent("4週間の平均稼働率");
+      expect(card.textContent).not.toEqual(twelveWeek);
+      await user.selectOptions(reportSelect, within(reportSelect).getByRole("option", { name: "部署別人数" }));
+      expect(card.querySelector(".viz-caption")).toBeNull();
+    });
+
     it("changes organization load with the selected span and opens the first overloaded bucket", async () => {
       vi.useFakeTimers({ shouldAdvanceTime: true });
       vi.setSystemTime(new Date("2026-08-19T09:00:00+09:00"));

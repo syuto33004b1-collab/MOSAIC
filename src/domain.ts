@@ -2378,7 +2378,12 @@ function reportGroupLabel(value: string | undefined) {
   return trimmed || "未設定";
 }
 
-export function buildSavedReport(state: WorkspaceState, report: SavedReport, weekStart: string): ReportRow[] {
+export function buildSavedReport(
+  state: WorkspaceState,
+  report: SavedReport,
+  range: PeriodRange,
+  memberPeriodStatsFor: (member: Member) => PeriodMemberStats = (member) => periodMemberStats(state, member, range),
+): ReportRow[] {
   const groups = new Map<string, { count: number; load: number; capacity: number }>();
   if (report.source === "projects") {
     state.projects.forEach((project) => {
@@ -2388,13 +2393,22 @@ export function buildSavedReport(state: WorkspaceState, report: SavedReport, wee
     });
   } else {
     const groupBy = allowedReportGroupBy("members").includes(report.groupBy) ? report.groupBy : "department";
+    const measureLoad = report.metric === "avgLoad";
     state.members.forEach((member) => {
       const label = reportGroupLabel(groupBy === "role" ? member.role : groupBy === "location" ? member.location : member.department);
       const current = groups.get(label) ?? { count: 0, load: 0, capacity: 0 };
+      let load = 0;
+      let capacity = 0;
+      if (measureLoad) {
+        for (const bucket of memberPeriodStatsFor(member).buckets) {
+          load += bucket.load;
+          capacity += bucket.capacity;
+        }
+      }
       groups.set(label, {
         count: current.count + 1,
-        load: current.load + memberLoad(state, member.id, weekStart),
-        capacity: current.capacity + member.capacity,
+        load: current.load + load,
+        capacity: current.capacity + capacity,
       });
     });
   }

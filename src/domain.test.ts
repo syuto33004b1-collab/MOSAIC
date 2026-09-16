@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  addDays,
   addCustomField,
   editableCustomFields,
   setRolePermission,
@@ -1064,23 +1065,88 @@ describe("organization units", () => {
 });
 
 describe("saved reports", () => {
-  it("groups members by department count and roles by weekly load", () => {
+  const weekRange = periodRange({ unit: "week", count: 1 }, "2026-08-17");
+
+  function periodAverageFor(members: Member[], range: ReturnType<typeof periodRange>) {
+    let load = 0;
+    let capacity = 0;
+    for (const member of members) {
+      for (const bucket of periodMemberStats(initialWorkspace, member, range).buckets) {
+        load += bucket.load;
+        capacity += bucket.capacity;
+      }
+    }
+    return capacity > 0 ? Math.round(load / capacity * 100) : 0;
+  }
+
+  it("groups members by department count and roles by period load", () => {
     const department = (initialWorkspace.savedReports ?? []).find((report) => report.id === "report-dept-count");
     const roleLoad = (initialWorkspace.savedReports ?? []).find((report) => report.id === "report-role-load");
     expect(department).toBeDefined();
     expect(roleLoad).toBeDefined();
-    const rows = buildSavedReport(initialWorkspace, department!, "2026-08-17");
+    const rows = buildSavedReport(initialWorkspace, department!, weekRange);
     expect(rows.find((row) => row.label === "デザイン")).toMatchObject({ count: 2, value: 2 });
-    const frontend = buildSavedReport(initialWorkspace, roleLoad!, "2026-08-17").find((row) => row.label === "Frontend Engineer");
-    expect(frontend).toMatchObject({ count: 1, value: 100 });
+    const frontendMembers = initialWorkspace.members.filter((member) => member.role === "Frontend Engineer");
+    const frontend = buildSavedReport(initialWorkspace, roleLoad!, weekRange).find((row) => row.label === "Frontend Engineer");
+    expect(frontend).toMatchObject({ count: 1, value: periodAverageFor(frontendMembers, weekRange) });
   });
 
-  it("groups projects by status as counts and rejects invalid combinations", () => {
-    const rows = buildSavedReport(initialWorkspace, { id: "x", name: "状態別", source: "projects", groupBy: "status", metric: "count" }, "2026-08-17");
-    expect(rows.find((row) => row.label === "進行中")?.count).toBe(4);
+  it("matches department avgLoad to the org-card period average", () => {
+    const range = periodRange(PERIOD_CHOICES[1], "2026-08-17");
+    const design = initialWorkspace.members.filter((member) => member.department === "デザイン");
+    const row = buildSavedReport(initialWorkspace, {
+      id: "dept-load",
+      name: "部署別稼働",
+      source: "members",
+      groupBy: "department",
+      metric: "avgLoad",
+    }, range).find((item) => item.label === "デザイン");
+    expect(row).toMatchObject({ count: design.length, value: periodAverageFor(design, range) });
+  });
+
+  it("keeps count metrics independent of the selected range", () => {
+    const monthRange = periodRange({ unit: "month", count: 12 }, "2026-08-17");
+    const department = (initialWorkspace.savedReports ?? []).find((report) => report.id === "report-dept-count")!;
+    expect(buildSavedReport(initialWorkspace, department, weekRange)).toEqual(buildSavedReport(initialWorkspace, department, monthRange));
+    const projectRows = buildSavedReport(initialWorkspace, { id: "x", name: "状態別", source: "projects", groupBy: "status", metric: "count" }, weekRange);
+    expect(projectRows.find((row) => row.label === "進行中")?.count).toBe(4);
+    expect(buildSavedReport(initialWorkspace, { id: "x", name: "状態別", source: "projects", groupBy: "status", metric: "count" }, monthRange)).toEqual(projectRows);
     expect(() => addSavedReport([], { name: "不正", source: "projects", groupBy: "department", metric: "count" })).toThrow("グループ");
     const reports = addSavedReport(initialWorkspace.savedReports ?? [], { name: "勤務地別人数", source: "members", groupBy: "location", metric: "count" });
     expect(reports.at(-1)).toMatchObject({ name: "勤務地別人数", groupBy: "location" });
+  });
+
+  it("changes avgLoad when a later-week assignment enters a longer range", () => {
+    const origin = "2026-08-17";
+    const later = addDays(origin, 70);
+    const member: Member = {
+      ...initialWorkspace.members[0],
+      id: "later-load",
+      name: "後週 太郎",
+      role: "Later Role",
+      department: "後週",
+      capacity: 100,
+    };
+    const state: WorkspaceState = {
+      ...initialWorkspace,
+      members: [member],
+      assignments: [{
+        id: "later-assign",
+        personId: member.id,
+        projectId: initialWorkspace.projects[0].id,
+        startDate: later,
+        endDate: addDays(later, 4),
+        allocation: 80,
+        status: "confirmed",
+      }],
+    };
+    const shortRange = periodRange({ unit: "week", count: 4 }, origin);
+    const longRange = periodRange({ unit: "week", count: 12 }, origin);
+    const report = { id: "later", name: "後週", source: "members" as const, groupBy: "department" as const, metric: "avgLoad" as const };
+    const short = buildSavedReport(state, report, shortRange);
+    const long = buildSavedReport(state, report, longRange);
+    expect(short[0]?.value).toBe(0);
+    expect(long[0]?.value).toBeGreaterThan(0);
   });
 });
 
