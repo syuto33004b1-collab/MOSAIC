@@ -1572,10 +1572,9 @@ export function ReportsView({ state, onOpenWeek, onResolveNeed, onOpenOpportunit
   const origin = currentLocalDate();
   const range = periodRange(choice, origin);
   const showPlanCost = workspaceShowsMonthlyCost(state);
-  const planCost = useMemo(
-    () => (showPlanCost && range.from && range.to ? buildPlanCostRows(state, range, planCostAxis) : { rows: [], totalYen: 0, unsetCount: 0 }),
-    [showPlanCost, state, range.from, range.to, planCostAxis],
-  );
+  const planCost = showPlanCost && range.from && range.to
+    ? buildPlanCostRows(state, range, planCostAxis)
+    : { rows: [], totalYen: 0, unsetCount: 0 };
   const planCostMaxYen = Math.max(1, ...planCost.rows.map((row) => row.yen));
   const memberPeriodStats = state.members.map((member) => ({
     member,
