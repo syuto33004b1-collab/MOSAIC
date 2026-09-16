@@ -1953,6 +1953,54 @@ describe("plan cost", () => {
     expect(dept.rows.reduce((sum, row) => sum + row.yen, 0)).toBe(1_200_000);
   });
 
+  it("does not prorate a person across projects or cap stacked allocations at 100%", () => {
+    const state = {
+      ...initialWorkspace,
+      members: [member],
+      projects: [project, { ...project, id: "q", name: "Other" }],
+      assignments: [
+        { ...assignment, id: "a1", allocation: 80 },
+        { ...assignment, id: "a2", projectId: "q", allocation: 80 },
+      ],
+      orgUnits: [],
+      orgMemberships: [],
+    };
+    const result = buildPlanCostRows(state, range, "project");
+    expect(result.totalYen).toBe(960_000);
+    expect(result.rows.map((row) => row.yen).sort((left, right) => right - left)).toEqual([480_000, 480_000]);
+  });
+
+  it("rounds once at the total, not once per day", () => {
+    const odd = { ...member, monthlyCost: 100_001 };
+    const state = {
+      ...initialWorkspace,
+      members: [odd],
+      projects: [project],
+      assignments: [assignment],
+      orgUnits: [],
+      orgMemberships: [],
+    };
+    expect(buildPlanCostRows(state, range, "project").totalYen).toBe(100_001);
+  });
+
+  it("keeps inactive months in the selected span at zero yen", () => {
+    const state = {
+      ...initialWorkspace,
+      members: [member],
+      projects: [project],
+      assignments: [assignment],
+      orgUnits: [],
+      orgMemberships: [],
+    };
+    const result = buildPlanCostRows(state, { from: "2026-08-01", to: "2026-10-31" }, "month");
+    expect(result.rows.map((row) => [row.label, row.yen])).toEqual([
+      ["8月", 600_000],
+      ["9月", 0],
+      ["10月", 0],
+    ]);
+    expect(result.totalYen).toBe(600_000);
+  });
+
   it("treats a hidden field as absent from the workspace, and an unset value as unpriced", () => {
     expect(workspaceShowsMonthlyCost({ members: [{ ...member, monthlyCost: undefined }] })).toBe(false);
     expect(workspaceHasPricedMonthlyCost({ members: [{ ...member, monthlyCost: undefined }] })).toBe(false);

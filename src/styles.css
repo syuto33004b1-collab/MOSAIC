@@ -2390,7 +2390,7 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   font-size: 8px;
   font-weight: 700;
 }
-/* Dedicated tracks so the yen column can hold `￥1,000,000` — `.department-list`'s
+/* Dedicated tracks so the yen column can hold `￥1,000,000,000` — `.department-list`'s
    32px third column is for `100%` and would clip every amount (#383). */
 .plan-cost-list { display: grid; grid-template-columns: minmax(100px, max-content) minmax(48px, 1fr) minmax(7.5em, max-content); align-items: center; gap: 11px 8px; }
 .plan-cost-list > div { display: contents; }
