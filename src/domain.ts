@@ -620,9 +620,20 @@ export type BoardRange = { unit: BoardUnit; start: string; end: string; days: We
 
 const DAY_LABELS = ["月", "火", "水", "木", "金", "土", "日"];
 
-function weekDayFrom(iso: string): WeekDay {
+/**
+ * Monday=0 … Sunday=6 for a civil ISO date. Shared by `weekDayFrom` and the
+ * board header's calendar colour classes (#392), so the view does not re-derive
+ * the weekday from `day.day` strings.
+ */
+export function isoWeekdayIndex(iso: string) {
   const date = new Date(iso + "T00:00:00Z");
-  const index = (date.getUTCDay() + 6) % 7;
+  if (Number.isNaN(date.valueOf())) return 0;
+  return (date.getUTCDay() + 6) % 7;
+}
+
+function weekDayFrom(iso: string): WeekDay {
+  const index = isoWeekdayIndex(iso);
+  const date = new Date(iso + "T00:00:00Z");
   return {
     day: DAY_LABELS[index],
     date: date.getUTCDate(),
