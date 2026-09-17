@@ -98,20 +98,19 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .board-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; align-items: start; }
 .schedule-card, .attention-panel { border: 1px solid #dfe4ed; border-radius: 17px; background: var(--paper); box-shadow: 0 6px 22px rgba(36,48,78,.04); }
 .schedule-card { overflow: hidden; }
-/* Aside sits under the board at every width (#391). The three-column band was the
-   ≤1280 shape; promoting it keeps cards out of the title column (#260) without
-   spending a day-column on a side rail. */
-.attention-panel {
-  display: grid;
-  grid-template-columns: 145px 1fr 1fr;
+/* #395: attention is a dialog, not a board aside. Stack title → cards → link.
+   The three-column band under the board (#260/#391) is gone with the always-on panel. */
+.attention-dialog .attention-panel {
+  display: flex;
+  flex-direction: column;
   gap: 10px;
-  align-items: stretch;
-  padding: 19px;
-  transition: box-shadow .2s ease;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  padding: 0;
 }
-.attention-panel .alert-card { margin: 0; }
-.attention-panel > .alert-card:nth-child(even) { grid-column: 2; }
-.attention-panel > .alert-card:nth-child(odd) { grid-column: 3; }
+.attention-dialog .attention-panel .alert-card { margin: 0; }
 .attention-title { align-items: flex-start; }
 .schedule-toolbar { min-height: 63px; padding: 12px 15px 12px 18px; border-bottom: 1px solid var(--line); display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .view-tabs { padding: 3px; border-radius: 10px; background: #f2f4f8; display: flex; }
@@ -247,12 +246,8 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .assignment { z-index: 1; min-width: 0; margin: 0 4px; padding: 6px 9px; border-radius: 7px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #4351aa; font-size: 8px; font-weight: 700; line-height: 1.4; }
 .assignment.blue { background: #e6e9ff; }.assignment.mint { background: #dcf2ea; color: #317463; }.assignment.orange { background: #ffeadf; color: #a75e3f; }
 
-/* Where the 要調整 button lands (#292). `box-shadow` rather than `outline`: the panel is
-   rounded — 17px here, 4px under the theme below — and an outline would sit square outside
-   both. It replaces the resting shadow for the moment it shows, which is nothing to see:
-   that shadow is 4% black under this rule and `none` under the theme. Not a `:focus` rule,
-   because `styles.css` keeps one `:focus-visible` rule on purpose and a ring would stay
-   until the next click. `--cobalt` is whichever accent the theme in force defines. */
+/* Legacy landed ring (#292) — the panel is a dialog now (#395); keep the rule
+   inert so old screenshots/docs do not imply a missing selector. */
 .attention-panel[data-landed] { box-shadow: 0 0 0 2px var(--cobalt); }
 .attention-title { margin-bottom: 15px; display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
 .attention-title > div { min-width: 0; flex: 1; }
@@ -683,7 +678,8 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   background: transparent;
   cursor: default;
 }
-.drawer {
+.drawer,
+.attention-dialog {
   position: relative;
   z-index: 1;
   /* 410px was the width at every viewport, so on a 1440px screen the panel used
@@ -710,6 +706,20 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   box-shadow: -18px 0 60px rgba(19, 28, 48, .18);
   overflow-y: auto;
   animation: drawer-in .34s cubic-bezier(.2, .8, .2, 1);
+}
+/* #395: 要調整 dialog also centers above the bottom-sheet breakpoint, same shell
+   as #394's add stage (modifier detail 0,1,0; no :has). */
+@media (min-width: 621px) {
+  .attention-overlay {
+    justify-content: center;
+    align-items: center;
+  }
+  .attention-dialog {
+    width: min(100%, clamp(410px, 48vw, 720px));
+    height: auto;
+    max-height: 100%;
+    animation-name: assignment-add-in;
+  }
 }
 /* #394: 「アサインを追加」だけ中央の台。620px 以下のボトムシートは触らないので
    min-width: 621px で囲む（修飾クラスの詳細度を 0,1,0 のまま保ち、:has は使わない）。
@@ -1247,25 +1257,6 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   .schedule-card { min-width: 0; }
   .schedule-table { min-width: 740px; }
 }
-/* Two card columns need about 178px each before the heading row fits on one line:
-   at 685px the card is 173px and both 「未充足ロール」 and 「8月24日」 split in two,
-   at 695px the card is 178px and neither does (#268). Below 620px the panel is already
-   a block and the cards are full width, so the break only shows in between. 720px is
-   the width at which the card reaches 190px, which is the measured 178 plus room for a
-   label a little longer than the longest one we render.
-   Both nth-child rules have to point at column 2. Leaving the column 3 rule in place
-   while only two are declared creates an implicit third column, so the layout would
-   not be the two columns it claims to be. That is not what #260 was — there a card
-   reached the title's column through auto-placement — but it is the same habit of
-   letting the grid invent a track nobody asked for.
-   `nth-child` counts every element sibling, not just the cards, and the panel ends
-   with a `.all-alerts` button that is `display: none` here. It sits after the cards,
-   so it does not shift their parity; inserting anything between them would. */
-@media (max-width: 720px) {
-  .attention-panel { grid-template-columns: 145px 1fr; }
-  .attention-panel > .alert-card:nth-child(even),
-  .attention-panel > .alert-card:nth-child(odd) { grid-column: 2; }
-}
 @media (max-width: 620px) {
   .workspace { padding: 21px 14px 32px; }
   .topbar { margin-bottom: 18px; }
@@ -1320,7 +1311,8 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   .toast { left: 14px; right: 14px; max-width: none; transform: translateY(12px); }
   .toast.show { transform: none; }
   .overlay { padding: 0; align-items: flex-end; }
-  .drawer {
+  .drawer,
+  .attention-dialog {
     /* Not a container here. This sheet is full-bleed and a different shape, and
        its content box sits near the two-column threshold (#137). Name dropped as
        well as type, so `detail-panel` resolves to nothing at all rather than to
@@ -1338,7 +1330,7 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   @keyframes drawer-up { from { opacity: 0; transform: translateY(28px); } to { opacity: 1; transform: translateY(0); } }
 }
 @media (prefers-reduced-motion: reduce) {
-  .topbar, .pulse-strip, .board-layout, .drawer, .overlay, .notification-popover, .change-bar { animation: none !important; }
+  .topbar, .pulse-strip, .board-layout, .drawer, .attention-dialog, .overlay, .notification-popover, .change-bar { animation: none !important; }
 }
 
 /* Expanded product surfaces */
@@ -4187,16 +4179,19 @@ h1 {
 
 .overlay { background: rgba(52, 17, 3, .34); backdrop-filter: blur(3px); }
 .overlay-backdrop { background: transparent; }
-.drawer {
+.drawer,
+.attention-dialog {
   border-left: 1px solid var(--line);
   border-radius: 0;
   background: var(--paper);
   box-shadow: -18px 0 55px rgba(52, 17, 3, .14);
 }
 /* Theme `.drawer` above wins on shadow/radius for the shared rail. Re-assert the
-   centered stage after it so add stays a card, not a left-shadowed sheet (#394). */
+   centered stage after it so add stays a card, not a left-shadowed sheet (#394).
+   Attention dialog gets the same card treatment (#395). */
 @media (min-width: 621px) {
-  .assignment-add-panel {
+  .assignment-add-panel,
+  .attention-dialog {
     border: 1px solid var(--line);
     border-radius: 20px;
     box-shadow: 0 24px 70px rgba(52, 17, 3, .22);
@@ -4436,7 +4431,8 @@ h1 {
   .pulse-strip { padding: 20px; }
   .portfolio-ribbon,
   .member-ribbon { padding: 18px; }
-  .drawer {
+  .drawer,
+  .attention-dialog {
     border: 1px solid var(--line);
     border-bottom: 0;
     border-radius: 12px 12px 0 0;

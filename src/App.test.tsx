@@ -520,7 +520,8 @@ describe("role-aware workspace", () => {
 
     // #255: 「status !== filled」 kept the finished one on the board, asking for a
     // person 「by the start date」 after the end had passed.
-    const panel = within(screen.getByRole("complementary", { name: "要調整" }));
+    await userEvent.setup().click(screen.getByRole("button", { name: /^\d+件(1か月|6か月|12か月)の要調整$/u }));
+    const panel = within(screen.getByRole("dialog", { name: "要調整" }));
     expect(panel.queryByText(/QA Engineerが未定/u)).toBeNull();
     expect(panel.getByText(/Backend Engineerが未定/u)).toBeInTheDocument();
     expect(panel.getByText("稼働配分60%の担当者が開始日を過ぎても決まっていません。")).toBeInTheDocument();
@@ -3394,56 +3395,29 @@ describe("the board's row header opens the row", () => {
     expect(header.querySelectorAll("button")).toHaveLength(1);
   });
 });
-describe("the 要調整 count takes you to the list", () => {
+describe("the 要調整 count opens the list dialog (#395)", () => {
   // The summary button, by its own shape: 「3件1か月の要調整」. The overload card in the
-  // panel also has 要調整 in its long accessible name, so the anchor matters.
+  // dialog also has 要調整 in its long accessible name, so the anchor matters.
   const countButton = () => screen.getByRole("button", { name: /^\d+件(1か月|6か月|12か月)の要調整$/u });
+  const openAttention = async (user: ReturnType<typeof userEvent.setup>) => {
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^アサインボード( |$)/u }));
+    await user.click(countButton());
+    return within(screen.getByRole("dialog", { name: "要調整" }));
+  };
 
-  it("goes to the panel instead of opening one of the items", async () => {
+  it("opens the dialog instead of scrolling to a board aside", async () => {
     const user = userEvent.setup();
     render(<App />);
-    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^アサインボード( |$)/u }));
-
-    const panel = document.querySelector(".attention-panel") as HTMLElement;
-    // More than one thing to adjust, or this test would pass on a screen with one.
-    expect(panel.querySelectorAll(".alert-card").length).toBeGreaterThan(1);
-    const breakdown = panel.querySelector(".attention-breakdown");
-    expect(breakdown).not.toBeNull();
-    expect(breakdown!.textContent).toBe("1か月 · 過負荷1人 · 未充足ニーズ2件");
+    expect(screen.queryByRole("dialog", { name: "要調整" })).toBeNull();
     expect(countButton().textContent).toContain("3件");
 
-    await user.click(countButton());
-    // No drawer: the list is the destination, and its cards are the way into each item.
+    const dialog = await openAttention(user);
     expect(document.querySelector(".drawer")).toBeNull();
-    expect(panel).toHaveFocus();
-    expect(panel.scrollIntoView).toHaveBeenCalled();
+    expect(dialog.getByText("1か月 · 過負荷1人 · 未充足ニーズ2件")).toBeInTheDocument();
+    expect(dialog.getAllByRole("button").filter((el) => el.classList.contains("alert-card")).length).toBeGreaterThan(1);
+    expect(document.querySelector(".attention-dialog")).toHaveFocus();
   });
 
-  /**
-   * #292: focus was the whole of the answer, and a pointer never sees it — at 1281px and
-   * up the panel is already beside the board, so there was nothing to scroll either and
-   * the press was silent. The mark is an attribute, because `prefers-reduced-motion` turns
-   * animations off and jsdom's `:focus-visible` does not behave like a real mouse.
-   */
-  it("marks the panel so the press is visible where there is nothing to scroll", async () => {
-    const user = userEvent.setup();
-    render(<App />);
-    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^アサインボード( |$)/u }));
-    const panel = document.querySelector(".attention-panel") as HTMLElement;
-    expect(panel).not.toHaveAttribute("data-landed");
-
-    await user.click(countButton());
-    expect(panel).toHaveAttribute("data-landed");
-
-    // And it goes again, rather than staying until the next click somewhere else.
-    await waitFor(() => expect(panel).not.toHaveAttribute("data-landed"), { timeout: 3000 });
-  });
-
-  /**
-   * Not disabled at zero, which was the other half of #292's proposal. The empty panel
-   * still carries 「レポートで見通しを確認」 under the cards (#391 keeps the link visible
-   * now that the aside always sits below the board).
-   */
   it("still answers at zero, rather than going dead", async () => {
     const user = userEvent.setup();
     const adapter = sharedAdapter();
@@ -3454,34 +3428,53 @@ describe("the 要調整 count takes you to the list", () => {
     const button = countButton();
     expect(button).not.toBeDisabled();
     expect(button.textContent).toContain("0件");
-
-    const panel = document.querySelector(".attention-panel") as HTMLElement;
     await user.click(button);
-    expect(panel).toHaveAttribute("data-landed");
-    expect(panel).toHaveFocus();
+    const dialog = screen.getByRole("dialog", { name: "要調整" });
+    expect(dialog).toBeInTheDocument();
+    expect(dialog.querySelector(".attention-clear")).not.toBeNull();
+    expect(document.querySelector(".attention-dialog")).toHaveFocus();
   });
 
-  /** And each card still opens its own item, so nothing lost a way in. */
   it("keeps each card as the way into its own item", async () => {
     const user = userEvent.setup();
     render(<App />);
-    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^アサインボード( |$)/u }));
-    const cards = [...document.querySelectorAll(".attention-panel .alert-card")] as HTMLElement[];
+    const dialog = await openAttention(user);
+    const cardButtons = dialog.getAllByRole("button").filter((el) => el.classList.contains("alert-card"));
+    expect(cardButtons.length).toBeGreaterThan(1);
 
-    await user.click(cards[0]);
+    await user.click(cardButtons[0]);
     expect(document.querySelector(".drawer")).not.toBeNull();
+    expect(screen.queryByRole("dialog", { name: "要調整" })).toBeNull();
     await user.click(document.querySelector(".drawer .close-button") as HTMLElement);
+    // attentionOpen stays true; list returns after the drawer closes.
+    expect(screen.getByRole("dialog", { name: "要調整" })).toBeInTheDocument();
 
-    await user.click(cards[1]);
+    const again = within(screen.getByRole("dialog", { name: "要調整" })).getAllByRole("button").filter((el) => el.classList.contains("alert-card"));
+    await user.click(again[1]);
     expect(document.querySelector(".drawer")).not.toBeNull();
+  });
+
+  it("closes on Escape without closing an unrelated drawer path", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await openAttention(user);
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog", { name: "要調整" })).toBeNull();
   });
 });
 
 describe("the 要調整 panel names the period it counts (#367)", () => {
   const owner = { name: "管理 花子", email: "owner@example.com", role: "owner" as const };
   const countButton = () => screen.getByRole("button", { name: /^\d+件(1か月|6か月|12か月)の要調整$/u });
+  const attentionRoot = () => document.querySelector(".attention-panel") as HTMLElement;
+  /** Panel mounts only while the dialog is open (#395). */
+  const ensureAttentionOpen = async (user: ReturnType<typeof userEvent.setup>) => {
+    if (!attentionRoot()) await user.click(countButton());
+    return attentionRoot();
+  };
 
   it("keeps the count equal to the breakdown, not to the number of cards", async () => {
+    const user = userEvent.setup();
     const weekStart = getWeekStart(0);
     const first = { ...initialWorkspace.members[0], id: "first", name: "超過 一郎", capacity: 50 };
     const second = { ...initialWorkspace.members[1], id: "second", name: "超過 二郎", capacity: 50 };
@@ -3507,7 +3500,7 @@ describe("the 要調整 panel names the period it counts (#367)", () => {
     } as unknown as WorkspaceState;
     render(<App mode="shared" organizationName="Example Inc." identity={owner} shared={adapter} />);
 
-    const panel = document.querySelector(".attention-panel") as HTMLElement;
+    const panel = await ensureAttentionOpen(user);
     expect(panel.querySelector(".attention-breakdown")!.textContent).toBe("1か月 · 過負荷2人 · 未充足ニーズ1件");
     expect(countButton().textContent).toContain("3件");
     expect(panel.querySelectorAll(".alert-card")).toHaveLength(2);
@@ -3535,13 +3528,16 @@ describe("the 要調整 panel names the period it counts (#367)", () => {
     render(<App mode="shared" organizationName="Example Inc." identity={owner} shared={adapter} />);
 
     expect(countButton()).toHaveAccessibleName("0件1か月の要調整");
-    expect(document.querySelector(".attention-breakdown")!.textContent).toBe("1か月 · 過負荷0人 · 未充足ニーズ0件");
-    expect(document.querySelector(".attention-panel .alert-card")).toBeNull();
+    const panel = await ensureAttentionOpen(user);
+    expect(panel.querySelector(".attention-breakdown")!.textContent).toBe("1か月 · 過負荷0人 · 未充足ニーズ0件");
+    expect(panel.querySelector(".alert-card")).toBeNull();
 
+    await user.keyboard("{Escape}");
     await user.click(screen.getByRole("button", { name: "通知" }));
     expect(screen.queryByText("上限超過を検知")).toBeNull();
     await user.keyboard("{Escape}");
 
+    await ensureAttentionOpen(user);
     await user.click(screen.getByRole("button", { name: "要調整の6か月" }));
     expect(countButton()).toHaveAccessibleName("1件6か月の要調整");
     expect(document.querySelector(".attention-breakdown")!.textContent).toBe("6か月 · 過負荷1人 · 未充足ニーズ0件");
@@ -3573,18 +3569,20 @@ describe("the 要調整 panel names the period it counts (#367)", () => {
     } as unknown as WorkspaceState;
     render(<App mode="shared" organizationName="Example Inc." identity={owner} shared={adapter} />);
 
+    await ensureAttentionOpen(user);
     expect(document.querySelector(".attention-breakdown")!.textContent).toBe("1か月 · 過負荷2人 · 未充足ニーズ0件");
     expect(countButton().textContent).toContain("2件");
 
     await user.click(screen.getByText("上限超過").closest("button")!);
     await user.click(screen.getByRole("button", { name: "推奨配分へ調整" }));
-
+    // Drawer closes on resolve; attentionOpen stayed true so the list returns (#395).
     expect(document.querySelector(".attention-breakdown")!.textContent).toBe("1か月 · 過負荷1人 · 未充足ニーズ0件 · 予定超過1人");
     expect(countButton().textContent).toContain("2件");
     expect(document.querySelector(".attention-panel")!.textContent).toMatch(/超過 二郎|超過 一郎/u);
   });
 
   it("puts a this-week overload ahead of a later one on the card", async () => {
+    const user = userEvent.setup();
     const later = { ...initialWorkspace.members[0], id: "later", name: "後週 花子", capacity: 50 };
     const now = { ...initialWorkspace.members[1], id: "now", name: "今週 太郎", capacity: 50 };
     const project = { ...initialWorkspace.projects[0], id: "project", ownerPersonId: now.id };
@@ -3600,7 +3598,8 @@ describe("the 要調整 panel names the period it counts (#367)", () => {
     } as unknown as WorkspaceState;
     render(<App mode="shared" organizationName="Example Inc." identity={owner} shared={adapter} />);
 
-    await userEvent.setup().click(screen.getByRole("button", { name: "要調整の6か月" }));
+    await ensureAttentionOpen(user);
+    await user.click(screen.getByRole("button", { name: "要調整の6か月" }));
     const card = document.querySelector(".attention-panel .alert-card.urgent") as HTMLElement;
     expect(card.textContent).toContain("今週 太郎");
     expect(card.textContent).not.toContain("後週 花子");
@@ -3610,12 +3609,14 @@ describe("the 要調整 panel names the period it counts (#367)", () => {
   it("does not move the member drawer horizon when the attention period changes", async () => {
     const user = userEvent.setup();
     render(<App />);
-    await user.click(document.querySelector(".schedule-row .person-open") as HTMLElement);
-    const dialog = within(screen.getByRole("dialog", { name: "詳細パネル" }));
-    expect(dialog.getByText("1か月の稼働")).toBeInTheDocument();
-
+    // Period tabs live inside the dialog; change them before opening the member drawer.
+    await ensureAttentionOpen(user);
     await user.click(screen.getByRole("button", { name: "要調整の12か月" }));
     expect(countButton()).toHaveAccessibleName(/12か月の要調整$/u);
+    await user.keyboard("{Escape}");
+
+    await user.click(document.querySelector(".schedule-row .person-open") as HTMLElement);
+    const dialog = within(screen.getByRole("dialog", { name: "詳細パネル" }));
     expect(dialog.getByText("1か月の稼働")).toBeInTheDocument();
     expect(dialog.queryByText("12か月の稼働")).toBeNull();
   });
@@ -3626,6 +3627,7 @@ describe("the 要調整 panel names the period it counts (#367)", () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     try {
       render(<App />);
+      await ensureAttentionOpen(user);
       await user.click(screen.getByRole("button", { name: "要調整の12か月" }));
       const note = document.querySelector(".attention-title .horizon-clip-note");
       expect(note).not.toBeNull();

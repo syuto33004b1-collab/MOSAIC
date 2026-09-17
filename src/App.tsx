@@ -705,6 +705,22 @@ export default function Home({ mode = "demo", organizationId, organizationName =
     setDrawer(null);
   }, [clearFormDraft]);
 
+  /** The pulse count that opens the attention dialog — focus returns here (#395). */
+  const attentionPanelRef = useRef<HTMLElement | null>(null);
+  const attentionTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const [attentionOpen, setAttentionOpen] = useState(false);
+  const closeAttentionPanel = useCallback(() => {
+    setAttentionOpen(false);
+  }, []);
+  /**
+   * Open a detail drawer from an attention card without stranding focus on the
+   * unmounting card. Focus the trigger first so the drawer's previousFocus is it.
+   */
+  const openFromAttention = (open: () => void) => {
+    attentionTriggerRef.current?.focus();
+    open();
+  };
+
   /**
    * The share link for what is on screen now.
    *
@@ -913,14 +929,53 @@ export default function Home({ mode = "demo", organizationId, organizationName =
 
 
   useEffect(() => {
+    if (!attentionOpen || drawer) return;
+    previousFocus.current = attentionTriggerRef.current ?? (document.activeElement as HTMLElement | null);
+    document.body.style.overflow = "hidden";
+    window.setTimeout(() => attentionPanelRef.current?.focus(), 0);
+    const trapFocus = (event: KeyboardEvent) => {
+      if (event.key !== "Tab") return;
+      const elements = attentionPanelRef.current?.querySelectorAll<HTMLElement>("button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], [tabindex]:not([tabindex='-1'])");
+      if (!elements || elements.length === 0) return;
+      const first = elements[0];
+      const last = elements[elements.length - 1];
+      const activeElement = document.activeElement;
+      if (activeElement === attentionPanelRef.current || !attentionPanelRef.current?.contains(activeElement)) {
+        event.preventDefault();
+        (event.shiftKey ? last : first).focus();
+      } else if (event.shiftKey && activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener("keydown", trapFocus);
+    return () => {
+      document.body.style.overflow = "";
+      document.removeEventListener("keydown", trapFocus);
+      previousFocus.current?.focus();
+    };
+  }, [attentionOpen, drawer]);
+
+  useEffect(() => {
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
-      closeDrawer();
+      // One layer at a time: drawer, then attention, then notifications (#395).
+      if (drawer) {
+        closeDrawer();
+        return;
+      }
+      if (attentionOpen) {
+        closeAttentionPanel();
+        return;
+      }
       setNotificationsOpen(false);
     };
     window.addEventListener("keydown", closeOnEscape);
     return () => window.removeEventListener("keydown", closeOnEscape);
-  }, [closeDrawer]);
+  }, [attentionOpen, closeAttentionPanel, closeDrawer, drawer]);
 
   /**
    * The search box replaces the button that opened it, so focus fell to the body on
@@ -1040,25 +1095,6 @@ export default function Home({ mode = "demo", organizationId, organizationName =
    * レポート is open.
    */
   const activeNavItemRef = useRef<HTMLButtonElement | null>(null);
-  /**
-   * The 要調整 panel, so the count above the board can take you to it.
-   *
-   * The count used to open one item — the overload if there was one, otherwise the first
-   * unfilled role — while saying 「3件」. At 375px the panel is 1780px down a page 812px
-   * tall, so that button is the only way in, and it reached one of the three (#197).
-   */
-  const attentionPanelRef = useRef<HTMLElement | null>(null);
-  /**
-   * The mark that says the press landed somewhere.
-   *
-   * Focus alone was the answer in #197, and for a keyboard it still is. A mouse never
-   * sees it: `:focus-visible` is false for a pointer, so at 1281px and up — where the
-   * panel is already beside the board and there is nothing to scroll — pressing the
-   * button changed nothing anyone could see, at one item as much as at none (#292).
-   */
-  const [attentionLanded, setAttentionLanded] = useState(false);
-  const attentionLandedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => () => { if (attentionLandedTimer.current) clearTimeout(attentionLandedTimer.current); }, []);
   useEffect(() => {
     const bringIntoView = () => {
       if (!window.matchMedia("(max-width: 620px)").matches) return;
@@ -1664,22 +1700,12 @@ export default function Home({ mode = "demo", organizationId, organizationName =
   };
 
   /**
-   * Take the reader to the 要調整 list.
-   *
-   * Focus as well as scroll: at 1281px and up the panel is already beside the board, so
-   * scrolling alone would look like the button did nothing, and a keyboard would still be
-   * up at the summary. The panel carries `tabIndex={-1}` for this (#197).
+   * Open the 要調整 dialog. Always-on aside is gone (#395); the press itself is
+   * the feedback, so scroll / data-landed are not needed.
    */
   const showAttentionPanel = () => {
-    const panel = attentionPanelRef.current;
-    if (!panel) return;
-    panel.scrollIntoView({ block: "nearest" });
-    panel.focus();
-    // A class rather than an animation: `prefers-reduced-motion` turns every animation
-    // off, and the mark has to survive that — without it the press is silent again.
-    setAttentionLanded(true);
-    if (attentionLandedTimer.current) clearTimeout(attentionLandedTimer.current);
-    attentionLandedTimer.current = setTimeout(() => setAttentionLanded(false), 1200);
+    setAttentionOpen(true);
+    setNotificationsOpen(false);
   };
 
   const openStaffingNeed = (needId: string) => {
@@ -3260,7 +3286,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
               {/* To the list, not into one of its items: a count is a summary, and 「3件」 that
                   opens one thing is one label over two operations (#88, #124, #197). The
                   panel’s own cards are the way into each. */}
-              <button className="pulse-metric warning" onClick={showAttentionPanel}><strong>{adjustmentCount}<small>件</small></strong><span>{periodChoiceLabel(attentionPeriod)}の要調整</span><ArrowRight size={14} /></button>
+              <button ref={attentionTriggerRef} className="pulse-metric warning" onClick={showAttentionPanel} aria-haspopup="dialog"><strong>{adjustmentCount}<small>件</small></strong><span>{periodChoiceLabel(attentionPeriod)}の要調整</span><ArrowRight size={14} /></button>
             </section>
 
             <div className="board-layout">
@@ -3420,38 +3446,6 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                   </div>
                 </div>
               </section>
-
-              {/* `data-landed` rather than a class, because `attention-grid-contract`
-                  finds this panel by the literal `className="attention-panel"` to check
-                  the order of its children, and a template would hide it from that. */}
-              <aside className="attention-panel" data-landed={attentionLanded ? "" : undefined} ref={attentionPanelRef} tabIndex={-1} aria-labelledby="attention-heading">
-                <div className="attention-title">
-                  <div>
-                    <small>NEEDS ATTENTION</small>
-                    <h2 id="attention-heading">要調整</h2>
-                    <PeriodRangeTabs choice={attentionPeriod} onChange={setAttentionPeriod} namePrefix="要調整" />
-                    <p className="attention-breakdown">{attentionBreakdown}</p>
-                    {attentionRange.clipped && <p className="horizon-clip-note" role="note">{PERIOD_CLIP_NOTE}</p>}
-                  </div>
-                  <span>{adjustmentCount}</span>
-                </div>
-                {(attentionOverloads.length > 0 || attentionOverloadPlanned) && attentionOverloadMember && (
-                  <button className={"alert-card urgent " + (attentionOverloadPlanned ? "planned" : "")} onClick={() => { setOverloadDrawerId(attentionOverloadMember.id); setOverloadDrawerFromWeek(false); setDrawer("overload"); }}>
-                    <div className="alert-top"><span>{attentionOverloadPlanned ? <CheckCircle2 size={11} /> : <AlertTriangle size={11} />} {attentionOverloadPlanned ? "解消予定" : "上限超過"}</span><small>{attentionCardWindow.peak == null ? "—" : `${attentionCardWindow.peak}%`}</small></div>
-                    <h3>{attentionOverloadMember.name}さんの超過は{attentionOverloadPlanned ? "解消予定" : "要調整"}</h3><p>{attentionOverloadPlanned ? "変更を保存すると警告が解消されます。" : `${attentionCardWindow.label}の稼働配分が稼働上限を超えています。`}</p>
-                    <div className="alert-people"><span className={"avatar " + attentionOverloadMember.avatarTone}>{attentionOverloadMember.initials}</span><span>{attentionOverloadPlanned || !canEdit ? "内容を確認" : "調整する"} <ArrowRight size={13} /></span></div>
-                  </button>
-                )}
-                {activeNeeds.map((need) => (
-                  <button className={"alert-card " + (need.status === "planned" ? "planned" : "")} onClick={() => openStaffingNeed(need.id)} key={need.id}>
-                    <div className="alert-top"><span>{need.status === "planned" ? <CheckCircle2 size={11} /> : <Clock3 size={11} />} {need.status === "planned" ? "解消予定" : "未充足ロール"}</span><small>{formatDate(need.startDate).replace(/^\d{4}年/, "")}</small></div>
-                    <h3>{projectById(workspace, need.projectId)?.name}の{need.role}が{need.status === "planned" ? "解消予定" : "未定"}</h3><p>{need.status === "planned" ? "候補者を仮置きしました。保存後に充足へ変わります。" : need.startDate < todayIso ? "稼働配分" + need.allocation + "%の担当者が開始日を過ぎても決まっていません。" : "稼働配分" + need.allocation + "%の担当者を開始日までに決めてください。"}</p>
-                    <div className="skill-chips">{need.skills.map((skill) => <span key={skill}>{skill}</span>)}<ArrowRight size={13} /></div>
-                  </button>
-                ))}
-                {adjustmentCount === 0 && <div className="attention-clear"><CheckCircle2 size={20} /><strong>調整項目はありません</strong><p>すべての稼働と要員要件が範囲内です。</p></div>}
-                <button className="all-alerts" onClick={() => setActiveNav("reports")}>レポートで見通しを確認 <ArrowRight size={13} /></button>
-              </aside>
             </div>
           </>
         )}
@@ -3485,6 +3479,66 @@ export default function Home({ mode = "demo", organizationId, organizationName =
         <div className="change-bar" ref={observeChangeBar} role="status" inert={drawer ? true : undefined}>
           <span className="change-count">{unsavedChanges}</span><span><strong>{unsavedChanges}件の変更があります</strong><small>保存するまで確定データには反映されません</small></span>
           <button className="undo-button" disabled={operationLocked || saveOutcomePending} onClick={undoChanges}><Undo2 size={14} />元に戻す</button><button className="save-button" disabled={operationLocked} onClick={() => void saveChanges()}><Save size={14} />{syncStatus === "saving" ? "保存中…" : syncStatus === "refreshing" ? "確認中…" : mode === "shared" ? "チームへ保存" : "デモへ保存"}</button>
+        </div>
+      )}
+
+      {attentionOpen && !drawer && (
+        <div className="overlay attention-overlay">
+          <div className="overlay-backdrop" aria-hidden="true" onClick={closeAttentionPanel} />
+          {/* `attention-dialog`, not `.drawer`: tests and code use `.drawer` for the
+              detail panel. Layout rules are shared via the CSS selector list (#395). */}
+          <section
+            className="attention-dialog"
+            ref={attentionPanelRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="attention-heading"
+            tabIndex={-1}
+          >
+            <div className="drawer-handle" />
+            <div className="drawer-top">
+              <span className="drawer-kicker">NEEDS ATTENTION</span>
+              <button className="close-button" aria-label="要調整を閉じる" onClick={closeAttentionPanel}><X size={18} /></button>
+            </div>
+            <div className="attention-panel">
+              <div className="attention-title">
+                <div>
+                  <h2 id="attention-heading">要調整</h2>
+                  <PeriodRangeTabs choice={attentionPeriod} onChange={setAttentionPeriod} namePrefix="要調整" />
+                  <p className="attention-breakdown">{attentionBreakdown}</p>
+                  {attentionRange.clipped && <p className="horizon-clip-note" role="note">{PERIOD_CLIP_NOTE}</p>}
+                </div>
+                <span>{adjustmentCount}</span>
+              </div>
+              {(attentionOverloads.length > 0 || attentionOverloadPlanned) && attentionOverloadMember && (
+                <button
+                  className={"alert-card urgent " + (attentionOverloadPlanned ? "planned" : "")}
+                  onClick={() => openFromAttention(() => {
+                    setOverloadDrawerId(attentionOverloadMember.id);
+                    setOverloadDrawerFromWeek(false);
+                    setDrawer("overload");
+                  })}
+                >
+                  <div className="alert-top"><span>{attentionOverloadPlanned ? <CheckCircle2 size={11} /> : <AlertTriangle size={11} />} {attentionOverloadPlanned ? "解消予定" : "上限超過"}</span><small>{attentionCardWindow.peak == null ? "—" : `${attentionCardWindow.peak}%`}</small></div>
+                  <h3>{attentionOverloadMember.name}さんの超過は{attentionOverloadPlanned ? "解消予定" : "要調整"}</h3><p>{attentionOverloadPlanned ? "変更を保存すると警告が解消されます。" : `${attentionCardWindow.label}の稼働配分が稼働上限を超えています。`}</p>
+                  <div className="alert-people"><span className={"avatar " + attentionOverloadMember.avatarTone}>{attentionOverloadMember.initials}</span><span>{attentionOverloadPlanned || !canEdit ? "内容を確認" : "調整する"} <ArrowRight size={13} /></span></div>
+                </button>
+              )}
+              {activeNeeds.map((need) => (
+                <button
+                  className={"alert-card " + (need.status === "planned" ? "planned" : "")}
+                  onClick={() => openFromAttention(() => openStaffingNeed(need.id))}
+                  key={need.id}
+                >
+                  <div className="alert-top"><span>{need.status === "planned" ? <CheckCircle2 size={11} /> : <Clock3 size={11} />} {need.status === "planned" ? "解消予定" : "未充足ロール"}</span><small>{formatDate(need.startDate).replace(/^\d{4}年/, "")}</small></div>
+                  <h3>{projectById(workspace, need.projectId)?.name}の{need.role}が{need.status === "planned" ? "解消予定" : "未定"}</h3><p>{need.status === "planned" ? "候補者を仮置きしました。保存後に充足へ変わります。" : need.startDate < todayIso ? "稼働配分" + need.allocation + "%の担当者が開始日を過ぎても決まっていません。" : "稼働配分" + need.allocation + "%の担当者を開始日までに決めてください。"}</p>
+                  <div className="skill-chips">{need.skills.map((skill) => <span key={skill}>{skill}</span>)}<ArrowRight size={13} /></div>
+                </button>
+              ))}
+              {adjustmentCount === 0 && <div className="attention-clear"><CheckCircle2 size={20} /><strong>調整項目はありません</strong><p>すべての稼働と要員要件が範囲内です。</p></div>}
+              <button className="all-alerts" onClick={() => { closeAttentionPanel(); setActiveNav("reports"); }}>レポートで見通しを確認 <ArrowRight size={13} /></button>
+            </div>
+          </section>
         </div>
       )}
 
