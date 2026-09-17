@@ -3831,6 +3831,15 @@ describe("the board colours calendar days (#392)", () => {
   });
 });
 
+/**
+ * #140. The proposal screen let you build a shortlist of up to twelve people
+ * and never said what they were being proposed *for*. A later display mode that
+ * hid names is gone (#332). The app has staffing needs on confirmed projects
+ * and staffing plans on opportunities, each with a role, a period, an allocation
+ * and required skills, and the screen was connected to none of it. Its only
+ * output — the share link — was in the command palette, so a reader of the
+ * screen had no way to finish.
+ */
 describe("a proposal answers something", () => {
   const openProposal = async () => {
     const user = userEvent.setup();
