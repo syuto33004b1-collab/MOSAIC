@@ -785,7 +785,7 @@ describe("role-aware workspace", () => {
     await user.click(screen.getByRole("button", { name: /ボードで確認/ }));
 
     // 「今週」 left the title in #139: the board can show a month, and paging made
-    // the word wrong inside a week. The exact range is on the date line below it.
+    // the word wrong inside a week. The month name is on the toolbar (#403).
     expect(screen.getByRole("heading", { name: "アサインボード" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "メンバー別", pressed: true })).toBeInTheDocument();
   });
@@ -3779,10 +3779,10 @@ describe("the board shows a month", () => {
   });
 
   /**
-   * A month that runs to December's end does not need a second year on the date
-   * line. The board is month-only (#391); the year lives in the month label.
+   * A month that runs to December's end does not need a second year on the month
+   * label. The board is month-only (#391); the year lives there (#403).
    */
-  it("names the month with its year on the date line", async () => {
+  it("names the month with its year on the toolbar", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     vi.setSystemTime(new Date("2026-12-30T09:00:00+09:00"));
     try {
@@ -4373,7 +4373,7 @@ describe("the board says where it is", () => {
     expect(screen.queryByRole("group", { name: "表示する期間" })).not.toBeInTheDocument();
   });
 
-  it("says how far it has been paged, in months", async () => {
+  it("pages the month label when stepping months", async () => {
     const user = onWednesday();
     render(<App />);
     // Nothing at zero. 「今週」 is the word #146 retired from these screens.
@@ -4409,7 +4409,7 @@ describe("the board says what its figures count", () => {
     await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^アサインボード( |$)/u }));
   };
 
-  it("says so on the range, because the figures are weekday-only", async () => {
+  it("keeps the weekday count on the grid name, not on a subtitle", async () => {
     const user = userEvent.setup();
     render(<App />);
     await showBoard(user);
