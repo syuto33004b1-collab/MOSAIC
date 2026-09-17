@@ -661,6 +661,9 @@ describe("OperationsPanel feedback", () => {
 
   it("sends feedback with the screen that opened settings and reuses the request id on retry", async () => {
     const user = userEvent.setup();
+    const submitFeedback = vi.fn()
+      .mockRejectedValueOnce(new Error("一時的に送れません"))
+      .mockResolvedValueOnce({ id: "fb-3", requestId: "req-3", replayed: false });
     const repository = {
       listOrganizationMembers: vi.fn().mockResolvedValue([]),
       listAuditEvents: vi.fn().mockResolvedValue({ events: [], nextBefore: undefined }),
@@ -669,9 +672,7 @@ describe("OperationsPanel feedback", () => {
       listWebhookEndpoints: vi.fn().mockResolvedValue([]),
       listMcpServers: vi.fn().mockResolvedValue([]),
       listFeedback: vi.fn().mockResolvedValue({ items: [], nextBefore: undefined }),
-      submitFeedback: vi.fn()
-        .mockRejectedValueOnce(new Error("一時的に送れません"))
-        .mockResolvedValueOnce({ id: "fb-3", requestId: "req-3", replayed: false }),
+      submitFeedback,
     } as unknown as ProductionRepository;
 
     render(
@@ -691,15 +692,15 @@ describe("OperationsPanel feedback", () => {
     await user.click(screen.getByRole("button", { name: "送る" }));
     expect(await screen.findByText("一時的に送れません")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "送る" }));
-    await waitFor(() => expect(repository.submitFeedback).toHaveBeenCalledTimes(2));
-    expect(repository.submitFeedback).toHaveBeenNthCalledWith(
+    await waitFor(() => expect(submitFeedback).toHaveBeenCalledTimes(2));
+    expect(submitFeedback).toHaveBeenNthCalledWith(
       1,
       organization.id,
       expect.stringMatching(/^[0-9a-f-]{36}$/u),
       "検索が遠い",
       "members",
     );
-    expect(repository.submitFeedback.mock.calls[0][1]).toEqual(repository.submitFeedback.mock.calls[1][1]);
+    expect(submitFeedback.mock.calls[0][1]).toEqual(submitFeedback.mock.calls[1][1]);
     expect(await screen.findByText("気づきを送りました。")).toBeInTheDocument();
   });
 
