@@ -62,7 +62,8 @@ test("assignment-add stage is centered only above the bottom-sheet breakpoint (#
   assert.equal(declaration(stage, ".assignment-add-panel", "height"), "auto");
   assert.equal(declaration(stage, ".assignment-add-panel", "max-height"), "100%");
   assert.equal(declaration(stage, ".assignment-add-panel", "animation-name"), "assignment-add-in");
-  assert.match(declaration(stage, ".assignment-add-panel", "width") ?? "", /clamp\(\s*410px/u);
+  assert.match(declaration(stage, ".assignment-add-panel", "width") ?? "",
+    /min\(\s*100%\s*,\s*clamp\(\s*410px\s*,\s*48vw\s*,\s*620px\s*\)\s*\)/u);
 
   assert.equal(declaration(css, ".overlay", "justify-content"), "flex-end",
     "other drawers stay right-aligned");
@@ -72,6 +73,14 @@ test("assignment-add stage is centered only above the bottom-sheet breakpoint (#
     "stage overlay rules must not sit outside the 621px media query");
   assert.equal(declaration(outside, ".assignment-add-panel", "height"), null,
     "stage panel rules must not sit outside the 621px media query");
+
+  // Theme `.drawer { box-shadow: -18px … }` comes later; the last matching stage
+  // rule inside min-width 621 must re-assert a symmetric shadow and radius.
+  const lastStage = [...bodies].reverse().find((body) => /\.assignment-add-panel\s*\{[^}]*box-shadow/u.test(body));
+  assert.ok(lastStage, "stage panel must re-declare box-shadow after the theme drawer block");
+  assert.match(declaration(lastStage, ".assignment-add-panel", "box-shadow") ?? "", /^0\s+/u,
+    "stage shadow must not keep the rail's left-biased offset");
+  assert.equal(declaration(lastStage, ".assignment-add-panel", "border-radius"), "20px");
 });
 
 test("App wires the stage classes only for drawer === add (#394)", async () => {

@@ -723,9 +723,9 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
     width: min(100%, clamp(410px, 48vw, 620px));
     height: auto;
     max-height: 100%;
-    box-shadow: 0 24px 70px rgba(19, 28, 48, .22);
     /* animation-name だけ上書き。ショートハンドだと 620px 側の drawer-up が
-       duration/easing を奪ったまま戻せず、狭幅シートの挙動が変わる。 */
+       duration/easing を奪ったまま戻せず、狭幅シートの挙動が変わる。
+       影・角丸は後段のテーマ `.drawer` が上書きするので、テーマの直後で再宣言する。 */
     animation-name: assignment-add-in;
   }
 }
@@ -4192,6 +4192,15 @@ h1 {
   border-radius: 0;
   background: var(--paper);
   box-shadow: -18px 0 55px rgba(52, 17, 3, .14);
+}
+/* Theme `.drawer` above wins on shadow/radius for the shared rail. Re-assert the
+   centered stage after it so add stays a card, not a left-shadowed sheet (#394). */
+@media (min-width: 621px) {
+  .assignment-add-panel {
+    border: 1px solid var(--line);
+    border-radius: 20px;
+    box-shadow: 0 24px 70px rgba(52, 17, 3, .22);
+  }
 }
 .drawer-kicker { color: var(--coral-deep); }
 .drawer-heading h2,
