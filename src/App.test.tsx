@@ -4516,12 +4516,6 @@ describe("a week-scoped figure names the week it measures", () => {
     const user = onWednesday();
     render(<App />);
 
-    const mondayFrom = (label: string) => {
-      const m = label.match(/^(\d+)\/(\d+)週/u);
-      expect(m, `expected a week name, got 「${label}」`).not.toBeNull();
-      return `2026-${String(m![1]).padStart(2, "0")}-${String(m![2]).padStart(2, "0")}`;
-    };
-
     // The assignment form no longer names a week: it names its own range once, in the
     // legend, and every row is the peak over that range (#199). Same property as before —
     // a figure and the words for what it measures, paired — with the form's dates as the
