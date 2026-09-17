@@ -235,24 +235,60 @@ test("a narrow bar drops the percentage rather than the project name", async () 
  * 8px of padding was measured too: 4px a row against a legible gutter, and the gutter won.
  * Shortening the person cell's wrapped subtitle would have been the biggest single win
  * (72.6 → 56.4px) and is not taken here: it drops the department from the row (#192).
+ *
+ * #390 cut the floor to 64px: person-cell padding 10×2 plus `.person-open`'s explicit
+ * 44px tap target. The old 78px had been covering that tap size implicitly.
  */
 test("a schedule row takes its height from its content", async () => {
   const css = withoutComments(await read()).replaceAll("\r\n", "\n");
 
-  // 78px is one row of content — the person cell's avatar beside two lines of name, plus the
-  // row's 10px of padding — so it is a floor for a row with nothing in its week, not padding
+  // 64px is one row of content — `.person-open` at 44px plus the cell's 10px padding
+  // top and bottom — so it is a floor for a row with nothing in its week, not padding
   // for one with something. 104px and 120px were two assignments' worth, desktop and narrow.
   const floors = allRules(css, "schedule-row")
     .flatMap(({ selector, body }) => declarations(body, "min-height").map((value) => ({ selector, value })))
-    .filter(({ value }) => !/^\d+(?:\.\d+)?px$/u.test(value) || Number.parseFloat(value) > 78);
+    .filter(({ value }) => !/^\d+(?:\.\d+)?px$/u.test(value) || Number.parseFloat(value) > 64);
   assert.deepEqual(floors.map(({ selector, value }) => `${selector} → ${value}`), [],
     "a floor above one row of content pads every row that holds less than two assignments (#192)");
+
+  const rowFloors = allRules(css, "schedule-row")
+    .flatMap(({ body }) => declarations(body, "min-height"));
+  assert.ok(rowFloors.includes("64px"),
+    "`.schedule-row` must declare the one-row floor as 64px (#390); deleting it drops the tap size");
+
+  const openFloors = allRules(css, "person-open")
+    .flatMap(({ body }) => declarations(body, "min-height"));
+  assert.ok(openFloors.includes("44px"),
+    "`.person-open` must keep an explicit 44px tap floor now that the row floor no longer covers it (#390)");
+
+  const cellPads = allRules(css, "person-cell")
+    .flatMap(({ body }) => declarations(body, "padding"));
+  assert.ok(cellPads.some((value) => /^10px\s+12px\s+10px\s+14px$/u.test(value)),
+    "`.person-cell` padding stays 10px vertical (gutter) and 12/14 horizontal after the label cut (#390)");
 
   // The stretch is the other half. Without this the single bar in a row fills the cell.
   const cells = allRules(css, "week-cell");
   const alignments = cells.flatMap(({ body }) => declarations(body, "align-content"));
   assert.ok(alignments.includes("start"),
     "`.week-cell` needs `align-content: start`, or one assignment is drawn as tall as the row (#192)");
+});
+
+test("the schedule label column stays wide enough for two wrapped lines", async () => {
+  const css = withoutComments(await read()).replaceAll("\r\n", "\n");
+  // Token values are the contract for #390's width budget. Not rendered widths —
+  // those go in the PR. The wide override must stay ≥ the base (monotonic).
+  const base = [...css.matchAll(/:root\s*\{([^{}]*)\}/gu)]
+    .flatMap(([, body]) => declarations(body, "--schedule-label-col"));
+  assert.ok(base.includes("210px"),
+    "base `--schedule-label-col` is 210px after the 245→210 cut (#390)");
+
+  const wideBlock = css.match(/@media\s*\(\s*min-width:\s*1500px\s*\)\s*\{\s*:root\s*\{([^{}]*)\}/u);
+  assert.ok(wideBlock, "wide-screen `:root` override for schedule tokens is missing");
+  const wide = declarations(wideBlock[1], "--schedule-label-col");
+  assert.ok(wide.includes("225px"),
+    "≥1500px `--schedule-label-col` is 225px after the 260→225 cut (#390)");
+  assert.ok(Number.parseFloat(wide.at(-1) ?? "") >= Number.parseFloat(base.at(-1) ?? ""),
+    "wide label column must not shrink below the base token");
 });
 
 /**
