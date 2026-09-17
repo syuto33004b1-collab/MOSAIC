@@ -1245,6 +1245,26 @@ describe("role-aware workspace", () => {
   describe("report period horizon", () => {
     afterEach(() => { vi.useRealTimers(); });
 
+    it("drives .horizon-grid column count from --horizon-cols (#393)", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      vi.setSystemTime(new Date("2026-08-19T09:00:00+09:00"));
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      render(<App />);
+      await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: "レポート" }));
+
+      const cols = () => (document.querySelector(".horizon-grid") as HTMLElement).style.getPropertyValue("--horizon-cols");
+      expect(cols()).toBe("6");
+      expect(document.querySelectorAll(".horizon-week")).toHaveLength(6);
+
+      await user.click(screen.getByRole("button", { name: "1か月" }));
+      expect(cols()).toBe("1");
+      expect(document.querySelectorAll(".horizon-week")).toHaveLength(1);
+
+      await user.click(screen.getByRole("button", { name: "12か月" }));
+      expect(cols()).toBe("12");
+      expect(document.querySelectorAll(".horizon-week")).toHaveLength(12);
+    });
+
     it("extends the report horizon across the shared period choices", async () => {
       vi.useFakeTimers({ shouldAdvanceTime: true });
       vi.setSystemTime(new Date("2026-08-19T09:00:00+09:00"));
