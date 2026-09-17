@@ -49,6 +49,7 @@ import {
   boardRange,
   boardRangeDistance,
   boardRangeName,
+  isoWeekdayIndex,
   ownerCandidates,
   ownerLabel,
   ownerMember,
@@ -164,6 +165,7 @@ import {
   type FavoriteKind,
   type ShareLink,
 } from "./collaboration";
+import { isJapanHoliday } from "./japanHolidays";
 import { withLegalSearch } from "./legal";
 import { applyAssignmentImport, applyMemberImport, applyProjectImport, type AssignmentImportAction, type MemberImportAction, type ProjectImportAction } from "./csv";
 
@@ -3347,7 +3349,21 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                       {/* Today by date, not by position: it is the first column
                           only in the current week, and somewhere in the middle of
                           the current month. */}
-                      {days.map((day) => <div className={"day-label" + (day.weekend ? " weekend" : "") + (day.iso === todayIso ? " today" : "")} role="columnheader" key={day.iso}><strong>{day.date}</strong></div>)}
+                      {days.map((day) => {
+                        const weekday = isoWeekdayIndex(day.iso);
+                        const holiday = isJapanHoliday(day.iso);
+                        const className = [
+                          "day-label",
+                          day.weekend ? "weekend" : "",
+                          day.iso === todayIso ? "today" : "",
+                          weekday === 5 ? "saturday" : "",
+                          weekday === 6 ? "sunday" : "",
+                          holiday ? "holiday" : "",
+                        ].filter(Boolean).join(" ");
+                        // Colour alone would mark a weekday holiday (#392 / WCAG 1.4.1).
+                        const title = holiday ? `${day.date}日（祝日）` : undefined;
+                        return <div className={className} role="columnheader" title={title} aria-label={title} key={day.iso}><strong>{day.date}</strong></div>;
+                      })}
                     </div>
                     <div className="schedule-body">
                       {rows.length > 0 ? rows.map((row) => (

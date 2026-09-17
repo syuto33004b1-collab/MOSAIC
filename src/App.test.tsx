@@ -3606,7 +3606,7 @@ describe("the board shows a month", () => {
     expect(monthColumns.length).toBeLessThanOrEqual(31);
     expect(document.querySelectorAll(".schedule-row .day-grid i").length / document.querySelectorAll(".schedule-row").length)
       .toBe(monthColumns.length);
-    // Weekends are marked on the header, not spelled in the label (#391 / #392 later).
+    // Weekends are marked on the header; calendar colours are #392.
     expect(document.querySelectorAll(".day-label.weekend").length).toBeGreaterThanOrEqual(8);
     expect(monthColumns.every((label) => /^\d{1,2}$/u.test(label ?? ""))).toBe(true);
     expect(screen.queryByRole("group", { name: "表示する期間" })).not.toBeInTheDocument();
@@ -3779,14 +3779,58 @@ describe("the board shows a month", () => {
 });
 
 /**
- * #140. The proposal screen let you build a shortlist of up to twelve people
- * and never said what they were being proposed *for*. A later display mode that
- * hid names is gone (#332). The app has staffing needs on confirmed projects
- * and staffing plans on opportunities, each with a role, a period, an allocation
- * and required skills, and the screen was connected to none of it. Its only
- * output — the share link — was in the command palette, so a reader of the
- * screen had no way to finish.
+ * #392: Saturday blue, Sunday and national holidays red. Weekend background tint
+ * stays. Headers remain date-only text.
  */
+describe("the board colours calendar days (#392)", () => {
+  afterEach(() => { vi.useRealTimers(); });
+
+  const labels = () => [...document.querySelectorAll(".day-label")] as HTMLElement[];
+  const byDate = (date: number) => labels().find((el) => el.querySelector("strong")?.textContent === String(date));
+
+  it("marks Saturday blue and Sunday red, and keeps the weekend tint", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date("2026-08-19T09:00:00+09:00"));
+    render(<App />);
+    // Aug 2026: 1 Sat, 2 Sun. Colour values are pinned in styles + UI measure (#392).
+    expect(byDate(1)!.className).toMatch(/\bsaturday\b/);
+    expect(byDate(1)!.className).toMatch(/\bweekend\b/);
+    expect(byDate(1)!.className).not.toMatch(/\bsunday\b/);
+    expect(byDate(2)!.className).toMatch(/\bsunday\b/);
+    expect(byDate(2)!.className).toMatch(/\bweekend\b/);
+  });
+
+  it("marks a weekday national holiday red and names it for assistive tech", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date("2026-08-19T09:00:00+09:00"));
+    render(<App />);
+    // 山の日 2026-08-11 is a Tuesday.
+    const mountain = byDate(11)!;
+    expect(mountain.className).toMatch(/\bholiday\b/);
+    expect(mountain.className).not.toMatch(/\bweekend\b/);
+    expect(mountain).toHaveAttribute("title", "11日（祝日）");
+    expect(mountain).toHaveAccessibleName("11日（祝日）");
+  });
+
+  it("keeps calendar colour class when today falls on a Saturday", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date("2026-08-22T09:00:00+09:00"));
+    render(<App />);
+    const today = document.querySelector(".day-label.today") as HTMLElement;
+    expect(today.className).toMatch(/\bsaturday\b/);
+    expect(today.className).toMatch(/\btoday\b/);
+  });
+
+  it("does not colour a New Year outside the holiday calendar range", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date("2036-01-15T09:00:00+09:00"));
+    render(<App />);
+    const newYear = byDate(1)!;
+    expect(newYear.className).not.toMatch(/\bholiday\b/);
+    expect(newYear).not.toHaveAttribute("title");
+  });
+});
+
 describe("a proposal answers something", () => {
   const openProposal = async () => {
     const user = userEvent.setup();

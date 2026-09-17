@@ -66,6 +66,24 @@ test("a weekend column reads its colours from the theme", () => {
     + " the weekday name so the two keep their order) (#312)");
 });
 
+test("calendar day colours use dedicated tokens after today's glyph rule (#392)", () => {
+  assert.match(css, /--calendar-saturday:\s*#1d4f91/u, "Saturday blue token missing from the effective palette");
+  assert.match(css, /--calendar-holiday:\s*#a83e27/u, "holiday/Sunday red token missing from the effective palette");
+  const sat = /\.day-label\.saturday strong\s*\{([^}]*)\}/u.exec(css);
+  const sun = /\.day-label\.sunday strong\s*,\s*\.day-label\.holiday strong\s*\{([^}]*)\}/u.exec(css)
+    || /\.day-label\.sunday strong\s*\{([^}]*)\}/u.exec(css);
+  assert.ok(sat, "`.day-label.saturday strong` rule missing");
+  assert.ok(sun, "`.day-label.sunday strong` / `.holiday strong` rule missing");
+  assert.match(sat[1], /color:\s*var\(--calendar-saturday\)/u);
+  assert.match(sun[1], /color:\s*var\(--calendar-holiday\)/u);
+  // Source order: calendar rules must follow `.day-label.today strong` so they win.
+  const todayAt = css.lastIndexOf(".day-label.today strong");
+  const satAt = css.lastIndexOf(".day-label.saturday strong");
+  const holidayAt = css.lastIndexOf(".day-label.holiday strong");
+  assert.ok(todayAt >= 0 && satAt > todayAt && holidayAt > todayAt,
+    "calendar colour rules must come after `.day-label.today strong` so today×Sat stays blue");
+});
+
 test("the sweep fails when it cannot reach most of one state's text", () => {
   const floor = /const CONTRAST_COVERAGE_FLOOR = (0\.\d+);/u.exec(sweep);
   assert.ok(floor, "the sweep lost its coverage floor (#312)");

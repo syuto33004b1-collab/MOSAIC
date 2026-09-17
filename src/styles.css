@@ -3391,6 +3391,11 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   --rose: #eec2d2;
   --focus-ring: #8f321f;
   --focus-ring-on-dark: #f8e2da;
+  /* Board header calendar colours (#392). Not --cobalt/--coral-deep: those are
+     warm terracotta in the effective palette and cannot be Saturday-blue.
+     Ratios on --paper-deep / --canvas clear 4.5 for 12px bold (measured). */
+  --calendar-saturday: #1d4f91;
+  --calendar-holiday: #a83e27;
   /* The launcher's own geometry. The reserve below is derived from these, so
      moving or resizing the launcher moves the reserve with it. */
   /* 描画される最小の文字サイズ。これより小さい値を新しく書かない。
@@ -3869,6 +3874,12 @@ h1 {
 .day-label strong { color: var(--ink); }
 .day-label.today::after { background: var(--coral); }
 .day-label.today strong { color: var(--coral-deep); }
+/* Calendar colours after `.today strong` so they outrank both weekend grey and
+   today's accent for the glyph — today keeps the underline (#392). Existing
+   `.day-label.weekend` / `.weekend strong` rules are untouched (contrast-reach). */
+.day-label.saturday strong { color: var(--calendar-saturday); }
+.day-label.sunday strong,
+.day-label.holiday strong { color: var(--calendar-holiday); }
 .schedule-row { border-bottom-color: var(--line); }
 .person-cell { background: #fffdfc; }
 .schedule-row:hover .person-cell { background: #fcf6f3; }

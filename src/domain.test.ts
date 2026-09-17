@@ -15,6 +15,7 @@ import {
   boardRange,
   boardRangeDistance,
   boardRangeName,
+  isoWeekdayIndex,
   projectMembersOnDays,
   buildSkillMap,
   cancelProfileRequest,
@@ -242,6 +243,13 @@ describe("calendar helpers", () => {
       expect(boardMonthOffsetFromDate("2026-10-05", "2026-08-19")).toBe(2);
       expect(boardMonthOffsetFromDate("2027-01-15", "2026-12-15")).toBe(1);
       expect(boardMonthOffsetFromDate("2026-07-01", "2026-08-19")).toBe(-1);
+    });
+
+    it("numbers weekdays Monday=0 … Sunday=6 for board calendar colours (#392)", () => {
+      expect(isoWeekdayIndex("2026-08-17")).toBe(0); // Mon
+      expect(isoWeekdayIndex("2026-08-22")).toBe(5); // Sat
+      expect(isoWeekdayIndex("2026-08-23")).toBe(6); // Sun
+      expect(isoWeekdayIndex("2026-08-11")).toBe(1); // Tue 山の日
     });
   });
 
