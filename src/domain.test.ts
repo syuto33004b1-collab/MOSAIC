@@ -1583,7 +1583,7 @@ describe("weekday capacity with holidays and unavailability", () => {
 
 describe("period range (#329 / #364)", () => {
   it("keeps every built-in choice at or under 12 buckets", () => {
-    expect(PERIOD_CHOICES.map((choice) => periodChoiceLabel(choice))).toEqual(["4週間", "12週間", "6か月", "12か月"]);
+    expect(PERIOD_CHOICES.map((choice) => periodChoiceLabel(choice))).toEqual(["1か月", "6か月", "12か月"]);
     for (const choice of PERIOD_CHOICES) {
       const range = periodRange(choice, "2026-08-17");
       expect(range.buckets.length).toBeLessThanOrEqual(12);

@@ -802,14 +802,14 @@ const HOLIDAY_CALENDAR_START = `${JAPAN_HOLIDAY_YEAR_MIN}-01-01`;
 const HOLIDAY_CALENDAR_END = `${JAPAN_HOLIDAY_YEAR_MAX}-12-31`;
 
 /**
- * How far ahead a figure looks. The four choices keep the bucket count at 12 or
- * fewer so `.horizon-grid` (`repeat(12, …)`) does not wrap (#329).
+ * How far ahead a figure looks. Month choices only (#393); week unit remains on
+ * `PeriodChoice` / `periodRange` for callers that build an ad-hoc span. Bucket
+ * count stays at 12 or fewer so `.horizon-grid` does not wrap (#329).
  */
 export type PeriodChoice = { unit: BoardUnit; count: number };
 
 export const PERIOD_CHOICES: readonly PeriodChoice[] = [
-  { unit: "week", count: 4 },
-  { unit: "week", count: 12 },
+  { unit: "month", count: 1 },
   { unit: "month", count: 6 },
   { unit: "month", count: 12 },
 ];

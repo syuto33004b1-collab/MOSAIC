@@ -189,6 +189,9 @@ test("one element owns the rows, and the grid borrows them", async () => {
 
   assert.equal(declaration(css, ".horizon-grid", "grid-template-rows"), "subgrid",
     ".horizon-grid must borrow the rows rather than define its own (#133)");
+  assert.match(declaration(css, ".horizon-grid", "grid-template-columns") ?? "",
+    /repeat\(\s*var\(\s*--horizon-cols/u,
+    ".horizon-grid columns must follow --horizon-cols so a 1-month horizon is not 1/12 wide (#393)");
   // The one that keeps the borrowing legal. A scroll container is an independent
   // formatting context, which makes `subgrid` compute to `none` — so the sideways
   // scroll has to be the plot's, and the ticks sticky inside it. Chrome 148 honours
