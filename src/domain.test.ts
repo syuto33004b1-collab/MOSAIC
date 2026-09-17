@@ -11,6 +11,7 @@ import {
   assignmentSpan,
   boardBasisDay,
   boardBasisWeek,
+  boardMonthOffsetFromDate,
   boardRange,
   boardRangeDistance,
   boardRangeName,
@@ -233,6 +234,14 @@ describe("calendar helpers", () => {
     it("names a month with its year", () => {
       expect(boardRangeName(boardRange("month", 0, "2026-08-19"))).toBe("2026年 8月");
       expect(boardRangeName(boardRange("month", 1, "2026-12-15"))).toBe("2027年 1月");
+    });
+
+    it("counts months from today to a date's month for report→board jumps (#391)", () => {
+      expect(boardMonthOffsetFromDate("2026-08-19", "2026-08-19")).toBe(0);
+      expect(boardMonthOffsetFromDate("2026-09-01", "2026-08-19")).toBe(1);
+      expect(boardMonthOffsetFromDate("2026-10-05", "2026-08-19")).toBe(2);
+      expect(boardMonthOffsetFromDate("2027-01-15", "2026-12-15")).toBe(1);
+      expect(boardMonthOffsetFromDate("2026-07-01", "2026-08-19")).toBe(-1);
     });
   });
 

@@ -731,6 +731,18 @@ export function boardRangeDistance(range: BoardRange, today = currentLocalDate()
 }
 
 /**
+ * Months from today's month to the month that holds `iso`. Same sign convention as
+ * `boardRangeDistance` for a month board — used when a report bucket opens the board
+ * after the board stopped paging by week (#391).
+ */
+export function boardMonthOffsetFromDate(iso: string, today = currentLocalDate()) {
+  const now = new Date(today + "T00:00:00Z");
+  const there = new Date(iso + "T00:00:00Z");
+  if (Number.isNaN(now.valueOf()) || Number.isNaN(there.valueOf())) return 0;
+  return (there.getUTCFullYear() - now.getUTCFullYear()) * 12 + (there.getUTCMonth() - now.getUTCMonth());
+}
+
+/**
  * Which columns an assignment occupies, 1-based, or null if it is not in view.
  *
  * The column is the assignment's position in `range.days`, looked up — not its

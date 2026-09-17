@@ -95,9 +95,24 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .pulse-metric.warning strong { color: var(--coral); }
 .pulse-rule { width: 1px; height: 34px; background: var(--line); }
 
-.board-layout { display: grid; grid-template-columns: minmax(690px, 1fr) 268px; gap: 18px; align-items: start; }
+.board-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; align-items: start; }
 .schedule-card, .attention-panel { border: 1px solid #dfe4ed; border-radius: 17px; background: var(--paper); box-shadow: 0 6px 22px rgba(36,48,78,.04); }
 .schedule-card { overflow: hidden; }
+/* Aside sits under the board at every width (#391). The three-column band was the
+   ≤1280 shape; promoting it keeps cards out of the title column (#260) without
+   spending a day-column on a side rail. */
+.attention-panel {
+  display: grid;
+  grid-template-columns: 145px 1fr 1fr;
+  gap: 10px;
+  align-items: stretch;
+  padding: 19px;
+  transition: box-shadow .2s ease;
+}
+.attention-panel .alert-card { margin: 0; }
+.attention-panel > .alert-card:nth-child(even) { grid-column: 2; }
+.attention-panel > .alert-card:nth-child(odd) { grid-column: 3; }
+.attention-title { align-items: flex-start; }
 .schedule-toolbar { min-height: 63px; padding: 12px 15px 12px 18px; border-bottom: 1px solid var(--line); display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .view-tabs { padding: 3px; border-radius: 10px; background: #f2f4f8; display: flex; }
 .view-tabs button { height: 30px; padding: 0 13px; border-color: transparent; border-radius: 8px; background: transparent; color: #858da0; font-size: 9px; font-weight: 700; }
@@ -127,8 +142,18 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   letter-spacing: .04em;
 }
 .people-label span { margin-left: 4px; color: #acb2bf; }
-.day-label { position: relative; border-left: 1px solid #edf0f5; display: flex; align-items: center; justify-content: center; gap: 7px; color: #858da0; font-size: 8px; }
+.day-label { position: relative; border-left: 1px solid #edf0f5; display: flex; align-items: center; justify-content: center; color: #858da0; font-size: 8px; }
 .day-label strong { color: #566073; font-family: var(--font-data); font-size: var(--text-min); }
+.toolbar-actions .board-month-label {
+  display: inline-flex;
+  align-items: center;
+  min-height: 31px;
+  padding: 0 8px;
+  color: var(--ink);
+  font-size: var(--text-min);
+  font-weight: 800;
+  white-space: nowrap;
+}
 .day-label.today::after { content: ""; position: absolute; bottom: -1px; left: 26%; right: 26%; height: 2px; border-radius: 2px; background: var(--cobalt); }
 .day-label.today strong { color: var(--cobalt); }
 /*
@@ -222,7 +247,6 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .assignment { z-index: 1; min-width: 0; margin: 0 4px; padding: 6px 9px; border-radius: 7px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #4351aa; font-size: 8px; font-weight: 700; line-height: 1.4; }
 .assignment.blue { background: #e6e9ff; }.assignment.mint { background: #dcf2ea; color: #317463; }.assignment.orange { background: #ffeadf; color: #a75e3f; }
 
-.attention-panel { padding: 19px; transition: box-shadow .2s ease; }
 /* Where the 要調整 button lands (#292). `box-shadow` rather than `outline`: the panel is
    rounded — 17px here, 4px under the theme below — and an outline would sit square outside
    both. It replaces the resting shadow for the moment it shows, which is nothing to see:
@@ -252,10 +276,9 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .alert-people b { margin-left: 4px; font-size: 12px; }
 .skill-chips { margin-top: 10px; display: flex; gap: 5px; }
 .skill-chips span { padding: 4px 7px; border-radius: 6px; background: #edf0f5; color: #6f788a; font-family: var(--font-data); font-size: 7px; font-weight: 700; }
-.all-alerts { width: 100%; padding: 8px 2px 1px; border: 0; background: transparent; color: #636d80; cursor: pointer; display: flex; justify-content: space-between; font-size: 8px; font-weight: 700; }
+.all-alerts { width: 100%; padding: 8px 2px 1px; border: 0; background: transparent; color: #636d80; cursor: pointer; display: none; justify-content: space-between; font-size: 8px; font-weight: 700; }
 .all-alerts span { color: var(--cobalt); font-size: 12px; }
 
-@media (max-width: 1280px) { .board-layout { grid-template-columns: minmax(0, 1fr); }.attention-panel { display: grid; grid-template-columns: auto 1fr 1fr; gap: 10px; }.attention-title { align-self: start; margin: 0 8px 0 0; }.all-alerts { display: none; } }
 @media (max-width: 820px) { .app-shell { grid-template-columns: 74px minmax(0,1fr); }.sidebar { padding-inline: 13px; }.brand { padding-inline: 10px; }.brand > span:last-child { display: none; }.nav-item { justify-content: center; padding: 0; font-size: 0; }.nav-icon { font-size: 18px; }.nav-count, .month-card, .profile-row > span:not(.avatar), .profile-row button { display: none; }.profile-row { justify-content: center; }.workspace { padding: 24px 18px; }.board-layout { overflow-x: auto; }.schedule-card { min-width: 720px; } }
 @media (max-width: 620px) { .topbar { flex-direction: column; }.topbar-actions { width: 100%; }.primary-button { margin-left: auto; }.pulse-strip { gap: 16px; }.pulse-heading { width: 100%; }.pulse-rule { display: none; }.attention-panel { display: block; }.alert-card { margin-bottom: 10px; } }
 /* The board's open search box adds 238px to the actions, and a flex row pays for it
@@ -1194,20 +1217,6 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 
 @media (min-width: 1500px) {
   .workspace { padding-left: 46px; padding-right: 46px; }
-  .board-layout { grid-template-columns: minmax(760px, 1fr) 286px; }
-}
-@media (max-width: 1280px) {
-  .attention-panel { display: grid; grid-template-columns: 145px 1fr 1fr; align-items: stretch; }
-  .attention-panel .alert-card { margin: 0; }
-  /* The title is the first child and owns the 145px column; the cards take the other
-     two. Left to auto-placement, a third card fell into the title's column of the next
-     row — 145px wide, breaking 「未充足ロ／ール」 (#260). Even and odd children land in
-     the second and third columns; a column set with the row left auto steps down a row
-     whenever the column is smaller than the last one placed, so any number of cards
-     fills (1,2) (1,3) (2,2) (2,3) … and never the first column. */
-  .attention-panel > .alert-card:nth-child(even) { grid-column: 2; }
-  .attention-panel > .alert-card:nth-child(odd) { grid-column: 3; }
-  .attention-title { align-items: flex-start; }
 }
 @media (max-width: 820px) {
   .nav-label { display: none; }

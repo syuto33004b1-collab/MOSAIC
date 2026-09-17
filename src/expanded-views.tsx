@@ -128,7 +128,6 @@ import {
   UNAVAILABILITY_ROW_LIMIT,
   visibleCustomFields,
   weekLabel,
-  type BoardUnit,
   type PeriodBucket,
   type PeriodChoice,
   type PeriodMemberStats,
@@ -221,7 +220,7 @@ type ProposalViewProps = {
 
 type ReportsViewProps = {
   state: WorkspaceState;
-  onOpenWeek: (offset: number, unit: BoardUnit) => void;
+  onOpenWeek: (fromIso: string) => void;
   onResolveNeed: (needId: string) => void;
   onOpenOpportunity?: (opportunityId: string) => void;
   onAddReport: (input: { name: string; source: ReportSource; groupBy: ReportGroupBy; metric: ReportMetric }) => void;
@@ -1654,7 +1653,7 @@ export function ReportsView({ state, onOpenWeek, onResolveNeed, onOpenOpportunit
       setError(caught instanceof Error ? caught.message : "レポートを保存できませんでした");
     }
   };
-  const openBoard = (offset: number) => onOpenWeek(offset, choice.unit);
+  const openBoard = (fromIso: string) => onOpenWeek(fromIso);
 
   return (
     <section className="section-view reports-view" aria-labelledby="reports-heading">
@@ -1718,7 +1717,7 @@ export function ReportsView({ state, onOpenWeek, onResolveNeed, onOpenOpportunit
           <div className="horizon-grid" style={{ gridTemplateColumns: `repeat(${Math.max(horizon.length, 1)}, minmax(42px, 1fr))` }}>
             <div className="horizon-guide g100" /><div className="horizon-guide g60" />
             {horizon.map((bucket) => (
-            <button className="horizon-week" type="button" onClick={() => openBoard(bucket.offset)} key={`${bucket.from}:${bucket.to}`} aria-label={`${bucket.label} ${bucket.average}%${bucket.pipelineDemand > 0 ? ` 受注前+${bucket.pipelineDemand}名` : ""}`}>
+            <button className="horizon-week" type="button" onClick={() => openBoard(bucket.from)} key={`${bucket.from}:${bucket.to}`} aria-label={`${bucket.label} ${bucket.average}%${bucket.pipelineDemand > 0 ? ` 受注前+${bucket.pipelineDemand}名` : ""}`}>
               <span className="horizon-bar"><i className={bucket.average > 100 ? "over" : ""} style={{ height: Math.min(100, bucket.average / 120 * 100) + "%" }} />{bucket.draft > 0 && <b style={{ bottom: Math.min(100, bucket.average / 120 * 100) + "%" }} />}</span>
               <strong>{bucket.average}%</strong>
               {bucket.pipelineDemand > 0 && <span className="pipeline-chip">+{bucket.pipelineDemand}名</span>}
@@ -1728,7 +1727,7 @@ export function ReportsView({ state, onOpenWeek, onResolveNeed, onOpenOpportunit
           </div>
         </div>
         {range.clipped && <p className="horizon-clip-note" role="note">{PERIOD_CLIP_NOTE}</p>}
-        <div className="horizon-caption"><span><i className="confirmed" />確定稼働</span><span><i className="draft" />仮置きあり</span><span><i className="pipeline" />受注前の想定人数</span><button type="button" onClick={() => openBoard(0)}>ボードで確認 <ArrowRight size={13} /></button></div>
+        <div className="horizon-caption"><span><i className="confirmed" />確定稼働</span><span><i className="draft" />仮置きあり</span><span><i className="pipeline" />受注前の想定人数</span><button type="button" onClick={() => openBoard(range.from)}>ボードで確認 <ArrowRight size={13} /></button></div>
       </div>
 
       {showPlanCost && (
@@ -1767,7 +1766,10 @@ export function ReportsView({ state, onOpenWeek, onResolveNeed, onOpenOpportunit
         <section className="exceptions-card">
           <div className="card-heading"><div><small>EXCEPTIONS</small><h3>判断が必要な項目</h3></div><span>{periodOverloads.length + periodIdle.length + activeNeeds.length + pipelineNeeds.length}</span></div>
           <div className="exception-list">
-            {periodOverloads.map(({ member, stats }) => <button type="button" onClick={() => openBoard(stats.firstExceedOffset ?? 0)} key={member.id}><span className="exception-icon risk"><CircleAlert size={14} /></span><span><strong>{memberLabel(state, member)}さんが期間中に超過</strong><small>稼働を調整してください</small></span><ChevronRight size={15} /></button>)}
+            {periodOverloads.map(({ member, stats }) => {
+              const exceedFrom = stats.buckets.find((bucket) => bucket.exceeds)?.from ?? range.from;
+              return <button type="button" onClick={() => openBoard(exceedFrom)} key={member.id}><span className="exception-icon risk"><CircleAlert size={14} /></span><span><strong>{memberLabel(state, member)}さんが期間中に超過</strong><small>稼働を調整してください</small></span><ChevronRight size={15} /></button>;
+            })}
             {periodIdle.map(({ member }) => {
               const idleYen = memberHasMonthlyCostField(member) ? periodIdleCostYen(state, member, range.from, range.to) : null;
               const idleNote = !memberHasMonthlyCostField(member)
@@ -1775,7 +1777,7 @@ export function ReportsView({ state, onOpenWeek, onResolveNeed, onOpenOpportunit
                 : idleYen == null
                   ? "原価未設定"
                   : `遊休 ${formatYen(idleYen)}`;
-              return <button type="button" onClick={() => openBoard(0)} key={member.id}><span className="exception-icon idle"><UsersRound size={14} /></span><span><strong>{memberLabel(state, member)}さんが期間中ずっと空き</strong><small>{idleNote}</small></span><ChevronRight size={15} /></button>;
+              return <button type="button" onClick={() => openBoard(range.from)} key={member.id}><span className="exception-icon idle"><UsersRound size={14} /></span><span><strong>{memberLabel(state, member)}さんが期間中ずっと空き</strong><small>{idleNote}</small></span><ChevronRight size={15} /></button>;
             })}
             {activeNeeds.map((need) => <button type="button" onClick={() => onResolveNeed(need.id)} key={need.id}><span className={"exception-icon " + (need.status === "planned" ? "planned" : "open")}><CalendarClock size={14} /></span><span><strong>{state.projects.find((project) => project.id === need.projectId)?.name}</strong><small>{need.role} {need.allocation}% · {need.status === "planned" ? "解消予定" : "担当未定"}</small></span><ChevronRight size={15} /></button>)}
             {pipelineNeeds.map((need) => {

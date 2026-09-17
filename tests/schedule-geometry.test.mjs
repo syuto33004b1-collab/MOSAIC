@@ -354,6 +354,7 @@ test("the days' floor is handed down beside the track list", async () => {
   // row's floor disagree, and the row would clip again without anything looking wrong.
   const floors = [...tsx.matchAll(/const scheduleDayFloor = [^;]+;/gu)];
   assert.equal(floors.length, 1, "expected one `scheduleDayFloor`, the single source for both");
+  assert.match(floors[0][0], /=\s*22\b/u, "day floor is 22px so a 31-day month fits ≥1280 without h-scroll (#391)");
   const style = tsx.slice(at - 400, at + 200);
   assert.match(style, /--schedule-day-tracks[^;]*scheduleDayFloor/u, "the track list must be built from `scheduleDayFloor`");
   assert.match(style, /--schedule-days-min-width[^;]*scheduleDayFloor/u, "the floor must be built from `scheduleDayFloor`");
