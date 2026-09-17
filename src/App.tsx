@@ -1689,12 +1689,14 @@ export default function Home({ mode = "demo", organizationId, organizationName =
   const openProposalFor = (subjectId: string) => {
     setProposalNeedId(subjectId);
     setActiveNav("proposal");
+    closeAttentionPanel();
     closeDrawer();
   };
 
   const addMemberToProposal = (memberId: string) => {
     setProposalMemberIds((current) => retainedMemberIds([...current, memberId], workspace.members.map((member) => member.id)));
     setActiveNav("proposal");
+    closeAttentionPanel();
     closeDrawer();
     setToast("提案ビューに追加しました");
   };

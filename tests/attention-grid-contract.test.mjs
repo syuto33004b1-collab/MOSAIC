@@ -42,6 +42,6 @@ test("the dialog's children are the title, then the cards, then the link", async
   assert.equal(order.at(-1), "all-alerts", `the last child must be the link, got ${order.at(-1)}`);
   const cards = order.slice(1, -1);
   assert.ok(cards.length > 0 && cards.every((name) => name === "alert-card"), `only cards may sit between the title and the link, got ${cards.join(", ")}`);
-  assert.match(tsx, /role="dialog"[\s\S]*aria-labelledby="attention-heading"/u);
+  assert.match(tsx, /className="attention-dialog"[\s\S]*?role="dialog"[\s\S]*?aria-modal="true"[\s\S]*?aria-labelledby="attention-heading"/u);
   assert.match(tsx, /attentionOpen && !drawer/u);
 });

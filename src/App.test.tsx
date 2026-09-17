@@ -3476,6 +3476,40 @@ describe("the 要調整 count opens the list dialog (#395)", () => {
     await user.keyboard("{Escape}");
     expect(screen.queryByRole("dialog", { name: "要調整" })).toBeNull();
   });
+
+  it("closes the drawer with Escape first, then the list, and returns focus to the count", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    const dialog = await openAttention(user);
+    const card = dialog.getAllByRole("button").find((el) => el.classList.contains("alert-card"));
+    expect(card).toBeDefined();
+    await user.click(card!);
+    expect(document.querySelector(".drawer")).not.toBeNull();
+    expect(screen.queryByRole("dialog", { name: "要調整" })).toBeNull();
+
+    await user.keyboard("{Escape}");
+    expect(document.querySelector(".drawer")).toBeNull();
+    expect(screen.getByRole("dialog", { name: "要調整" })).toBeInTheDocument();
+    expect(document.querySelector(".attention-dialog")).toHaveFocus();
+
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog", { name: "要調整" })).toBeNull();
+    expect(countButton()).toHaveFocus();
+  });
+
+  it("leaves the list closed when a card sends you to the proposal screen", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    const dialog = await openAttention(user);
+    const card = dialog.getAllByRole("button").find((el) => el.classList.contains("alert-card") && el.textContent?.includes("未充足"));
+    expect(card).toBeDefined();
+    await user.click(card!);
+    await waitFor(() => expect(document.querySelector(".drawer-kicker")?.textContent).toBe("RESOLUTION GUIDE"));
+    await user.click(screen.getByRole("button", { name: "この要件で提案を開く" }));
+    expect(document.querySelector(".nav-item.active")?.getAttribute("aria-label")).toMatch(/^提案/u);
+    expect(screen.queryByRole("dialog", { name: "要調整" })).toBeNull();
+    expect(document.querySelector(".drawer")).toBeNull();
+  });
 });
 
 describe("the 要調整 panel names the period it counts (#367)", () => {
@@ -4992,6 +5026,7 @@ describe("a way into the proposal screen", () => {
 
     expect(activeNav()).toBe("提案");
     expect(document.querySelector(".drawer"), "the panel should close behind you").toBeNull();
+    expect(screen.queryByRole("dialog", { name: "要調整" }), "leaving for提案 dismisses the list (#395)").toBeNull();
     // The exact id, not the namespace. A `^need:` check passes on any other unfilled
     // role, which is what the evaluator on this change pointed out.
     expect(subject().value).toBe(`need:${guided.id}`);
