@@ -1767,7 +1767,7 @@ export function ReportsView({ state, onOpenWeek, onResolveNeed, onOpenOpportunit
           <div className="card-heading"><div><small>EXCEPTIONS</small><h3>判断が必要な項目</h3></div><span>{periodOverloads.length + periodIdle.length + activeNeeds.length + pipelineNeeds.length}</span></div>
           <div className="exception-list">
             {periodOverloads.map(({ member, stats }) => {
-              const exceedFrom = stats.buckets.find((bucket) => bucket.exceeds)?.from ?? range.from;
+              const exceedFrom = stats.firstExceedDate ?? range.from;
               return <button type="button" onClick={() => openBoard(exceedFrom)} key={member.id}><span className="exception-icon risk"><CircleAlert size={14} /></span><span><strong>{memberLabel(state, member)}さんが期間中に超過</strong><small>稼働を調整してください</small></span><ChevronRight size={15} /></button>;
             })}
             {periodIdle.map(({ member }) => {

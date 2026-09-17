@@ -1406,6 +1406,41 @@ describe("role-aware workspace", () => {
       expect(document.querySelector(".date-range")!.textContent).toContain("2026年 10月");
     });
 
+    it("opens the month of the first overloaded day, not the week bucket's Monday (#391)", async () => {
+      // Week of 8/31–9/6: overload only on Tue 9/1. bucket.from is August; the
+      // board must land on September or the exceed day is off-screen.
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      vi.setSystemTime(new Date("2026-08-19T09:00:00+09:00"));
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      const adapter = sharedAdapter();
+      const overloaded = { ...initialWorkspace.members[0], id: "over-boundary", name: "境界 花子", capacity: 80, unavailability: [] };
+      adapter.initialState = {
+        ...initialWorkspace,
+        members: [overloaded],
+        assignments: [{
+          id: "over-sep1",
+          personId: "over-boundary",
+          projectId: initialWorkspace.projects[0].id,
+          startDate: "2026-09-01",
+          endDate: "2026-09-01",
+          allocation: 120,
+          status: "confirmed",
+        }],
+        needs: [],
+        opportunities: [],
+        opportunityNeeds: [],
+      };
+      render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "admin@example.com", role: "admin" }} shared={adapter} />);
+      const navigation = within(screen.getByRole("navigation", { name: "メインナビゲーション" }));
+      await user.click(navigation.getByRole("button", { name: "レポート" }));
+      // Default 12週間 covers 8/31週. Do not switch to months — that hid the bug.
+      expect(screen.getByRole("button", { name: "12週間", pressed: true })).toBeInTheDocument();
+      expect(screen.getByText("境界 花子さんが期間中に超過")).toBeInTheDocument();
+      await user.click(screen.getByRole("button", { name: /境界 花子さんが期間中に超過/ }));
+      expect(document.querySelector(".board-month-label")!.textContent).toBe("2026年 9月");
+      expect(document.querySelector(".date-range")!.textContent).toContain("2026年 9月");
+    });
+
     it("falls back to department rows when the workspace has no org units", async () => {
       vi.useFakeTimers({ shouldAdvanceTime: true });
       vi.setSystemTime(new Date("2026-08-19T09:00:00+09:00"));
@@ -3360,8 +3395,8 @@ describe("the 要調整 count takes you to the list", () => {
 
   /**
    * Not disabled at zero, which was the other half of #292's proposal. The empty panel
-   * still carries 「レポートで見通しを確認」, and that button only exists above 1280px —
-   * the same widths where the count button has nothing to scroll to.
+   * still carries 「レポートで見通しを確認」 under the cards (#391 keeps the link visible
+   * now that the aside always sits below the board).
    */
   it("still answers at zero, rather than going dead", async () => {
     const user = userEvent.setup();

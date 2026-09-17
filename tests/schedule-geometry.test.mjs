@@ -355,6 +355,10 @@ test("the days' floor is handed down beside the track list", async () => {
   const floors = [...tsx.matchAll(/const scheduleDayFloor = [^;]+;/gu)];
   assert.equal(floors.length, 1, "expected one `scheduleDayFloor`, the single source for both");
   assert.match(floors[0][0], /=\s*22\b/u, "day floor is 22px so a 31-day month fits ≥1280 without h-scroll (#391)");
+  // Budget, not layout: sidebar (~258) + workspace pad (~90) + label 210 + 31×22
+  // must fit in 1280. If any of those grows past this sum, h-scroll returns (#391).
+  assert.ok(210 + 31 * 22 <= 1280 - 258 - 90,
+    "1280 CSS px must still cover label + 31 day floors after sidebar and padding");
   const style = tsx.slice(at - 400, at + 200);
   assert.match(style, /--schedule-day-tracks[^;]*scheduleDayFloor/u, "the track list must be built from `scheduleDayFloor`");
   assert.match(style, /--schedule-days-min-width[^;]*scheduleDayFloor/u, "the floor must be built from `scheduleDayFloor`");
