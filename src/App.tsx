@@ -47,7 +47,6 @@ import {
   boardBasisWeek,
   boardMonthOffsetFromDate,
   boardRange,
-  boardRangeDistance,
   boardRangeName,
   isoWeekdayIndex,
   ownerCandidates,
@@ -356,9 +355,9 @@ const navItems = [
 
 const pageMeta = {
   /* 「今週」 came out of the title: the board can show a month now, and paging
-     already made the word wrong within a week. The exact range is on the line
-     below it, from the range itself (#139). */
-  board: { eyebrow: "RESOURCE PLANNING", title: "チーム編成", description: "日ごとの重なりと、期間全体の稼働を確認します。" },
+     already made the word wrong within a week. The month name is on the toolbar
+     (#403); the subtitle date span is gone. */
+  board: { eyebrow: "RESOURCE PLANNING", title: "アサインボード", description: "日ごとの重なりと、期間全体の稼働を確認します。" },
   projects: { eyebrow: "PORTFOLIO CONTROL", title: "プロジェクト・ポートフォリオ", description: "案件ごとの充足と次の節目を横断して管理します。" },
   opportunities: { eyebrow: "PRE-AWARD PIPELINE", title: "受注前案件", description: "引き合いから商談までの要員計画を、確定プロジェクトと分けて検討します。" },
   members: { eyebrow: "TEAM AVAILABILITY", title: "メンバーと空き状況", description: "スキルと稼働の見通しから、次の担当者を探します。" },
@@ -1485,7 +1484,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
 
   /**
    * One place for the words that describe the range. The board is month-only (#391),
-   * so paging labels say 「月」. `rangeLabel` still comes from the range's real ends.
+   * so paging labels say 「月」. The exact day span left the subtitle in #403.
    */
   const unitWord = "月";
   /** The week the week-scoped figures cover, for the labels that name it. */
@@ -1559,21 +1558,6 @@ export default function Home({ mode = "demo", organizationId, organizationName =
         const worst = worstLoadOverCapacity(days.filter((day) => day.load > day.capacity));
         return { label: window.label, peak: worst ? Math.round(worst.load) : null };
       })();
-  const rangeEndDay = days[days.length - 1];
-  // The end's year only when it differs: a week can straddle New Year, and
-  // 「2026年 12月28日 — 1月1日」 leaves the reader to guess which January.
-  const rangeLabel = days[0].month + "月" + days[0].date + "日 — "
-    + (rangeEndDay.year === days[0].year ? "" : rangeEndDay.year + "年 ")
-    + rangeEndDay.month + "月" + rangeEndDay.date + "日";
-  /**
-   * 「 · 2週後」 or 「 · 1か月前」, and empty for the one on screen now. Counted in the unit the
-   * board is showing, so paging by months does not read as weeks (#194).
-   */
-  const rangeDistance = boardRangeDistance(range);
-  const rangeDistanceLabel = rangeDistance === 0
-    ? ""
-    : ` · ${Math.abs(rangeDistance)}${range.unit === "week" ? "週" : "か月"}${rangeDistance > 0 ? "後" : "前"}`;
-
   const changeView = (mode: "members" | "projects") => {
     setViewMode(mode);
     setFilter("すべて");
@@ -3222,17 +3206,9 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                 about where in the month you are, which is the question (#194). */}
             <p className="eyebrow">{page.eyebrow} <span>/</span> <span className="eyebrow-range">{activeNav === "board" ? boardRangeName(range) : "MOSAIC"}</span></p>
             <h1>{page.title}</h1>
-            {/* Then how far from today, and then what the figures count.
-                The distance is empty at zero: 「今週」 is the word #146 retired from these
-                screens, and today is a weekend two days in seven, where the week on screen
-                does not contain it at all (#194).
-                「稼働は平日で集計」 always, not only in month mode: the columns include
-                Saturday and Sunday now, and every figure on the screen is still measured
-                over weekdays — the daily loads skip them and the denominator is 稼働上限 × 5.
-                While the weekends were missing from the board, saying 「平日のみ」 described
-                the columns; now it has to describe the arithmetic instead (#207).
-                Distance first because it changes as you page; the note is constant. */}
-            <p className="date-range">{activeNav === "board" ? days[0].year + "年 " + rangeLabel + rangeDistanceLabel + " · 稼働は平日で集計" : page.description}</p>
+            {/* Board range lives on the toolbar month label (#403). Other screens keep
+                the subtitle as the page description. */}
+            {activeNav !== "board" && <p className="date-range">{page.description}</p>}
           </div>
           <div className="topbar-actions">
             {activeNav === "board" && (searchOpen ? (
