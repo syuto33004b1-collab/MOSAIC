@@ -1,4 +1,4 @@
-import { Fragment, useMemo, useRef, useState } from "react";
+import { Fragment, useMemo, useRef, useState, type CSSProperties } from "react";
 import {
   AlertTriangle,
   ArrowRight,
@@ -1714,7 +1714,7 @@ export function ReportsView({ state, onOpenWeek, onResolveNeed, onOpenOpportunit
             line drawn at 100% and a reader pairing them read a different value (#133). */}
         <div className="horizon-plot">
           <div className="horizon-y-labels"><span className="t100">100%</span><span className="t60">60%</span><span className="t0">0</span></div>
-          <div className="horizon-grid" style={{ gridTemplateColumns: `repeat(${Math.max(horizon.length, 1)}, minmax(42px, 1fr))` }}>
+          <div className="horizon-grid" style={{ "--horizon-cols": Math.max(horizon.length, 1) } as CSSProperties}>
             <div className="horizon-guide g100" /><div className="horizon-guide g60" />
             {horizon.map((bucket) => (
             <button className="horizon-week" type="button" onClick={() => openBoard(bucket.from)} key={`${bucket.from}:${bucket.to}`} aria-label={`${bucket.label} ${bucket.average}%${bucket.pipelineDemand > 0 ? ` 受注前+${bucket.pipelineDemand}名` : ""}`}>

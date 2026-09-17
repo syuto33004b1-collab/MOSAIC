@@ -2302,7 +2302,9 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   grid-row: 1 / -1;
   padding: 0 8px;
   display: grid;
-  grid-template-columns: repeat(12, minmax(42px, 1fr));
+  /* Column count comes from `--horizon-cols` (#393). A hard `repeat(12)` left
+     a 1-month horizon at 1/12 width whenever the inline override was missing. */
+  grid-template-columns: repeat(var(--horizon-cols, 12), minmax(42px, 1fr));
   grid-template-rows: subgrid;
   align-items: end;
   /* 列だけ。行に 8px を入れると3本の隙間で 24px をラベル側に取られ、
