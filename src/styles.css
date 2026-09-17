@@ -711,6 +711,28 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   overflow-y: auto;
   animation: drawer-in .34s cubic-bezier(.2, .8, .2, 1);
 }
+/* #394: 「アサインを追加」だけ中央の台。620px 以下のボトムシートは触らないので
+   min-width: 621px で囲む（修飾クラスの詳細度を 0,1,0 のまま保ち、:has は使わない）。
+   621–1000px も台 — 右端に細い板を貼るより中央カードの方が素直。 */
+@media (min-width: 621px) {
+  .assignment-add-overlay {
+    justify-content: center;
+    align-items: center;
+  }
+  .assignment-add-panel {
+    width: min(100%, clamp(410px, 48vw, 620px));
+    height: auto;
+    max-height: 100%;
+    /* animation-name だけ上書き。ショートハンドだと 620px 側の drawer-up が
+       duration/easing を奪ったまま戻せず、狭幅シートの挙動が変わる。
+       影・角丸は後段のテーマ `.drawer` が上書きするので、テーマの直後で再宣言する。 */
+    animation-name: assignment-add-in;
+  }
+}
+@keyframes assignment-add-in {
+  from { opacity: 0; transform: translateY(10px) scale(0.98); }
+  to { opacity: 1; transform: none; }
+}
 .drawer-handle { display: none; }
 .drawer-top {
   margin-bottom: 23px;
@@ -4170,6 +4192,15 @@ h1 {
   border-radius: 0;
   background: var(--paper);
   box-shadow: -18px 0 55px rgba(52, 17, 3, .14);
+}
+/* Theme `.drawer` above wins on shadow/radius for the shared rail. Re-assert the
+   centered stage after it so add stays a card, not a left-shadowed sheet (#394). */
+@media (min-width: 621px) {
+  .assignment-add-panel {
+    border: 1px solid var(--line);
+    border-radius: 20px;
+    box-shadow: 0 24px 70px rgba(52, 17, 3, .22);
+  }
 }
 .drawer-kicker { color: var(--coral-deep); }
 .drawer-heading h2,
