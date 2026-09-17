@@ -235,16 +235,19 @@ test("a narrow bar drops the percentage rather than the project name", async () 
  * 8px of padding was measured too: 4px a row against a legible gutter, and the gutter won.
  * Shortening the person cell's wrapped subtitle would have been the biggest single win
  * (72.6 → 56.4px) and is not taken here: it drops the department from the row (#192).
+ *
+ * #390 cut the floor to 64px: person-cell padding 10×2 plus `.person-open`'s explicit
+ * 44px tap target. The old 78px had been covering that tap size implicitly.
  */
 test("a schedule row takes its height from its content", async () => {
   const css = withoutComments(await read()).replaceAll("\r\n", "\n");
 
-  // 78px is one row of content — the person cell's avatar beside two lines of name, plus the
-  // row's 10px of padding — so it is a floor for a row with nothing in its week, not padding
+  // 64px is one row of content — `.person-open` at 44px plus the cell's 10px padding
+  // top and bottom — so it is a floor for a row with nothing in its week, not padding
   // for one with something. 104px and 120px were two assignments' worth, desktop and narrow.
   const floors = allRules(css, "schedule-row")
     .flatMap(({ selector, body }) => declarations(body, "min-height").map((value) => ({ selector, value })))
-    .filter(({ value }) => !/^\d+(?:\.\d+)?px$/u.test(value) || Number.parseFloat(value) > 78);
+    .filter(({ value }) => !/^\d+(?:\.\d+)?px$/u.test(value) || Number.parseFloat(value) > 64);
   assert.deepEqual(floors.map(({ selector, value }) => `${selector} → ${value}`), [],
     "a floor above one row of content pads every row that holds less than two assignments (#192)");
 

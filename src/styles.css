@@ -143,11 +143,13 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
  * row with a wide thing in it would grow past the others and stop dividing the box the way
  * the header does, which is the drift #106 removed.
  */
-.schedule-row { min-height: 78px; min-width: calc(var(--schedule-label-col) + var(--schedule-days-min-width)); display: grid; grid-template-columns: var(--schedule-label-col) minmax(0, 1fr); border-bottom: 1px solid var(--line); }
+/* 64px is one row of content: person-cell's 10px padding ×2 plus `.person-open`'s
+   44px tap floor (#390). Not two assignments' worth — that was the 104/120 bug (#192). */
+.schedule-row { min-height: 64px; min-width: calc(var(--schedule-label-col) + var(--schedule-days-min-width)); display: grid; grid-template-columns: var(--schedule-label-col) minmax(0, 1fr); border-bottom: 1px solid var(--line); }
 .schedule-row:last-child { border-bottom: 0; }
-/* 10px, not 14px: the row's height is its content now, so the padding is the whole of what
-   is spare. 8px was measured too — 4px a row, against a legible gutter (#192). */
-.person-cell { position: sticky; z-index: 2; left: 0; min-width: 0; padding: 10px 15px 10px 18px; background: var(--paper); display: flex; align-items: center; gap: 10px; }
+/* 10px vertical stays (#192 gutter). Horizontal 14/12 frees ~7px for `.person-copy`
+   after the label column was cut 245→210 (#390). */
+.person-cell { position: sticky; z-index: 2; left: 0; min-width: 0; padding: 10px 12px 10px 14px; background: var(--paper); display: flex; align-items: center; gap: 10px; }
 /* The row's hover tint has to reach the sticky cell too, or the cell stays pale
    while the rest of the row lights up. */
 .schedule-row:hover .person-cell { background: #fafbfe; }
@@ -159,6 +161,8 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 /* The row header's own control, styled like `.member-name-cell` because it is the same
    thing on a different screen: the avatar and the name, opening what the row is (#195). */
 .person-open {
+  /* Was implicit under the old 78px row floor; make the 44px tap target explicit (#390). */
+  min-height: 44px;
   min-width: 0;
   flex: 1;
   padding: 0;
@@ -3399,7 +3403,10 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
      Wednesday's label: the header split (width - label), the cell split
      (width - label - 16px of its own padding), so the boundaries drifted
      +8.00 / +4.79 / +1.58 / -1.64 / -4.83px across the week. */
-  --schedule-label-col: 245px;
+  /* 210px leaves ~75–85px for `.person-copy` after padding, avatar, gaps, and load
+     chip — enough for two wrapped lines of name + role without pushing the row
+     taller. 180px left ~50px and made project summaries grow the row (#390). */
+  --schedule-label-col: 210px;
   --schedule-day-tracks: repeat(5, minmax(72px, 1fr));
   --fab-size: 56px;
   --fab-inset: max(22px, env(safe-area-inset-bottom));
@@ -3417,7 +3424,7 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
    matters and getting it wrong makes the override silently do nothing. */
 @media (min-width: 1500px) {
   :root {
-    --schedule-label-col: 260px;
+    --schedule-label-col: 225px;
     --schedule-day-tracks: repeat(5, minmax(78px, 1fr));
   }
 }
