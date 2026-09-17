@@ -11,6 +11,7 @@ import {
   assignmentSpan,
   boardBasisDay,
   boardBasisWeek,
+  boardMonthOffsetFromDate,
   boardRange,
   boardRangeDistance,
   boardRangeName,
@@ -233,6 +234,14 @@ describe("calendar helpers", () => {
     it("names a month with its year", () => {
       expect(boardRangeName(boardRange("month", 0, "2026-08-19"))).toBe("2026年 8月");
       expect(boardRangeName(boardRange("month", 1, "2026-12-15"))).toBe("2027年 1月");
+    });
+
+    it("counts months from today to a date's month for report→board jumps (#391)", () => {
+      expect(boardMonthOffsetFromDate("2026-08-19", "2026-08-19")).toBe(0);
+      expect(boardMonthOffsetFromDate("2026-09-01", "2026-08-19")).toBe(1);
+      expect(boardMonthOffsetFromDate("2026-10-05", "2026-08-19")).toBe(2);
+      expect(boardMonthOffsetFromDate("2027-01-15", "2026-12-15")).toBe(1);
+      expect(boardMonthOffsetFromDate("2026-07-01", "2026-08-19")).toBe(-1);
     });
   });
 
@@ -1635,6 +1644,7 @@ describe("period range (#329 / #364)", () => {
       memberExceedsCapacity(initialWorkspace, member, four.from, four.to),
     );
     expect(periodMemberStats(initialWorkspace, member, four).firstExceedOffset).toBe(0);
+    expect(periodMemberStats(initialWorkspace, member, four).firstExceedDate).toMatch(/^\d{4}-\d{2}-\d{2}$/u);
     let calls = 0;
     const counting = ((...args: Parameters<typeof memberDailyLoads>) => {
       calls += 1;
@@ -1673,6 +1683,7 @@ describe("period range (#329 / #364)", () => {
     const laterStats = periodMemberStats(later, member, range);
     expect(laterStats.exceeds).toBe(true);
     expect(laterStats.firstExceedOffset).toBe(2);
+    expect(laterStats.firstExceedDate).toBe("2026-08-31");
     const holiday = periodRange({ unit: "week", count: 4 }, "2026-05-04");
     const holidayState: WorkspaceState = {
       ...state,
@@ -1732,6 +1743,26 @@ describe("period range (#329 / #364)", () => {
     expect(stats.exceeds).toBe(true);
     expect(stats.firstExceedOffset).toBe(0);
     expect(stats.buckets.slice(1).every((bucket) => bucket.exceeds === false)).toBe(true);
+  });
+
+  it("names the first overloaded civil day even when the week bucket starts in the prior month (#391)", () => {
+    const member: Member = {
+      id: "m", initials: "M", name: "Member", role: "QA", department: "QA", avatarTone: "mint", skills: [], location: "Tokyo", capacity: 80,
+    };
+    const state: WorkspaceState = {
+      ...initialWorkspace,
+      members: [member],
+      assignments: [{
+        id: "a", personId: "m", projectId: "p", startDate: "2026-09-01", endDate: "2026-09-01",
+        allocation: 120, status: "confirmed",
+      }],
+    };
+    // Origin 8/17: bucket index 2 is 8/31–9/6. Exceed day is Tue 9/1, not Mon 8/31.
+    const range = periodRange({ unit: "week", count: 4 }, "2026-08-17");
+    const stats = periodMemberStats(state, member, range);
+    expect(stats.firstExceedOffset).toBe(2);
+    expect(stats.buckets[2]?.from).toBe("2026-08-31");
+    expect(stats.firstExceedDate).toBe("2026-09-01");
   });
 
   it("takes the thinnest week in a span for project headcount", () => {

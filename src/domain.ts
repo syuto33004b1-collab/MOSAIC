@@ -731,6 +731,18 @@ export function boardRangeDistance(range: BoardRange, today = currentLocalDate()
 }
 
 /**
+ * Months from today's month to the month that holds `iso`. Same sign convention as
+ * `boardRangeDistance` for a month board — used when a report bucket opens the board
+ * after the board stopped paging by week (#391).
+ */
+export function boardMonthOffsetFromDate(iso: string, today = currentLocalDate()) {
+  const now = new Date(today + "T00:00:00Z");
+  const there = new Date(iso + "T00:00:00Z");
+  if (Number.isNaN(now.valueOf()) || Number.isNaN(there.valueOf())) return 0;
+  return (there.getUTCFullYear() - now.getUTCFullYear()) * 12 + (there.getUTCMonth() - now.getUTCMonth());
+}
+
+/**
  * Which columns an assignment occupies, 1-based, or null if it is not in view.
  *
  * The column is the assignment's position in `range.days`, looked up — not its
@@ -818,6 +830,12 @@ export type PeriodMemberStats = {
   open: boolean;
   /** First bucket that contains a day over the ceiling, or null. */
   firstExceedOffset: number | null;
+  /**
+   * First civil day over the ceiling, or null. The month board opens on this
+   * date's month — not the bucket's `from`, which can sit in the previous month
+   * when a week straddles the boundary (#391).
+   */
+  firstExceedDate: string | null;
   buckets: PeriodBucketStats[];
 };
 
@@ -930,10 +948,12 @@ export function periodStatsFromDays(days: DailyLoad[], buckets: PeriodBucket[]):
     };
   });
   const firstExceedOffset = bucketStats.findIndex((bucket) => bucket.exceeds);
+  const firstExceedDay = days.find((day) => day.load > day.capacity);
   return {
     exceeds: bucketStats.some((bucket) => bucket.exceeds),
     open,
     firstExceedOffset: firstExceedOffset === -1 ? null : firstExceedOffset,
+    firstExceedDate: firstExceedDay?.date ?? null,
     buckets: bucketStats,
   };
 }
@@ -945,7 +965,7 @@ export function periodMemberStats(
   dailyLoads: typeof memberDailyLoads = memberDailyLoads,
 ): PeriodMemberStats {
   if (!range.from || !range.to || range.to < range.from) {
-    return { exceeds: false, open: false, firstExceedOffset: null, buckets: range.buckets.map((bucket) => ({ ...bucket, load: 0, capacity: 0, average: 0, exceeds: false, open: false, peak: 0, slack: 0, ratio: 0 })) };
+    return { exceeds: false, open: false, firstExceedOffset: null, firstExceedDate: null, buckets: range.buckets.map((bucket) => ({ ...bucket, load: 0, capacity: 0, average: 0, exceeds: false, open: false, peak: 0, slack: 0, ratio: 0 })) };
   }
   return periodStatsFromDays(dailyLoads(state, member.id, range.from, range.to), range.buckets);
 }

@@ -45,13 +45,13 @@ import {
   assignmentSpan,
   boardBasisDay,
   boardBasisWeek,
+  boardMonthOffsetFromDate,
   boardRange,
   boardRangeDistance,
   boardRangeName,
   ownerCandidates,
   ownerLabel,
   ownerMember,
-  type BoardUnit,
   cancelProfileRequest,
   canConvertOpportunity,
   completeProfileRequest,
@@ -558,13 +558,10 @@ export default function Home({ mode = "demo", organizationId, organizationName =
   const [viewMode, setViewMode] = useState<"members" | "projects">("members");
   const [weekOffset, setWeekOffset] = useState(0);
   /**
-   * The board's span. Only the board's — pulse average/slack and the bell stay
-   * week-scoped, because those labels name a week (#119) and a month behind a
-   * week's label is the defect #115 was about. The attention panel's overload
-   * count is the selected period (#367), not this week. `weekStart` below is the
-   * week containing this range's start, which in week mode is the range itself.
+   * The board pages by month only (#391). Pulse average/slack and the bell stay
+   * week-scoped via `boardBasisWeek` (#119 / #187). Domain still accepts "week"
+   * for PeriodChoice / PERIOD_CHOICES.
    */
-  const [boardUnit, setBoardUnit] = useState<BoardUnit>("week");
   const [drawerPeriod, setDrawerPeriod] = useState<PeriodChoice>(PERIOD_CHOICES[0]);
   const [attentionPeriod, setAttentionPeriod] = useState<PeriodChoice>(PERIOD_CHOICES[0]);
   const [overloadDrawerId, setOverloadDrawerId] = useState("");
@@ -1086,16 +1083,15 @@ export default function Home({ mode = "demo", organizationId, organizationName =
     chosenCandidateRef.current?.scrollIntoView({ block: "nearest" });
   }, [drawer]);
 
-  const range = useMemo(() => boardRange(boardUnit, weekOffset), [boardUnit, weekOffset]);
+  const range = useMemo(() => boardRange("month", weekOffset), [weekOffset]);
   const days = range.days;
   /**
-   * The narrowest a day column is allowed to get.
-   *
-   * One number, because the schedule card hands out two things made from it: the track
-   * list the header and the cells divide the box by, and the floor a row has to be at
-   * least as wide as (#290). Read them from one place and they cannot disagree.
+   * Day-column floor for a full calendar month (28–31 columns). 22px leaves ~38px
+   * spare at 1280 CSS px after sidebar, padding, and the 210px label (#391).
+   * Weekday names are gone from the header for the same reason — they would not
+   * fit. Bar labels may be unreadable; title / aria-label remain.
    */
-  const scheduleDayFloor = range.unit === "week" ? 72 : 34;
+  const scheduleDayFloor = 22;
   /**
    * The one week everything week-scoped works from: the attention panel, the
    * drawers, the labels that name it, and the offset the other screens receive.
@@ -1450,12 +1446,10 @@ export default function Home({ mode = "demo", organizationId, organizationName =
   ];
 
   /**
-   * One place for the words that describe the range, because #115 was a label and
-   * a number that had drifted apart. `unitWord` goes into the paging buttons and
-   * the grid's name; `rangeLabel` into the date line, from the range's real ends —
-   * a month starts on its first weekday, which in August 2026 is the 3rd.
+   * One place for the words that describe the range. The board is month-only (#391),
+   * so paging labels say 「月」. `rangeLabel` still comes from the range's real ends.
    */
-  const unitWord = range.unit === "week" ? "週" : "月";
+  const unitWord = "月";
   /** The week the week-scoped figures cover, for the labels that name it. */
   const measuredWeekLabel = weekLabel(weekStart);
   const drawerOverloadMember = (overloadDrawerId
@@ -2579,9 +2573,8 @@ export default function Home({ mode = "demo", organizationId, organizationName =
     setToast("要員要件を取消予定にしました");
   };
 
-  const openWeekFromReport = (offset: number, unit: BoardUnit) => {
-    setBoardUnit(unit);
-    setWeekOffset(offset);
+  const openWeekFromReport = (fromIso: string) => {
+    setWeekOffset(boardMonthOffsetFromDate(fromIso));
     setActiveNav("board");
     setViewMode("members");
   };
@@ -3272,18 +3265,10 @@ export default function Home({ mode = "demo", organizationId, organizationName =
               <section
                 className="schedule-card"
                 aria-label={unitWord + "間アサイン表"}
-                /* The header row and every row's cell must divide the same box
-                   into the same days (#106), so the track list is set once here,
-                   on their common ancestor, rather than by each of them. It is
-                   inline because the column count is data: five in week mode, 20
-                   to 23 in a month. 34px because 23 columns at the week's 72px
-                   would be 1656px of grid and 835px of sideways scroll (#139).
-
-                   The floor those tracks add up to travels with them, because a
-                   row has to be at least that wide or its cell clips the days it
-                   is drawing (#290). Measured, not intrinsic: `max-content` would
-                   read whatever sits in the cell, and one row growing past the
-                   others is the drift #106 removed. */
+                /* Day count is data (28–31). Floor 22px is sized for 1280+ CSS px
+                   with the aside under the board and the 210px label (#391). Older
+                   comments saying 20–23 columns were from before weekends were
+                   drawn (#207). */
                 style={{
                   "--schedule-day-tracks": `repeat(${days.length}, minmax(${scheduleDayFloor}px, 1fr))`,
                   "--schedule-days-min-width": `${days.length * scheduleDayFloor}px`,
@@ -3314,13 +3299,9 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                       <SlidersHorizontal size={13} />絞り込み
                       {appliedBoardFilters.length > 0 && <span className="filter-count">{appliedBoardFilters.length}</span>}
                     </button>
-                    {/* The unit changes what the arrows step by, so it sits with
-                        them rather than in the axis group above. Offset resets on
-                        the way: 3 weeks out is not 3 months out. */}
-                    <div className="view-tabs" role="group" aria-label="表示する期間">
-                      <button className={range.unit === "week" ? "selected" : ""} aria-pressed={range.unit === "week"} onClick={() => { setBoardUnit("week"); setWeekOffset(0); }}>週</button>
-                      <button className={range.unit === "month" ? "selected" : ""} aria-pressed={range.unit === "month"} onClick={() => { setBoardUnit("month"); setWeekOffset(0); }}>月</button>
-                    </div>
+                    {/* Month name sits with the paging controls — it is the label for
+                        what the arrows step (#391). Week/month toggle is gone. */}
+                    <span className="board-month-label">{boardRangeName(range)}</span>
                     <button onClick={() => setWeekOffset(0)}><CalendarDays size={13} />今日</button>
                     <button className="arrow-button" aria-label={"前の" + unitWord} onClick={() => setWeekOffset((offset) => offset - 1)}><ChevronLeft size={16} /></button>
                     <button className="arrow-button" aria-label={"次の" + unitWord} onClick={() => setWeekOffset((offset) => offset + 1)}><ChevronRight size={16} /></button>
@@ -3366,7 +3347,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                       {/* Today by date, not by position: it is the first column
                           only in the current week, and somewhere in the middle of
                           the current month. */}
-                      {days.map((day) => <div className={"day-label" + (day.weekend ? " weekend" : "") + (day.iso === todayIso ? " today" : "")} role="columnheader" key={day.iso}><span>{day.day}</span><strong>{day.date}</strong></div>)}
+                      {days.map((day) => <div className={"day-label" + (day.weekend ? " weekend" : "") + (day.iso === todayIso ? " today" : "")} role="columnheader" key={day.iso}><strong>{day.date}</strong></div>)}
                     </div>
                     <div className="schedule-body">
                       {rows.length > 0 ? rows.map((row) => (
