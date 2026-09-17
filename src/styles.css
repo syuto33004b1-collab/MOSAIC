@@ -3046,6 +3046,7 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .week-cell { grid-auto-rows: minmax(36px, auto); align-content: start; }
 .project-name-cell,
 .member-name-cell,
+.person-open,
 .exception-list button,
 .detail-member-list button { min-height: 44px; }
 
