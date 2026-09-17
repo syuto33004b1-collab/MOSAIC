@@ -69,6 +69,14 @@ function linkedStaffingWorkspace(): WorkspaceState {
   };
 }
 
+/** Cards live in the 要調整 dialog; open it from the pulse count first (#395). */
+async function openAttentionDialog(user: ReturnType<typeof userEvent.setup>) {
+  if (!document.querySelector(".attention-dialog")) {
+    await user.click(screen.getByRole("button", { name: /^\d+件(1か月|6か月|12か月)の要調整$/u }));
+  }
+  return within(screen.getByRole("dialog", { name: "要調整" }));
+}
+
 describe("role-aware workspace", () => {
   it("keeps viewer accounts read-only across board and member views", async () => {
     const user = userEvent.setup();
@@ -401,6 +409,7 @@ describe("role-aware workspace", () => {
     adapter.save = save;
     render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
 
+    await openAttentionDialog(user);
     const overloadButton = screen.getByText("上限超過").closest("button");
     expect(overloadButton).not.toBeNull();
     await user.click(overloadButton!);
@@ -698,6 +707,7 @@ describe("role-aware workspace", () => {
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
     render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
 
+    await openAttentionDialog(user);
     const openRole = screen.getByText("未充足ロール").closest("button");
     expect(openRole).not.toBeNull();
     await user.click(openRole!);
@@ -795,6 +805,7 @@ describe("role-aware workspace", () => {
     };
     render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
 
+    await openAttentionDialog(user);
     await user.click(screen.getByText("未充足ロール").closest("button")!);
     const dialog = within(screen.getByRole("dialog", { name: "詳細パネル" }));
     expect(dialog.queryByText("全条件 一郎")).not.toBeInTheDocument();
@@ -1026,6 +1037,7 @@ describe("role-aware workspace", () => {
     adapter.save = save;
     render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
 
+    await openAttentionDialog(user);
     await user.click(screen.getByText("上限超過").closest("button")!);
     await user.click(screen.getByRole("button", { name: "推奨配分へ調整" }));
     await user.click(screen.getByRole("button", { name: "チームへ保存" }));
@@ -2214,6 +2226,7 @@ describe("the member screen's scene form", () => {
     };
     render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
 
+    await openAttentionDialog(user);
     await user.click(screen.getByText("上限超過").closest("button")!);
     expect(screen.getByRole("heading", { name: "上限超過を調整" })).toBeInTheDocument();
     expect(screen.getByText(/稼働上限50%/u)).toBeInTheDocument();
@@ -2267,6 +2280,7 @@ describe("the member screen's scene form", () => {
     render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
 
     try {
+      await openAttentionDialog(user);
       await user.click(screen.getByText("上限超過").closest("button")!);
       expect(screen.getByRole("heading", { name: "上限超過を調整" })).toBeInTheDocument();
       expect(screen.getByText(/60% \/ 稼働上限50%/u)).toBeInTheDocument();
@@ -2567,6 +2581,7 @@ describe("one word per quantity", () => {
     } as unknown as WorkspaceState;
     render(<App mode="shared" organizationName="Example Inc." identity={owner} shared={adapter} />);
 
+    await openAttentionDialog(user);
     await user.click(screen.getByText("解消予定").closest("button")!);
     const dialog = within(screen.getByRole("dialog", { name: "詳細パネル" }));
     expect(dialog.getByText(/^稼働配分 45% · /u)).toBeInTheDocument();
@@ -4925,7 +4940,8 @@ describe("a way into the proposal screen", () => {
 
   const openGuide = async (user: ReturnType<typeof userEvent.setup>) => {
     await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^アサインボード( |$)/u }));
-    const card = [...document.querySelectorAll("button.alert-card")].find((element) => element.textContent?.includes("未充足"));
+    const attention = await openAttentionDialog(user);
+    const card = attention.getAllByRole("button").find((element) => element.classList.contains("alert-card") && element.textContent?.includes("未充足"));
     expect(card, "the demo data should carry an unfilled role").toBeDefined();
     await user.click(card as HTMLElement);
     await waitFor(() => expect(document.querySelector(".drawer-kicker")?.textContent).toBe("RESOLUTION GUIDE"));
@@ -5137,9 +5153,10 @@ describe("what the fit score is out of", () => {
 
     // The resolution guide, reached from the board's unfilled-role card.
     await user.click(navigation.getByRole("button", { name: /^アサインボード( |$)/u }));
+    const attention = await openAttentionDialog(user);
     // `.alert-card` is itself the button, so there is nothing to look for inside it.
-    const resolve = [...document.querySelectorAll("button.alert-card")]
-      .find((element) => element.textContent?.includes("未充足")) as HTMLElement;
+    const resolve = attention.getAllByRole("button")
+      .find((element) => element.classList.contains("alert-card") && element.textContent?.includes("未充足")) as HTMLElement;
     expect(resolve, "the demo data should carry an unfilled role").toBeDefined();
     await user.click(resolve);
     const list = await waitFor(() => {

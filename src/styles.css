@@ -678,8 +678,7 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   background: transparent;
   cursor: default;
 }
-.drawer,
-.attention-dialog {
+.drawer {
   position: relative;
   z-index: 1;
   /* 410px was the width at every viewport, so on a 1440px screen the panel used
@@ -697,6 +696,22 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
      eligible container, so switching this one off on the mobile sheet would let
      the query find `.section-view` instead. It happens not to match today only
      because that element is under 600px at those widths — arithmetic, again. */
+  container: detail-panel / inline-size;
+  height: 100%;
+  padding: 23px 24px 25px;
+  border: 1px solid rgba(255, 255, 255, .72);
+  border-radius: 20px;
+  background: #fff;
+  box-shadow: -18px 0 60px rgba(19, 28, 48, .18);
+  overflow-y: auto;
+  animation: drawer-in .34s cubic-bezier(.2, .8, .2, 1);
+}
+/* #395: same shell as `.drawer`, but a separate selector so #137/#394 contracts
+   keep matching a lone `.drawer {`. */
+.attention-dialog {
+  position: relative;
+  z-index: 1;
+  width: min(100%, clamp(410px, 62vw, 1000px));
   container: detail-panel / inline-size;
   height: 100%;
   padding: 23px 24px 25px;
@@ -1311,12 +1326,19 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   .toast { left: 14px; right: 14px; max-width: none; transform: translateY(12px); }
   .toast.show { transform: none; }
   .overlay { padding: 0; align-items: flex-end; }
-  .drawer,
-  .attention-dialog {
+  .drawer {
     /* Not a container here. This sheet is full-bleed and a different shape, and
        its content box sits near the two-column threshold (#137). Name dropped as
        well as type, so `detail-panel` resolves to nothing at all rather than to
        some ancestor that happens to carry the name later. */
+    container: none;
+    width: 100%;
+    height: min(88vh, 760px);
+    padding: 15px 18px 25px;
+    border-radius: 20px 20px 0 0;
+    animation-name: drawer-up;
+  }
+  .attention-dialog {
     container: none;
     width: 100%;
     height: min(88vh, 760px);
@@ -4179,18 +4201,27 @@ h1 {
 
 .overlay { background: rgba(52, 17, 3, .34); backdrop-filter: blur(3px); }
 .overlay-backdrop { background: transparent; }
-.drawer,
+.drawer {
+  border-left: 1px solid var(--line);
+  border-radius: 0;
+  background: var(--paper);
+  box-shadow: -18px 0 55px rgba(52, 17, 3, .14);
+}
 .attention-dialog {
   border-left: 1px solid var(--line);
   border-radius: 0;
   background: var(--paper);
   box-shadow: -18px 0 55px rgba(52, 17, 3, .14);
 }
-/* Theme `.drawer` above wins on shadow/radius for the shared rail. Re-assert the
-   centered stage after it so add stays a card, not a left-shadowed sheet (#394).
-   Attention dialog gets the same card treatment (#395). */
+/* Theme `.drawer { box-shadow: -18px … }` comes later; the last matching stage
+   rule inside min-width 621 must re-assert a symmetric shadow and radius (#394).
+   Attention dialog gets the same card treatment in its own rule (#395). */
 @media (min-width: 621px) {
-  .assignment-add-panel,
+  .assignment-add-panel {
+    border: 1px solid var(--line);
+    border-radius: 20px;
+    box-shadow: 0 24px 70px rgba(52, 17, 3, .22);
+  }
   .attention-dialog {
     border: 1px solid var(--line);
     border-radius: 20px;
@@ -4431,7 +4462,12 @@ h1 {
   .pulse-strip { padding: 20px; }
   .portfolio-ribbon,
   .member-ribbon { padding: 18px; }
-  .drawer,
+  .drawer {
+    border: 1px solid var(--line);
+    border-bottom: 0;
+    border-radius: 12px 12px 0 0;
+    box-shadow: 0 -18px 48px rgba(52, 17, 3, .16);
+  }
   .attention-dialog {
     border: 1px solid var(--line);
     border-bottom: 0;
