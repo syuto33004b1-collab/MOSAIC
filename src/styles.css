@@ -2547,13 +2547,9 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .workspace-mode.shared { border-color: rgba(126, 231, 189, .22); background: rgba(126, 231, 189, .08); }
 .workspace-mode.shared span { color: #8fe0bd; }
 .workspace-mode.demo span { color: #f0bf7a; }
-.profile-actions { display: inline-flex; align-items: center; gap: 4px; }
-.profile-actions button,
 .sidebar-legal-action { min-width: 30px; min-height: 30px; padding: 0 6px; border-radius: 8px; font-size: var(--text-min); font-weight: 700; }
 .sidebar-legal-action { display: inline-flex; align-items: center; justify-content: center; color: inherit; text-decoration: none; }
-.profile-actions button:hover,
 .sidebar-legal-action:hover { background: rgba(255, 255, 255, .08); color: #fff; }
-.profile-actions button:disabled { cursor: not-allowed; opacity: .42; }
 .primary-button:disabled, .save-button:disabled { opacity: .5; cursor: not-allowed; box-shadow: none; }
 /* Two things this label needs that it did not have while it only ever said
    「閲覧のみ」 to a signed-in viewer, a state the DEMO-mode contrast sweep never
@@ -2754,10 +2750,93 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .production-invitation-section small { font-size: 9px; }
 .production-sign-out { margin-top: 0; background: transparent; }
 
-.production-operations-panel { width: min(540px, 100vw); }
+/* Medium settings panel: two-pane needs ~780px+. Pure 50vw fails at both ends
+   (too narrow on 1280px, too wide on 2560px), so clamp like `.drawer`. #388 */
+.production-operations-panel {
+  width: min(100vw, clamp(780px, 62vw, 1000px));
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  overflow-y: hidden;
+}
 .production-operations-panel .assignment-form { margin-bottom: 22px; }
 .production-operations-panel .drawer-section-title { margin-top: 22px; }
+.production-operations-panel .drawer-section-title:first-child { margin-top: 0; }
 .production-operations-panel .drawer-section-title button { margin-left: auto; }
+.production-settings-panes {
+  display: grid;
+  grid-template-columns: 168px minmax(0, 1fr);
+  gap: 0;
+  flex: 1 1 auto;
+  min-height: 0;
+  border-top: 1px solid var(--line);
+}
+.production-settings-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 10px;
+  border-right: 1px solid var(--line);
+  overflow: auto;
+  min-height: 0;
+}
+.production-settings-nav-item {
+  border: 0;
+  background: transparent;
+  text-align: left;
+  padding: 10px 12px;
+  border-radius: 10px;
+  color: var(--ink);
+  font: 700 13px/1.35 var(--font-ui);
+  cursor: pointer;
+}
+.production-settings-nav-item:hover { background: var(--paper); }
+.production-settings-nav-item[aria-current="page"] {
+  background: #eef1ff;
+  color: #4f6ef7;
+}
+.production-settings-detail {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  padding: 14px 18px 20px;
+}
+.production-settings-lead {
+  margin: 0 0 12px;
+  color: #58677d;
+  font-size: var(--text-sm);
+  line-height: 1.55;
+}
+.production-settings-link {
+  display: inline-flex;
+  width: auto;
+  text-decoration: none;
+}
+/* Keep lists single-column inside the widened settings panel; the shared
+   `@container detail-panel` rule would otherwise switch `.allocation-list` to
+   two columns above 600px and break borders / audit details. #388 */
+.production-operations-panel .allocation-list {
+  display: flex;
+  flex-direction: column;
+}
+.profile-account {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+}
+.profile-account:disabled {
+  cursor: not-allowed;
+  opacity: .42;
+}
+.profile-account:hover:not(:disabled) {
+  background: rgba(255, 255, 255, .06);
+  border-radius: 12px;
+}
 .production-member-list > div,
 .production-invitation-list > div,
 .production-integration-list > div,
@@ -2783,7 +2862,6 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   white-space: nowrap;
   font-size: var(--text-min);
 }
-.feedback-dialog { width: min(420px, 100vw); }
 .member-access-controls { display: flex; flex: 0 0 auto; align-items: center; gap: 6px; }
 .member-access-controls select { min-height: 36px; max-width: 104px; padding: 5px 24px 5px 9px; border: 1px solid #dce2ec; border-radius: 8px; background: #fff; color: var(--ink); font: 700 var(--text-min) var(--font-data); }
 .member-status-button { width: auto; min-width: 62px; min-height: 36px; padding-inline: 9px; font-size: var(--text-min); }
@@ -2955,7 +3033,6 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .all-alerts,
 .horizon-caption button,
 .report-insight button,
-.profile-actions button,
 .sidebar-legal-action,
 .sync-banner button,
 .production-audit-detail summary { min-height: 36px; }
@@ -3235,7 +3312,6 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   .all-alerts,
   .horizon-caption button,
   .report-insight button,
-  .profile-actions button,
   .sidebar-legal-action,
   .sync-banner button,
   .production-audit-detail summary { min-height: 44px; }
@@ -3254,8 +3330,7 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   .view-add-button { min-height: 44px; }
   .view-add-button { flex: 1 1 100%; justify-content: center; }
   .report-insight { flex-wrap: wrap; }
-  .production-operations-panel,
-  .feedback-dialog { width: 100vw; }
+  .production-operations-panel { width: 100vw; }
   .production-audit-detail dl > div { grid-template-columns: 1fr; gap: 3px; }
 }
 
@@ -4212,9 +4287,6 @@ h1 {
   .profile-row > span:nth-child(2) { display: none; }
   .nav-item.active { border-bottom-color: var(--coral); }
   .profile-row { flex-direction: column; justify-content: center; }
-  .profile-actions { display: flex; flex-direction: column; }
-  .profile-row .profile-actions,
-  .profile-row .profile-actions button,
   .profile-row .sidebar-legal-action { display: inline-flex; }
   .workspace { padding-inline: 24px; }
   .workspace-accent { left: 24px; }
@@ -4283,8 +4355,6 @@ h1 {
     padding: 0;
     border: 0;
   }
-  .app-shell:not(.production-shell) > .sidebar .profile-actions { display: flex; flex-direction: row; gap: 2px; }
-  .app-shell:not(.production-shell) > .sidebar .profile-actions button,
   .app-shell:not(.production-shell) > .sidebar .sidebar-legal-action {
     display: inline-grid;
     min-width: 36px;
@@ -4340,7 +4410,6 @@ h1 {
 @media (max-width: 410px) {
   .app-shell:not(.production-shell) > .sidebar { grid-template-columns: minmax(0, 1fr) auto; }
   .app-shell:not(.production-shell) > .sidebar .brand { display: none; }
-  .app-shell:not(.production-shell) > .sidebar .profile-actions button { min-width: 34px; padding-inline: 4px; font-size: var(--text-min); }
   .production-sidebar .brand-copy small,
   .production-sidebar .workspace-mode small { display: none; }
   .production-sidebar .workspace-mode { margin-left: auto; padding-left: 12px; }

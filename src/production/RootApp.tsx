@@ -137,6 +137,7 @@ function SharedWorkspaceRoute({
   const [error, setError] = useState("");
   const [retryKey, setRetryKey] = useState(0);
   const [operationsOpen, setOperationsOpen] = useState(false);
+  const [feedbackSourceScreen, setFeedbackSourceScreen] = useState("unknown");
   const sharedController = useMemo(
     () => createSharedWorkspaceController(repository, currentOrganization.id),
     [currentOrganization.id, repository],
@@ -214,11 +215,10 @@ function SharedWorkspaceRoute({
           organizationName={currentOrganization.name}
           identity={{ email: context.email, name: context.name, role: currentOrganization.role, userId: context.userId }}
           shared={shared}
-          onSignOut={onSignOut}
-          onOpenOperations={() => setOperationsOpen(true)}
-          onSubmitFeedback={({ requestId, body, sourceScreen }) =>
-            repository.submitFeedback(currentOrganization.id, requestId, body, sourceScreen)
-          }
+          onOpenOperations={(sourceScreen) => {
+            setFeedbackSourceScreen(sourceScreen);
+            setOperationsOpen(true);
+          }}
           onAccessInvalidated={onAccessInvalidated}
           aiChatTransport={aiChatTransport}
         />
@@ -229,7 +229,9 @@ function SharedWorkspaceRoute({
           currentOrganization={currentOrganization}
           organizations={organizations}
           repository={repository}
+          sourceScreen={feedbackSourceScreen}
           onClose={() => setOperationsOpen(false)}
+          onSignOut={onSignOut}
           onSelectOrganization={(organization) => {
             setOperationsOpen(false);
             onSelectOrganization(organization);

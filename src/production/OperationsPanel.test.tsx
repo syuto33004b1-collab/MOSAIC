@@ -38,6 +38,11 @@ function repositoryWithAuditEvent(event: AuditEvent) {
   } as unknown as ProductionRepository;
 }
 
+
+async function openSettingsSection(user: ReturnType<typeof userEvent.setup>, name: string) {
+  await user.click(await screen.findByRole("button", { name }));
+}
+
 describe("OperationsPanel invitation administration", () => {
   it("lists and revokes a pending invitation, then refreshes the operational snapshot", async () => {
     const user = userEvent.setup();
@@ -63,6 +68,7 @@ describe("OperationsPanel invitation administration", () => {
       />,
     );
 
+    await openSettingsSection(user, "招待");
     expect(await screen.findByText("new.member@example.jp")).toBeInTheDocument();
     expect(screen.queryByRole("option", { name: /admin/ })).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /取消/ }));
@@ -95,6 +101,8 @@ describe("OperationsPanel invitation administration", () => {
       />,
     );
 
+    const user = userEvent.setup();
+    await openSettingsSection(user, "招待");
     expect(await screen.findByRole("option", { name: /admin/ })).toBeInTheDocument();
   });
 
@@ -126,6 +134,7 @@ describe("OperationsPanel invitation administration", () => {
       />,
     );
 
+    await openSettingsSection(user, "招待");
     await user.type(await screen.findByLabelText("メールアドレス"), "new.member@example.jp");
     await user.click(screen.getByRole("button", { name: "招待メールを送る" }));
 
@@ -163,6 +172,7 @@ describe("OperationsPanel invitation administration", () => {
       />,
     );
 
+    await openSettingsSection(user, "招待");
     await user.click(await screen.findByRole("button", { name: /再送/ }));
 
     await waitFor(() => expect(repository.inviteMember).toHaveBeenCalledWith(organization.id, invitation.email, invitation.role));
@@ -192,6 +202,7 @@ describe("OperationsPanel keyboard navigation", () => {
       onSelectOrganization: vi.fn(),
     };
     const { rerender } = render(<OperationsPanel {...commonProps} onClose={firstClose} />);
+    await openSettingsSection(user, "招待");
     const email = await screen.findByLabelText("メールアドレス");
     await user.click(email);
     await user.type(email, "draft@example.com");
@@ -228,6 +239,7 @@ describe("OperationsPanel keyboard navigation", () => {
       />,
     );
 
+    await openSettingsSection(user, "監査ログ");
     const auditSummary = await screen.findByText("対象・変更前後・request ID");
     const refreshButton = screen.getByRole("button", { name: "監査ログを再読み込み" });
     refreshButton.focus();
@@ -259,8 +271,10 @@ describe("OperationsPanel keyboard navigation", () => {
       />,
     );
 
-    const dialog = screen.getByRole("dialog", { name: "組織と運用履歴" });
+    const dialog = screen.getByRole("dialog", { name: "設定" });
+    await openSettingsSection(user, "監査ログ");
     const auditSummary = await screen.findByText("対象・変更前後・request ID");
+    dialog.focus();
     await waitFor(() => expect(dialog).toHaveFocus());
 
     await user.tab({ shift: true });
@@ -314,6 +328,7 @@ describe("OperationsPanel integration credentials", () => {
       />,
     );
 
+    await openSettingsSection(user, "外部連携");
     await user.type(await screen.findByLabelText("名前"), "社内 MCP");
     await user.click(screen.getByRole("checkbox", { name: "アサインの登録・更新・取消" }));
     await user.click(screen.getByRole("button", { name: "連携資格を発行する" }));
@@ -362,6 +377,7 @@ describe("OperationsPanel integration credentials", () => {
       />,
     );
 
+    await openSettingsSection(user, "外部連携");
     expect(await screen.findByText("レポート連携")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "失効" }));
     await waitFor(() => expect(repository.revokeIntegrationClient).toHaveBeenCalledWith(organization.id, client.id));
@@ -414,6 +430,7 @@ describe("OperationsPanel webhook endpoints", () => {
       />,
     );
 
+    await openSettingsSection(user, "外部連携");
     await user.type(await screen.findByLabelText("エンドポイント名"), "BI 通知");
     await user.type(screen.getByLabelText("通知先URL"), "https://hooks.example.com/mosaic");
     await user.click(screen.getByRole("button", { name: "Webhookを登録する" }));
@@ -433,6 +450,7 @@ describe("OperationsPanel stopped integration credentials", () => {
   const organization = { id: "00000000-0000-4000-8000-000000000010", name: "共有ワークスペース", role: "owner" as const };
 
   it("tells an owner that a credential stopped because its issuer lost its role", async () => {
+    const user = userEvent.setup();
     const repository = {
       listOrganizationMembers: vi.fn().mockResolvedValue([]),
       listAuditEvents: vi.fn().mockResolvedValue({ events: [], nextBefore: undefined }),
@@ -462,6 +480,7 @@ describe("OperationsPanel stopped integration credentials", () => {
       />,
     );
 
+    await openSettingsSection(user, "外部連携");
     expect(await screen.findByText(/発行者が権限を失いました/u)).toBeInTheDocument();
   });
 });
@@ -503,6 +522,7 @@ describe("OperationsPanel external mcp servers", () => {
       />,
     );
 
+    await openSettingsSection(user, "外部連携");
     await user.type(await screen.findByLabelText("サーバーキー"), "acme_hr");
     await user.type(screen.getByLabelText("表示名"), "ACME人事");
     await user.type(screen.getByLabelText("接続先URL"), "https://mcp.example.com/mcp");
@@ -551,6 +571,7 @@ describe("OperationsPanel external mcp servers", () => {
       />,
     );
 
+    await openSettingsSection(user, "外部連携");
     await user.click(await screen.findByRole("button", { name: "接続停止" }));
     await waitFor(() => expect(repository.revokeMcpServer).toHaveBeenCalledWith(organization.id, approved.id));
     expect(await screen.findByText(/接続を停止しました/u)).toBeInTheDocument();
@@ -594,6 +615,7 @@ describe("OperationsPanel feedback", () => {
       />,
     );
 
+    await user.click(await screen.findByRole("button", { name: "気づき" }));
     expect(await screen.findByText("ボードの空き列が狭い")).toBeInTheDocument();
     expect(screen.getByText(/アサインボード/u)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "完了にする" })).toHaveClass("feedback-status-button");
@@ -630,9 +652,89 @@ describe("OperationsPanel feedback", () => {
       />,
     );
 
-    await screen.findByRole("dialog", { name: "組織と運用履歴" });
+    await screen.findByRole("dialog", { name: "設定" });
     expect(repository.listFeedback).not.toHaveBeenCalled();
-    expect(screen.queryByText("気づき")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "気づき" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "気づきを送る" })).toBeInTheDocument();
     expect(screen.queryByText("ボードの空き列が狭い")).not.toBeInTheDocument();
+  });
+
+  it("sends feedback with the screen that opened settings and reuses the request id on retry", async () => {
+    const user = userEvent.setup();
+    const submitFeedback = vi.fn()
+      .mockRejectedValueOnce(new Error("一時的に送れません"))
+      .mockResolvedValueOnce({ id: "fb-3", requestId: "req-3", replayed: false });
+    const repository = {
+      listOrganizationMembers: vi.fn().mockResolvedValue([]),
+      listAuditEvents: vi.fn().mockResolvedValue({ events: [], nextBefore: undefined }),
+      listOrganizationInvitations: vi.fn().mockResolvedValue([]),
+      listIntegrationClients: vi.fn().mockResolvedValue([]),
+      listWebhookEndpoints: vi.fn().mockResolvedValue([]),
+      listMcpServers: vi.fn().mockResolvedValue([]),
+      listFeedback: vi.fn().mockResolvedValue({ items: [], nextBefore: undefined }),
+      submitFeedback,
+    } as unknown as ProductionRepository;
+
+    render(
+      <OperationsPanel
+        currentUserId="00000000-0000-4000-8000-000000000001"
+        currentOrganization={organization}
+        organizations={[organization]}
+        repository={repository}
+        sourceScreen="members"
+        onClose={vi.fn()}
+        onSelectOrganization={vi.fn()}
+      />,
+    );
+
+    await openSettingsSection(user, "気づきを送る");
+    await user.type(await screen.findByLabelText("内容"), "検索が遠い");
+    await user.click(screen.getByRole("button", { name: "送る" }));
+    expect(await screen.findByText("一時的に送れません")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "送る" }));
+    await waitFor(() => expect(submitFeedback).toHaveBeenCalledTimes(2));
+    expect(submitFeedback).toHaveBeenNthCalledWith(
+      1,
+      organization.id,
+      expect.stringMatching(/^[0-9a-f-]{36}$/u),
+      "検索が遠い",
+      "members",
+    );
+    expect(submitFeedback.mock.calls[0][1]).toEqual(submitFeedback.mock.calls[1][1]);
+    expect(await screen.findByText("気づきを送りました。")).toBeInTheDocument();
+  });
+
+  it("offers the legal notice and sign-out from settings", async () => {
+    const user = userEvent.setup();
+    const onSignOut = vi.fn();
+    const repository = {
+      listOrganizationMembers: vi.fn().mockResolvedValue([]),
+      listAuditEvents: vi.fn().mockResolvedValue({ events: [], nextBefore: undefined }),
+      listOrganizationInvitations: vi.fn().mockResolvedValue([]),
+      listIntegrationClients: vi.fn().mockResolvedValue([]),
+      listWebhookEndpoints: vi.fn().mockResolvedValue([]),
+      listMcpServers: vi.fn().mockResolvedValue([]),
+      listFeedback: vi.fn().mockResolvedValue({ items: [], nextBefore: undefined }),
+    } as unknown as ProductionRepository;
+
+    render(
+      <OperationsPanel
+        currentUserId="00000000-0000-4000-8000-000000000001"
+        currentOrganization={organization}
+        organizations={[organization]}
+        repository={repository}
+        onClose={vi.fn()}
+        onSelectOrganization={vi.fn()}
+        onSignOut={onSignOut}
+      />,
+    );
+
+    await openSettingsSection(user, "規約");
+    const link = await screen.findByRole("link", { name: "プライバシーポリシーと利用規約" });
+    expect(link).toHaveAttribute("href", expect.stringContaining("legal=1"));
+
+    await openSettingsSection(user, "退出");
+    await user.click(screen.getByRole("button", { name: "ログアウト" }));
+    expect(onSignOut).toHaveBeenCalledOnce();
   });
 });
