@@ -711,6 +711,28 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   overflow-y: auto;
   animation: drawer-in .34s cubic-bezier(.2, .8, .2, 1);
 }
+/* #394: 「アサインを追加」だけ中央の台。620px 以下のボトムシートは触らないので
+   min-width: 621px で囲む（修飾クラスの詳細度を 0,1,0 のまま保ち、:has は使わない）。
+   621–1000px も台 — 右端に細い板を貼るより中央カードの方が素直。 */
+@media (min-width: 621px) {
+  .assignment-add-overlay {
+    justify-content: center;
+    align-items: center;
+  }
+  .assignment-add-panel {
+    width: min(100%, clamp(410px, 48vw, 620px));
+    height: auto;
+    max-height: 100%;
+    box-shadow: 0 24px 70px rgba(19, 28, 48, .22);
+    /* animation-name だけ上書き。ショートハンドだと 620px 側の drawer-up が
+       duration/easing を奪ったまま戻せず、狭幅シートの挙動が変わる。 */
+    animation-name: assignment-add-in;
+  }
+}
+@keyframes assignment-add-in {
+  from { opacity: 0; transform: translateY(10px) scale(0.98); }
+  to { opacity: 1; transform: none; }
+}
 .drawer-handle { display: none; }
 .drawer-top {
   margin-bottom: 23px;

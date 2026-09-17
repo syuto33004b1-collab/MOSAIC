@@ -263,6 +263,20 @@ describe("role-aware workspace", () => {
     expect(document.querySelectorAll(".assignment.provisional")).toHaveLength(1);
   });
 
+  it("centers only the add-assignment panel above the bottom-sheet breakpoint (#394)", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByRole("button", { name: "アサインを追加" }));
+    expect(document.querySelector(".overlay")).toHaveClass("assignment-add-overlay");
+    expect(document.querySelector(".drawer")).toHaveClass("assignment-add-panel");
+    expect(screen.getByRole("dialog", { name: "詳細パネル" })).toBeInTheDocument();
+
+    await user.keyboard("{Escape}");
+    await user.click(document.querySelector(".schedule-row .person-open") as HTMLElement);
+    expect(document.querySelector(".overlay")).not.toHaveClass("assignment-add-overlay");
+    expect(document.querySelector(".drawer")).not.toHaveClass("assignment-add-panel");
+  });
+
   it("reuses the request id when a failed shared save is retried", async () => {
     const user = userEvent.setup();
     const adapter = sharedAdapter();
