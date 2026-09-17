@@ -214,11 +214,7 @@ function SharedWorkspaceRoute({
           organizationName={currentOrganization.name}
           identity={{ email: context.email, name: context.name, role: currentOrganization.role, userId: context.userId }}
           shared={shared}
-          onSignOut={onSignOut}
           onOpenOperations={() => setOperationsOpen(true)}
-          onSubmitFeedback={({ requestId, body, sourceScreen }) =>
-            repository.submitFeedback(currentOrganization.id, requestId, body, sourceScreen)
-          }
           onAccessInvalidated={onAccessInvalidated}
           aiChatTransport={aiChatTransport}
         />
@@ -230,6 +226,7 @@ function SharedWorkspaceRoute({
           organizations={organizations}
           repository={repository}
           onClose={() => setOperationsOpen(false)}
+          onSignOut={onSignOut}
           onSelectOrganization={(organization) => {
             setOperationsOpen(false);
             onSelectOrganization(organization);

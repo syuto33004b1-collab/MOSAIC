@@ -2754,10 +2754,93 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .production-invitation-section small { font-size: 9px; }
 .production-sign-out { margin-top: 0; background: transparent; }
 
-.production-operations-panel { width: min(540px, 100vw); }
+/* Medium settings panel: two-pane needs ~780px+. Pure 50vw fails at both ends
+   (too narrow on 1280px, too wide on 2560px), so clamp like `.drawer`. #388 */
+.production-operations-panel {
+  width: min(100vw, clamp(780px, 62vw, 1000px));
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  overflow-y: hidden;
+}
 .production-operations-panel .assignment-form { margin-bottom: 22px; }
 .production-operations-panel .drawer-section-title { margin-top: 22px; }
+.production-operations-panel .drawer-section-title:first-child { margin-top: 0; }
 .production-operations-panel .drawer-section-title button { margin-left: auto; }
+.production-settings-panes {
+  display: grid;
+  grid-template-columns: 168px minmax(0, 1fr);
+  gap: 0;
+  flex: 1 1 auto;
+  min-height: 0;
+  border-top: 1px solid var(--line);
+}
+.production-settings-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 10px;
+  border-right: 1px solid var(--line);
+  overflow: auto;
+  min-height: 0;
+}
+.production-settings-nav-item {
+  border: 0;
+  background: transparent;
+  text-align: left;
+  padding: 10px 12px;
+  border-radius: 10px;
+  color: var(--ink);
+  font: 700 13px/1.35 var(--font-ui);
+  cursor: pointer;
+}
+.production-settings-nav-item:hover { background: var(--paper); }
+.production-settings-nav-item[aria-current="page"] {
+  background: #eef1ff;
+  color: #4f6ef7;
+}
+.production-settings-detail {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  padding: 14px 18px 20px;
+}
+.production-settings-lead {
+  margin: 0 0 12px;
+  color: #58677d;
+  font-size: 13px;
+  line-height: 1.55;
+}
+.production-settings-link {
+  display: inline-flex;
+  width: auto;
+  text-decoration: none;
+}
+/* Keep lists single-column inside the widened settings panel; the shared
+   `@container detail-panel` rule would otherwise switch `.allocation-list` to
+   two columns above 600px and break borders / audit details. #388 */
+.production-operations-panel .allocation-list {
+  display: flex;
+  flex-direction: column;
+}
+.profile-account {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+}
+.profile-account:disabled {
+  cursor: not-allowed;
+  opacity: .42;
+}
+.profile-account:hover:not(:disabled) {
+  background: rgba(255, 255, 255, .06);
+  border-radius: 12px;
+}
 .production-member-list > div,
 .production-invitation-list > div,
 .production-integration-list > div,

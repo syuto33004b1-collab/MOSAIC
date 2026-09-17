@@ -16,8 +16,6 @@ import {
   Inbox,
   Layers3,
   LayoutDashboard,
-  MessageSquarePlus,
-  MoreHorizontal,
   Plus,
   Printer,
   Save,
@@ -203,7 +201,6 @@ export type AppProps = {
   shared?: SharedWorkspaceAdapter;
   onSignOut?: () => void;
   onOpenOperations?: () => void;
-  onSubmitFeedback?: (input: { requestId: string; body: string; sourceScreen: string }) => Promise<unknown>;
   onAccessInvalidated?: () => void;
   aiChatTransport?: ChatTransport;
 };
@@ -551,7 +548,7 @@ function drawerFromShare(link: ReturnType<typeof parseShareSearch>, state: Works
   return { drawer: null };
 }
 
-export default function Home({ mode = "demo", organizationId, organizationName = "MOSAIC デモ", identity, shared, onSignOut, onOpenOperations, onSubmitFeedback, onAccessInvalidated, aiChatTransport }: AppProps) {
+export default function Home({ mode = "demo", organizationId, organizationName = "MOSAIC デモ", identity, shared, onOpenOperations, onAccessInvalidated, aiChatTransport }: AppProps) {
   const startingWorkspace = shared?.initialState ?? initialWorkspace;
   const startingShare = initialShareLink();
   const opening = drawerFromShare(startingShare, startingWorkspace);
@@ -603,10 +600,6 @@ export default function Home({ mode = "demo", organizationId, organizationName =
   const [selectedAssignmentId, setSelectedAssignmentId] = useState("");
   const [selectedNeedId, setSelectedNeedId] = useState(startingWorkspace.needs[0]?.id ?? "");
   const [toast, setToast] = useState(opening.toast ?? "");
-  const [feedbackOpen, setFeedbackOpen] = useState(false);
-  const [feedbackBody, setFeedbackBody] = useState("");
-  const [feedbackSending, setFeedbackSending] = useState(false);
-  const [feedbackRequest, setFeedbackRequest] = useState<{ body: string; requestId: string } | null>(null);
   /**
    * The org move that can still be put back, offered in the row it belongs to.
    *
@@ -680,7 +673,6 @@ export default function Home({ mode = "demo", organizationId, organizationName =
   const [formDirty, setFormDirty] = useState(false);
   const [aiActionBusy, setAiActionBusy] = useState(false);
   const drawerRef = useRef<HTMLElement>(null);
-  const feedbackDialogRef = useRef<HTMLElement>(null);
   const previousFocus = useRef<HTMLElement | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const searchButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -920,56 +912,16 @@ export default function Home({ mode = "demo", organizationId, organizationName =
     };
   }, [drawer]);
 
-  useEffect(() => {
-    if (!feedbackOpen) return;
-    previousFocus.current = document.activeElement as HTMLElement;
-    document.body.style.overflow = "hidden";
-    window.setTimeout(() => feedbackDialogRef.current?.focus(), 0);
-    const trapFocus = (event: KeyboardEvent) => {
-      if (event.key !== "Tab") return;
-      const dialog = feedbackDialogRef.current;
-      const elements = dialog?.querySelectorAll<HTMLElement>("button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], [tabindex]:not([tabindex='-1'])");
-      if (!dialog) return;
-      if (!elements || elements.length === 0) {
-        event.preventDefault();
-        dialog.focus();
-        return;
-      }
-      const first = elements[0];
-      const last = elements[elements.length - 1];
-      const activeElement = document.activeElement;
-      if (activeElement === dialog || !dialog.contains(activeElement)) {
-        event.preventDefault();
-        (event.shiftKey ? last : first).focus();
-      } else if (event.shiftKey && activeElement === first) {
-        event.preventDefault();
-        last.focus();
-      } else if (!event.shiftKey && activeElement === last) {
-        event.preventDefault();
-        first.focus();
-      }
-    };
-    document.addEventListener("keydown", trapFocus);
-    return () => {
-      document.body.style.overflow = "";
-      document.removeEventListener("keydown", trapFocus);
-      previousFocus.current?.focus();
-    };
-  }, [feedbackOpen]);
 
   useEffect(() => {
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
-      if (feedbackOpen) {
-        if (!feedbackSending) setFeedbackOpen(false);
-        return;
-      }
       closeDrawer();
       setNotificationsOpen(false);
     };
     window.addEventListener("keydown", closeOnEscape);
     return () => window.removeEventListener("keydown", closeOnEscape);
-  }, [closeDrawer, feedbackOpen, feedbackSending]);
+  }, [closeDrawer]);
 
   /**
    * The search box replaces the button that opened it, so focus fell to the body on
@@ -1621,48 +1573,6 @@ export default function Home({ mode = "demo", organizationId, organizationName =
     if (confirmWorkspaceExit()) onOpenOperations?.();
   };
 
-  const openFeedback = () => {
-    if (accountActionLocked) {
-      setToast("同期処理が終わってから気づきを送ってください");
-      return;
-    }
-    setFeedbackOpen(true);
-  };
-
-  const closeFeedback = () => {
-    if (feedbackSending) return;
-    setFeedbackOpen(false);
-  };
-
-  const submitFeedback = async (event: FormEvent) => {
-    event.preventDefault();
-    const body = feedbackBody.trim();
-    if (!onSubmitFeedback || !body || feedbackSending) return;
-    const request = feedbackRequest?.body === body
-      ? feedbackRequest
-      : { body, requestId: crypto.randomUUID() };
-    setFeedbackRequest(request);
-    setFeedbackSending(true);
-    try {
-      await onSubmitFeedback({
-        requestId: request.requestId,
-        body,
-        sourceScreen: activeNav,
-      });
-      setFeedbackBody("");
-      setFeedbackOpen(false);
-      setFeedbackRequest(null);
-      setToast("気づきを送りました");
-    } catch (error) {
-      setToast(error instanceof Error ? error.message : "気づきを送れませんでした");
-    } finally {
-      setFeedbackSending(false);
-    }
-  };
-
-  const signOut = () => {
-    if (confirmWorkspaceExit()) onSignOut?.();
-  };
 
   const openProject = (projectId: string) => {
     setSelectedProjectId(projectId);
@@ -3210,7 +3120,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
 
   return (
     <main className="app-shell">
-      <aside className="sidebar" inert={(drawer || feedbackOpen) ? true : undefined}>
+      <aside className="sidebar" inert={drawer ? true : undefined}>
         <div className="brand">
           <span className="brand-mark" aria-hidden="true"><i /><i /><i /><i /></span>
           <span className="brand-copy"><strong>MOSAIC</strong><small>Resource orchestration</small></span>
@@ -3262,13 +3172,21 @@ export default function Home({ mode = "demo", organizationId, organizationName =
           <div className="month-track"><span style={{ width: Math.min(100, averageLoad) + "%" }} /></div>
           <p>{totalCapacity === 0 ? (hasMemberCeiling ? "この週は稼働できる日がありません。" : "稼働上限が未設定です。") : averageLoad > 100 ? `稼働上限を ${averageLoad - 100}% 超えています。` : `稼働上限まであと ${100 - averageLoad}%。`}{mode === "shared" ? "変更は組織内で共有されます。" : "サンプルデータはこの端末だけに保存されます。"}</p>
         </div>
-        <div className="profile-row">
-          <span className="avatar avatar-dark">{makeInitials(displayName)}</span><span><strong>{displayName}</strong><small>{roleLabel[role]}</small></span>
-          <span className="profile-actions">{onSubmitFeedback && <button aria-label="気づきを送る" disabled={accountActionLocked || feedbackSending} onClick={openFeedback}><MessageSquarePlus size={17} /></button>}{onOpenOperations && <button aria-label="組織と監査ログを管理" disabled={accountActionLocked} onClick={openOperations}><MoreHorizontal size={17} /></button>}{onSignOut && <button aria-label="ログアウト" disabled={accountActionLocked} onClick={signOut}>退出</button>}<a className="sidebar-legal-action" href={withLegalSearch(window.location)} aria-label="プライバシーポリシーと利用規約">規約</a></span>
-        </div>
+        {onOpenOperations ? (
+          <button type="button" className="profile-row profile-account" aria-label="設定を開く" disabled={accountActionLocked} onClick={openOperations}>
+            <span className="avatar avatar-dark">{makeInitials(displayName)}</span>
+            <span><strong>{displayName}</strong><small>{roleLabel[role]}</small></span>
+          </button>
+        ) : (
+          <div className="profile-row">
+            <span className="avatar avatar-dark">{makeInitials(displayName)}</span>
+            <span><strong>{displayName}</strong><small>{roleLabel[role]}</small></span>
+            <a className="sidebar-legal-action" href={withLegalSearch(window.location)} aria-label="プライバシーポリシーと利用規約">規約</a>
+          </div>
+        )}
       </aside>
 
-      <section className="workspace" id="board" inert={(drawer || feedbackOpen) ? true : undefined}>
+      <section className="workspace" id="board" inert={drawer ? true : undefined}>
         {/* The accent bar, as an element rather than `.workspace::before`, so that the
             contrast of the text below it can be measured at all. `src/styles.css` has the
             reason next to the rule (#312). */}
@@ -3567,7 +3485,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
       </section>
 
       {unsavedChanges > 0 && (
-        <div className="change-bar" ref={observeChangeBar} role="status" inert={(drawer || feedbackOpen) ? true : undefined}>
+        <div className="change-bar" ref={observeChangeBar} role="status" inert={drawer ? true : undefined}>
           <span className="change-count">{unsavedChanges}</span><span><strong>{unsavedChanges}件の変更があります</strong><small>保存するまで確定データには反映されません</small></span>
           <button className="undo-button" disabled={operationLocked || saveOutcomePending} onClick={undoChanges}><Undo2 size={14} />元に戻す</button><button className="save-button" disabled={operationLocked} onClick={() => void saveChanges()}><Save size={14} />{syncStatus === "saving" ? "保存中…" : syncStatus === "refreshing" ? "確認中…" : mode === "shared" ? "チームへ保存" : "デモへ保存"}</button>
         </div>
@@ -4009,42 +3927,10 @@ export default function Home({ mode = "demo", organizationId, organizationName =
         syncBusy={operationLocked || saveOutcomePending}
         onActionBusyChange={setAiActionBusy}
         onWorkspaceRevision={handleAiWorkspaceRevision}
-        suspended={Boolean(drawer || feedbackOpen)}
+        suspended={Boolean(drawer)}
         elevated={unsavedChanges > 0}
         unavailableReason={mode === "demo" ? "AIチャットは、共有モードでログインすると利用できます。" : undefined}
       />
-      {feedbackOpen && onSubmitFeedback && (
-        <div className="overlay feedback-overlay">
-          <div className="overlay-backdrop" aria-hidden="true" onClick={closeFeedback} />
-          <section className="drawer feedback-dialog" ref={feedbackDialogRef} role="dialog" aria-modal="true" aria-labelledby="feedback-title" tabIndex={-1}>
-            <div className="drawer-top">
-              <span className="drawer-kicker">FEEDBACK</span>
-              <button className="close-button" type="button" aria-label="気づきの送信を閉じる" disabled={feedbackSending} onClick={closeFeedback}><X size={18} /></button>
-            </div>
-            <div className="drawer-heading">
-              <span className="drawer-icon cobalt"><MessageSquarePlus size={19} /></span>
-              <div><h2 id="feedback-title">気づきを送る</h2><p>いま見ている画面から、不具合や要望を送ります。画面名は自動で添えます。</p></div>
-            </div>
-            <form className="assignment-form" onSubmit={(event) => void submitFeedback(event)}>
-              <label>
-                内容
-                <textarea
-                  required
-                  maxLength={2000}
-                  rows={6}
-                  value={feedbackBody}
-                  onChange={(event) => setFeedbackBody(event.target.value)}
-                  disabled={feedbackSending}
-                />
-              </label>
-              <p className="form-note">送信元: {pageMeta[activeNav].title}</p>
-              <button className="drawer-primary" type="submit" disabled={feedbackSending || !feedbackBody.trim()}>
-                <MessageSquarePlus size={15} />{feedbackSending ? "送信中…" : "送る"}
-              </button>
-            </form>
-          </section>
-        </div>
-      )}
       <div className={"toast " + (toast ? "show" : "")} style={changeBarReach > 0 ? { "--toast-lift": `${changeBarReach}px` } as CSSProperties : undefined} role="status" aria-live="polite"><Check size={14} />{toast}</div>
       {!hydrated && <span className="sr-only">保存データを読み込み中</span>}
     </main>
