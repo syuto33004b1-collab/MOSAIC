@@ -430,6 +430,7 @@ describe("role-aware workspace", () => {
     confirm.mockReturnValue(true);
     await user.click(screen.getByRole("button", { name: "設定を開く" }));
     expect(onOpenOperations).toHaveBeenCalledOnce();
+    expect(onOpenOperations).toHaveBeenCalledWith("board");
   });
 
   it("does not offer feedback from the demo workspace", () => {
@@ -443,20 +444,25 @@ describe("role-aware workspace", () => {
     expect(link).toHaveAttribute("href", expect.stringContaining("legal=1"));
   });
 
-  it("opens settings from the account row in shared mode and keeps feedback off the sidebar", () => {
+  it("opens settings from the account row in shared mode and keeps feedback off the sidebar", async () => {
+    const user = userEvent.setup();
+    const onOpenOperations = vi.fn();
     render(
       <App
         mode="shared"
         organizationName="Example Inc."
         identity={{ name: "閲覧 太郎", email: "viewer@example.com", role: "viewer" }}
         shared={sharedAdapter()}
-        onOpenOperations={vi.fn()}
+        onOpenOperations={onOpenOperations}
       />,
     );
     expect(screen.getByRole("button", { name: "設定を開く" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "気づきを送る" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "ログアウト" })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "プライバシーポリシーと利用規約" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "メンバー" }));
+    await user.click(screen.getByRole("button", { name: "設定を開く" }));
+    expect(onOpenOperations).toHaveBeenCalledWith("members");
   });
 
   it("edits a persisted assignment as a draft and saves its interval and allocation", async () => {

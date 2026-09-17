@@ -658,4 +658,82 @@ describe("OperationsPanel feedback", () => {
     expect(screen.getByRole("button", { name: "気づきを送る" })).toBeInTheDocument();
     expect(screen.queryByText("ボードの空き列が狭い")).not.toBeInTheDocument();
   });
+
+  it("sends feedback with the screen that opened settings and reuses the request id on retry", async () => {
+    const user = userEvent.setup();
+    const repository = {
+      listOrganizationMembers: vi.fn().mockResolvedValue([]),
+      listAuditEvents: vi.fn().mockResolvedValue({ events: [], nextBefore: undefined }),
+      listOrganizationInvitations: vi.fn().mockResolvedValue([]),
+      listIntegrationClients: vi.fn().mockResolvedValue([]),
+      listWebhookEndpoints: vi.fn().mockResolvedValue([]),
+      listMcpServers: vi.fn().mockResolvedValue([]),
+      listFeedback: vi.fn().mockResolvedValue({ items: [], nextBefore: undefined }),
+      submitFeedback: vi.fn()
+        .mockRejectedValueOnce(new Error("一時的に送れません"))
+        .mockResolvedValueOnce({ id: "fb-3", requestId: "req-3", replayed: false }),
+    } as unknown as ProductionRepository;
+
+    render(
+      <OperationsPanel
+        currentUserId="00000000-0000-4000-8000-000000000001"
+        currentOrganization={organization}
+        organizations={[organization]}
+        repository={repository}
+        sourceScreen="members"
+        onClose={vi.fn()}
+        onSelectOrganization={vi.fn()}
+      />,
+    );
+
+    await openSettingsSection(user, "気づきを送る");
+    await user.type(await screen.findByLabelText("内容"), "検索が遠い");
+    await user.click(screen.getByRole("button", { name: "送る" }));
+    expect(await screen.findByText("一時的に送れません")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "送る" }));
+    await waitFor(() => expect(repository.submitFeedback).toHaveBeenCalledTimes(2));
+    expect(repository.submitFeedback).toHaveBeenNthCalledWith(
+      1,
+      organization.id,
+      expect.stringMatching(/^[0-9a-f-]{36}$/u),
+      "検索が遠い",
+      "members",
+    );
+    expect(repository.submitFeedback.mock.calls[0][1]).toEqual(repository.submitFeedback.mock.calls[1][1]);
+    expect(await screen.findByText("気づきを送りました。")).toBeInTheDocument();
+  });
+
+  it("offers the legal notice and sign-out from settings", async () => {
+    const user = userEvent.setup();
+    const onSignOut = vi.fn();
+    const repository = {
+      listOrganizationMembers: vi.fn().mockResolvedValue([]),
+      listAuditEvents: vi.fn().mockResolvedValue({ events: [], nextBefore: undefined }),
+      listOrganizationInvitations: vi.fn().mockResolvedValue([]),
+      listIntegrationClients: vi.fn().mockResolvedValue([]),
+      listWebhookEndpoints: vi.fn().mockResolvedValue([]),
+      listMcpServers: vi.fn().mockResolvedValue([]),
+      listFeedback: vi.fn().mockResolvedValue({ items: [], nextBefore: undefined }),
+    } as unknown as ProductionRepository;
+
+    render(
+      <OperationsPanel
+        currentUserId="00000000-0000-4000-8000-000000000001"
+        currentOrganization={organization}
+        organizations={[organization]}
+        repository={repository}
+        onClose={vi.fn()}
+        onSelectOrganization={vi.fn()}
+        onSignOut={onSignOut}
+      />,
+    );
+
+    await openSettingsSection(user, "規約");
+    const link = await screen.findByRole("link", { name: "プライバシーポリシーと利用規約" });
+    expect(link).toHaveAttribute("href", expect.stringContaining("legal=1"));
+
+    await openSettingsSection(user, "退出");
+    await user.click(screen.getByRole("button", { name: "ログアウト" }));
+    expect(onSignOut).toHaveBeenCalledOnce();
+  });
 });

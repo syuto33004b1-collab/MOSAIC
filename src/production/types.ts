@@ -79,7 +79,7 @@ export type ProductionAppProps = {
   identity?: ProductionIdentity;
   shared?: SharedWorkspaceAdapter;
   onSignOut?: () => void;
-  onOpenOperations?: () => void;
+  onOpenOperations?: (sourceScreen: string) => void;
   onAccessInvalidated?: () => void;
   aiChatTransport?: ChatTransport;
 };

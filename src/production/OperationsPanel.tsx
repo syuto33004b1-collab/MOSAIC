@@ -32,6 +32,7 @@ type OperationsPanelProps = {
   currentOrganization: OrganizationSummary;
   organizations: OrganizationSummary[];
   repository: ProductionRepository;
+  sourceScreen?: string;
   onClose: () => void;
   onSelectOrganization: (organization: OrganizationSummary) => void;
   onSignOut?: () => void;
@@ -109,6 +110,7 @@ export function OperationsPanel({
   currentOrganization,
   organizations,
   repository,
+  sourceScreen = "unknown",
   onClose,
   onSelectOrganization,
   onSignOut,
@@ -583,7 +585,7 @@ export function OperationsPanel({
     setComposeSending(true);
     setError("");
     try {
-      await repository.submitFeedback(currentOrganization.id, request.requestId, body, "unknown");
+      await repository.submitFeedback(currentOrganization.id, request.requestId, body, sourceScreen);
       setComposeBody("");
       setComposeRequest(null);
       setInviteStatus("気づきを送りました。");
@@ -975,7 +977,7 @@ export function OperationsPanel({
             {activeSection === "feedback-send" && (
               <>
                 <div className="drawer-section-title"><span>気づきを送る</span></div>
-                <p className="production-settings-lead">不具合や要望を送ります。画面名は自動では添えないため、本文に書いてください。</p>
+                <p className="production-settings-lead">いま見ていた画面の名前を添えて、不具合や要望を送ります。</p>
                 <form className="assignment-form production-invite-form" onSubmit={(event) => void submitComposeFeedback(event)}>
                   <label>
                     内容

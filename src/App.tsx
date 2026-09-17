@@ -200,7 +200,7 @@ export type AppProps = {
   identity?: { name: string; email: string; role: OrganizationRole; userId?: string };
   shared?: SharedWorkspaceAdapter;
   onSignOut?: () => void;
-  onOpenOperations?: () => void;
+  onOpenOperations?: (sourceScreen: string) => void;
   onAccessInvalidated?: () => void;
   aiChatTransport?: ChatTransport;
 };
@@ -1570,7 +1570,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
   };
 
   const openOperations = () => {
-    if (confirmWorkspaceExit()) onOpenOperations?.();
+    if (confirmWorkspaceExit()) onOpenOperations?.(activeNav);
   };
 
 
