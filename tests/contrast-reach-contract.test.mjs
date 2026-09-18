@@ -66,6 +66,17 @@ test("a weekend column reads its colours from the theme", () => {
     + " the weekday name so the two keep their order) (#312)");
 });
 
+test("the board month pager enlarges the year-month and gaps 今月 from the arrows (#405)", () => {
+  const label = /\.toolbar-actions \.board-month-label\s*\{([^}]*)\}/u.exec(css);
+  assert.ok(label, "`.board-month-label` lost its rule");
+  assert.match(label[1], /font-size:\s*16px/u, "year-month must be larger than `--text-min`");
+  const pager = /\.board-month-pager\s*\{([^}]*)\}/u.exec(css);
+  assert.ok(pager, "`.board-month-pager` lost its rule");
+  assert.match(pager[1], /gap:\s*14px/u, "今月 must sit apart from the stepper");
+  assert.match(app, /CalendarDays size=\{13\} \/>今月/u);
+  assert.doesNotMatch(app, /CalendarDays size=\{13\} \/>今日/u);
+});
+
 test("calendar day colours use dedicated tokens after today's glyph rule (#392)", () => {
   assert.match(css, /--calendar-saturday:\s*#1d4f91/u, "Saturday blue token missing from the effective palette");
   assert.match(css, /--calendar-holiday:\s*#a83e27/u, "holiday/Sunday red token missing from the effective palette");

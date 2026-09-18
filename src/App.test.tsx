@@ -4383,11 +4383,46 @@ describe("the board says where it is", () => {
     expect(dateRange()).toBe("2026年 9月1日 — 9月30日 · 1か月後 · 稼働は平日で集計");
     expect(eyebrow()).toBe("RESOURCE PLANNING / 2026年 9月");
 
-    await user.click(screen.getByRole("button", { name: "今日" }));
+    await user.click(screen.getByRole("button", { name: "今月" }));
     expect(dateRange()).toBe("2026年 8月1日 — 8月31日 · 稼働は平日で集計");
 
     await user.click(screen.getByRole("button", { name: "前の月" }));
     expect(dateRange()).toBe("2026年 7月1日 — 7月31日 · 1か月前 · 稼働は平日で集計");
+  });
+
+  /**
+   * #405: 今日 was always on, even on the month that is today. The board is
+   * month-only, so the jump is 「今月」, and only when the arrows have left it.
+   */
+  it("hides 今月 on the current month and shows it after paging", async () => {
+    const user = onWednesday();
+    render(<App />);
+    expect(screen.queryByRole("button", { name: "今日" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "今月" })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "次の月" }));
+    expect(screen.getByRole("button", { name: "今月" })).toBeInTheDocument();
+    expect(document.querySelector(".board-month-label")!.textContent).toBe("2026年 9月");
+
+    await user.click(screen.getByRole("button", { name: "今月" }));
+    expect(document.querySelector(".board-month-label")!.textContent).toBe("2026年 8月");
+    expect(screen.queryByRole("button", { name: "今月" })).not.toBeInTheDocument();
+  });
+
+  it("places 今月, a gap, then previous / year-month / next", async () => {
+    const user = onWednesday();
+    render(<App />);
+    await user.click(screen.getByRole("button", { name: "次の月" }));
+    const pager = document.querySelector(".board-month-pager");
+    expect(pager).not.toBeNull();
+    const kids = [...pager!.children];
+    expect(kids[0]).toHaveTextContent("今月");
+    expect(kids[1]).toHaveClass("board-month-stepper");
+    const step = [...kids[1].children];
+    expect(step[0]).toHaveAccessibleName("前の月");
+    expect(step[1]).toHaveClass("board-month-label");
+    expect(step[1]).toHaveTextContent("2026年 9月");
+    expect(step[2]).toHaveAccessibleName("次の月");
   });
 });
 
