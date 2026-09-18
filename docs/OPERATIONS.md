@@ -10,7 +10,7 @@
 | CI | lint、テスト、build、npm audit、CodeQL | `.github/workflows/ci.yml` |
 | 本番デプロイ | `main`へのpush、または`main`からの手動実行 | `.github/workflows/deploy-cloudflare.yml` |
 | データベース | 未接続 | 接続後は`supabase/migrations/` |
-| バックアップ | 未設定 | 接続するSupabaseプランと本書の運用記録 |
+| バックアップ | 方針確定。実施は DB 接続後 | 本書と `scripts/backup-roundtrip.sh` |
 
 公開URL: <https://mosaic.taps-desk.workers.dev/>。旧 URL <https://syuto33004b1-collab.github.io/MOSAIC/> は凍結。
 
@@ -84,13 +84,49 @@ GitHub Repository Variablesには次を設定します。
 
 ## バックアップと復旧訓練
 
-Supabase接続前に、業務責任者がRPOとRTOを決定します。初期目安はRPO 24時間、RTO 4時間ですが、要員配置業務の締切に合わせて短縮します。
+方針は #416 で固定。本番 DB への実施は、上表のデータベースが「未接続」のあいだ行わない。運用対象表は「設定済み」にしない。
 
-- 契約プランで利用できるmanaged backupとPITRの範囲・保持期間を確認します。
-- 日次の論理バックアップを、Supabaseとは別のprivateかつ暗号化された保管先へ保存します。
-- 例として日次30日、月次12か月を保持し、個人情報の保持方針と整合させます。
-- バックアップ成功だけでなく、四半期ごとに隔離環境へrestoreし、件数、外部キー、代表的な集計を照合します。
-- GitHub Actions artifactやブラウザの`localStorage`をDBバックアップとして扱いません。
+### 決定
+
+| 項目 | 内容 |
+| --- | --- |
+| 手段 | オフサイト論理 dump（`supabase db dump` / `pg_dump`）。組織プランは Free。Free には managed daily backup も PITR も無い（[Database Backups](https://supabase.com/docs/guides/platform/backups)） |
+| 保管先 | 本番 Supabase プロジェクトとは**別アカウント**の、private かつサーバーサイド暗号化されたオブジェクト保管（S3 互換）。サービス種別まで書く。契約したバケット名・アカウント ID・パスはリポジトリに書かない。SECURITY のアカウント境界表への追記は、実体が決まってから別 Issue |
+| 保持 | 運用開始前の保持は **0**。起点は運用開始日。開始後の目安は日次 30 日・月次 12 か月。個人情報の保持方針と整合させる |
+| RPO / RTO | 暫定目安は RPO 24 時間、RTO 4 時間。決裁は業務責任者。要員配置の締切に合わせて短縮する |
+| 照合 | 隔離した DB へ restore したあと `scripts/backup-restore-check.sql` を走らせ、ソースと fingerprint を `diff` する。四半期訓練も同じ |
+| 禁止 | GitHub Actions artifact、ブラウザの `localStorage`、アプリ UI からのバックアップ。`cron` / Actions / Function による自動化は今段の対象外 |
+
+dump は `--local`、または照合済みの `--project-ref ivsauhjnoiurpsriskqe` だけを使う。link された project に任せない。接続先の照合は[セキュリティ方針のアカウント境界](SECURITY.md#アカウント境界)。
+
+### 手順（接続後）
+
+1. 保管先は上の条件を満たすオブジェクト保管へ、dump ファイルと同時に fingerprint（`scripts/backup-restore-check.sql` の出力）を置く。fingerprint は dump **のあと**、同じ静止点で取る。dump と fingerprint のあいだに業務書込みを入れない。入れた不一致は失敗として扱う。
+2. 取得は次の2ファイル。CLI 2.117.0 の実測では、既定の schema dump は `app` と `private` だけで `auth` の DDL を含まない。同じ CLI の既定 data dump（`--data-only --use-copy`）は `auth.users` ほか auth の data を含む。照合 SQL は `app` / `private` / `auth` の base table をすべて数える。restore 先は **platform schema（`auth` / `extensions`）が既にある** Supabase 形の空 DB である。コミュニティ Postgres の空クラスタへは戻せない。
+
+   ```bash
+   npm exec supabase -- db dump --project-ref ivsauhjnoiurpsriskqe -f schema.sql
+   npm exec supabase -- db dump --project-ref ivsauhjnoiurpsriskqe -f data.sql --use-copy --data-only
+   ```
+
+3. 隔離した Supabase 形の空 DB へ、schema.sql → `SET session_replication_role = replica` のうえ data.sql の順で戻す。`--schema auth` の DDL dump は、現行イメージの `auth` より古い部分集合であり、成功した経路では使わない。推測で「app だけ」と決めない。
+4. 戻した DB で `scripts/backup-restore-check.sql` を走らせ、取得時の fingerprint と一致することを確認する。`fk_orphan_total` が 0 であること、件数と代表集計が一致することが合格。
+5. ローカルでの再現は `scripts/backup-roundtrip.sh`。`--linked` / `--project-ref` / `--db-url` は拒否する。本番は踏まない。
+
+### ローカル実測（#416、2026-09-18）
+
+ソース: `public.ecr.aws/supabase/postgres:17.6.1.167`（Postgres 17.6）へ現行 migration を適用し、`scripts/backup-roundtrip-seed.sql` を入れた。CLI はリポジトリ固定の supabase 2.117.0。`supabase start` / `db start` はこの環境で realtime 初期化に失敗したので、同じ公式イメージを直接起動した。
+
+| 操作 | 結果 |
+| --- | --- |
+| 既定 schema dump | 成功。作る schema は `app` と `private` だけ。`auth.users` の DDL は無い |
+| 既定 data dump | 成功。`app` 41 本と `auth` 5 本（`users` を含む） |
+| `--schema auth` の schema dump | 成功。`users` / `audit_log_entries` / `instances` / `refresh_tokens` / `schema_migrations` の古い部分集合 |
+| コミュニティ `postgres:17` の空クラスタへ schema.sql | 失敗。`schema "extensions" does not exist` |
+| 同じ公式イメージの空インスタンス（`auth` あり、`app` なし）へ schema.sql + data.sql | 成功 |
+| `scripts/backup-restore-check.sql` の source と restored | 一致。`fk_orphan_total` は 0。`auth.users` 2、`app.organization_memberships` 2、`app.assignments` 1、allocation 合計 40 |
+
+GRANT / publication / `supabase_realtime` は CLI が schema dump から削る。fingerprint は件数・FK 本数・孤児・代表集計であり、権限や publication の復帰は見ていない。本番への初回 dump と日次運用は、データベースが未接続のあいだは行わない。成立しているのは方針とローカル fixture の roundtrip である。
 
 ## 監視
 
