@@ -328,7 +328,7 @@ describe("role-aware workspace", () => {
     expect(screen.getByRole("button", { name: "チームへ保存" })).toBeDisabled();
   });
 
-  it("places a quiet shared sync status between the week card and the account row (#406)", () => {
+  it("places a quiet shared sync status between the week card and the account row (#406)", async () => {
     render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={sharedAdapter()} />);
     const idle = screen.getByText("チームと同期済み");
     expect(idle.closest("aside.sidebar")).toBeTruthy();
@@ -340,6 +340,25 @@ describe("role-aware workspace", () => {
     expect(card && banner && account, "sidebar is missing the week card, sync banner, or account row").toBeTruthy();
     expect(card!.compareDocumentPosition(banner!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(banner!.compareDocumentPosition(account!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const navigation = within(screen.getByRole("navigation", { name: "メインナビゲーション" }));
+    await userEvent.setup().click(navigation.getByRole("button", { name: /^プロジェクト 登録 \d+件$/u }));
+    expect(screen.getByText("チームと同期済み").closest("aside.sidebar")).toBeTruthy();
+    expect(screen.getByText("チームと同期済み").closest("section.workspace")).toBeNull();
+  });
+
+  it("keeps a shared save-in-progress status in the sidebar (#406)", async () => {
+    const user = userEvent.setup();
+    const adapter = sharedAdapter();
+    adapter.save = vi.fn(() => new Promise<{ revision: number; savedAt: string }>(() => undefined));
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
+
+    await user.click(screen.getByRole("button", { name: "アサインを追加" }));
+    await user.click(screen.getByRole("button", { name: "この内容で仮置きする" }));
+    await user.click(screen.getByRole("button", { name: "チームへ保存" }));
+
+    const saving = await screen.findByText("チームへ保存中");
+    expect(saving.closest("aside.sidebar")).toBeTruthy();
+    expect(saving.closest("section.workspace")).toBeNull();
   });
 
   it("locks mutations while a remote refresh is in flight", async () => {
@@ -357,7 +376,9 @@ describe("role-aware workspace", () => {
     render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
 
     act(() => notifyRevision(8));
-    expect(await screen.findByText("最新データを確認中")).toBeInTheDocument();
+    const refreshing = await screen.findByText("最新データを確認中");
+    expect(refreshing.closest("aside.sidebar")).toBeTruthy();
+    expect(refreshing.closest("section.workspace")).toBeNull();
     expect(screen.getByRole("button", { name: "アサインを追加" })).toBeDisabled();
     await user.click(screen.getAllByRole("button", { name: /のアサイン詳細/ })[0]);
     expect(screen.getByLabelText("稼働配分（%）")).toBeDisabled();
@@ -404,7 +425,8 @@ describe("role-aware workspace", () => {
     render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
 
     act(() => notifyRevision(8));
-    expect(await screen.findByText("最新データを確認中")).toBeInTheDocument();
+    const refreshing = await screen.findByText("最新データを確認中");
+    expect(refreshing.closest("aside.sidebar")).toBeTruthy();
     act(() => notifyRevision(9));
     await act(async () => resolveFirstReload({ state: initialWorkspace, revision: 8 }));
 
