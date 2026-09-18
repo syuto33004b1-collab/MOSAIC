@@ -48,17 +48,12 @@ begin
     from pg_class as cls
     join pg_namespace as ns on ns.oid = cls.relnamespace
     where cls.relkind = 'r'
-      and ns.nspname in ('app', 'private')
+      and ns.nspname in ('app', 'private', 'auth')
     order by ns.nspname, cls.relname
   loop
     execute format('select count(*) from %I.%I', rel.nspname, rel.relname) into n;
     insert into backup_check_counts values (rel.nspname, rel.relname, n);
   end loop;
-
-  if to_regclass('auth.users') is not null then
-    execute 'select count(*) from auth.users' into n;
-    insert into backup_check_counts values ('auth', 'users', n);
-  end if;
 end
 $count$;
 
@@ -156,6 +151,8 @@ select jsonb_pretty(
       ), '[]'::jsonb),
     'fk_orphan_total',
       (select coalesce(sum(orphan_count), 0) from backup_check_orphans),
+    'fk_constraint_count',
+      (select count(*) from backup_check_orphans),
     'aggregates',
       jsonb_strip_nulls(jsonb_build_object(
         'assignment_allocation_sum',

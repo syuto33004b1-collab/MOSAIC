@@ -101,8 +101,8 @@ dump は `--local`、または照合済みの `--project-ref ivsauhjnoiurpsriskq
 
 ### 手順（接続後）
 
-1. 保管先は上の条件を満たすオブジェクト保管へ、dump ファイルと同時に fingerprint（`scripts/backup-restore-check.sql` の出力）を置く。
-2. 取得は次の2ファイル。CLI 2.117.0 の実測では、既定の schema dump は `app` と `private` だけで `auth` の DDL を含まない。同じ CLI の既定 data dump（`--data-only --use-copy`）は `auth.users` ほか auth の data を含む。restore 先は **platform schema（`auth` / `extensions`）が既にある** Supabase 形の空 DB である。コミュニティ Postgres の空クラスタへは戻せない。
+1. 保管先は上の条件を満たすオブジェクト保管へ、dump ファイルと同時に fingerprint（`scripts/backup-restore-check.sql` の出力）を置く。fingerprint は dump **のあと**、同じ静止点で取る。dump と fingerprint のあいだに業務書込みを入れない。入れた不一致は失敗として扱う。
+2. 取得は次の2ファイル。CLI 2.117.0 の実測では、既定の schema dump は `app` と `private` だけで `auth` の DDL を含まない。同じ CLI の既定 data dump（`--data-only --use-copy`）は `auth.users` ほか auth の data を含む。照合 SQL は `app` / `private` / `auth` の base table をすべて数える。restore 先は **platform schema（`auth` / `extensions`）が既にある** Supabase 形の空 DB である。コミュニティ Postgres の空クラスタへは戻せない。
 
    ```bash
    npm exec supabase -- db dump --project-ref ivsauhjnoiurpsriskqe -f schema.sql
@@ -126,7 +126,7 @@ dump は `--local`、または照合済みの `--project-ref ivsauhjnoiurpsriskq
 | 同じ公式イメージの空インスタンス（`auth` あり、`app` なし）へ schema.sql + data.sql | 成功 |
 | `scripts/backup-restore-check.sql` の source と restored | 一致。`fk_orphan_total` は 0。`auth.users` 2、`app.organization_memberships` 2、`app.assignments` 1、allocation 合計 40 |
 
-GRANT / publication / `supabase_realtime` は CLI が schema dump から削る。fingerprint は件数・FK・代表集計であり、権限や publication の復帰は見ていない。
+GRANT / publication / `supabase_realtime` は CLI が schema dump から削る。fingerprint は件数・FK 本数・孤児・代表集計であり、権限や publication の復帰は見ていない。本番への初回 dump と日次運用は、データベースが未接続のあいだは行わない。成立しているのは方針とローカル fixture の roundtrip である。
 
 ## 監視
 
