@@ -3380,12 +3380,18 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                       <SlidersHorizontal size={13} />絞り込み
                       {appliedBoardFilters.length > 0 && <span className="filter-count">{appliedBoardFilters.length}</span>}
                     </button>
-                    {/* Month name sits with the paging controls — it is the label for
-                        what the arrows step (#391). Week/month toggle is gone. */}
-                    <span className="board-month-label">{boardRangeName(range)}</span>
-                    <button onClick={() => setWeekOffset(0)}><CalendarDays size={13} />今日</button>
-                    <button className="arrow-button" aria-label={"前の" + unitWord} onClick={() => setWeekOffset((offset) => offset - 1)}><ChevronLeft size={16} /></button>
-                    <button className="arrow-button" aria-label={"次の" + unitWord} onClick={() => setWeekOffset((offset) => offset + 1)}><ChevronRight size={16} /></button>
+                    {/* #405: 今月 only when the arrows have left this month. Order is
+                        今月, a gap, then previous / year-month / next. */}
+                    <div className="board-month-pager">
+                      {weekOffset !== 0 && (
+                        <button type="button" onClick={() => setWeekOffset(0)}><CalendarDays size={13} />今月</button>
+                      )}
+                      <div className="board-month-stepper">
+                        <button className="arrow-button" aria-label={"前の" + unitWord} onClick={() => setWeekOffset((offset) => offset - 1)}><ChevronLeft size={16} /></button>
+                        <span className="board-month-label">{boardRangeName(range)}</span>
+                        <button className="arrow-button" aria-label={"次の" + unitWord} onClick={() => setWeekOffset((offset) => offset + 1)}><ChevronRight size={16} /></button>
+                      </div>
+                    </div>
                   </div>
                 </div>
 
