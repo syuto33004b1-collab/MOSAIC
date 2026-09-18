@@ -120,7 +120,7 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 /* This row scrolls sideways rather than shrinking — that is what the
    `overflow-x` at 620px is for. Without these two, flex shrank the buttons to
    their 52px min-width and wrapped the labels instead: 「絞り込み」 came out on
-   three clipped lines at 375px, and 「今日」 on two before that (#198). */
+   three clipped lines at 375px, and the month jump on two before that (#198). */
 .toolbar-actions > * { flex: none; }
 .toolbar-actions button { min-width: 52px; height: 31px; padding: 0 10px; border-radius: 8px; color: #747d90; font-size: 8px; white-space: nowrap; }
 .toolbar-actions .arrow-button { min-width: 30px; padding: 0; font-family: var(--font-data); font-size: 17px; }
@@ -149,9 +149,26 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   min-height: 31px;
   padding: 0 8px;
   color: var(--ink);
-  font-size: var(--text-min);
+  font-size: var(--text-lg);
   font-weight: 800;
   white-space: nowrap;
+}
+/* #405: 今月 sits apart from the stepper so the year-month stays the centre. */
+.board-month-pager {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.board-month-stepper {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.board-month-pager button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
 }
 .day-label.today::after { content: ""; position: absolute; bottom: -1px; left: 26%; right: 26%; height: 2px; border-radius: 2px; background: var(--cobalt); }
 .day-label.today strong { color: var(--cobalt); }
@@ -437,7 +454,7 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   transition: border-color .2s ease, background .2s ease;
 }
 .toolbar-actions > button:hover { border-color: #cdd4e0; background: #fafbfc; }
-/* The trigger takes the shape `.toolbar-actions button` already gives 今日 and
+/* The trigger takes the shape `.toolbar-actions button` already gives 今月 and
    the arrows, so it only needs to say when it is doing something. */
 .filter-trigger.active { border-color: #b9c2ea; background: #f4f6fd; color: var(--cobalt); }
 /* Sized like `.nav-count`, the count pill the sidebar already uses: the token
