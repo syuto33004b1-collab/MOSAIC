@@ -36,6 +36,35 @@ Geminiとの通信には、新規開発向けにGoogleが推奨している[Inte
 
 成功responseは`reply`と`interactionId`を常に含みます。変更候補では`proposal`、保存成功時は`workspaceRevision`も返します。Gemini固有のsteps、生のInteraction ID、内部の保存payload、上流のエラー本文はブラウザ向け契約へ漏らしません。
 
+## 上流モデル API
+
+MOSAIC の AI 秘書の上流は Gemini Interactions API に固定する（2026-09-18 固定）。差し替えは、下表の契約を全て満たす候補が現れたときにだけ検討し、満たさない候補へは移らない。現在の上流・モデル・secret はこの文書の他節を正とする。
+
+この節が条件表の正典である。Issue への再掲はしない。
+
+| 契約 | いまの値 / 根拠 |
+| --- | --- |
+| tool calling | 業務 tool（`workspace-tools.mjs`）と承認済み外部 MCP（`mcp-client.mjs`）の往復 |
+| サーバ側の会話継続 | `store: true` と `previous_interaction_id`。stateless な chat completions なら `continuation.mjs` は作り直しになる |
+| 関数名の長さ | 64 文字以上。`mcp_` + サーバーキー16 + `-` + tool40（`mcp-client.mjs`）。これより短い上限、または `-` を拒む命名は登録済み MCP を壊す |
+| tool 結果の戻し | `function_result` を同じ `call_id` へ返す |
+| tool loop | 4 round × 各 4 call。確認後の完了文は `tool_choice: "none"` |
+| 再試行してよい上流 status | 408 / 429 / 500 / 502 / 503 / 504。400 / 401 / 403 は再送しない |
+| 保持期間の開示 | 現行は Free 1日 / Paid 55日（[Interactions の保持](https://ai.google.dev/gemini-api/docs/interactions-overview#data-storage-and-retention)）。開示できない候補は採らない |
+| secret | `GEMINI_API_KEY` は Edge Function Secret。ブラウザは鍵を持たない |
+| 画面と MCP 承認 | `src/components/ai-chat` と `begin_mcp_call` / `propose_mcp_call` / `resume_mcp_call` / `complete_mcp_call` は変えない前提。tool 名の予算は provider 依存なので「触らない」に含めない |
+| 認可 | `get_workspace` / `save_workspace` 以外に認可を置かない |
+
+再検討する観測可能な事象。
+
+- 現行上流が上表のどれかを満たせなくなる（Interactions API の非推奨、`gemini-3.7-flash` の EOL、保持仕様の変更）
+- rate limit または費用が運用に合わなくなる（数値閾値は未定）
+- **候補側が上表を全て満たしたと確認できた**とき
+
+Cursor の公開 API を含む他プロバイダは、「使えるようになったら」ではなく、上表を満たしたと確認できてから検討する。2026-09-17 時点の Cursor 公開 API は drop-in 先ではない。
+
+差し替えの実装は別 Issue。この節の固定だけでは `src/` と `supabase/functions/` を変えない。
+
 ## AI秘書が扱える操作
 
 - 最新のメンバー、プロジェクト、アサイン、要員要件、受注前案件、稼働余力、過負荷、組織階層、保存検索シーン、保存レポート、プロフィール更新依頼を参照する。
