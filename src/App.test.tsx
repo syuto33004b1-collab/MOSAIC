@@ -785,8 +785,8 @@ describe("role-aware workspace", () => {
     await user.click(screen.getByRole("button", { name: /ボードで確認/ }));
 
     // 「今週」 left the title in #139: the board can show a month, and paging made
-    // the word wrong inside a week. The exact range is on the date line below it.
-    expect(screen.getByRole("heading", { name: "チーム編成" })).toBeInTheDocument();
+    // the word wrong inside a week. The month name is on the toolbar (#403).
+    expect(screen.getByRole("heading", { name: "アサインボード" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "メンバー別", pressed: true })).toBeInTheDocument();
   });
 
@@ -1316,10 +1316,10 @@ describe("role-aware workspace", () => {
       expect(screen.getByRole("button", { name: /8月/ })).toBeInTheDocument();
       await user.click(screen.getByRole("button", { name: /9月/ }));
 
-      expect(screen.getByRole("heading", { name: "チーム編成" })).toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: "アサインボード" })).toBeInTheDocument();
       expect(screen.queryByRole("group", { name: "表示する期間" })).not.toBeInTheDocument();
       expect(document.querySelector(".board-month-label")!.textContent).toBe("2026年 9月");
-      expect(document.querySelector(".date-range")!.textContent).toContain("2026年 9月");
+      expect(document.querySelector(".date-range")).toBeNull();
     });
 
     it("lists idle members for the selected report period and notes a clipped calendar", async () => {
@@ -1450,7 +1450,7 @@ describe("role-aware workspace", () => {
       await user.click(screen.getByRole("button", { name: /超過 花子さんが期間中に超過/ }));
       expect(screen.queryByRole("group", { name: "表示する期間" })).not.toBeInTheDocument();
       expect(document.querySelector(".board-month-label")!.textContent).toBe("2026年 10月");
-      expect(document.querySelector(".date-range")!.textContent).toContain("2026年 10月");
+      expect(document.querySelector(".date-range")).toBeNull();
     });
 
     it("opens the month of the first overloaded day, not the week bucket's Monday (#391)", async () => {
@@ -1485,7 +1485,7 @@ describe("role-aware workspace", () => {
       expect(screen.getByText("境界 花子さんが期間中に超過")).toBeInTheDocument();
       await user.click(screen.getByRole("button", { name: /境界 花子さんが期間中に超過/ }));
       expect(document.querySelector(".board-month-label")!.textContent).toBe("2026年 9月");
-      expect(document.querySelector(".date-range")!.textContent).toContain("2026年 9月");
+      expect(document.querySelector(".date-range")).toBeNull();
     });
 
     it("falls back to department rows when the workspace has no org units", async () => {
@@ -2336,7 +2336,7 @@ describe("the sidebar's utilisation card", () => {
       // Paging by a month moves the measured week to the one the new month stands on.
       await user.click(screen.getByRole("button", { name: "次の月" }));
       expect(label()).toBe("8/31週の平均稼働率");
-      expect(document.querySelector(".date-range")!.textContent).toContain("2026年 9月");
+      expect(document.querySelector(".board-month-label")!.textContent).toContain("2026年 9月");
     } finally {
       vi.useRealTimers();
     }
@@ -3780,15 +3780,15 @@ describe("the board shows a month", () => {
   });
 
   /**
-   * A month that runs to December's end does not need a second year on the date
-   * line. The board is month-only (#391); the year lives in the month label.
+   * A month that runs to December's end does not need a second year on the month
+   * label. The board is month-only (#391); the year lives there (#403).
    */
-  it("names the month with its year on the date line", async () => {
+  it("names the month with its year on the toolbar", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     vi.setSystemTime(new Date("2026-12-30T09:00:00+09:00"));
     try {
       render(<App />);
-      expect(document.querySelector(".date-range")!.textContent).toBe("2026年 12月1日 — 12月31日 · 稼働は平日で集計");
+      expect(document.querySelector(".date-range")).toBeNull();
       expect(document.querySelector(".board-month-label")!.textContent).toBe("2026年 12月");
     } finally {
       vi.useRealTimers();
@@ -3863,16 +3863,16 @@ describe("the board shows a month", () => {
 
   it("pages by months once it is showing months", async () => {
     const user = await openBoard();
-    const before = document.querySelector(".date-range")!.textContent;
+    const before = document.querySelector(".board-month-label")!.textContent;
     const monthOf = (text: string | null) => /(\d+)月/u.exec(text ?? "")![1];
 
     await user.click(screen.getByRole("button", { name: "次の月" }));
-    const after = document.querySelector(".date-range")!.textContent;
+    const after = document.querySelector(".board-month-label")!.textContent;
     expect(monthOf(after)).not.toBe(monthOf(before));
     expect(columns().length).toBeGreaterThanOrEqual(20);
 
     await user.click(screen.getByRole("button", { name: "前の月" }));
-    expect(document.querySelector(".date-range")!.textContent).toBe(before);
+    expect(document.querySelector(".board-month-label")!.textContent).toBe(before);
   });
 });
 
@@ -4364,7 +4364,7 @@ describe("the board says where it is", () => {
   afterEach(() => { vi.useRealTimers(); });
 
   const eyebrow = () => document.querySelector(".eyebrow")!.textContent!.replace(/\s+/gu, " ").trim();
-  const dateRange = () => document.querySelector(".date-range")!.textContent!;
+  const monthLabel = () => document.querySelector(".board-month-label")!.textContent!;
 
   it("names the month by its year", async () => {
     onWednesday();
@@ -4374,21 +4374,21 @@ describe("the board says where it is", () => {
     expect(screen.queryByRole("group", { name: "表示する期間" })).not.toBeInTheDocument();
   });
 
-  it("says how far it has been paged, in months", async () => {
+  it("pages the month label when stepping months", async () => {
     const user = onWednesday();
     render(<App />);
     // Nothing at zero. 「今週」 is the word #146 retired from these screens.
-    expect(dateRange()).toBe("2026年 8月1日 — 8月31日 · 稼働は平日で集計");
+    expect(monthLabel()).toBe("2026年 8月");
 
     await user.click(screen.getByRole("button", { name: "次の月" }));
-    expect(dateRange()).toBe("2026年 9月1日 — 9月30日 · 1か月後 · 稼働は平日で集計");
+    expect(monthLabel()).toBe("2026年 9月");
     expect(eyebrow()).toBe("RESOURCE PLANNING / 2026年 9月");
 
     await user.click(screen.getByRole("button", { name: "今日" }));
-    expect(dateRange()).toBe("2026年 8月1日 — 8月31日 · 稼働は平日で集計");
+    expect(monthLabel()).toBe("2026年 8月");
 
     await user.click(screen.getByRole("button", { name: "前の月" }));
-    expect(dateRange()).toBe("2026年 7月1日 — 7月31日 · 1か月前 · 稼働は平日で集計");
+    expect(monthLabel()).toBe("2026年 7月");
   });
 });
 
@@ -4410,13 +4410,12 @@ describe("the board says what its figures count", () => {
     await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^アサインボード( |$)/u }));
   };
 
-  it("says so on the range, because the figures are weekday-only", async () => {
+  it("keeps the weekday count on the grid name, not on a subtitle", async () => {
     const user = userEvent.setup();
     render(<App />);
     await showBoard(user);
-    expect(document.querySelector(".date-range")!.textContent).toContain("稼働は平日で集計");
-    // And not the old wording, which described columns that are no longer missing.
-    expect(document.querySelector(".date-range")!.textContent).not.toContain("平日のみ");
+    expect(document.querySelector(".date-range")).toBeNull();
+    expect(screen.getByRole("grid", { name: /月間アサイン（稼働は平日で集計）$/u })).toBeInTheDocument();
   });
 
   it("tells a screen reader the board is a month of assignments counted on weekdays", async () => {
@@ -4502,14 +4501,12 @@ describe("a week-scoped figure names the week it measures", () => {
     render(<App />);
     // The month is the 1st to the 31st now that the weekends have columns, and the note
     // is about the arithmetic rather than about missing days (#207).
-    expect(document.querySelector(".date-range")!.textContent).toBe("2026年 8月1日 — 8月31日 · 稼働は平日で集計");
+    expect(document.querySelector(".date-range")).toBeNull();
+    expect(document.querySelector(".board-month-label")!.textContent).toBe("2026年 8月");
     expect(pulseLabel()).toBe("8/17週の空き");
 
-    // September 2026 opens on a Tuesday, so the week its first column belongs to began on
-    // 8/31 — in August, which no label naming the month could say.
     await user.click(screen.getByRole("button", { name: "次の月" }));
-    // 「· 1か月後」 comes with having paged away from today (#194).
-    expect(document.querySelector(".date-range")!.textContent).toBe("2026年 9月1日 — 9月30日 · 1か月後 · 稼働は平日で集計");
+    expect(document.querySelector(".board-month-label")!.textContent).toBe("2026年 9月");
     expect(pulseLabel()).toBe("8/31週の空き");
   });
 
@@ -6929,7 +6926,7 @@ describe("coming back to the screen before", () => {
 
     // And going back past it clears both, rather than leaving the last screen's behind.
     await goBack("");
-    expect(await screen.findByRole("heading", { name: "チーム編成" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "アサインボード" })).toBeInTheDocument();
     await user.click(navigation().getByRole("button", { name: "メンバー" }));
     expect((screen.getByLabelText("メンバーを検索") as HTMLInputElement).value).toBe("");
   });
