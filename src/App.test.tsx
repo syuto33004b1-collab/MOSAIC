@@ -6643,7 +6643,7 @@ describe("the board narrows by more than one thing", () => {
     expect(search).toHaveFocus();
 
     await user.clear(search);
-    await user.click(screen.getByRole("button", { name: "アサインを追加" }));
+    await user.click(screen.getByRole("button", { name: "新規追加" }));
     await user.keyboard("/");
     expect(search).not.toHaveFocus();
     expect(screen.getByRole("dialog", { name: "詳細パネル" })).toBeInTheDocument();
