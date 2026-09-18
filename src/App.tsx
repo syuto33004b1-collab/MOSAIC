@@ -1270,6 +1270,20 @@ export default function Home({ mode = "demo", organizationId, organizationName =
   const selectedProjectNeeds = selectedProject ? workspace.needs.filter((need) => need.projectId === selectedProject.id) : [];
   const selectedMember = memberById(workspace, selectedMemberId);
   const drawerMemberStats = selectedMember ? periodMemberStats(workspace, selectedMember, drawerRange) : null;
+  /*
+   * One binding for the member-drawer list and its count (#422). The rail already
+   * follows `drawerRange`; the list used to clip to `weekStart` and hide the
+   * assignments that made a 12-month or 全て load. An empty span (clipped past
+   * the holiday calendar) is not "zero rows" — the clip note above already said
+   * the outlook stopped, so the list stays out.
+   */
+  const memberPeriodHasRange = Boolean(drawerRange.from && drawerRange.buckets.length > 0);
+  const memberPeriodAssignments = selectedMember && memberPeriodHasRange
+    ? workspace.assignments
+      .filter((assignment) => assignment.personId === selectedMember.id && overlaps(assignment.startDate, assignment.endDate, drawerRange.from, drawerRange.to))
+      .slice()
+      .sort((left, right) => left.startDate.localeCompare(right.startDate) || left.endDate.localeCompare(right.endDate))
+    : [];
   const selectedAssignment = workspace.assignments.find((assignment) => assignment.id === selectedAssignmentId);
   const selectedAssignmentIsPersisted = Boolean(selectedAssignment && committedWorkspace.assignments.some((assignment) => assignment.id === selectedAssignment.id));
   const selectedOpportunity = opportunityById(workspace, selectedOpportunityId);
@@ -3809,7 +3823,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                   <span className={"avatar profile-avatar " + selectedMember.avatarTone}>{selectedMember.initials}</span>
                   <div><h2>{memberLabel(workspace, selectedMember)}</h2><p>{selectedMember.role} · {selectedMember.department}</p><small>{selectedMember.location}</small></div>
                   <FavoriteStar name={memberLabel(workspace, selectedMember)} pressed={isFavorited(favorites, "member", selectedMember.id)} onToggle={() => void toggleFavoriteTarget("member", selectedMember.id)} />
-                  <strong>{memberLoad(workspace, selectedMember.id, weekStart)}%</strong>
+                  <strong title={`${weekLabel(weekStart)}の稼働`} aria-label={`${weekLabel(weekStart)}の稼働`}>{memberLoad(workspace, selectedMember.id, weekStart)}%</strong>
                 </div>
                 <div className="profile-skills">{memberSkillLevels(selectedMember).map((level) => <span key={level.name}>{level.name}<small>{level.proficiency}</small></span>)}</div>
                 <OrgFacts state={workspace} personId={selectedMember.id} />
@@ -3826,8 +3840,14 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                   const average = stats?.average ?? 0;
                   return <div key={`${bucket.from}:${bucket.to}`}><span>{periodBucketLabel(drawerPeriod, bucket, index)}</span><i><b className={stats?.exceeds ? "over" : ""} style={{ width: Math.min(100, average) + "%" }} /></i><strong>{average}%</strong></div>;
                 })}</div>
-                <div className="drawer-section-title"><span>現在のアサイン</span><small>{workspace.assignments.filter((assignment) => assignment.personId === selectedMember.id && overlaps(assignment.startDate, assignment.endDate, weekStart, weekEnd(weekStart))).length}件</small></div>
-                <div className="allocation-list">{workspace.assignments.filter((assignment) => assignment.personId === selectedMember.id && overlaps(assignment.startDate, assignment.endDate, weekStart, weekEnd(weekStart))).map((assignment) => <div key={assignment.id}><span className={"project-dot " + (projectById(workspace, assignment.projectId)?.tone || "plum")} /><span><strong>{assignment.label || projectById(workspace, assignment.projectId)?.name || "プロジェクト未登録"}</strong><small>{formatDate(assignment.startDate)} — {formatDate(assignment.endDate)}</small></span><b>{assignment.allocation}%</b></div>)}</div>
+                {memberPeriodHasRange && (
+                  <>
+                    <div className="drawer-section-title"><span>{periodChoiceProseLabel(drawerPeriod)}のアサイン</span><small>{memberPeriodAssignments.length}件</small></div>
+                    {memberPeriodAssignments.length === 0
+                      ? <div className="candidate-empty"><BriefcaseBusiness size={18} /><span><strong>この期間のアサインはありません</strong></span></div>
+                      : <div className="allocation-list">{memberPeriodAssignments.map((assignment) => <div key={assignment.id}><span className={"project-dot " + (projectById(workspace, assignment.projectId)?.tone || "plum")} /><span><strong>{assignment.label || projectById(workspace, assignment.projectId)?.name || "プロジェクト未登録"}</strong><small>{formatDate(assignment.startDate)} — {formatDate(assignment.endDate)}</small></span><b>{assignment.allocation}%</b></div>)}</div>}
+                  </>
+                )}
                 <div className="entity-action-row">
                   <button className="drawer-secondary" type="button" onClick={() => void copyShareLink({ nav: "members", open: selectedMember.id }, "メンバーリンクをコピーしました")}>このメンバーのリンクをコピー</button>
                   <button className="drawer-secondary" type="button" onClick={() => addMemberToProposal(selectedMember.id)}>提案ビューに追加</button>
