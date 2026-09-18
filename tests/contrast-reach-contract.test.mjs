@@ -99,6 +99,13 @@ test("body holiday columns share the weekend fill, and a worked weekend still wi
     "`.day-grid i.weekend.worked` must follow `.holiday` so a recorded Saturday keeps its fill");
 });
 
+test("the sweep waits for the board heading pageMeta actually renders (#403)", () => {
+  const title = /board:\s*\{[^}]*title:\s*"([^"]+)"/u.exec(app)?.[1];
+  assert.equal(title, "アサインボード");
+  assert.match(sweep, /\["アサインボード",\s*"アサインボード"\]/u);
+  assert.match(sweep, /textContent\?\.trim\(\) === "アサインボード"/u);
+});
+
 test("the sweep fails when it cannot reach most of one state's text", () => {
   const floor = /const CONTRAST_COVERAGE_FLOOR = (0\.\d+);/u.exec(sweep);
   assert.ok(floor, "the sweep lost its coverage floor (#312)");
