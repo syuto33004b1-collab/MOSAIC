@@ -6,7 +6,7 @@ import App, { type SharedWorkspaceAdapter } from "./App";
 import { parseCsv } from "./csv";
 import { MembersView, ProjectsView, ProposalView } from "./expanded-views";
 import { DEMO_FAVORITES_KEY } from "./collaboration";
-import { addDays, boardBasisWeek, boardRange, getWeekDays, getWeekStart, initialWorkspace, memberDailyLoads, memberLoad, memberPeakLoad, PERIOD_CLIP_NOTE, periodMemberStats, periodRange, weekLabel, type StaffingNeed, type WorkspaceState } from "./domain";
+import { addDays, boardBasisWeek, boardRange, getWeekDays, getWeekStart, initialWorkspace, memberDailyLoads, memberLoad, memberPeakLoad, PERIOD_CLIP_NOTE, periodMemberStats, periodRange, planningSpan, weekLabel, type StaffingNeed, type WorkspaceState } from "./domain";
 import type { ChatTransport } from "./lib/ai/chatClient";
 
 function sharedAdapter(): SharedWorkspaceAdapter {
@@ -100,6 +100,11 @@ describe("role-aware workspace", () => {
     await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: "メンバー" }));
     expect(screen.getByRole("button", { name: "メンバーを追加" })).toBeDisabled();
     expect(screen.getAllByText("閲覧のみ").length).toBeGreaterThan(0);
+    await user.click(document.querySelector(".member-table tbody tr .member-name-cell") as HTMLElement);
+    const memberPanel = screen.getByRole("dialog", { name: "詳細パネル" });
+    expect(within(memberPanel).queryByRole("button", { name: /アサインを追加/u })).not.toBeInTheDocument();
+    expect(within(memberPanel).queryByRole("button", { name: /メンバー情報を編集/u })).not.toBeInTheDocument();
+    expect(within(memberPanel).getByRole("button", { name: "提案ビューに追加" })).toBeInTheDocument();
   });
 
   it("scopes AI actions to the active organization and refreshes their saved revision", async () => {
@@ -4863,25 +4868,21 @@ describe("a week-scoped figure names the week it measures", () => {
     // that has nothing to do with this test.
     await user.click(document.querySelector(".drawer .close-button") as HTMLElement);
 
-    // The member drawer's rail: label, then the bucket's average 「{n}%」.
+    // The member drawer's rail: the span names the month, the bar reads peak.
     await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^メンバー( |$)/u }));
     await user.click(document.querySelector(".member-table tbody tr .member-name-cell") as HTMLElement);
     const rail = await waitFor(() => {
-      const node = document.querySelector(".profile-capacity");
+      const node = document.querySelector(".member-detail-load .member-week-rail");
       expect(node).not.toBeNull();
       return node!;
     });
     const name = document.querySelector(".drawer .profile-headline strong, .drawer h2, .drawer h3")?.textContent ?? "";
     const member = initialWorkspace.members.find((item) => name.includes(item.name));
     expect(member, `could not identify the member from 「${name}」`).toBeDefined();
-    const rows = [...rail.querySelectorAll(":scope > div")];
-    expect(rows).toHaveLength(1);
-    expect(rows[0].querySelector("span")!.textContent).toBe("8月");
+    expect(rail.querySelectorAll("i")).toHaveLength(1);
+    expect(document.querySelector(".member-detail-load-span")!.textContent).toBe("8月");
     const drawerStats = periodMemberStats(initialWorkspace, member!, periodRange({ unit: "month", count: 1 }, "2026-08-19"));
-    rows.forEach((row, index) => {
-      const load = Number(row.querySelector("strong")!.textContent!.match(/^(\d+)%$/u)![1]);
-      expect(load, `rail cell ${index}`).toBe(drawerStats.buckets[index]!.average);
-    });
+    expect(rail.querySelector("small")!.textContent).toBe(`${drawerStats.buckets[0]!.peak}%`);
   });
 
   /**
@@ -4895,12 +4896,12 @@ describe("a week-scoped figure names the week it measures", () => {
     await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: "メンバー" }));
     await user.click(document.querySelector(".member-table tbody tr .member-name-cell") as HTMLElement);
     const rail = await waitFor(() => {
-      const node = document.querySelector(".profile-capacity");
+      const node = document.querySelector(".member-detail-load .member-week-rail");
       expect(node).not.toBeNull();
       return node!;
     });
-    const cells = [...rail.querySelectorAll(":scope > div > span")].map((node) => node.textContent);
-    expect(cells).toEqual(["9月"]);
+    expect(rail.querySelectorAll("i")).toHaveLength(1);
+    expect(document.querySelector(".member-detail-load-span")!.textContent).toBe("9月");
   });
 });
 
@@ -4917,27 +4918,26 @@ describe("detail drawer period horizon (#366)", () => {
       await user.click(document.querySelector(".member-table tbody tr .member-name-cell") as HTMLElement);
       const dialog = within(screen.getByRole("dialog", { name: "詳細パネル" }));
       expect(dialog.getByText("1か月の稼働")).toBeInTheDocument();
-      const rail = document.querySelector(".drawer .profile-capacity")!;
-      expect(rail.querySelectorAll(":scope > div")).toHaveLength(1);
-      expect([...rail.querySelectorAll(":scope > div > span")].map((node) => node.textContent))
-        .toEqual(["8月"]);
+      const rail = () => document.querySelector(".member-detail-load .member-week-rail")!;
+      const span = () => document.querySelector(".member-detail-load-span")!;
+      expect(rail().querySelectorAll("i")).toHaveLength(1);
+      expect(span().textContent).toBe("8月");
 
       await user.click(dialog.getByRole("button", { name: "12か月" }));
       expect(dialog.getByText("12か月の稼働")).toBeInTheDocument();
-      expect(rail.querySelectorAll(":scope > div")).toHaveLength(12);
-      expect(rail.querySelector(":scope > div > span")!.textContent).toBe("8月");
+      expect(rail().querySelectorAll("i")).toHaveLength(12);
+      expect(span().textContent).toMatch(/^8月/);
 
       await user.click(dialog.getByRole("button", { name: "6か月" }));
       expect(dialog.getByText("6か月の稼働")).toBeInTheDocument();
-      expect(rail.querySelectorAll(":scope > div")).toHaveLength(6);
+      expect(rail().querySelectorAll("i")).toHaveLength(6);
 
       await user.click(dialog.getByRole("button", { name: "全て" }));
       expect(dialog.getByText("全期間の稼働")).toBeInTheDocument();
       expect(dialog.queryByText("全ての稼働")).toBeNull();
-      const allLabels = [...rail.querySelectorAll(":scope > div > span")].map((node) => node.textContent);
-      expect(allLabels[0]).toBe("2026年4月");
-      expect(allLabels[0]).not.toBe("8月");
-      expect(allLabels).toHaveLength(12);
+      expect(span().textContent).toMatch(/^2026年4月/);
+      expect(span().textContent).not.toBe("8月");
+      expect(rail().querySelectorAll("i")).toHaveLength(12);
     } finally {
       vi.useRealTimers();
     }
@@ -4954,9 +4954,9 @@ describe("detail drawer period horizon (#366)", () => {
       await user.click(document.querySelector(".member-table tbody tr .member-name-cell") as HTMLElement);
       const dialog = within(screen.getByRole("dialog", { name: "詳細パネル" }));
       await user.click(dialog.getByRole("button", { name: "6か月" }));
-      const labels = [...document.querySelectorAll(".drawer .profile-capacity > div > span")].map((node) => node.textContent);
-      expect(labels[0]).toBe("9月");
-      expect(labels).toHaveLength(6);
+      const rail = document.querySelector(".member-detail-load .member-week-rail")!;
+      expect(document.querySelector(".member-detail-load-span")!.textContent).toMatch(/^9月/);
+      expect(rail.querySelectorAll("i")).toHaveLength(6);
     } finally {
       vi.useRealTimers();
     }
@@ -7597,5 +7597,100 @@ describe("member drawer assignments follow the selected period (#422)", () => {
     const load = memberLoad(initialWorkspace, "saeki", pagedWeek);
     expect(hero).toHaveAccessibleName(`${weekLabel(pagedWeek)}の稼働 ${load}%`);
     expect(weekLabel(pagedWeek)).not.toBe(weekLabel(getWeekStart(0)));
+  });
+
+  it("draws the board-week window under the hero percent (#426)", async () => {
+    const user = userEvent.setup();
+    const { panel } = await openPeriodMember(user, periodState([
+      { id: "week-only", personId: member.id, projectId: weekProject.id, startDate: "2026-08-17", endDate: "2026-08-21", allocation: 40, status: "confirmed" },
+    ]));
+    const hero = panel.querySelector(".profile-hero > strong");
+    const windowLabel = hero?.querySelector("small");
+    expect(windowLabel).toHaveTextContent(weekLabel(getWeekStart(0)));
+    expect(windowLabel?.textContent).not.toContain("%");
+    expect(windowLabel?.textContent).not.toContain("今週");
+  });
+
+  it("puts period load before history in the DOM (#426)", async () => {
+    const user = userEvent.setup();
+    const { panel } = await openPeriodMember(user, periodState([
+      { id: "week-only", personId: member.id, projectId: weekProject.id, startDate: "2026-08-17", endDate: "2026-08-21", allocation: 40, status: "confirmed" },
+    ]));
+    expect(panel).toHaveClass("member-detail-open");
+    const load = panel.querySelector(".member-detail-load");
+    const who = panel.querySelector(".member-detail-who");
+    expect(load).toBeTruthy();
+    expect(who).toBeTruthy();
+    expect(load!.compareDocumentPosition(who!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(load!.querySelector(".allocation-list")).not.toBeNull();
+    expect(who!.textContent).toContain("業務経歴");
+    expect(load!.textContent).not.toContain("業務経歴");
+    expect(who!.textContent).toContain("スキルシートを印刷");
+    expect(panel.querySelector(".member-detail-actions")!.textContent).toContain("この人へアサインを追加");
+    expect(panel.querySelector(".member-detail-actions")!.textContent).not.toContain("スキルシートを印刷");
+  });
+
+  it("plots the bucket peak on the rail, not the period average (#426)", async () => {
+    const user = userEvent.setup();
+    const state = periodState([
+      { id: "hot", personId: member.id, projectId: weekProject.id, startDate: "2026-08-17", endDate: "2026-08-21", allocation: 90, status: "confirmed" },
+      { id: "cool", personId: member.id, projectId: laterProject.id, startDate: "2026-08-24", endDate: "2026-08-31", allocation: 10, status: "confirmed" },
+    ]);
+    const { panel } = await openPeriodMember(user, state);
+    const stats = periodMemberStats(state, member, periodRange({ unit: "month", count: 1 }, "2026-08-19"));
+    const bucket = stats.buckets[0]!;
+    expect(bucket.peak).not.toBe(bucket.average);
+    const rail = panel.querySelector(".member-week-rail");
+    expect(rail).toHaveAttribute("role", "img");
+    expect(rail).toHaveAccessibleName(new RegExp(`8月 稼働${bucket.peak}% 稼働率${bucket.ratio}%`, "u"));
+    if (bucket.exceeds) expect(rail).toHaveAccessibleName(/上限超過/u);
+    expect(rail!.querySelector("small")!.textContent).toBe(`${bucket.peak}%`);
+    expect(rail!.querySelector("small")!.textContent).not.toBe(`${bucket.average}%`);
+    const summary = panel.querySelector(".member-detail-load-summary")!;
+    expect(summary.textContent).toContain(`ピーク ${bucket.peak}%`);
+    expect(summary.textContent).toMatch(/最小空き \d+%/u);
+    expect(panel.querySelector(".member-detail-load-span")!.textContent).toBe("8月");
+    expect(panel.querySelector(".member-detail-load .profile-capacity")).toBeNull();
+  });
+
+  it("names every bucket's peak, ratio, and over/open state on the rail (#426)", async () => {
+    const user = userEvent.setup();
+    const { panel, dialog } = await openPeriodMember(user, periodState([
+      { id: "hot", personId: member.id, projectId: weekProject.id, startDate: "2026-08-17", endDate: "2026-08-21", allocation: 110, status: "confirmed" },
+      { id: "winter", personId: member.id, projectId: winterProject.id, startDate: "2026-12-01", endDate: "2026-12-15", allocation: 20, status: "confirmed" },
+    ]));
+    await user.click(dialog.getByRole("button", { name: "全て" }));
+    const rail = panel.querySelector(".member-week-rail");
+    const state = periodState([
+      { id: "hot", personId: member.id, projectId: weekProject.id, startDate: "2026-08-17", endDate: "2026-08-21", allocation: 110, status: "confirmed" },
+      { id: "winter", personId: member.id, projectId: winterProject.id, startDate: "2026-12-01", endDate: "2026-12-15", allocation: 20, status: "confirmed" },
+    ]);
+    const stats = periodMemberStats(state, member, periodRange({ unit: "all" }, "2026-08-19", planningSpan(state)));
+    const august = stats.buckets.find((bucket) => bucket.from.startsWith("2026-08"));
+    const december = stats.buckets.find((bucket) => bucket.from.startsWith("2026-12"));
+    expect(august?.exceeds).toBe(true);
+    expect(rail).toHaveAccessibleName(new RegExp(`2026年8月 稼働${august!.peak}% 稼働率${august!.ratio}% 上限超過`, "u"));
+    expect(rail).toHaveAccessibleName(new RegExp(`2026年12月 稼働${december!.peak}% 稼働率${december!.ratio}%`, "u"));
+    expect((rail?.getAttribute("aria-label") ?? "").split("、").length).toBe(stats.buckets.length);
+  });
+
+  it("reads the rail against the daily ceiling, not the registered cap (#426)", async () => {
+    const user = userEvent.setup();
+    const capped = {
+      ...member,
+      capacity: 100,
+      unavailability: [{ id: "leave", startDate: "2026-08-01", endDate: "2026-08-31", capacityPercent: 50 }],
+    };
+    const state = periodState(
+      [{ id: "part", personId: member.id, projectId: weekProject.id, startDate: "2026-08-03", endDate: "2026-08-31", allocation: 40, status: "confirmed" }],
+      { members: [capped] },
+    );
+    const { panel } = await openPeriodMember(user, state);
+    const stats = periodMemberStats(state, capped, periodRange({ unit: "month", count: 1 }, "2026-08-19"));
+    const bucket = stats.buckets[0]!;
+    expect(bucket.peak).toBe(40);
+    expect(bucket.ratio).toBeGreaterThan(bucket.peak);
+    expect(panel.querySelector(".member-detail-load")!.textContent).toContain("稼働上限 100%");
+    expect(panel.querySelector(".member-week-rail")).toHaveAccessibleName(new RegExp(`稼働率${bucket.ratio}%`, "u"));
   });
 });
