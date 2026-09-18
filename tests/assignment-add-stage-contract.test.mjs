@@ -7,9 +7,9 @@ import { fileURLToPath } from "node:url";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 /**
- * #394: 「アサインを追加」だけ中央の台。共有ドロワーシェル（trap / ESC / backdrop）は
- * 触らず、修飾クラスと `@media (min-width: 621px)` で配置だけ変える。620px 以下の
- * ボトムシートと他ドロワーの右寄せを壊さないことが契約。
+ * #407: 621px 以上は詳細ドロワーを中央へ。幅は `.dialog-sm` / `.dialog-md` /
+ * `.dialog-lg`。設定パネルは右寄せのまま。620px 以下のボトムシートは触らない。
+ * #394 の「add だけ中央、他は右寄せ」はここが置き換える。
  */
 
 async function readCss() {
@@ -28,7 +28,6 @@ function declaration(css, selector, property) {
   return match ? match[1].trim() : null;
 }
 
-/** Strip every `@media (min-width: 621px) { … }` block (one level of braces). */
 function withoutMinWidth621(css) {
   return css.replace(/@media\s*\(\s*min-width:\s*621px\s*\)\s*\{([^{}]|\{[^{}]*\})*\}/gu, "");
 }
@@ -51,42 +50,96 @@ function mediaMinWidth621Bodies(css) {
   return bodies;
 }
 
-test("assignment-add stage is centered only above the bottom-sheet breakpoint (#394)", async () => {
+test("detail overlays center above the bottom-sheet breakpoint; settings stay right (#407)", async () => {
   const css = withoutComments(await readCss());
   const bodies = mediaMinWidth621Bodies(css);
-  const stage = bodies.find((body) => body.includes(".assignment-add-overlay"));
-  assert.ok(stage, "stage rules must live inside @media (min-width: 621px)");
+  const stage = bodies.find((body) => body.includes(".dialog-sm") && body.includes(".overlay"));
+  assert.ok(stage, "size rules must live inside @media (min-width: 621px) with .overlay");
 
-  assert.equal(declaration(stage, ".assignment-add-overlay", "justify-content"), "center");
-  assert.equal(declaration(stage, ".assignment-add-overlay", "align-items"), "center");
-  assert.equal(declaration(stage, ".assignment-add-panel", "height"), "auto");
-  assert.equal(declaration(stage, ".assignment-add-panel", "max-height"), "100%");
-  assert.equal(declaration(stage, ".assignment-add-panel", "animation-name"), "assignment-add-in");
-  assert.match(declaration(stage, ".assignment-add-panel", "width") ?? "",
+  assert.equal(declaration(stage, ".overlay", "justify-content"), "center");
+  assert.equal(declaration(stage, ".overlay", "align-items"), "center");
+  assert.equal(declaration(stage, ".production-operations-overlay", "justify-content"), "flex-end");
+  assert.equal(declaration(stage, ".production-operations-overlay", "align-items"), "stretch");
+
+  assert.equal(declaration(stage, ".dialog-sm", "height"), "auto");
+  assert.equal(declaration(stage, ".dialog-sm", "max-height"), "100%");
+  assert.equal(declaration(stage, ".dialog-sm", "animation-name"), "assignment-add-in");
+  assert.match(declaration(stage, ".dialog-sm", "width") ?? "",
     /min\(\s*100%\s*,\s*clamp\(\s*410px\s*,\s*48vw\s*,\s*620px\s*\)\s*\)/u);
 
+  assert.equal(declaration(stage, ".dialog-md", "height"), "auto");
+  assert.equal(declaration(stage, ".dialog-md", "max-height"), "100%");
+  assert.equal(declaration(stage, ".dialog-md", "animation-name"), "assignment-add-in");
+  assert.match(declaration(stage, ".dialog-md", "width") ?? "",
+    /min\(\s*100%\s*,\s*clamp\(\s*410px\s*,\s*48vw\s*,\s*720px\s*\)\s*\)/u);
+
+  assert.equal(declaration(css, ".drawer", "height"), "100%",
+    "lg inherits height: 100% from the base .drawer rule");
+  assert.equal(declaration(stage, ".dialog-lg", "height"), null,
+    "lg keeps .drawer height: 100%; auto would re-center when details expand");
+  assert.equal(declaration(stage, ".dialog-lg", "animation-name"), "assignment-add-in");
+  assert.match(declaration(stage, ".dialog-lg", "width") ?? "",
+    /min\(\s*100%\s*,\s*clamp\(\s*410px\s*,\s*62vw\s*,\s*1000px\s*\)\s*\)/u);
+
   assert.equal(declaration(css, ".overlay", "justify-content"), "flex-end",
-    "other drawers stay right-aligned");
+    "base overlay stays end-aligned so the 620px sheet is unchanged");
 
   const outside = withoutMinWidth621(css);
-  assert.equal(declaration(outside, ".assignment-add-overlay", "justify-content"), null,
-    "stage overlay rules must not sit outside the 621px media query");
-  assert.equal(declaration(outside, ".assignment-add-panel", "height"), null,
-    "stage panel rules must not sit outside the 621px media query");
+  assert.equal(declaration(outside, ".dialog-sm", "height"), null,
+    "sm height:auto must not sit outside the 621px media query");
+  assert.equal(declaration(outside, ".dialog-md", "height"), null,
+    "md height:auto must not sit outside the 621px media query");
+  assert.equal(declaration(outside, ".overlay", "align-items"), null,
+    "centering align-items must not sit outside the 621px media query");
 
-  // Theme `.drawer { box-shadow: -18px … }` comes later; the last matching stage
-  // rule inside min-width 621 must re-assert a symmetric shadow and radius.
-  const lastStage = [...bodies].reverse().find((body) => /\.assignment-add-panel\s*\{[^}]*box-shadow/u.test(body));
-  assert.ok(lastStage, "stage panel must re-declare box-shadow after the theme drawer block");
-  assert.match(declaration(lastStage, ".assignment-add-panel", "box-shadow") ?? "", /^0\s+/u,
+  const cssNoComments = css;
+  const themeRail = [...cssNoComments.matchAll(/\.drawer\s*\{([^}]*)\}/gu)]
+    .map((m) => ({ index: m.index, body: m[1] }))
+    .find((m) => /box-shadow:\s*-18px/u.test(m.body));
+  assert.ok(themeRail, "theme .drawer keeps the left-biased rail shadow");
+
+  const lastStage = [...bodies].reverse().find((body) =>
+    /dialog-lg\s*\{[^}]*box-shadow/u.test(body.replace(/\s+/gu, " ")));
+  assert.ok(lastStage, "size modifiers must re-declare box-shadow after the theme drawer block");
+  const groupedStart = cssNoComments.lastIndexOf(lastStage.trim().slice(0, 40));
+  assert.ok(groupedStart > themeRail.index,
+    "card shadow re-declaration must follow the theme .drawer rail shadow");
+  const grouped = lastStage.replace(/\s+/gu, " ");
+  assert.match(declaration(grouped, ".dialog-sm, .dialog-md, .dialog-lg", "box-shadow") ?? "", /^0\s+/u,
     "stage shadow must not keep the rail's left-biased offset");
-  assert.equal(declaration(lastStage, ".assignment-add-panel", "border-radius"), "20px");
+  assert.equal(declaration(grouped, ".dialog-sm, .dialog-md, .dialog-lg", "border-radius"), "20px");
+  assert.match(declaration(grouped, ".dialog-sm, .dialog-md, .dialog-lg", "border") ?? "", /1px\s+solid/u);
+
+  assert.equal(css.includes(":has(.dialog-sm)") || css.includes(":has(.dialog-md)") || css.includes(":has(.dialog-lg)"), false,
+    "size modifiers must not be selected via :has");
 });
 
-test("App wires the stage classes only for drawer === add (#394)", async () => {
+test("App wires one size modifier per Drawer member and attention md (#407)", async () => {
   const source = await readFile(path.join(root, "src/App.tsx"), "utf8");
-  assert.match(source, /"overlay"\s*\+\s*\(drawer\s*===\s*"add"\s*\?\s*" assignment-add-overlay"\s*:\s*""\)/u);
-  assert.match(source, /"drawer"\s*\+\s*\(drawer\s*===\s*"add"\s*\?\s*" assignment-add-panel"\s*:\s*""\)/u);
-  assert.equal((source.match(/assignment-add-overlay/gu) ?? []).length, 1);
-  assert.equal((source.match(/assignment-add-panel/gu) ?? []).length, 1);
+  const typeMatch = /type Drawer = ([^;]+);/u.exec(source);
+  assert.ok(typeMatch, "Drawer type");
+  const members = [...typeMatch[1].matchAll(/"([^"]+)"/gu)].map((m) => m[1]);
+  assert.ok(members.length >= 15, `expected the Drawer union, got ${members.join(",")}`);
+
+  const mapBlock = /const DRAWER_DIALOG_SIZE = \{([\s\S]*?)\}\s+as const satisfies Record<Exclude<Drawer, null>/u.exec(source);
+  assert.ok(mapBlock, "DRAWER_DIALOG_SIZE must satisfy Exclude<Drawer, null>");
+  const mapped = [...mapBlock[1].matchAll(/^\s*(\w+):\s*"(dialog-sm|dialog-lg)"/gmu)]
+    .map((m) => [m[1], m[2]]);
+  const mappedNames = mapped.map(([name]) => name);
+  assert.deepEqual([...mappedNames].sort(), [...members].sort(),
+    "every Drawer member except null must have exactly one size");
+  assert.equal(mapped.filter(([, size]) => size === "dialog-sm").map(([name]) => name).join(), "add");
+  assert.ok(mapped.every(([name, size]) => name === "add" ? size === "dialog-sm" : size === "dialog-lg"));
+
+  assert.match(source, /className=\{\s*"drawer "\s*\+\s*DRAWER_DIALOG_SIZE\[drawer\]\s*\}/u);
+  assert.match(source, /className="attention-dialog dialog-md"/u);
+  assert.equal((source.match(/assignment-add-overlay/gu) ?? []).length, 0);
+  assert.equal((source.match(/assignment-add-panel/gu) ?? []).length, 0);
+  assert.equal((source.match(/attention-overlay/gu) ?? []).length, 0);
+
+  const ops = await readFile(path.join(root, "src/production/OperationsPanel.tsx"), "utf8");
+  assert.match(ops, /className="overlay production-operations-overlay"/u);
+  assert.match(ops, /className="drawer production-operations-panel"/u);
+  assert.equal((ops.match(/dialog-(?:sm|md|lg)/gu) ?? []).length, 0,
+    "settings panel must not take a detail-dialog size modifier");
 });
