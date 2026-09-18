@@ -588,12 +588,8 @@ export default function Home({ mode = "demo", organizationId, organizationName =
   const [overloadDrawerId, setOverloadDrawerId] = useState("");
   const [overloadDrawerFromWeek, setOverloadDrawerFromWeek] = useState(false);
   const [filter, setFilter] = useState("すべて");
-  /**
-   * The board's other conditions. They live behind a trigger rather than on the
-   * toolbar because the toolbar had 74px of room left at a 1425px viewport — the
-   * board is 758px of it — and three more controls want about 410px (#198).
-   */
-  const [boardFiltersOpen, setBoardFiltersOpen] = useState(false);
+  /** #409: 部門とお気に入りだけを 2 行目に畳む。常時行はパネル自体。 */
+  const [boardFilterDetailsOpen, setBoardFilterDetailsOpen] = useState(false);
   const [boardOrgFilter, setBoardOrgFilter] = useState("");
   const [alertOnly, setAlertOnly] = useState(false);
   const [query, setQuery] = useState("");
@@ -604,7 +600,6 @@ export default function Home({ mode = "demo", organizationId, organizationName =
   const [proposalMemberIds, setProposalMemberIds] = useState<string[]>(startingShare?.nav === "proposal" ? startingShare.memberIds ?? [] : []);
   /** What the proposal answers, carried in the share link like the selection is. */
   const [proposalNeedId, setProposalNeedId] = useState(startingShare?.nav === "proposal" ? startingShare.needId ?? "" : "");
-  const [searchOpen, setSearchOpen] = useState(false);
   /**
    * The candidate search, shared by both assignment forms and cleared whenever either
    * opens. One piece of state because `drawer` holds one value, so the two are never
@@ -693,8 +688,6 @@ export default function Home({ mode = "demo", organizationId, organizationName =
   const drawerRef = useRef<HTMLElement>(null);
   const previousFocus = useRef<HTMLElement | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
-  const searchButtonRef = useRef<HTMLButtonElement | null>(null);
-  const searchWasOpen = useRef(false);
   const unsavedRef = useRef(0);
   const revisionRef = useRef(revision);
   const syncBusyRef = useRef(false);
@@ -979,41 +972,35 @@ export default function Home({ mode = "demo", organizationId, organizationName =
   }, [attentionOpen, drawer]);
 
   useEffect(() => {
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      // One layer at a time: drawer, then attention, then notifications (#395).
-      if (drawer) {
-        closeDrawer();
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        // One layer at a time: drawer, then attention, then notifications (#395).
+        if (drawer) {
+          closeDrawer();
+          return;
+        }
+        if (attentionOpen) {
+          closeAttentionPanel();
+          return;
+        }
+        setNotificationsOpen(false);
         return;
       }
-      if (attentionOpen) {
-        closeAttentionPanel();
-        return;
-      }
-      setNotificationsOpen(false);
-    };
-    window.addEventListener("keydown", closeOnEscape);
-    return () => window.removeEventListener("keydown", closeOnEscape);
-  }, [attentionOpen, closeAttentionPanel, closeDrawer, drawer]);
-
-  /**
-   * The search box replaces the button that opened it, so focus fell to the body on
-   * the way in and again on the way out (#257). Move it into the box, and back to the
-   * button — but only back from a box that was open, or the first render would take it.
-   */
-  useEffect(() => {
-    if (searchOpen) {
-      searchWasOpen.current = true;
+      // #409: `/` focuses the always-on board search. Character-key shortcut
+      // (WCAG 2.1.4); a disable toggle is a follow-up, not this change.
+      if (event.key !== "/") return;
+      if (activeNav !== "board") return;
+      if (event.ctrlKey || event.metaKey || event.altKey) return;
+      if (event.isComposing) return;
+      if (drawer || attentionOpen || notificationsOpen) return;
+      const target = event.target;
+      if (target instanceof HTMLElement && target.closest("input, textarea, select, [contenteditable='true']")) return;
+      event.preventDefault();
       searchInputRef.current?.focus();
-    } else if (searchWasOpen.current) {
-      searchWasOpen.current = false;
-      searchButtonRef.current?.focus();
-    }
-  }, [searchOpen]);
-  const closeSearch = () => {
-    setSearchOpen(false);
-    setQuery("");
-  };
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [activeNav, attentionOpen, closeAttentionPanel, closeDrawer, drawer, notificationsOpen]);
 
   useEffect(() => {
     if (mode !== "shared" || !shared) return;
@@ -1501,6 +1488,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
     ...(alertOnly ? [{ key: "alert", label: alertOnlyLabel, onClear: () => setAlertOnly(false) }] : []),
     ...(favoritesOnly ? [{ key: "favorites", label: "お気に入りのみ", onClear: () => setFavoritesOnly(false) }] : []),
   ];
+  const boardDetailFilterCount = (boardOrgMemberIds ? 1 : 0) + (favoritesOnly ? 1 : 0);
 
   /**
    * One place for the words that describe the range. The board is month-only (#391),
@@ -3229,9 +3217,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
             contrast of the text below it can be measured at all. `src/styles.css` has the
             reason next to the rule (#312). */}
         <i className="workspace-accent" aria-hidden="true" />
-        {/* `search-open` stacks the bar below 900px while the search box is out — the
-            box is 238px the row does not have there (#256). */}
-        <header className={"topbar" + (activeNav === "board" && searchOpen ? " search-open" : "")}>
+        <header className="topbar">
           <div>
             {/* 「8月 第3週」, not 「WEEK 34」: an ISO week number is year-wide and says nothing
                 about where in the month you are, which is the question (#194). */}
@@ -3242,12 +3228,6 @@ export default function Home({ mode = "demo", organizationId, organizationName =
             {activeNav !== "board" && <p className="date-range">{page.description}</p>}
           </div>
           <div className="topbar-actions">
-            {activeNav === "board" && (searchOpen ? (
-              // Escape here as well as on the window: the box is where the keyboard is,
-              // and it should close the way the drawer and the popover do (#257). The
-              // window handler still runs, so a popover open beside it closes too.
-              <label className="search-box"><Search size={16} /><input ref={searchInputRef} value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); closeSearch(); } }} placeholder="メンバー・案件を検索" aria-label="メンバー・案件を検索" /><button type="button" onClick={closeSearch} aria-label="検索を閉じる"><X size={15} /></button></label>
-            ) : <button ref={searchButtonRef} className="icon-button" aria-label="検索" onClick={() => setSearchOpen(true)}><Search size={18} /></button>)}
             <div className="notification-wrap">
               <button className={"icon-button" + (notificationCount > 0 ? " has-dot" : "")} aria-label="通知" aria-expanded={notificationsOpen} onClick={() => setNotificationsOpen((open) => !open)}><Bell size={18} /></button>
               {notificationsOpen && (
@@ -3315,19 +3295,6 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                     <button className={viewMode === "projects" ? "selected" : ""} aria-pressed={viewMode === "projects"} onClick={() => changeView("projects")}><BriefcaseBusiness size={13} />プロジェクト別</button>
                   </div>
                   <div className="toolbar-actions">
-                    {/* One trigger instead of the 職種 select that used to sit
-                        here: the toolbar had 74px of spare width and the
-                        conditions want about 410px (#198). The count is on the
-                        button so a filtered board says so even while shut. */}
-                    <button
-                      className={"filter-trigger" + (appliedBoardFilters.length > 0 ? " active" : "")}
-                      aria-expanded={boardFiltersOpen}
-                      aria-controls="board-filter-panel"
-                      onClick={() => setBoardFiltersOpen((open) => !open)}
-                    >
-                      <SlidersHorizontal size={13} />絞り込み
-                      {appliedBoardFilters.length > 0 && <span className="filter-count">{appliedBoardFilters.length}</span>}
-                    </button>
                     {/* #405: 今月 only when the arrows have left this month. Order is
                         今月, a gap, then previous / year-month / next. */}
                     <div className="board-month-pager">
@@ -3343,31 +3310,48 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                   </div>
                 </div>
 
-                {/* In flow below the toolbar, and state rather than `<details>`:
-                    `.toolbar-actions` becomes `overflow-x: auto` at 620px, which
-                    computes overflow-y to auto as well, so a panel positioned
-                    inside it would be clipped by a 31px row. Open, it pushes the
-                    grid down — the same as the members screen's scene
-                    disclosure. Shut, it costs nothing (#198). */}
-                {boardFiltersOpen && (
-                  <div className="board-filter-panel" id="board-filter-panel">
-                    <label className="view-filter"><span className="filter-label">{boardFilterAxisLabel}</span><select aria-label={boardFilterAxisLabel + "で絞り込み"} value={filter} onChange={(event) => setFilter(event.target.value)}>
-                      <option value="すべて">すべて</option>
-                      {(viewMode === "members" ? Array.from(new Set(workspace.members.map((member) => member.role))) : ["進行中", "要注意", "準備中", "完了間近", "完了"]).map((option) => <option key={option}>{option}</option>)}
-                    </select></label>
-                    {/* Members only: a project carries no unit, so there would be
-                        nothing to compare it against. */}
-                    {viewMode === "members" && boardOrgUnits.length > 0 && (
-                      <label className="view-filter"><span className="filter-label">部門</span><select aria-label="部門で絞り込み" value={boardOrgFilter} onChange={(event) => setBoardOrgFilter(event.target.value)}>
-                        <option value="">すべて</option>
-                        {boardOrgUnits.map((unit) => <option value={unit.id} key={unit.id}>{orgUnitPath(boardOrgUnits, unit.id).join(" / ")}</option>)}
-                      </select></label>
-                    )}
-                    <label className="view-toggle"><input type="checkbox" checked={alertOnly} onChange={(event) => setAlertOnly(event.target.checked)} />{alertOnlyLabel}</label>
-                    <label className="view-toggle"><input type="checkbox" checked={favoritesOnly} onChange={(event) => setFavoritesOnly(event.target.checked)} />お気に入りのみ</label>
-                    <button className="view-add-button ghost" onClick={() => setBoardFiltersOpen(false)}>閉じる</button>
-                  </div>
-                )}
+                {/* #409: always in flow under the toolbar. `.toolbar-actions` still
+                    becomes overflow-x auto at 620px, so the panel stays a sibling. */}
+                <div className="board-filter-panel" id="board-filter-panel" role="group" aria-label="絞り込み">
+                  <label className="inline-search">
+                    <Search size={15} />
+                    <input
+                      ref={searchInputRef}
+                      value={query}
+                      onChange={(event) => setQuery(event.target.value)}
+                      placeholder="メンバー・案件を検索"
+                      aria-label="メンバー・案件を検索"
+                      aria-keyshortcuts="/"
+                    />
+                  </label>
+                  <label className="view-filter"><span className="filter-label">{boardFilterAxisLabel}</span><select aria-label={boardFilterAxisLabel + "で絞り込み"} value={filter} onChange={(event) => setFilter(event.target.value)}>
+                    <option value="すべて">すべて</option>
+                    {(viewMode === "members" ? Array.from(new Set(workspace.members.map((member) => member.role))) : ["進行中", "要注意", "準備中", "完了間近", "完了"]).map((option) => <option key={option}>{option}</option>)}
+                  </select></label>
+                  <label className="view-toggle"><input type="checkbox" checked={alertOnly} onChange={(event) => setAlertOnly(event.target.checked)} />{alertOnlyLabel}</label>
+                  <button
+                    type="button"
+                    className="board-filter-details-toggle"
+                    aria-expanded={boardFilterDetailsOpen}
+                    aria-controls="board-filter-details"
+                    onClick={() => setBoardFilterDetailsOpen((open) => !open)}
+                  >
+                    詳細な条件
+                    {boardDetailFilterCount > 0 && <span className="filter-count">{boardDetailFilterCount}</span>}
+                  </button>
+                  <span className="toolbar-result">{rows.length}{viewMode === "members" ? "名" : "件"}を表示</span>
+                  {boardFilterDetailsOpen && (
+                    <div className="board-filter-details" id="board-filter-details">
+                      {viewMode === "members" && boardOrgUnits.length > 0 && (
+                        <label className="view-filter"><span className="filter-label">部門</span><select aria-label="部門で絞り込み" value={boardOrgFilter} onChange={(event) => setBoardOrgFilter(event.target.value)}>
+                          <option value="">すべて</option>
+                          {boardOrgUnits.map((unit) => <option value={unit.id} key={unit.id}>{orgUnitPath(boardOrgUnits, unit.id).join(" / ")}</option>)}
+                        </select></label>
+                      )}
+                      <label className="view-toggle"><input type="checkbox" checked={favoritesOnly} onChange={(event) => setFavoritesOnly(event.target.checked)} />お気に入りのみ</label>
+                    </div>
+                  )}
+                </div>
 
                 <ActiveFilters
                   applied={appliedBoardFilters}
