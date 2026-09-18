@@ -209,6 +209,26 @@ export type AppProps = {
 
 type Drawer = "add" | "assignment" | "overload" | "openRole" | "project" | "member" | "newProject" | "newMember" | "editProject" | "editMember" | "needForm" | "opportunity" | "newOpportunity" | "editOpportunity" | "opportunityNeedForm" | null;
 
+/** #407: 詳細ドロワーの幅修飾。add だけ sm（620）。他は lg（1000 / 62vw、height は 100% のまま）。
+ *  要調整は `.attention-dialog.dialog-md`。設定パネルは対象外。 */
+const DRAWER_DIALOG_SIZE = {
+  add: "dialog-sm",
+  assignment: "dialog-lg",
+  overload: "dialog-lg",
+  openRole: "dialog-lg",
+  project: "dialog-lg",
+  member: "dialog-lg",
+  newProject: "dialog-lg",
+  newMember: "dialog-lg",
+  editProject: "dialog-lg",
+  editMember: "dialog-lg",
+  needForm: "dialog-lg",
+  opportunity: "dialog-lg",
+  newOpportunity: "dialog-lg",
+  editOpportunity: "dialog-lg",
+  opportunityNeedForm: "dialog-lg",
+} as const satisfies Record<Exclude<Drawer, null>, "dialog-sm" | "dialog-lg">;
+
 type AssignmentEditForm = {
   personId: string;
   projectId: string;
@@ -3491,12 +3511,12 @@ export default function Home({ mode = "demo", organizationId, organizationName =
       )}
 
       {attentionOpen && !drawer && (
-        <div className="overlay attention-overlay">
+        <div className="overlay">
           <div className="overlay-backdrop" aria-hidden="true" onClick={closeAttentionPanel} />
           {/* `attention-dialog`, not `.drawer`: tests and code use `.drawer` for the
               detail panel. Layout rules are shared via the CSS selector list (#395). */}
           <section
-            className="attention-dialog"
+            className="attention-dialog dialog-md"
             ref={attentionPanelRef}
             role="dialog"
             aria-modal="true"
@@ -3551,7 +3571,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
       )}
 
       {drawer && (
-          <div className={"overlay" + (drawer === "add" ? " assignment-add-overlay" : "")}>
+          <div className="overlay">
             {/* A div, not a button. As a `<button>` it carried the same accessible name
               as the ✕ inside the panel, so a screen reader listing buttons saw
               「詳細パネルを閉じる」 twice, and the second one was outside the focus cycle
@@ -3574,7 +3594,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
               `no-static-element-interactions` both skip an `aria-hidden` element, and
               a directive here reports as unused. */}
           <div className="overlay-backdrop" aria-hidden="true" onClick={closeDrawer} />
-          <section className={"drawer" + (drawer === "add" ? " assignment-add-panel" : "")} ref={drawerRef} role="dialog" aria-modal="true" aria-label="詳細パネル" tabIndex={-1}>
+          <section className={"drawer " + DRAWER_DIALOG_SIZE[drawer]} ref={drawerRef} role="dialog" aria-modal="true" aria-label="詳細パネル" tabIndex={-1}>
             <div className="drawer-handle" />
             <div className="drawer-top"><span className="drawer-kicker">{drawer === "add" ? "NEW ASSIGNMENT" : drawer === "assignment" ? "ASSIGNMENT DETAIL" : drawer === "newProject" ? "NEW PROJECT" : drawer === "newMember" ? "NEW MEMBER" : drawer === "editProject" ? "EDIT PROJECT" : drawer === "editMember" ? "EDIT MEMBER" : drawer === "needForm" ? (editingNeedId ? "EDIT STAFFING NEED" : "NEW STAFFING NEED") : drawer === "opportunity" ? "OPPORTUNITY DETAIL" : drawer === "newOpportunity" ? "NEW OPPORTUNITY" : drawer === "editOpportunity" ? "EDIT OPPORTUNITY" : drawer === "opportunityNeedForm" ? (editingOpportunityNeedId ? "EDIT STAFFING PLAN" : "NEW STAFFING PLAN") : drawer === "project" ? "PROJECT DETAIL" : drawer === "member" ? "MEMBER PROFILE" : "RESOLUTION GUIDE"}</span><button className="close-button" aria-label="詳細パネルを閉じる" onClick={closeDrawer}><X size={18} /></button></div>
 

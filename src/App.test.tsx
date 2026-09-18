@@ -271,18 +271,18 @@ describe("role-aware workspace", () => {
     expect(document.querySelectorAll(".assignment.provisional")).toHaveLength(1);
   });
 
-  it("centers only the add-assignment panel above the bottom-sheet breakpoint (#394)", async () => {
+  it("sizes the add-assignment panel as sm and a member panel as lg (#407)", async () => {
     const user = userEvent.setup();
     render(<App />);
     await user.click(screen.getByRole("button", { name: "アサインを追加" }));
-    expect(document.querySelector(".overlay")).toHaveClass("assignment-add-overlay");
-    expect(document.querySelector(".drawer")).toHaveClass("assignment-add-panel");
+    expect(document.querySelector(".drawer")).toHaveClass("dialog-sm");
+    expect(document.querySelector(".drawer")).not.toHaveClass("dialog-lg");
     expect(screen.getByRole("dialog", { name: "詳細パネル" })).toBeInTheDocument();
 
     await user.keyboard("{Escape}");
     await user.click(document.querySelector(".schedule-row .person-open") as HTMLElement);
-    expect(document.querySelector(".overlay")).not.toHaveClass("assignment-add-overlay");
-    expect(document.querySelector(".drawer")).not.toHaveClass("assignment-add-panel");
+    expect(document.querySelector(".drawer")).toHaveClass("dialog-lg");
+    expect(document.querySelector(".drawer")).not.toHaveClass("dialog-sm");
   });
 
   it("reuses the request id when a failed shared save is retried", async () => {
@@ -3428,6 +3428,7 @@ describe("the 要調整 count opens the list dialog (#395)", () => {
 
     const dialog = await openAttention(user);
     expect(document.querySelector(".drawer")).toBeNull();
+    expect(document.querySelector(".attention-dialog")).toHaveClass("dialog-md");
     expect(dialog.getByText("1か月 · 過負荷1人 · 未充足ニーズ2件")).toBeInTheDocument();
     expect(dialog.getAllByRole("button").filter((el) => el.classList.contains("alert-card")).length).toBeGreaterThan(1);
     expect(document.querySelector(".attention-dialog")).toHaveFocus();
