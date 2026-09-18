@@ -2595,6 +2595,26 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
    same 600px floor the existing two-column blocks use. Below that, or below
    720px tall, the shell keeps `overflow-y: auto` so content is not clipped. */
 .member-detail-panes { display: flex; flex-direction: column; }
+.member-detail-load-summary {
+  margin: 0 0 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  color: var(--muted);
+  font-family: var(--font-data);
+  font-size: var(--text-min);
+  font-weight: 700;
+}
+.member-detail-load-summary strong { color: var(--ink); }
+/* The rail's own grid is the list contract. Margin only — do not restyle
+   `display` / `grid-auto-columns` / height here (`tests/rail-label-contract.test.mjs`). */
+.member-detail-load .member-week-rail { margin: 0 0 4px; }
+.member-detail-load-span {
+  margin: 0 0 14px;
+  color: var(--muted);
+  font-size: var(--text-min);
+  font-weight: 700;
+}
 .member-detail-who-actions,
 .member-detail-actions {
   margin-top: 14px;
@@ -2658,9 +2678,7 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
     background: var(--paper);
     z-index: 1;
   }
-  /* Keep the load rail a single column so adjacent months stay stacked.
-     Specificity beats the `@container detail-panel` 2-col rule. */
-  .drawer.member-detail-open .profile-capacity,
+  /* Keep stacked assignment cards; the period rail is `.member-week-rail` now. */
   .drawer.member-detail-open .allocation-list {
     display: flex;
     flex-direction: column;

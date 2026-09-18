@@ -1,4 +1,4 @@
-import { type CSSProperties, type FormEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Fragment, type CSSProperties, type FormEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   ArrowRight,
@@ -1270,6 +1270,21 @@ export default function Home({ mode = "demo", organizationId, organizationName =
   const selectedProjectNeeds = selectedProject ? workspace.needs.filter((need) => need.projectId === selectedProject.id) : [];
   const selectedMember = memberById(workspace, selectedMemberId);
   const drawerMemberStats = selectedMember ? periodMemberStats(workspace, selectedMember, drawerRange) : null;
+  const drawerLoadBearing = (drawerMemberStats?.buckets ?? []).filter((bucket) => bucket.capacity > 0);
+  const drawerPeriodPeak = drawerLoadBearing.reduce((highest, bucket) => Math.max(highest, bucket.peak), 0);
+  const drawerPeriodSlack = drawerLoadBearing.length === 0
+    ? null
+    : drawerLoadBearing.reduce((lowest, bucket) => Math.min(lowest, bucket.slack), Number.POSITIVE_INFINITY);
+  const drawerLoadFirst = drawerRange.buckets[0];
+  const drawerLoadLast = drawerRange.buckets.at(-1);
+  const drawerLoadFirstLabel = drawerLoadFirst ? periodBucketLabel(drawerPeriod, drawerLoadFirst, 0) : "";
+  const drawerLoadLastLabel = drawerLoadLast && drawerRange.buckets.length > 1
+    ? periodBucketLabel(drawerPeriod, drawerLoadLast, drawerRange.buckets.length - 1)
+    : "";
+  const drawerLoadRailLabel = `${periodChoiceProseLabel(drawerPeriod)}の稼働：` + drawerRange.buckets.map((bucket, index) => {
+    const stats = drawerMemberStats?.buckets[index];
+    return `${periodBucketLabel(drawerPeriod, bucket, index)} ${stats?.peak ?? 0}%`;
+  }).join("、");
   /*
    * One binding for the member-drawer list and its count (#422). The rail already
    * follows `drawerRange`; the list used to clip to `weekStart` and hide the
@@ -3832,11 +3847,28 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                     <PeriodRangeTabs choice={drawerPeriod} onChange={setDrawerPeriod} />
                     <div className="drawer-section-title"><span>{periodChoiceProseLabel(drawerPeriod)}の稼働</span><small>稼働上限 {selectedMember.capacity}%</small></div>
                     {drawerRange.clipped && <p className="horizon-clip-note" role="note">{PERIOD_CLIP_NOTE}</p>}
-                    <div className="profile-capacity">{drawerRange.buckets.map((bucket, index) => {
-                      const stats = drawerMemberStats?.buckets[index];
-                      const average = stats?.average ?? 0;
-                      return <div key={`${bucket.from}:${bucket.to}`}><span>{periodBucketLabel(drawerPeriod, bucket, index)}</span><i><b className={stats?.exceeds ? "over" : ""} style={{ width: Math.min(100, average) + "%" }} /></i><strong>{average}%</strong></div>;
-                    })}</div>
+                    {drawerRange.buckets.length > 0 && (
+                      <>
+                        <p className="member-detail-load-summary">
+                          <span>ピーク <strong>{drawerPeriodPeak}%</strong></span>
+                          <span>最小空き <strong>{drawerPeriodSlack == null ? "—" : `${drawerPeriodSlack}%`}</strong></span>
+                        </p>
+                        <div className="member-week-rail" role="img" aria-label={drawerLoadRailLabel}>
+                          {drawerRange.buckets.map((bucket, index) => {
+                            const stats = drawerMemberStats?.buckets[index];
+                            return (
+                              <Fragment key={`${bucket.from}:${bucket.to}`}>
+                                <i className={stats?.exceeds ? "over" : stats?.open ? "open" : ""}>
+                                  <b style={{ height: Math.max(12, Math.min(100, stats?.ratio ?? 0)) + "%" }} />
+                                </i>
+                                <small>{stats?.peak ?? 0}%</small>
+                              </Fragment>
+                            );
+                          })}
+                        </div>
+                        <p className="member-detail-load-span">{drawerLoadLastLabel ? `${drawerLoadFirstLabel} — ${drawerLoadLastLabel}` : drawerLoadFirstLabel}</p>
+                      </>
+                    )}
                     {memberPeriodHasRange && (
                       <>
                         <div className="drawer-section-title"><span>{periodChoiceProseLabel(drawerPeriod)}のアサイン</span><small>{memberPeriodAssignments.length}件</small></div>

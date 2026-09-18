@@ -4863,25 +4863,21 @@ describe("a week-scoped figure names the week it measures", () => {
     // that has nothing to do with this test.
     await user.click(document.querySelector(".drawer .close-button") as HTMLElement);
 
-    // The member drawer's rail: label, then the bucket's average 「{n}%」.
+    // The member drawer's rail: the span names the month, the bar reads peak.
     await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^メンバー( |$)/u }));
     await user.click(document.querySelector(".member-table tbody tr .member-name-cell") as HTMLElement);
     const rail = await waitFor(() => {
-      const node = document.querySelector(".profile-capacity");
+      const node = document.querySelector(".member-detail-load .member-week-rail");
       expect(node).not.toBeNull();
       return node!;
     });
     const name = document.querySelector(".drawer .profile-headline strong, .drawer h2, .drawer h3")?.textContent ?? "";
     const member = initialWorkspace.members.find((item) => name.includes(item.name));
     expect(member, `could not identify the member from 「${name}」`).toBeDefined();
-    const rows = [...rail.querySelectorAll(":scope > div")];
-    expect(rows).toHaveLength(1);
-    expect(rows[0].querySelector("span")!.textContent).toBe("8月");
+    expect(rail.querySelectorAll("i")).toHaveLength(1);
+    expect(document.querySelector(".member-detail-load-span")!.textContent).toBe("8月");
     const drawerStats = periodMemberStats(initialWorkspace, member!, periodRange({ unit: "month", count: 1 }, "2026-08-19"));
-    rows.forEach((row, index) => {
-      const load = Number(row.querySelector("strong")!.textContent!.match(/^(\d+)%$/u)![1]);
-      expect(load, `rail cell ${index}`).toBe(drawerStats.buckets[index]!.average);
-    });
+    expect(rail.querySelector("small")!.textContent).toBe(`${drawerStats.buckets[0]!.peak}%`);
   });
 
   /**
@@ -4895,12 +4891,12 @@ describe("a week-scoped figure names the week it measures", () => {
     await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: "メンバー" }));
     await user.click(document.querySelector(".member-table tbody tr .member-name-cell") as HTMLElement);
     const rail = await waitFor(() => {
-      const node = document.querySelector(".profile-capacity");
+      const node = document.querySelector(".member-detail-load .member-week-rail");
       expect(node).not.toBeNull();
       return node!;
     });
-    const cells = [...rail.querySelectorAll(":scope > div > span")].map((node) => node.textContent);
-    expect(cells).toEqual(["9月"]);
+    expect(rail.querySelectorAll("i")).toHaveLength(1);
+    expect(document.querySelector(".member-detail-load-span")!.textContent).toBe("9月");
   });
 });
 
@@ -4917,27 +4913,26 @@ describe("detail drawer period horizon (#366)", () => {
       await user.click(document.querySelector(".member-table tbody tr .member-name-cell") as HTMLElement);
       const dialog = within(screen.getByRole("dialog", { name: "詳細パネル" }));
       expect(dialog.getByText("1か月の稼働")).toBeInTheDocument();
-      const rail = document.querySelector(".drawer .profile-capacity")!;
-      expect(rail.querySelectorAll(":scope > div")).toHaveLength(1);
-      expect([...rail.querySelectorAll(":scope > div > span")].map((node) => node.textContent))
-        .toEqual(["8月"]);
+      const rail = () => document.querySelector(".member-detail-load .member-week-rail")!;
+      const span = () => document.querySelector(".member-detail-load-span")!;
+      expect(rail().querySelectorAll("i")).toHaveLength(1);
+      expect(span().textContent).toBe("8月");
 
       await user.click(dialog.getByRole("button", { name: "12か月" }));
       expect(dialog.getByText("12か月の稼働")).toBeInTheDocument();
-      expect(rail.querySelectorAll(":scope > div")).toHaveLength(12);
-      expect(rail.querySelector(":scope > div > span")!.textContent).toBe("8月");
+      expect(rail().querySelectorAll("i")).toHaveLength(12);
+      expect(span().textContent).toMatch(/^8月/);
 
       await user.click(dialog.getByRole("button", { name: "6か月" }));
       expect(dialog.getByText("6か月の稼働")).toBeInTheDocument();
-      expect(rail.querySelectorAll(":scope > div")).toHaveLength(6);
+      expect(rail().querySelectorAll("i")).toHaveLength(6);
 
       await user.click(dialog.getByRole("button", { name: "全て" }));
       expect(dialog.getByText("全期間の稼働")).toBeInTheDocument();
       expect(dialog.queryByText("全ての稼働")).toBeNull();
-      const allLabels = [...rail.querySelectorAll(":scope > div > span")].map((node) => node.textContent);
-      expect(allLabels[0]).toBe("2026年4月");
-      expect(allLabels[0]).not.toBe("8月");
-      expect(allLabels).toHaveLength(12);
+      expect(span().textContent).toMatch(/^2026年4月/);
+      expect(span().textContent).not.toBe("8月");
+      expect(rail().querySelectorAll("i")).toHaveLength(12);
     } finally {
       vi.useRealTimers();
     }
@@ -4954,9 +4949,9 @@ describe("detail drawer period horizon (#366)", () => {
       await user.click(document.querySelector(".member-table tbody tr .member-name-cell") as HTMLElement);
       const dialog = within(screen.getByRole("dialog", { name: "詳細パネル" }));
       await user.click(dialog.getByRole("button", { name: "6か月" }));
-      const labels = [...document.querySelectorAll(".drawer .profile-capacity > div > span")].map((node) => node.textContent);
-      expect(labels[0]).toBe("9月");
-      expect(labels).toHaveLength(6);
+      const rail = document.querySelector(".member-detail-load .member-week-rail")!;
+      expect(document.querySelector(".member-detail-load-span")!.textContent).toMatch(/^9月/);
+      expect(rail.querySelectorAll("i")).toHaveLength(6);
     } finally {
       vi.useRealTimers();
     }
@@ -7628,5 +7623,27 @@ describe("member drawer assignments follow the selected period (#422)", () => {
     expect(who!.textContent).toContain("スキルシートを印刷");
     expect(panel.querySelector(".member-detail-actions")!.textContent).toContain("この人へアサインを追加");
     expect(panel.querySelector(".member-detail-actions")!.textContent).not.toContain("スキルシートを印刷");
+  });
+
+  it("plots the bucket peak on the rail, not the period average (#426)", async () => {
+    const user = userEvent.setup();
+    const state = periodState([
+      { id: "hot", personId: member.id, projectId: weekProject.id, startDate: "2026-08-17", endDate: "2026-08-21", allocation: 90, status: "confirmed" },
+      { id: "cool", personId: member.id, projectId: laterProject.id, startDate: "2026-08-24", endDate: "2026-08-31", allocation: 10, status: "confirmed" },
+    ]);
+    const { panel } = await openPeriodMember(user, state);
+    const stats = periodMemberStats(state, member, periodRange({ unit: "month", count: 1 }, "2026-08-19"));
+    const bucket = stats.buckets[0]!;
+    expect(bucket.peak).not.toBe(bucket.average);
+    const rail = panel.querySelector(".member-week-rail");
+    expect(rail).toHaveAttribute("role", "img");
+    expect(rail).toHaveAccessibleName(new RegExp(`8月 ${bucket.peak}%`, "u"));
+    expect(rail!.querySelector("small")!.textContent).toBe(`${bucket.peak}%`);
+    expect(rail!.querySelector("small")!.textContent).not.toBe(`${bucket.average}%`);
+    const summary = panel.querySelector(".member-detail-load-summary")!;
+    expect(summary.textContent).toContain(`ピーク ${bucket.peak}%`);
+    expect(summary.textContent).toMatch(/最小空き \d+%/u);
+    expect(panel.querySelector(".member-detail-load-span")!.textContent).toBe("8月");
+    expect(panel.querySelector(".member-detail-load .profile-capacity")).toBeNull();
   });
 });
