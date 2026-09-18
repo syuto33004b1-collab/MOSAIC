@@ -95,6 +95,13 @@ test("calendar day colours use dedicated tokens after today's glyph rule (#392)"
     "calendar colour rules must come after `.day-label.today strong` so today×Sat stays blue");
 });
 
+test("the sweep waits for the board heading pageMeta actually renders (#403)", () => {
+  const title = /board:\s*\{[^}]*title:\s*"([^"]+)"/u.exec(app)?.[1];
+  assert.equal(title, "アサインボード");
+  assert.match(sweep, /\["アサインボード",\s*"アサインボード"\]/u);
+  assert.match(sweep, /textContent\?\.trim\(\) === "アサインボード"/u);
+});
+
 test("the sweep fails when it cannot reach most of one state's text", () => {
   const floor = /const CONTRAST_COVERAGE_FLOOR = (0\.\d+);/u.exec(sweep);
   assert.ok(floor, "the sweep lost its coverage floor (#312)");
