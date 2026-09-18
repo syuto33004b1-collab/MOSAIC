@@ -2608,7 +2608,17 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .member-detail-load-summary strong { color: var(--ink); }
 /* The rail's own grid is the list contract. Margin only — do not restyle
    `display` / `grid-auto-columns` / height here (`tests/rail-label-contract.test.mjs`). */
-.member-detail-load .member-week-rail { margin: 0 0 4px; }
+.member-detail-load .member-week-rail {
+  margin: 0 0 4px;
+  justify-items: start;
+}
+/* The shared rail grows tracks with `1fr`, which is right in a table column.
+   In this pane a single month would become a full-width strip. Cap the bar,
+   not the track (`grid-auto-columns` is the list contract). */
+.member-detail-load .member-week-rail i {
+  width: 100%;
+  max-width: 28px;
+}
 .member-detail-load-span {
   margin: 0 0 14px;
   color: var(--muted);
