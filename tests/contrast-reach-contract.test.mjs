@@ -69,7 +69,7 @@ test("a weekend column reads its colours from the theme", () => {
 test("the board month pager enlarges the year-month and gaps 今月 from the arrows (#405)", () => {
   const label = /\.toolbar-actions \.board-month-label\s*\{([^}]*)\}/u.exec(css);
   assert.ok(label, "`.board-month-label` lost its rule");
-  assert.match(label[1], /font-size:\s*16px/u, "year-month must be larger than `--text-min`");
+  assert.match(label[1], /font-size:\s*var\(--text-lg\)/u, "year-month must be larger than `--text-min`");
   const pager = /\.board-month-pager\s*\{([^}]*)\}/u.exec(css);
   assert.ok(pager, "`.board-month-pager` lost its rule");
   assert.match(pager[1], /gap:\s*14px/u, "今月 must sit apart from the stepper");

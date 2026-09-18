@@ -149,7 +149,7 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   min-height: 31px;
   padding: 0 8px;
   color: var(--ink);
-  font-size: 16px;
+  font-size: var(--text-lg);
   font-weight: 800;
   white-space: nowrap;
 }
