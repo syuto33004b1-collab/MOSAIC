@@ -239,6 +239,10 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .day-label.weekend { background: var(--paper-deep); color: var(--muted-readable); }
 .day-label.weekend strong { color: var(--muted-readable-dark); }
 .day-grid i.weekend { background: var(--paper-deep); }
+/* Weekday national holidays use the same fill. A bar across 山の日 was reading
+   as a working day because only the header was marked (#404). After this rule so
+   a recorded Saturday still wins. */
+.day-grid i.holiday { background: var(--paper-deep); }
 /* A weekend that was actually worked. Without this a bar crossing a Saturday looks
    the same whether anyone was there or not, which is the one thing the tint exists
    to tell apart (#222). */
@@ -2658,6 +2662,13 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   gap: 9px;
   box-shadow: 0 5px 16px rgba(36, 48, 78, .04);
 }
+/* Workspace banner used a negative top margin to tuck under the topbar. In the
+   sidebar that would bite `.month-card`. Hide this modifier with `.month-card`
+   at the existing compact-sidebar breakpoint rather than inventing a new one. */
+.sync-banner-sidebar {
+  margin: 0 2px 12px;
+  box-shadow: none;
+}
 .sync-banner > span:nth-child(2) { min-width: 0; flex: 1; }
 .sync-banner strong, .sync-banner small { display: block; }
 .sync-banner strong { font-size: 9px; }
@@ -4397,6 +4408,7 @@ h1 {
   .nav-label { display: none; }
   .nav-count,
   .month-card,
+  .sync-banner-sidebar,
   .profile-row > span:nth-child(2) { display: none; }
   .nav-item.active { border-bottom-color: var(--coral); }
   .profile-row { flex-direction: column; justify-content: center; }

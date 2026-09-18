@@ -200,7 +200,9 @@ describe("role-aware workspace", () => {
     await user.click(within(card).getByRole("button", { name: "この内容で保存" }));
 
     expect(await within(card).findByRole("status")).toHaveTextContent("変更は保存されましたが、画面を更新できませんでした");
-    expect(await screen.findByText("共有データに接続できません")).toBeInTheDocument();
+    const errorStatus = await screen.findByText("共有データに接続できません");
+    expect(errorStatus.closest("section.workspace")).toBeTruthy();
+    expect(errorStatus.closest("aside.sidebar")).toBeNull();
   });
 
   /**
@@ -355,6 +357,8 @@ describe("role-aware workspace", () => {
     await user.click(screen.getByRole("button", { name: "チームへ保存" }));
 
     const retry = await screen.findByRole("button", { name: "もう一度保存" });
+    expect(retry.closest("section.workspace")).toBeTruthy();
+    expect(retry.closest("aside.sidebar")).toBeNull();
     expect(screen.getByRole("button", { name: "新規追加" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "元に戻す" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "設定を開く" })).toBeDisabled();
@@ -373,9 +377,44 @@ describe("role-aware workspace", () => {
     await user.click(screen.getByRole("button", { name: "この内容で仮置きする" }));
     await user.click(screen.getByRole("button", { name: "チームへ保存" }));
 
-    expect(await screen.findByText("他のユーザーの変更があります")).toBeInTheDocument();
+    const conflict = await screen.findByText("他のユーザーの変更があります");
+    expect(conflict.closest("section.workspace")).toBeTruthy();
+    expect(conflict.closest("aside.sidebar")).toBeNull();
     expect(screen.getByRole("button", { name: "下書きを破棄して再読み込み" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "チームへ保存" })).toBeDisabled();
+  });
+
+  it("places a quiet shared sync status between the week card and the account row (#406)", async () => {
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={sharedAdapter()} />);
+    const idle = screen.getByText("チームと同期済み");
+    expect(idle.closest("aside.sidebar")).toBeTruthy();
+    expect(idle.closest("section.workspace")).toBeNull();
+    const sidebar = document.querySelector("aside.sidebar")!;
+    const card = sidebar.querySelector(".month-card");
+    const banner = sidebar.querySelector(".sync-banner-sidebar");
+    const account = sidebar.querySelector(".profile-row");
+    expect(card && banner && account, "sidebar is missing the week card, sync banner, or account row").toBeTruthy();
+    expect(card!.compareDocumentPosition(banner!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(banner!.compareDocumentPosition(account!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const navigation = within(screen.getByRole("navigation", { name: "メインナビゲーション" }));
+    await userEvent.setup().click(navigation.getByRole("button", { name: /^プロジェクト 登録 \d+件$/u }));
+    expect(screen.getByText("チームと同期済み").closest("aside.sidebar")).toBeTruthy();
+    expect(screen.getByText("チームと同期済み").closest("section.workspace")).toBeNull();
+  });
+
+  it("keeps a shared save-in-progress status in the sidebar (#406)", async () => {
+    const user = userEvent.setup();
+    const adapter = sharedAdapter();
+    adapter.save = vi.fn(() => new Promise<{ revision: number; savedAt: string }>(() => undefined));
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
+
+    await openAssignmentFormFromBoard(user);
+    await user.click(screen.getByRole("button", { name: "この内容で仮置きする" }));
+    await user.click(screen.getByRole("button", { name: "チームへ保存" }));
+
+    const saving = await screen.findByText("チームへ保存中");
+    expect(saving.closest("aside.sidebar")).toBeTruthy();
+    expect(saving.closest("section.workspace")).toBeNull();
   });
 
   it("locks mutations while a remote refresh is in flight", async () => {
@@ -393,7 +432,9 @@ describe("role-aware workspace", () => {
     render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
 
     act(() => notifyRevision(8));
-    expect(await screen.findByText("最新データを確認中")).toBeInTheDocument();
+    const refreshing = await screen.findByText("最新データを確認中");
+    expect(refreshing.closest("aside.sidebar")).toBeTruthy();
+    expect(refreshing.closest("section.workspace")).toBeNull();
     expect(screen.getByRole("button", { name: "新規追加" })).toBeDisabled();
     await user.click(screen.getAllByRole("button", { name: /のアサイン詳細/ })[0]);
     expect(screen.getByLabelText("稼働配分（%）")).toBeDisabled();
@@ -403,7 +444,9 @@ describe("role-aware workspace", () => {
       state: { ...initialWorkspace, assignments: [] },
     }));
 
-    expect(await screen.findByText("チームと同期済み")).toBeInTheDocument();
+    const idle = await screen.findByText("チームと同期済み");
+    expect(idle.closest("aside.sidebar")).toBeTruthy();
+    expect(idle.closest("section.workspace")).toBeNull();
     expect(document.querySelectorAll(".assignment.provisional")).toHaveLength(0);
   });
 
@@ -438,7 +481,8 @@ describe("role-aware workspace", () => {
     render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
 
     act(() => notifyRevision(8));
-    expect(await screen.findByText("最新データを確認中")).toBeInTheDocument();
+    const refreshing = await screen.findByText("最新データを確認中");
+    expect(refreshing.closest("aside.sidebar")).toBeTruthy();
     act(() => notifyRevision(9));
     await act(async () => resolveFirstReload({ state: initialWorkspace, revision: 8 }));
 
@@ -3982,6 +4026,34 @@ describe("the board colours calendar days (#392)", () => {
     const newYear = byDate(1)!;
     expect(newYear.className).not.toMatch(/\bholiday\b/);
     expect(newYear).not.toHaveAttribute("title");
+  });
+
+  /**
+   * #404: the header already marked 山の日. The body column behind the bars
+   * only tinted weekends, so a bar across a weekday holiday read as a working
+   * day. Same class as the header, same fill as `.day-grid i.weekend`.
+   */
+  it("tints the body column of a weekday national holiday like a weekend", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date("2026-08-19T09:00:00+09:00"));
+    render(<App />);
+    const mountainIndex = labels().findIndex((el) => el.querySelector("strong")?.textContent === "11");
+    expect(mountainIndex).toBeGreaterThan(-1);
+    const firstRow = [...document.querySelector(".day-grid")!.querySelectorAll("i")];
+    expect(firstRow[mountainIndex]!.className).toMatch(/\bholiday\b/);
+    expect(firstRow[mountainIndex]!.className).not.toMatch(/\bweekend\b/);
+    expect(firstRow[0]!.className).toMatch(/\bweekend\b/);
+    expect(firstRow[0]!.className).not.toMatch(/\bholiday\b/);
+  });
+
+  it("does not tint a New Year outside the holiday calendar range in the body", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date("2036-01-15T09:00:00+09:00"));
+    render(<App />);
+    const newYearIndex = labels().findIndex((el) => el.querySelector("strong")?.textContent === "1");
+    expect(newYearIndex).toBeGreaterThan(-1);
+    const firstRow = [...document.querySelector(".day-grid")!.querySelectorAll("i")];
+    expect(firstRow[newYearIndex]!.className).not.toMatch(/\bholiday\b/);
   });
 });
 

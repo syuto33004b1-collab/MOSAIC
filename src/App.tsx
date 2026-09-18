@@ -3172,6 +3172,16 @@ export default function Home({ mode = "demo", organizationId, organizationName =
       : []),
     { key: "member", label: "メンバー", enabled: canManageMembers, reason: "メンバーを追加する権限がありません", run: () => setDrawer("newMember") },
   ];
+  const syncNeedsAction = syncStatus === "conflict" || syncStatus === "error";
+  const syncBanner = mode === "shared" ? (
+    <div className={["sync-banner", syncStatus, syncNeedsAction ? "" : "sync-banner-sidebar"].filter(Boolean).join(" ")} role={syncNeedsAction ? "alert" : "status"}>
+      <span className="live-dot" /><span><strong>{syncStatus === "saving" ? "チームへ保存中" : syncStatus === "refreshing" ? "最新データを確認中" : syncStatus === "conflict" ? "他のユーザーの変更があります" : syncStatus === "error" ? (syncRetryable ? "共有データに接続できません" : "入力内容を保存できません") : "チームと同期済み"}</strong><small>{syncError || `revision ${revision}`}</small></span>
+      {syncStatus === "conflict" && <button onClick={() => void discardAndReloadShared()}>下書きを破棄して再読み込み</button>}
+      {syncStatus === "error" && (unsavedChanges > 0
+        ? (syncRetryable ? <button onClick={() => void saveChanges()}>もう一度保存</button> : <button onClick={undoChanges}>未保存変更を元に戻す</button>)
+        : <button onClick={() => void discardAndReloadShared()}>再試行</button>)}
+    </div>
+  ) : null;
 
   return (
     <main className="app-shell">
@@ -3227,6 +3237,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
           <div className="month-track"><span style={{ width: Math.min(100, averageLoad) + "%" }} /></div>
           <p>{totalCapacity === 0 ? (hasMemberCeiling ? "この週は稼働できる日がありません。" : "稼働上限が未設定です。") : averageLoad > 100 ? `稼働上限を ${averageLoad - 100}% 超えています。` : `稼働上限まであと ${100 - averageLoad}%。`}{mode === "shared" ? "変更は組織内で共有されます。" : "サンプルデータはこの端末だけに保存されます。"}</p>
         </div>
+        {!syncNeedsAction && syncBanner}
         {onOpenOperations ? (
           <button type="button" className="profile-row profile-account" aria-label="設定を開く" disabled={accountActionLocked} onClick={openOperations}>
             <span className="avatar avatar-dark">{makeInitials(displayName)}</span>
@@ -3291,15 +3302,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
           </div>
         </header>
 
-        {mode === "shared" && (
-          <div className={"sync-banner " + syncStatus} role={syncStatus === "error" || syncStatus === "conflict" ? "alert" : "status"}>
-            <span className="live-dot" /><span><strong>{syncStatus === "saving" ? "チームへ保存中" : syncStatus === "refreshing" ? "最新データを確認中" : syncStatus === "conflict" ? "他のユーザーの変更があります" : syncStatus === "error" ? (syncRetryable ? "共有データに接続できません" : "入力内容を保存できません") : "チームと同期済み"}</strong><small>{syncError || `revision ${revision}`}</small></span>
-            {syncStatus === "conflict" && <button onClick={() => void discardAndReloadShared()}>下書きを破棄して再読み込み</button>}
-            {syncStatus === "error" && (unsavedChanges > 0
-              ? (syncRetryable ? <button onClick={() => void saveChanges()}>もう一度保存</button> : <button onClick={undoChanges}>未保存変更を元に戻す</button>)
-              : <button onClick={() => void discardAndReloadShared()}>再試行</button>)}
-          </div>
-        )}
+        {syncNeedsAction && syncBanner}
 
         {activeNav === "board" && (
           <>
@@ -3437,7 +3440,14 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                           <div className="week-cell" role="gridcell" aria-label={row.name + "のアサイン"}>
                             {/* One line per column, from the range rather than a
                                 hard-coded five (#139). */}
-                            <div className="day-grid" aria-hidden="true">{days.map((day) => <i className={day.weekend ? (row.weekendWorked.has(day.iso) ? "weekend worked" : "weekend") : ""} key={day.iso} />)}</div>
+                            <div className="day-grid" aria-hidden="true">{days.map((day) => {
+                              const holiday = isJapanHoliday(day.iso);
+                              const className = [
+                                day.weekend ? (row.weekendWorked.has(day.iso) ? "weekend worked" : "weekend") : "",
+                                holiday ? "holiday" : "",
+                              ].filter(Boolean).join(" ");
+                              return <i className={className} key={day.iso} />;
+                            })}</div>
                             {/* The bracket holds what this bar is: whose row it sits in,
                                 which days it covers, and how much of them it takes. The
                                 figure is on screen in the `<small>` and in the `title`,
