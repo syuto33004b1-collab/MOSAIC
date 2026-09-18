@@ -461,6 +461,15 @@ function firstExceedWindow(stats: PeriodMemberStats | null | undefined, choice: 
   };
 }
 
+function memberLoadRailBucketCopy(
+  label: string,
+  stats: { peak: number; ratio: number; exceeds: boolean } | undefined,
+) {
+  const peak = stats?.peak ?? 0;
+  const ratio = stats?.ratio ?? 0;
+  return `${label} 稼働${peak}% 稼働率${ratio}%${stats?.exceeds ? " 上限超過" : ""}`;
+}
+
 function attentionBreakdownText(periodLabel: string, overloadCount: number, needCount: number, plannedCount: number) {
   const parts = [periodLabel, `過負荷${overloadCount}人`, `未充足ニーズ${needCount}件`];
   if (plannedCount > 0) parts.push(`予定超過${plannedCount}人`);
@@ -1281,10 +1290,9 @@ export default function Home({ mode = "demo", organizationId, organizationName =
   const drawerLoadLastLabel = drawerLoadLast && drawerRange.buckets.length > 1
     ? periodBucketLabel(drawerPeriod, drawerLoadLast, drawerRange.buckets.length - 1)
     : "";
-  const drawerLoadRailLabel = `${periodChoiceProseLabel(drawerPeriod)}の稼働：` + drawerRange.buckets.map((bucket, index) => {
-    const stats = drawerMemberStats?.buckets[index];
-    return `${periodBucketLabel(drawerPeriod, bucket, index)} ${stats?.peak ?? 0}%`;
-  }).join("、");
+  const drawerLoadRailLabel = `${periodChoiceProseLabel(drawerPeriod)}の稼働：` + drawerRange.buckets.map((bucket, index) => (
+    memberLoadRailBucketCopy(periodBucketLabel(drawerPeriod, bucket, index), drawerMemberStats?.buckets[index])
+  )).join("、");
   /*
    * One binding for the member-drawer list and its count (#422). The rail already
    * follows `drawerRange`; the list used to clip to `weekStart` and hide the
