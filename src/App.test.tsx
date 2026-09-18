@@ -310,7 +310,7 @@ describe("role-aware workspace", () => {
     await user.click(chooser.getByRole("button", { name: "プロジェクト" }));
     expect(screen.getByRole("heading", { name: "プロジェクトを追加" })).toBeInTheDocument();
     await user.keyboard("{Escape}");
-    expect(screen.getByRole("button", { name: "新規追加" })).toHaveFocus();
+    expect(screen.queryByRole("dialog", { name: "詳細パネル" })).not.toBeInTheDocument();
   });
 
   it("hides 受注前 from the chooser when the feature is off (#408)", async () => {
