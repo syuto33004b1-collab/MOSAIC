@@ -36,6 +36,35 @@ Geminiとの通信には、新規開発向けにGoogleが推奨している[Inte
 
 成功responseは`reply`と`interactionId`を常に含みます。変更候補では`proposal`、保存成功時は`workspaceRevision`も返します。Gemini固有のsteps、生のInteraction ID、内部の保存payload、上流のエラー本文はブラウザ向け契約へ漏らしません。
 
+## 上流モデル API
+
+MOSAIC の AI 秘書の上流は Gemini Interactions API に固定する（2026-09-18 固定）。差し替えは、下表の契約を全て満たす候補が現れたときにだけ検討し、満たさない候補へは移らない。現在の上流・モデル・secret はこの文書の他節を正とする。
+
+この節が条件表の正典である。Issue への再掲はしない。
+
+| 契約 | いまの値 / 根拠 |
+| --- | --- |
+| tool calling | 業務 tool（`workspace-tools.mjs`）と承認済み外部 MCP（`mcp-client.mjs`）の往復 |
+| サーバ側の会話継続 | `store: true` と `previous_interaction_id`。stateless な chat completions なら `continuation.mjs` は作り直しになる |
+| 関数名の長さ | 上流が関数名を **64 文字まで**許すこと。現行の宣言は最大 61 文字（`mcp_` 4 + キー 16 + `-` + tool 40）。61 未満の上限、または `-` を拒む命名は登録済み MCP を壊しうる |
+| tool 結果の戻し | tool 実行結果を、呼び出した function call に結び付けて戻せる。いまの Gemini では `function_result` と `call_id`。名前が違っても同じ意味へ変換できれば足りる |
+| tool loop | 4 round × 各 4 call。確認後の完了文は `tool_choice: "none"` |
+| 再試行してよい上流 status | 408 / 429 / 500 / 502 / 503 / 504。400 / 401 / 403 は再送しない |
+| 保持期間の開示 | 現行は Free 1日 / Paid 55日（[Interactions の保持](https://ai.google.dev/gemini-api/docs/interactions-overview#data-storage-and-retention)）。開示できない候補は採らない |
+| secret | `GEMINI_API_KEY` は Edge Function Secret。ブラウザは鍵を持たない |
+| 画面と MCP 承認 | `src/components/ai-chat` と `begin_mcp_call` / `propose_mcp_call` / `resume_mcp_call` / `complete_mcp_call` は変えない前提。tool 名の予算は provider 依存なので「触らない」に含めない |
+| 業務データの認可 | role 別の業務データ認可は `get_workspace` / `save_workspace` に置く。利用者 JWT、`get_my_context`、外部 MCP の承認・機能制限は別境界であり、この行で消さない |
+
+再検討する観測可能な事象。
+
+- 現行上流が上表のどれかを満たせなくなる（Interactions API の非推奨、`gemini-3.7-flash` の EOL、保持仕様の変更）
+- rate limit または費用が運用に合わなくなる（数値閾値は未定。業務責任者の判断）
+- **候補側が上表を全て満たしたと確認できた**とき
+
+Cursor の公開 API を含む他プロバイダは、「使えるようになったら」ではなく、上表を満たしたと確認できてから検討する。2026-09-17 時点の Cursor 公開 API は drop-in 先ではない。
+
+差し替えの実装は別 Issue。この節の固定だけでは `src/` と `supabase/functions/` を変えない。
+
 ## AI秘書が扱える操作
 
 - 最新のメンバー、プロジェクト、アサイン、要員要件、受注前案件、稼働余力、過負荷、組織階層、保存検索シーン、保存レポート、プロフィール更新依頼を参照する。
@@ -175,7 +204,7 @@ Google側の`store`は既定で`true`です。[Interactions APIのデータ保�
 
 - clientとFunctionの両方で空文字、型、本文長、履歴件数を検証する。client側の検証だけを認可・利用制限として扱わない。
 - Geminiのrate limitはproject単位でRPM、TPM、RPD、利用額に適用される。実値は[Google AI StudioのRate limits](https://ai.google.dev/gemini-api/docs/rate-limits)で確認する。
-- 429と一時的な5xxだけを、上限付きの指数バックオフとjitterで再試行する。400、401、403を自動再送しない。
+- 408、429、一時的な5xx（500 / 502 / 503 / 504）を、上限付きの指数バックオフとjitterで再試行する。400、401、403を自動再送しない。
 - 利用者または送信元単位のrate limitをGemini呼出し前に適用する。複数Edge workerで正確な制限が必要な場合は、[SupabaseのRedis rate limiting例](https://supabase.com/docs/guides/functions/examples/rate-limiting)のような共有storeを使う。
 - Supabase hosted Edge Functionsはmemory 256MB、request idle timeout 150秒です。Free planのworker最大時間は150秒、Paid planは400秒です。最新値は[Edge Function limits](https://supabase.com/docs/guides/functions/limits)で確認する。
 - timeout、認証失敗、Googleのエラー本文、stack traceをそのままブラウザへ返さない。
