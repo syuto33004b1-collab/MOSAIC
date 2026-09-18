@@ -3854,15 +3854,17 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                     <WorkHistoryList entries={selectedMember.workHistory} />
                     <div className="drawer-section-title"><span>期間指定の稼働上限</span><small>{(selectedMember.unavailability ?? []).length}件</small></div>
                     <UnavailabilityList entries={selectedMember.unavailability} />
+                    <div className="member-detail-who-actions">
+                      <button className="drawer-secondary" type="button" onClick={() => void copyShareLink({ nav: "members", open: selectedMember.id }, "メンバーリンクをコピーしました")}>このメンバーのリンクをコピー</button>
+                      <button className="drawer-secondary" type="button" onClick={printSkillSheet}><Printer size={15} />スキルシートを印刷</button>
+                      {canManageMembers && <button className="drawer-secondary" onClick={() => openMemberEditor(selectedMember)}>メンバー情報を編集</button>}
+                      {canManageMembers && <button className="drawer-danger" onClick={archiveMember}><Trash2 size={15} />メンバーをアーカイブ</button>}
+                    </div>
                   </div>
                 </div>
                 <div className="member-detail-actions">
-                  <button className="drawer-secondary" type="button" onClick={() => void copyShareLink({ nav: "members", open: selectedMember.id }, "メンバーリンクをコピーしました")}>このメンバーのリンクをコピー</button>
                   <button className="drawer-secondary" type="button" onClick={() => addMemberToProposal(selectedMember.id)}>提案ビューに追加</button>
-                  <button className="drawer-secondary" type="button" onClick={printSkillSheet}><Printer size={15} />スキルシートを印刷</button>
                   {canEdit && <button className="drawer-primary" onClick={() => openAssignmentFor(selectedMember.id)}><Plus size={16} />この人へアサインを追加</button>}
-                  {canManageMembers && <button className="drawer-secondary" onClick={() => openMemberEditor(selectedMember)}>メンバー情報を編集</button>}
-                  {canManageMembers && <button className="drawer-danger" onClick={archiveMember}><Trash2 size={15} />メンバーをアーカイブ</button>}
                 </div>
               </div>
             )}

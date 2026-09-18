@@ -2595,17 +2595,24 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
    same 600px floor the existing two-column blocks use. Below that, or below
    720px tall, the shell keeps `overflow-y: auto` so content is not clipped. */
 .member-detail-panes { display: flex; flex-direction: column; }
+.member-detail-who-actions,
 .member-detail-actions {
   margin-top: 14px;
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
 }
+.member-detail-who-actions .drawer-primary,
+.member-detail-who-actions .drawer-secondary,
+.member-detail-who-actions .drawer-danger,
 .member-detail-actions .drawer-primary,
 .member-detail-actions .drawer-secondary,
 .member-detail-actions .drawer-danger {
   margin-top: 0;
   flex: 1 1 calc(50% - 8px);
+}
+.member-detail-actions > :only-child {
+  flex-basis: 100%;
 }
 @media (min-width: 1052px) and (min-height: 720px) {
   .drawer.member-detail-open {
@@ -2628,14 +2635,29 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
     grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
     gap: 0 20px;
     align-items: stretch;
+    overflow: hidden;
   }
   .member-detail-load,
   .member-detail-who {
     min-height: 0;
     overflow: auto;
     overscroll-behavior: contain;
+    background: var(--paper);
   }
-  .member-detail-actions { flex: 0 0 auto; }
+  .member-detail-load .range-tabs {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: var(--paper);
+  }
+  .member-detail-actions {
+    flex: 0 0 auto;
+    margin-top: 0;
+    padding-top: 10px;
+    border-top: 1px solid var(--line);
+    background: var(--paper);
+    z-index: 1;
+  }
   /* Keep the load rail a single column so adjacent months stay stacked.
      Specificity beats the `@container detail-panel` 2-col rule. */
   .drawer.member-detail-open .profile-capacity,
@@ -5800,7 +5822,7 @@ h1 {
   .proposal-view .member-ribbon {
     border: 1px solid #b9bfcc;
     border-radius: 4px;
-    background: #fff;
+    background: var(--paper);
     color: #1b2437;
     box-shadow: none;
   }
@@ -5859,7 +5881,7 @@ h1 {
   html[data-print-document="skill-sheet"] .skill-sheet {
     display: block;
     color: #1b2437;
-    background: #fff;
+    background: var(--paper);
     overflow-wrap: anywhere;
   }
   .skill-sheet-kicker {

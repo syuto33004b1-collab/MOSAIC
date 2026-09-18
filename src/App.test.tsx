@@ -7625,5 +7625,8 @@ describe("member drawer assignments follow the selected period (#422)", () => {
     expect(load!.querySelector(".allocation-list")).not.toBeNull();
     expect(who!.textContent).toContain("業務経歴");
     expect(load!.textContent).not.toContain("業務経歴");
+    expect(who!.textContent).toContain("スキルシートを印刷");
+    expect(panel.querySelector(".member-detail-actions")!.textContent).toContain("この人へアサインを追加");
+    expect(panel.querySelector(".member-detail-actions")!.textContent).not.toContain("スキルシートを印刷");
   });
 });
