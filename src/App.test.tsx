@@ -303,16 +303,37 @@ describe("role-aware workspace", () => {
   it("opens a board chooser for assignment, project, opportunity and member (#408)", async () => {
     const user = userEvent.setup();
     render(<App />);
-    await user.click(screen.getByRole("button", { name: "新規追加" }));
-    const chooser = within(screen.getByRole("dialog", { name: "詳細パネル" }));
-    const labels = [...chooser.getByRole("list").querySelectorAll("button")].map((button) => button.getAttribute("aria-label"));
+    const primary = screen.getByRole("button", { name: "新規追加" });
+    await user.click(primary);
+    const openChooser = () => within(screen.getByRole("dialog", { name: "詳細パネル" }));
+    const labels = [...openChooser().getByRole("list").querySelectorAll("button")].map((button) => button.getAttribute("aria-label"));
     expect(labels).toEqual(["アサイン", "プロジェクト", "受注前案件", "メンバー"]);
-    expect(chooser.getByRole("heading", { name: "新規追加" })).toBeInTheDocument();
+    expect(openChooser().getByRole("heading", { name: "新規追加" })).toBeInTheDocument();
 
-    await user.click(chooser.getByRole("button", { name: "プロジェクト" }));
+    await user.click(openChooser().getByRole("button", { name: "プロジェクト" }));
     expect(screen.getByRole("heading", { name: "プロジェクトを追加" })).toBeInTheDocument();
     await user.keyboard("{Escape}");
     expect(screen.queryByRole("dialog", { name: "詳細パネル" })).not.toBeInTheDocument();
+    expect(primary).toHaveFocus();
+
+    await user.click(primary);
+    await user.click(openChooser().getByRole("button", { name: "受注前案件" }));
+    expect(screen.getByRole("heading", { name: "受注前案件を追加" })).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    expect(primary).toHaveFocus();
+
+    await user.click(primary);
+    await user.click(openChooser().getByRole("button", { name: "メンバー" }));
+    expect(screen.getByRole("heading", { name: "メンバーを追加" })).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    expect(primary).toHaveFocus();
+
+    await user.click(primary);
+    await user.click(openChooser().getByRole("button", { name: "アサイン" }));
+    expect(screen.getByRole("heading", { name: "アサインを追加" })).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog", { name: "詳細パネル" })).not.toBeInTheDocument();
+    expect(primary).toHaveFocus();
   });
 
   it("hides 受注前 from the chooser when the feature is off (#408)", async () => {

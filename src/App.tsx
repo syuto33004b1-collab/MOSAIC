@@ -712,6 +712,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
   const [aiActionBusy, setAiActionBusy] = useState(false);
   const drawerRef = useRef<HTMLElement>(null);
   const previousFocus = useRef<HTMLElement | null>(null);
+  const drawerSessionRef = useRef(false);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const searchButtonRef = useRef<HTMLButtonElement | null>(null);
   const searchWasOpen = useRef(false);
@@ -936,10 +937,24 @@ export default function Home({ mode = "demo", organizationId, organizationName =
   }, [mode, shared]);
 
   useEffect(() => {
-    if (!drawer) return;
-    previousFocus.current = document.activeElement as HTMLElement;
+    if (!drawer) {
+      if (drawerSessionRef.current) {
+        const target = previousFocus.current;
+        previousFocus.current = null;
+        drawerSessionRef.current = false;
+        document.body.style.overflow = "";
+        target?.focus();
+      }
+      return;
+    }
+    // #408: addChooser → add は同じ overlay の中身の付け替え。起動元は最初の
+    // 開閉だけ覚え、途中の cleanup で body を previousFocus に上書きしない。
+    if (!drawerSessionRef.current) {
+      previousFocus.current = document.activeElement as HTMLElement;
+      drawerSessionRef.current = true;
+    }
     document.body.style.overflow = "hidden";
-    window.setTimeout(() => drawerRef.current?.focus(), 0);
+    const focusDrawer = window.setTimeout(() => drawerRef.current?.focus(), 0);
     const trapFocus = (event: KeyboardEvent) => {
       if (event.key !== "Tab") return;
       const elements = drawerRef.current?.querySelectorAll<HTMLElement>("button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], [tabindex]:not([tabindex='-1'])");
@@ -960,9 +975,9 @@ export default function Home({ mode = "demo", organizationId, organizationName =
     };
     document.addEventListener("keydown", trapFocus);
     return () => {
+      window.clearTimeout(focusDrawer);
       document.body.style.overflow = "";
       document.removeEventListener("keydown", trapFocus);
-      previousFocus.current?.focus();
     };
   }, [drawer]);
 
@@ -3294,7 +3309,16 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                 canAddAssignment`), and that guard should not come to depend on
                 the disabled attribute being honoured. */}
             {primary && (
-              <button className="primary-button" onClick={() => { if (primary.enabled) primary.run(); }} disabled={!primary.enabled}>
+              <button className="primary-button" onClick={(event) => {
+                if (!primary.enabled) return;
+                // Capture before the workspace becomes inert; useEffect would
+                // see body as activeElement (#408).
+                if (!drawerSessionRef.current) {
+                  previousFocus.current = event.currentTarget;
+                  drawerSessionRef.current = true;
+                }
+                primary.run();
+              }} disabled={!primary.enabled}>
                 <primary.icon size={16} />
                 {primary.label}
               </button>
