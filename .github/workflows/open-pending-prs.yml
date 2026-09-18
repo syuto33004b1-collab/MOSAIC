@@ -1,0 +1,39 @@
+# Throwaway: opens GitHub PRs that the cloud agent token cannot create
+# (user-owned repo requires the app to be a collaborator). Do not merge this branch.
+name: Open pending PRs
+
+on:
+  push:
+    branches: [cursor/open-prs-6766]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  open:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout bodies
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Create pull requests
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: syuto33004b1-collab/MOSAIC
+        run: |
+          set -euo pipefail
+          create() {
+            local head="$1" title="$2" body_file="$3"
+            existing=$(gh pr list --head "$head" --json number --jq '.[0].number // empty')
+            if [ -n "$existing" ]; then
+              echo "already open #$existing for $head"
+              return
+            fi
+            gh pr create --base main --head "$head" --title "$title" --body-file "$body_file" --draft
+          }
+          create cursor/board-title-unify-6766 "ボード見出しをアサインボードに揃え、期間字幕を外す" .github/pr-bodies/403.md
+          create cursor/board-holiday-body-tint-6766 "祝日の本文列に週末と同じ地色を付ける" .github/pr-bodies/404.md
+          create cursor/board-month-pager-6766 "月切替を今月・年月・矢印の並びに整える" .github/pr-bodies/405.md
