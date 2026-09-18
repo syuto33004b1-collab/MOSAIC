@@ -6488,11 +6488,36 @@ describe("the board narrows by more than one thing", () => {
     expect(screen.getByLabelText("メンバー・案件を検索")).toHaveAttribute("aria-keyshortcuts", "/");
     expect(screen.getByLabelText("職種で絞り込み")).toBeInTheDocument();
     expect(screen.getByLabelText("上限超過のみ")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "詳細な条件" })).toHaveAttribute("aria-expanded", "false");
+    const toggle = screen.getByRole("button", { name: "詳細な条件" });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(toggle).toHaveAttribute("aria-controls", "board-filter-details");
     expect(screen.getByText(/名を表示$/u)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "絞り込み" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "検索" })).not.toBeInTheDocument();
     expect(screen.queryByLabelText("部門で絞り込み")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("お気に入りのみ")).not.toBeInTheDocument();
+  });
+
+  it("keeps department and favorites in the details row (#409)", async () => {
+    const user = onWednesday();
+    render(<App />);
+    await openBoard(user);
+    const toggle = screen.getByRole("button", { name: "詳細な条件" });
+    await openDetails(user);
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(document.getElementById("board-filter-details")).not.toBeNull();
+    expect(screen.getByLabelText("部門で絞り込み")).toBeInTheDocument();
+    expect(screen.getByLabelText("お気に入りのみ")).toBeInTheDocument();
+
+    await user.click(screen.getByLabelText("お気に入りのみ"));
+    expect(toggle.querySelector(".filter-count")).toHaveTextContent("1");
+    expect(chips()).toEqual(["お気に入りのみ"]);
+
+    await user.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByLabelText("部門で絞り込み")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("お気に入りのみ")).not.toBeInTheDocument();
+    expect(chips()).toEqual(["お気に入りのみ"]);
   });
 
   it("narrows the member axis by department, and says so in a chip", async () => {
@@ -6632,7 +6657,7 @@ describe("the board narrows by more than one thing", () => {
     expect(search).toBeInTheDocument();
   });
 
-  it("does not steal / from an open drawer or from typing in another field (#409)", async () => {
+  it("does not steal / from overlays, modifiers, IME, or another field (#409)", async () => {
     const user = onWednesday();
     render(<App />);
     await openBoard(user);
@@ -6641,10 +6666,36 @@ describe("the board narrows by more than one thing", () => {
     await user.keyboard("/");
     expect(search).toHaveValue("/");
     expect(search).toHaveFocus();
-
     await user.clear(search);
+    search.blur();
+
+    fireEvent.keyDown(window, { key: "/", ctrlKey: true });
+    expect(search).not.toHaveFocus();
+    fireEvent.keyDown(window, { key: "/", metaKey: true });
+    expect(search).not.toHaveFocus();
+    fireEvent.keyDown(window, { key: "/", altKey: true });
+    expect(search).not.toHaveFocus();
+    fireEvent.keyDown(window, { key: "/", isComposing: true });
+    expect(search).not.toHaveFocus();
+
+    const axis = screen.getByLabelText("職種で絞り込み");
+    axis.focus();
+    fireEvent.keyDown(axis, { key: "/" });
+    expect(search).not.toHaveFocus();
+
+    await user.click(screen.getByRole("button", { name: "通知" }));
+    fireEvent.keyDown(window, { key: "/" });
+    expect(search).not.toHaveFocus();
+    await user.keyboard("{Escape}");
+
+    await user.click(screen.getByRole("button", { name: /^\d+件(1か月|6か月|12か月)の要調整$/u }));
+    expect(screen.getByRole("dialog", { name: "要調整" })).toBeInTheDocument();
+    fireEvent.keyDown(window, { key: "/" });
+    expect(search).not.toHaveFocus();
+    await user.keyboard("{Escape}");
+
     await user.click(screen.getByRole("button", { name: "新規追加" }));
-    await user.keyboard("/");
+    fireEvent.keyDown(window, { key: "/" });
     expect(search).not.toHaveFocus();
     expect(screen.getByRole("dialog", { name: "詳細パネル" })).toBeInTheDocument();
   });
