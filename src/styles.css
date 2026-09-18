@@ -5822,7 +5822,7 @@ h1 {
   .proposal-view .member-ribbon {
     border: 1px solid #b9bfcc;
     border-radius: 4px;
-    background: var(--paper);
+    background: #fff;
     color: #1b2437;
     box-shadow: none;
   }
@@ -5881,8 +5881,7 @@ h1 {
   html[data-print-document="skill-sheet"] .skill-sheet {
     display: block;
     color: #1b2437;
-    background: var(--paper);
-    overflow-wrap: anywhere;
+    background: #fff;
   }
   .skill-sheet-kicker {
     margin: 0 0 4px;
