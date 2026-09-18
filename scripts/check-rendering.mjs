@@ -309,8 +309,11 @@ async function main() {
     await page.keyboard.press("Escape");
     await until(page, "the popover to close", () => !document.querySelector('button[aria-label="通知を閉じる"]'));
 
-    await click("アサインを追加");
+    await click("新規追加");
     await seeing(page, "[role=dialog]");
+    results.push(await scan(page, "新規追加チョーザー"));
+    await click("アサイン");
+    await until(page, "the assignment form", () => document.querySelector("[role=dialog] h2")?.textContent?.trim() === "アサインを追加");
     results.push(await scan(page, "アサイン追加ドロワー"));
 
     // A refused submit, which is the state #305 asks for and the first version never

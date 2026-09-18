@@ -77,13 +77,19 @@ async function openAttentionDialog(user: ReturnType<typeof userEvent.setup>) {
   return within(screen.getByRole("dialog", { name: "要調整" }));
 }
 
+/** #408: ボードの primary はチョーザー。フォームへは「アサイン」を選ぶ。 */
+async function openAssignmentFormFromBoard(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(screen.getByRole("button", { name: "新規追加" }));
+  await user.click(within(screen.getByRole("dialog", { name: "詳細パネル" })).getByRole("button", { name: "アサイン" }));
+}
+
 describe("role-aware workspace", () => {
   it("keeps viewer accounts read-only across board and member views", async () => {
     const user = userEvent.setup();
     render(<App mode="shared" organizationName="Example Inc." identity={{ name: "閲覧 太郎", email: "viewer@example.com", role: "viewer" }} shared={sharedAdapter()} />);
 
     expect(screen.getByText("SHARED")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "アサインを追加" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "新規追加" })).toBeDisabled();
 
     await user.click(screen.getAllByRole("button", { name: /のアサイン詳細/ })[0]);
     expect(screen.getByLabelText("稼働配分（%）")).toBeDisabled();
@@ -239,7 +245,12 @@ describe("role-aware workspace", () => {
     render(<App mode="shared" organizationName="New Org" identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
 
     expect(document.querySelector(".pulse-metric strong")).toHaveTextContent("0%");
-    expect(screen.getByRole("button", { name: "アサインを追加" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "新規追加" })).toBeEnabled();
+    await user.click(screen.getByRole("button", { name: "新規追加" }));
+    const chooser = within(screen.getByRole("dialog", { name: "詳細パネル" }));
+    expect(chooser.getByRole("button", { name: "アサイン" })).toBeDisabled();
+    expect(chooser.getByText("メンバーとプロジェクトが必要です")).toBeInTheDocument();
+    await user.keyboard("{Escape}");
 
     const navigation = within(screen.getByRole("navigation", { name: "メインナビゲーション" }));
     await user.click(navigation.getByRole("button", { name: "メンバー" }));
@@ -260,8 +271,8 @@ describe("role-aware workspace", () => {
     await user.click(dialog.getByRole("button", { name: "プロジェクトを追加" }));
 
     await user.click(navigation.getByRole("button", { name: "アサインボード" }));
-    expect(screen.getByRole("button", { name: "アサインを追加" })).toBeEnabled();
-    await user.click(screen.getByRole("button", { name: "アサインを追加" }));
+    expect(screen.getByRole("button", { name: "新規追加" })).toBeEnabled();
+    await openAssignmentFormFromBoard(user);
     dialog = within(screen.getByRole("dialog", { name: "詳細パネル" }));
     // A candidate is chosen on arrival. It was a `<select>` with a non-empty
     // value; it is a radio group now, so the same guarantee is a checked row (#199).
@@ -274,15 +285,60 @@ describe("role-aware workspace", () => {
   it("sizes the add-assignment panel as sm and a member panel as lg (#407)", async () => {
     const user = userEvent.setup();
     render(<App />);
-    await user.click(screen.getByRole("button", { name: "アサインを追加" }));
+    await user.click(screen.getByRole("button", { name: "新規追加" }));
     expect(document.querySelector(".drawer")).toHaveClass("dialog-sm");
     expect(document.querySelector(".drawer")).not.toHaveClass("dialog-lg");
+    await user.click(within(screen.getByRole("dialog", { name: "詳細パネル" })).getByRole("button", { name: "アサイン" }));
+    expect(document.querySelector(".drawer")).toHaveClass("dialog-sm");
     expect(screen.getByRole("dialog", { name: "詳細パネル" })).toBeInTheDocument();
 
     await user.keyboard("{Escape}");
     await user.click(document.querySelector(".schedule-row .person-open") as HTMLElement);
     expect(document.querySelector(".drawer")).toHaveClass("dialog-lg");
     expect(document.querySelector(".drawer")).not.toHaveClass("dialog-sm");
+  });
+
+  it("opens a board chooser for assignment, project, opportunity and member (#408)", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByRole("button", { name: "新規追加" }));
+    const chooser = within(screen.getByRole("dialog", { name: "詳細パネル" }));
+    const labels = [...chooser.getByRole("list").querySelectorAll("button")].map((button) => button.getAttribute("aria-label"));
+    expect(labels).toEqual(["アサイン", "プロジェクト", "受注前案件", "メンバー"]);
+    expect(chooser.getByRole("heading", { name: "新規追加" })).toBeInTheDocument();
+
+    await user.click(chooser.getByRole("button", { name: "プロジェクト" }));
+    expect(screen.getByRole("heading", { name: "プロジェクトを追加" })).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    expect(screen.getByRole("button", { name: "新規追加" })).toHaveFocus();
+  });
+
+  it("hides 受注前 from the chooser when the feature is off (#408)", async () => {
+    const user = userEvent.setup();
+    const adapter = sharedAdapter();
+    adapter.initialPermissions = {
+      personScope: "organization",
+      hiddenFieldKeys: [],
+      readonlyFieldKeys: [],
+      disabledFeatures: ["opportunities"],
+    };
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
+    await user.click(screen.getByRole("button", { name: "新規追加" }));
+    const chooser = within(screen.getByRole("dialog", { name: "詳細パネル" }));
+    expect(chooser.queryByRole("button", { name: "受注前案件" })).not.toBeInTheDocument();
+    expect([...chooser.getByRole("list").querySelectorAll("button")].map((button) => button.getAttribute("aria-label")))
+      .toEqual(["アサイン", "プロジェクト", "メンバー"]);
+  });
+
+  it("disables the member row for a planner without hiding it (#408)", async () => {
+    const user = userEvent.setup();
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "計画 花子", email: "planner@example.com", role: "planner" }} shared={sharedAdapter()} />);
+    await user.click(screen.getByRole("button", { name: "新規追加" }));
+    const chooser = within(screen.getByRole("dialog", { name: "詳細パネル" }));
+    expect(chooser.getByRole("button", { name: "アサイン" })).toBeEnabled();
+    expect(chooser.getByRole("button", { name: "プロジェクト" })).toBeEnabled();
+    expect(chooser.getByRole("button", { name: "メンバー" })).toBeDisabled();
+    expect(chooser.getByText("メンバーを追加する権限がありません")).toBeInTheDocument();
   });
 
   it("reuses the request id when a failed shared save is retried", async () => {
@@ -294,12 +350,12 @@ describe("role-aware workspace", () => {
     adapter.save = save;
     render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} onOpenOperations={vi.fn()} onSignOut={vi.fn()} />);
 
-    await user.click(screen.getByRole("button", { name: "アサインを追加" }));
+    await openAssignmentFormFromBoard(user);
     await user.click(screen.getByRole("button", { name: "この内容で仮置きする" }));
     await user.click(screen.getByRole("button", { name: "チームへ保存" }));
 
     const retry = await screen.findByRole("button", { name: "もう一度保存" });
-    expect(screen.getByRole("button", { name: "アサインを追加" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "新規追加" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "元に戻す" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "設定を開く" })).toBeDisabled();
     await user.click(retry);
@@ -313,7 +369,7 @@ describe("role-aware workspace", () => {
     adapter.save = vi.fn().mockRejectedValue(Object.assign(new Error("stale workspace"), { code: "WORKSPACE_CONFLICT" }));
     render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
 
-    await user.click(screen.getByRole("button", { name: "アサインを追加" }));
+    await openAssignmentFormFromBoard(user);
     await user.click(screen.getByRole("button", { name: "この内容で仮置きする" }));
     await user.click(screen.getByRole("button", { name: "チームへ保存" }));
 
@@ -338,7 +394,7 @@ describe("role-aware workspace", () => {
 
     act(() => notifyRevision(8));
     expect(await screen.findByText("最新データを確認中")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "アサインを追加" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "新規追加" })).toBeDisabled();
     await user.click(screen.getAllByRole("button", { name: /のアサイン詳細/ })[0]);
     expect(screen.getByLabelText("稼働配分（%）")).toBeDisabled();
     expect(screen.queryByRole("button", { name: "変更を仮置き" })).not.toBeInTheDocument();
@@ -356,7 +412,7 @@ describe("role-aware workspace", () => {
     const adapter = sharedAdapter();
     render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
 
-    await user.click(screen.getByRole("button", { name: "アサインを追加" }));
+    await openAssignmentFormFromBoard(user);
     await user.click(screen.getByRole("button", { name: "この内容で仮置きする" }));
     act(() => window.dispatchEvent(new Event("focus")));
 
@@ -426,7 +482,7 @@ describe("role-aware workspace", () => {
     const user = userEvent.setup();
     render(<App />);
 
-    await user.click(screen.getByRole("button", { name: "アサインを追加" }));
+    await openAssignmentFormFromBoard(user);
     await user.click(screen.getByRole("button", { name: "この内容で仮置きする" }));
 
     const dirtyEvent = new Event("beforeunload", { cancelable: true });
@@ -445,7 +501,7 @@ describe("role-aware workspace", () => {
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
     render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={sharedAdapter()} onOpenOperations={onOpenOperations} />);
 
-    await user.click(screen.getByRole("button", { name: "アサインを追加" }));
+    await openAssignmentFormFromBoard(user);
     await user.click(screen.getByRole("button", { name: "この内容で仮置きする" }));
     await user.click(screen.getByRole("button", { name: "設定を開く" }));
     expect(onOpenOperations).not.toHaveBeenCalled();
@@ -551,7 +607,7 @@ describe("role-aware workspace", () => {
   it("says what the draft would take the member to, and still lets it through", async () => {
     const user = userEvent.setup();
     render(<App />);
-    await user.click(screen.getByRole("button", { name: "アサインを追加" }));
+    await openAssignmentFormFromBoard(user);
     const dialog = within(screen.getByRole("dialog", { name: "詳細パネル" }));
     // 中村 美咲 is at 100% for the form's week (Atlas 80% + 運用サポート 20%); the
     // default allocation is 40%.
@@ -595,7 +651,7 @@ describe("role-aware workspace", () => {
     } as unknown as WorkspaceState;
     const user = userEvent.setup();
     render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
-    await user.click(screen.getByRole("button", { name: "アサインを追加" }));
+    await openAssignmentFormFromBoard(user);
     const dialog = within(screen.getByRole("dialog", { name: "詳細パネル" }));
     await user.click(dialog.getByRole("radio", { name: /週末 太郎/u }));
     fireEvent.change(dialog.getByLabelText("終了日"), { target: { value: "2026-08-23" } });
@@ -611,7 +667,7 @@ describe("role-aware workspace", () => {
   it("shows no loads while the form's dates make no range", async () => {
     const user = userEvent.setup();
     render(<App />);
-    await user.click(screen.getByRole("button", { name: "アサインを追加" }));
+    await openAssignmentFormFromBoard(user);
     const dialog = within(screen.getByRole("dialog", { name: "詳細パネル" }));
     const loads = () => [...document.querySelectorAll(".member-picker-load")].map((el) => el.textContent ?? "");
     expect(loads().every((text) => /^\d+% \/ \d+%$/u.test(text))).toBe(true);
@@ -682,7 +738,7 @@ describe("role-aware workspace", () => {
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
     render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
 
-    await user.click(screen.getByRole("button", { name: "アサインを追加" }));
+    await openAssignmentFormFromBoard(user);
     await user.click(screen.getByRole("button", { name: "この内容で仮置きする" }));
     const draft = document.querySelector<HTMLElement>(".assignment.provisional");
     expect(draft).not.toBeNull();
@@ -1060,7 +1116,7 @@ describe("role-aware workspace", () => {
     expect(document.body.innerHTML).not.toContain("NaN");
     expect(screen.getByText("0.0")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "アサインを追加" }));
+    await openAssignmentFormFromBoard(user);
     const dialog = screen.getByRole("dialog", { name: "詳細パネル" });
     await waitFor(() => expect(dialog).toHaveFocus());
     await user.keyboard("{Shift>}{Tab}{/Shift}");
@@ -1940,7 +1996,7 @@ describe("the header's primary slot", () => {
   // screens checked for the three labels that were removed from the slot.
   const screensCheckedForRemovedLabels = ["組織", "スキルマップ", "項目定義", "レポート"] as const;
   const expectedLabels: Record<string, string | null> = {
-    アサインボード: "アサインを追加",
+    アサインボード: "新規追加",
     プロジェクト: "プロジェクトを追加",
     受注前: "受注前案件を追加",
     メンバー: "メンバーを追加",
@@ -1980,7 +2036,7 @@ describe("the header's primary slot", () => {
     render(<App mode="shared" organizationName="Example Inc." identity={{ name: "閲覧 太郎", email: "viewer@example.com", role: "viewer" }} shared={sharedAdapter()} />);
     const navigation = within(screen.getByRole("navigation", { name: "メインナビゲーション" }));
 
-    for (const [nav, label] of [["アサインボード", "アサインを追加"], ["プロジェクト", "プロジェクトを追加"], ["メンバー", "メンバーを追加"]] as const) {
+    for (const [nav, label] of [["アサインボード", "新規追加"], ["プロジェクト", "プロジェクトを追加"], ["メンバー", "メンバーを追加"]] as const) {
       await user.click(navigation.getByRole("button", { name: new RegExp(`^${nav}( .*)?$`, "u") }));
       // Present but disabled: a viewer should see what the screen is for.
       expect(screen.getByRole("button", { name: label })).toBeDisabled();
@@ -2696,7 +2752,7 @@ describe("one name per control on the board", () => {
     // Two carry this name (#122); the ✕ inside the dialog is the one to press.
     await user.click(within(screen.getByRole("dialog", { name: "詳細パネル" })).getByRole("button", { name: "詳細パネルを閉じる" }));
 
-    await user.click(screen.getByRole("button", { name: "アサインを追加" }));
+    await openAssignmentFormFromBoard(user);
     expectDistinctNames("the new-assignment drawer");
   });
 
@@ -4539,7 +4595,7 @@ describe("a week-scoped figure names the week it measures", () => {
     expect(average()).toMatch(/^\d+%$/u);
     expect(document.querySelector(".month-card-label span")!.textContent).toBe("8/17週の平均稼働率");
 
-    await user.click(screen.getByRole("button", { name: /アサインを追加/u }));
+    await openAssignmentFormFromBoard(user);
     // The form opens on this week, Monday to Friday, which is what the legend names.
     expect(document.querySelector(".member-picker legend")!.textContent).toContain("8月17日 — 8月21日");
     const suzuki = rowFor("鈴木 健太");
@@ -4556,7 +4612,7 @@ describe("a week-scoped figure names the week it measures", () => {
     // Close and reopen after paging a month: the form still reads its own dates (#199).
     await user.click(document.querySelector(".drawer .close-button") as HTMLElement);
     await user.click(screen.getByRole("button", { name: "次の月" }));
-    await user.click(screen.getByRole("button", { name: /アサインを追加/u }));
+    await openAssignmentFormFromBoard(user);
     expect(rowFor("鈴木 健太").querySelector(".member-picker-load")!.textContent).toMatch(/^\d+%/u);
   });
 
@@ -4603,7 +4659,7 @@ describe("a week-scoped figure names the week it measures", () => {
     // legend, and every row is the peak over that range (#199). Same property as before —
     // a figure and the words for what it measures, paired — with the form's dates as the
     // thing being named instead of the board's week.
-    await user.click(screen.getByRole("button", { name: /アサインを追加/u }));
+    await openAssignmentFormFromBoard(user);
     const legend = document.querySelector(".member-picker legend")!.textContent!;
     const range = legend.match(/(\d+)月(\d+)日 — (\d+)月(\d+)日/u);
     expect(range, `expected a range in 「${legend}」`).not.toBeNull();
@@ -5283,7 +5339,7 @@ describe("two members with one name", () => {
     // The assignment form's member picker. Searched rather than read off the whole list:
     // it draws 12 rows at a time and this fixture has 11 members, which is close enough
     // that the cap could become the reason a namesake looks missing (#199).
-    await user.click(screen.getByRole("button", { name: /アサインを追加/u }));
+    await openAssignmentFormFromBoard(user);
     await user.type(screen.getByLabelText("アサインするメンバーを検索"), sharedName);
     const options = [...document.querySelectorAll(".member-picker-item strong")]
       .map((el) => el.textContent ?? "").filter((text) => text.startsWith(sharedName));
@@ -6486,7 +6542,7 @@ describe("choosing who to assign", () => {
   };
   afterEach(() => { vi.useRealTimers(); });
   const openForm = async (user: ReturnType<typeof userEvent.setup>) => {
-    await user.click(screen.getByRole("button", { name: /アサインを追加/u }));
+    await openAssignmentFormFromBoard(user);
   };
   const rows = () => [...document.querySelectorAll(".member-picker-item")];
   const names = () => rows().map((row) => row.querySelector("strong")!.textContent ?? "");

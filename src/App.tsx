@@ -206,11 +206,12 @@ export type AppProps = {
   aiChatTransport?: ChatTransport;
 };
 
-type Drawer = "add" | "assignment" | "overload" | "openRole" | "project" | "member" | "newProject" | "newMember" | "editProject" | "editMember" | "needForm" | "opportunity" | "newOpportunity" | "editOpportunity" | "opportunityNeedForm" | null;
+type Drawer = "addChooser" | "add" | "assignment" | "overload" | "openRole" | "project" | "member" | "newProject" | "newMember" | "editProject" | "editMember" | "needForm" | "opportunity" | "newOpportunity" | "editOpportunity" | "opportunityNeedForm" | null;
 
-/** #407: 詳細ドロワーの幅修飾。add だけ sm（620）。他は lg（1000 / 62vw、height は 100% のまま）。
+/** #407 / #408: 詳細ドロワーの幅修飾。addChooser と add が sm（620）。他は lg（1000 / 62vw、height は 100% のまま）。
  *  要調整は `.attention-dialog.dialog-md`。設定パネルは対象外。 */
 const DRAWER_DIALOG_SIZE = {
+  addChooser: "dialog-sm",
   add: "dialog-sm",
   assignment: "dialog-lg",
   overload: "dialog-lg",
@@ -227,6 +228,25 @@ const DRAWER_DIALOG_SIZE = {
   editOpportunity: "dialog-lg",
   opportunityNeedForm: "dialog-lg",
 } as const satisfies Record<Exclude<Drawer, null>, "dialog-sm" | "dialog-lg">;
+
+const DRAWER_KICKER = {
+  addChooser: "NEW",
+  add: "NEW ASSIGNMENT",
+  assignment: "ASSIGNMENT DETAIL",
+  overload: "RESOLUTION GUIDE",
+  openRole: "RESOLUTION GUIDE",
+  project: "PROJECT DETAIL",
+  member: "MEMBER PROFILE",
+  newProject: "NEW PROJECT",
+  newMember: "NEW MEMBER",
+  editProject: "EDIT PROJECT",
+  editMember: "EDIT MEMBER",
+  needForm: "NEW STAFFING NEED",
+  opportunity: "OPPORTUNITY DETAIL",
+  newOpportunity: "NEW OPPORTUNITY",
+  editOpportunity: "EDIT OPPORTUNITY",
+  opportunityNeedForm: "NEW STAFFING PLAN",
+} as const satisfies Record<Exclude<Drawer, null>, string>;
 
 type AssignmentEditForm = {
   personId: string;
@@ -3106,8 +3126,8 @@ export default function Home({ mode = "demo", organizationId, organizationName =
    * The header's primary slot means one thing: the main action that completes on
    * this screen. Four screens add something, the proposal screen copies its
    * share link and the skills screen opens an unfilled role — all of them finish
-   * where you are. Going to another screen does not qualify, because a slot that
-   * sometimes navigates cannot be predicted from its position (#104). Reports
+   * where you are. The board's slot is 「新規追加」: a chooser that still opens
+   * drawers on this screen, never a navigation (#104 / #408). Reports
    * reaches the board from three other kinds of control inside its own view, so
    * removing its entry costs nothing.
    *
@@ -3118,7 +3138,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
    * expressible: the label chain ended in a bare `: "ボードで調整"`.
    */
   const primaryActions: Record<keyof typeof pageMeta, { label: string; icon: LucideIcon; enabled: boolean; run: () => void } | null> = {
-    board: { label: "アサインを追加", icon: Plus, enabled: canAddAssignment, run: () => openNewAssignment() },
+    board: { label: "新規追加", icon: Plus, enabled: canEdit || canManageMembers, run: () => setDrawer("addChooser") },
     projects: { label: "プロジェクトを追加", icon: BriefcaseBusiness, enabled: canEdit, run: () => setDrawer("newProject") },
     opportunities: { label: "受注前案件を追加", icon: Inbox, enabled: canEdit, run: () => setDrawer("newOpportunity") },
     members: { label: "メンバーを追加", icon: UserRoundPlus, enabled: canManageMembers, run: () => setDrawer("newMember") },
@@ -3144,6 +3164,14 @@ export default function Home({ mode = "demo", organizationId, organizationName =
     reports: null,
   };
   const primary = primaryActions[activeNav];
+  const addChooserItems = [
+    { key: "assignment", label: "アサイン", enabled: canAddAssignment, reason: "メンバーとプロジェクトが必要です", run: () => openNewAssignment() },
+    { key: "project", label: "プロジェクト", enabled: canEdit, reason: "編集する権限がありません", run: () => setDrawer("newProject") },
+    ...(featureEnabled("opportunities")
+      ? [{ key: "opportunity", label: "受注前案件", enabled: canEdit, reason: "編集する権限がありません", run: () => setDrawer("newOpportunity") }]
+      : []),
+    { key: "member", label: "メンバー", enabled: canManageMembers, reason: "メンバーを追加する権限がありません", run: () => setDrawer("newMember") },
+  ];
 
   return (
     <main className="app-shell">
@@ -3566,7 +3594,23 @@ export default function Home({ mode = "demo", organizationId, organizationName =
           <div className="overlay-backdrop" aria-hidden="true" onClick={closeDrawer} />
           <section className={"drawer " + DRAWER_DIALOG_SIZE[drawer]} ref={drawerRef} role="dialog" aria-modal="true" aria-label="詳細パネル" tabIndex={-1}>
             <div className="drawer-handle" />
-            <div className="drawer-top"><span className="drawer-kicker">{drawer === "add" ? "NEW ASSIGNMENT" : drawer === "assignment" ? "ASSIGNMENT DETAIL" : drawer === "newProject" ? "NEW PROJECT" : drawer === "newMember" ? "NEW MEMBER" : drawer === "editProject" ? "EDIT PROJECT" : drawer === "editMember" ? "EDIT MEMBER" : drawer === "needForm" ? (editingNeedId ? "EDIT STAFFING NEED" : "NEW STAFFING NEED") : drawer === "opportunity" ? "OPPORTUNITY DETAIL" : drawer === "newOpportunity" ? "NEW OPPORTUNITY" : drawer === "editOpportunity" ? "EDIT OPPORTUNITY" : drawer === "opportunityNeedForm" ? (editingOpportunityNeedId ? "EDIT STAFFING PLAN" : "NEW STAFFING PLAN") : drawer === "project" ? "PROJECT DETAIL" : drawer === "member" ? "MEMBER PROFILE" : "RESOLUTION GUIDE"}</span><button className="close-button" aria-label="詳細パネルを閉じる" onClick={closeDrawer}><X size={18} /></button></div>
+            <div className="drawer-top"><span className="drawer-kicker">{drawer === "needForm" && editingNeedId ? "EDIT STAFFING NEED" : drawer === "opportunityNeedForm" && editingOpportunityNeedId ? "EDIT STAFFING PLAN" : DRAWER_KICKER[drawer]}</span><button className="close-button" aria-label="詳細パネルを閉じる" onClick={closeDrawer}><X size={18} /></button></div>
+
+            {drawer === "addChooser" && (
+              <div className="assignment-form">
+                <div className="drawer-heading"><span className="drawer-icon cobalt"><Plus size={19} /></span><div><h2>新規追加</h2><p>何を追加しますか</p></div></div>
+                <ul className="add-chooser">
+                  {addChooserItems.map((item) => (
+                    <li key={item.key}>
+                      <button type="button" aria-label={item.label} disabled={!item.enabled} onClick={() => { if (item.enabled) item.run(); }}>
+                        <strong>{item.label}</strong>
+                        {!item.enabled && <small>{item.reason}</small>}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
 
             {drawer === "add" && (
               <form className="assignment-form" onChange={markFormDraftDirty} onSubmit={handleAddAssignment}>

@@ -128,10 +128,17 @@ test("App wires one size modifier per Drawer member and attention md (#407)", as
   const mappedNames = mapped.map(([name]) => name);
   assert.deepEqual([...mappedNames].sort(), [...members].sort(),
     "every Drawer member except null must have exactly one size");
-  assert.equal(mapped.filter(([, size]) => size === "dialog-sm").map(([name]) => name).join(), "add");
-  assert.ok(mapped.every(([name, size]) => name === "add" ? size === "dialog-sm" : size === "dialog-lg"));
+  assert.deepEqual(
+    mapped.filter(([, size]) => size === "dialog-sm").map(([name]) => name).sort(),
+    ["add", "addChooser"],
+  );
+  assert.ok(mapped.every(([name, size]) => name === "add" || name === "addChooser" ? size === "dialog-sm" : size === "dialog-lg"));
 
-  assert.match(source, /className=\{\s*"drawer "\s*\+\s*DRAWER_DIALOG_SIZE\[drawer\]\s*\}/u);
+  assert.match(source, /const DRAWER_KICKER = \{/u);
+  const kickerBlock = /const DRAWER_KICKER = \{([\s\S]*?)\}\s+as const satisfies Record<Exclude<Drawer, null>/u.exec(source);
+  assert.ok(kickerBlock, "DRAWER_KICKER must satisfy Exclude<Drawer, null>");
+  const kicked = [...kickerBlock[1].matchAll(/^\s*(\w+):/gmu)].map((m) => m[1]);
+  assert.deepEqual([...kicked].sort(), [...members].sort(), "every Drawer member except null must have a kicker");
   assert.match(source, /className="attention-dialog dialog-md"/u);
   assert.equal((source.match(/assignment-add-overlay/gu) ?? []).length, 0);
   assert.equal((source.match(/assignment-add-panel/gu) ?? []).length, 0);
