@@ -981,6 +981,31 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .drawer-primary { border: 1px solid var(--cobalt); background: var(--cobalt); color: #fff; }
 .drawer-primary:hover { background: #485bd8; }
 .drawer-secondary { margin-top: 8px; border: 1px solid #dce2eb; background: #fff; color: #687285; }
+.add-chooser {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+.add-chooser button {
+  display: grid;
+  justify-items: start;
+  gap: 2px;
+  width: 100%;
+  min-height: 44px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--paper);
+  color: var(--ink);
+  cursor: pointer;
+  text-align: left;
+}
+.add-chooser button:hover:not(:disabled) { border-color: #cdd4e0; background: #fafbfc; }
+.add-chooser button:disabled { cursor: not-allowed; opacity: .52; }
+.add-chooser strong { font-size: var(--text-min); font-weight: 800; }
+.add-chooser small { color: var(--muted-readable); font-size: var(--text-min); }
 .drawer-danger { border: 1px solid #efc7c4; background: #fff8f7; color: #bd554e; }
 .drawer-danger:hover { border-color: #dfaaa6; background: #fff0ee; }
 .assignment-edit-actions { display: grid; gap: 8px; }
@@ -4278,6 +4303,9 @@ h1 {
 .drawer-primary:hover { border-color: var(--ink); background: var(--ink); }
 .drawer-secondary { border-color: var(--line-strong); background: var(--paper-pure); color: var(--ink); }
 .drawer-secondary:hover { border-color: var(--ink); background: var(--canvas); }
+.add-chooser button { border-color: var(--line-strong); background: var(--paper-pure); color: var(--ink); }
+.add-chooser button:hover:not(:disabled) { border-color: var(--ink); background: var(--canvas); }
+.add-chooser small { color: var(--muted); }
 .drawer-danger { border-color: #d9aa9e; background: #fff7f4; color: #9e3f29; }
 .capacity-card,
 .suggestion-card,
