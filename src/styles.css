@@ -2632,6 +2632,13 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   gap: 9px;
   box-shadow: 0 5px 16px rgba(36, 48, 78, .04);
 }
+/* Workspace banner used a negative top margin to tuck under the topbar. In the
+   sidebar that would bite `.month-card`. Hide this modifier with `.month-card`
+   at the existing compact-sidebar breakpoint rather than inventing a new one. */
+.sync-banner-sidebar {
+  margin: 0 2px 12px;
+  box-shadow: none;
+}
 .sync-banner > span:nth-child(2) { min-width: 0; flex: 1; }
 .sync-banner strong, .sync-banner small { display: block; }
 .sync-banner strong { font-size: 9px; }
@@ -4371,6 +4378,7 @@ h1 {
   .nav-label { display: none; }
   .nav-count,
   .month-card,
+  .sync-banner-sidebar,
   .profile-row > span:nth-child(2) { display: none; }
   .nav-item.active { border-bottom-color: var(--coral); }
   .profile-row { flex-direction: column; justify-content: center; }
