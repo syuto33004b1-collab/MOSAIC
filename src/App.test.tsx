@@ -3971,6 +3971,34 @@ describe("the board colours calendar days (#392)", () => {
     expect(newYear.className).not.toMatch(/\bholiday\b/);
     expect(newYear).not.toHaveAttribute("title");
   });
+
+  /**
+   * #404: the header already marked 山の日. The body column behind the bars
+   * only tinted weekends, so a bar across a weekday holiday read as a working
+   * day. Same class as the header, same fill as `.day-grid i.weekend`.
+   */
+  it("tints the body column of a weekday national holiday like a weekend", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date("2026-08-19T09:00:00+09:00"));
+    render(<App />);
+    const mountainIndex = labels().findIndex((el) => el.querySelector("strong")?.textContent === "11");
+    expect(mountainIndex).toBeGreaterThan(-1);
+    const firstRow = [...document.querySelector(".day-grid")!.querySelectorAll("i")];
+    expect(firstRow[mountainIndex]!.className).toMatch(/\bholiday\b/);
+    expect(firstRow[mountainIndex]!.className).not.toMatch(/\bweekend\b/);
+    expect(firstRow[0]!.className).toMatch(/\bweekend\b/);
+    expect(firstRow[0]!.className).not.toMatch(/\bholiday\b/);
+  });
+
+  it("does not tint a New Year outside the holiday calendar range in the body", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date("2036-01-15T09:00:00+09:00"));
+    render(<App />);
+    const newYearIndex = labels().findIndex((el) => el.querySelector("strong")?.textContent === "1");
+    expect(newYearIndex).toBeGreaterThan(-1);
+    const firstRow = [...document.querySelector(".day-grid")!.querySelectorAll("i")];
+    expect(firstRow[newYearIndex]!.className).not.toMatch(/\bholiday\b/);
+  });
 });
 
 /**
