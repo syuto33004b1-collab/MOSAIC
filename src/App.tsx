@@ -3828,7 +3828,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                   <strong title={selectedMemberWeekLoadLabel} aria-label={selectedMemberWeekLoadLabel}>{selectedMemberWeekLoad}%<small>{weekLabel(weekStart)}</small></strong>
                 </div>
                 <div className="member-detail-panes">
-                  <div className="member-detail-load" role="region" aria-label="期間の稼働とアサイン" tabIndex={0}>
+                  <div className="member-detail-load" role="region" aria-label="期間の稼働とアサイン">
                     <PeriodRangeTabs choice={drawerPeriod} onChange={setDrawerPeriod} />
                     <div className="drawer-section-title"><span>{periodChoiceProseLabel(drawerPeriod)}の稼働</span><small>稼働上限 {selectedMember.capacity}%</small></div>
                     {drawerRange.clipped && <p className="horizon-clip-note" role="note">{PERIOD_CLIP_NOTE}</p>}
@@ -3846,7 +3846,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                       </>
                     )}
                   </div>
-                  <div className="member-detail-who" role="region" aria-label="所属と経歴" tabIndex={0}>
+                  <div className="member-detail-who" role="region" aria-label="所属と経歴">
                     <div className="profile-skills">{memberSkillLevels(selectedMember).map((level) => <span key={level.name}>{level.name}<small>{level.proficiency}</small></span>)}</div>
                     <OrgFacts state={workspace} personId={selectedMember.id} />
                     <CustomFieldFacts fields={visibleCustomFields(workspace.customFields, "member", "detail")} values={selectedMember.customValues} />
