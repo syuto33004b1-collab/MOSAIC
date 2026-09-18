@@ -96,9 +96,10 @@ import {
   PERIOD_CHOICES,
   PERIOD_CLIP_NOTE,
   periodBucketLabel,
-  periodChoiceLabel,
+  periodChoiceProseLabel,
   periodMemberStats,
   periodRange,
+  planningSpan,
   parseMonthlyCostYen,
   parseSkillInput,
   MONTHLY_COST_FIELD_KEY,
@@ -1193,8 +1194,9 @@ export default function Home({ mode = "demo", organizationId, organizationName =
    */
   const weekStart = boardBasisWeek(range);
   const drawerOrigin = boardBasisDay(range);
-  const drawerRange = periodRange(drawerPeriod, drawerOrigin);
-  const attentionRange = periodRange(attentionPeriod, drawerOrigin);
+  const dataSpan = planningSpan(workspace);
+  const drawerRange = periodRange(drawerPeriod, drawerOrigin, dataSpan);
+  const attentionRange = periodRange(attentionPeriod, drawerOrigin, dataSpan);
   const visibleProposalIds = retainedMemberIds(proposalMemberIds, workspace.members.map((member) => member.id));
   /** The same week, as a count of weeks from this one, for the screens that take one. */
   const viewWeekOffset = Math.round((Date.parse(weekStart + "T00:00:00Z") - Date.parse(getWeekStart(0) + "T00:00:00Z")) / 604_800_000);
@@ -1248,7 +1250,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
   const candidateMatches = selectedNeed ? matchMembers(workspace, searchSceneFromNeed(selectedNeed)).slice(0, 5) : [];
   const adjustmentCount = attentionOverloads.length + attentionPlannedCount + activeNeeds.length;
   const attentionBreakdown = attentionBreakdownText(
-    periodChoiceLabel(attentionPeriod),
+    periodChoiceProseLabel(attentionPeriod),
     attentionOverloads.length,
     activeNeeds.length,
     attentionPlannedCount,
@@ -1591,7 +1593,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
     ? { label: measuredWeekLabel, peak: memberLoad(workspace, attentionOverloadMember.id, weekStart) }
     : (() => {
         const window = firstExceedWindow(attentionOverloadEntry?.stats, attentionPeriod);
-        if (!window || !attentionOverloadMember) return { label: periodChoiceLabel(attentionPeriod), peak: null as number | null };
+        if (!window || !attentionOverloadMember) return { label: periodChoiceProseLabel(attentionPeriod), peak: null as number | null };
         const days = memberDailyLoads(
           attentionOverloadPlanned ? committedWorkspace : workspace,
           attentionOverloadMember.id,
@@ -3319,7 +3321,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
               {/* To the list, not into one of its items: a count is a summary, and 「3件」 that
                   opens one thing is one label over two operations (#88, #124, #197). The
                   panel’s own cards are the way into each. */}
-              <button ref={attentionTriggerRef} className="pulse-metric warning" onClick={showAttentionPanel} aria-haspopup="dialog"><strong>{adjustmentCount}<small>件</small></strong><span>{periodChoiceLabel(attentionPeriod)}の要調整</span><ArrowRight size={14} /></button>
+              <button ref={attentionTriggerRef} className="pulse-metric warning" onClick={showAttentionPanel} aria-haspopup="dialog"><strong>{adjustmentCount}<small>件</small></strong><span>{periodChoiceProseLabel(attentionPeriod)}の要調整</span><ArrowRight size={14} /></button>
             </section>
 
             <div className="board-layout">
@@ -3726,7 +3728,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                 {overloadWorst ? (
                   <div className={"capacity-card " + (drawerOverloadPlanned ? "resolved" : "")}><div><span>{(overloadWindow?.label ?? measuredWeekLabel)}の稼働</span><strong>{Math.round(overloadPeak)}% / 稼働上限{overloadCeiling}%</strong></div><div className="capacity-meter"><span style={{ width: Math.min(100, overloadPeak) + "%" }} /><i>{overloadCeiling}%</i></div><p>{drawerOverloadPlanned ? "保存すると超過警告が解消されます。" : `稼働上限を${Math.max(0, Math.round(overloadOverage))}%超えています。`}</p></div>
                 ) : (
-                  <div className="capacity-card"><div><span>{(overloadWindow?.label ?? periodChoiceLabel(attentionPeriod))}の稼働</span><strong>超過日はありません</strong></div><p>この期間に上限を超えた日はありません。</p></div>
+                  <div className="capacity-card"><div><span>{(overloadWindow?.label ?? periodChoiceProseLabel(attentionPeriod))}の稼働</span><strong>超過日はありません</strong></div><p>この期間に上限を超えた日はありません。</p></div>
                 )}
                 <div className="drawer-section-title"><span>現在の配分</span><small>合計 {overloadWorst ? `${Math.round(overloadPeak)}%` : "—"}</small></div>
                 <div className="allocation-list">{overloadAssignments.map((assignment) => <div key={assignment.id}><span className={"project-dot " + (projectById(workspace, assignment.projectId)?.tone || "blue")} /><span><strong>{projectById(workspace, assignment.projectId)?.name}</strong><small>{formatDate(assignment.startDate)} — {formatDate(assignment.endDate)}</small></span><b>{assignment.allocation}%</b></div>)}</div>
@@ -3777,7 +3779,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                   <button className="drawer-secondary" onClick={() => openOpportunity((workspace.opportunities ?? []).find((opportunity) => opportunity.convertedProjectId === selectedProject.id)!.id)}>元の受注前案件を開く</button>
                 )}
                 <PeriodRangeTabs choice={drawerPeriod} onChange={setDrawerPeriod} />
-                <div className="drawer-section-title"><span>{periodChoiceLabel(drawerPeriod)}の充足</span><small>{selectedProject.demand === 0 ? "必要人数 未設定" : `必要 ${selectedProject.demand}名`}</small></div>
+                <div className="drawer-section-title"><span>{periodChoiceProseLabel(drawerPeriod)}の充足</span><small>{selectedProject.demand === 0 ? "必要人数 未設定" : `必要 ${selectedProject.demand}名`}</small></div>
                 {drawerRange.clipped && <p className="horizon-clip-note" role="note">{PERIOD_CLIP_NOTE}</p>}
                 <div className="profile-capacity">{drawerRange.buckets.map((bucket, index) => {
                   const count = projectPeriodCount(workspace, selectedProject, bucket.from, bucket.to);
@@ -3817,7 +3819,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                 <div className="drawer-section-title"><span>期間指定の稼働上限</span><small>{(selectedMember.unavailability ?? []).length}件</small></div>
                 <UnavailabilityList entries={selectedMember.unavailability} />
                 <PeriodRangeTabs choice={drawerPeriod} onChange={setDrawerPeriod} />
-                <div className="drawer-section-title"><span>{periodChoiceLabel(drawerPeriod)}の稼働</span><small>稼働上限 {selectedMember.capacity}%</small></div>
+                <div className="drawer-section-title"><span>{periodChoiceProseLabel(drawerPeriod)}の稼働</span><small>稼働上限 {selectedMember.capacity}%</small></div>
                 {drawerRange.clipped && <p className="horizon-clip-note" role="note">{PERIOD_CLIP_NOTE}</p>}
                 <div className="profile-capacity">{drawerRange.buckets.map((bucket, index) => {
                   const stats = drawerMemberStats?.buckets[index];

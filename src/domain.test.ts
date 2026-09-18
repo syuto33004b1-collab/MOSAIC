@@ -59,10 +59,13 @@ import {
   orgUnitArchiveBlocker,
   orgUnitLoadRows,
   orgUnitPath,
+  PERIOD_ALL,
   PERIOD_CHOICES,
   PERIOD_CLIP_NOTE,
   periodBucketLabel,
   periodChoiceLabel,
+  periodChoiceProseLabel,
+  periodCsvLoadWindow,
   monthBusinessDayCount,
   parseMonthlyCostYen,
   periodIdleCostYen,
@@ -72,6 +75,7 @@ import {
   workspaceShowsMonthlyCost,
   periodMemberStats,
   periodRange,
+  planningSpan,
   periodStatsFromDays,
   projectMembers,
   projectMembersLow,
@@ -1583,11 +1587,12 @@ describe("weekday capacity with holidays and unavailability", () => {
 
 describe("period range (#329 / #364)", () => {
   it("keeps every built-in choice at or under 12 buckets", () => {
-    expect(PERIOD_CHOICES.map((choice) => periodChoiceLabel(choice))).toEqual(["1か月", "6か月", "12か月"]);
+    expect(PERIOD_CHOICES.map((choice) => periodChoiceLabel(choice))).toEqual(["1か月", "6か月", "12か月", "全て"]);
+    const span = planningSpan(initialWorkspace);
     for (const choice of PERIOD_CHOICES) {
-      const range = periodRange(choice, "2026-08-17");
+      const range = periodRange(choice, "2026-08-17", span);
       expect(range.buckets.length).toBeLessThanOrEqual(12);
-      expect(range.buckets.length).toBe(choice.count);
+      if (choice.unit !== "all") expect(range.buckets.length).toBe(choice.count);
       expect(range.clipped).toBe(false);
     }
   });
@@ -1820,6 +1825,92 @@ describe("period range (#329 / #364)", () => {
     expect(periodBucketLabel({ unit: "month", count: 6 }, months.buckets[0]!, 0)).toBe("10月");
     expect(PERIOD_CLIP_NOTE).toContain("2016");
     expect(PERIOD_CLIP_NOTE).toContain("2035");
+  });
+});
+
+describe("period all (#396)", () => {
+  const origin = "2026-09-18";
+
+  it("covers the planning span, not origin plus twelve months", () => {
+    const span = planningSpan(initialWorkspace);
+    expect(span).toEqual({ from: "2026-04-01", to: "2027-03-31" });
+    const all = periodRange(PERIOD_ALL, origin, span);
+    const twelve = periodRange({ unit: "month", count: 12 }, origin);
+    expect(all.from).toBe("2026-04-01");
+    expect(all.to).toBe("2027-03-31");
+    expect(all.clipped).toBe(false);
+    expect(all.buckets).toHaveLength(12);
+    expect(all.from).not.toBe(twelve.from);
+    expect(all.to).not.toBe(twelve.to);
+    expect(periodChoiceLabel(PERIOD_ALL)).toBe("全て");
+    expect(periodChoiceProseLabel(PERIOD_ALL)).toBe("全期間");
+  });
+
+  it("picks the narrowest width that stays at or under 12 buckets", () => {
+    const thirteen = periodRange(PERIOD_ALL, origin, { from: "2026-04-01", to: "2027-04-30" });
+    expect(thirteen.buckets.length).toBeLessThanOrEqual(12);
+    expect(thirteen.buckets).toHaveLength(7);
+    expect(thirteen.buckets[0]).toEqual({ from: "2026-04-01", to: "2026-05-31" });
+    expect(thirteen.buckets.at(-1)).toEqual({ from: "2027-04-01", to: "2027-04-30" });
+
+    const twentyFive = periodRange(PERIOD_ALL, origin, { from: "2026-04-01", to: "2028-04-30" });
+    expect(twentyFive.buckets).toHaveLength(9);
+    expect(twentyFive.buckets.length).toBeLessThanOrEqual(12);
+
+    const twelve = periodRange(PERIOD_ALL, origin, { from: "2026-04-01", to: "2027-03-31" });
+    expect(twelve.buckets).toHaveLength(12);
+    expect(twelve.buckets.every((bucket) => bucket.from.slice(8) === "01" || bucket === twelve.buckets[0])).toBe(true);
+
+    const one = periodRange(PERIOD_ALL, origin, { from: "2026-04-10", to: "2026-04-20" });
+    expect(one.buckets).toEqual([{ from: "2026-04-10", to: "2026-04-20" }]);
+  });
+
+  it("keeps year-bearing labels unique across a 24-month span", () => {
+    const range = periodRange(PERIOD_ALL, origin, { from: "2026-04-01", to: "2028-03-31" });
+    expect(range.buckets).toHaveLength(12);
+    const labels = range.buckets.map((bucket, index) => periodBucketLabel(PERIOD_ALL, bucket, index));
+    expect(new Set(labels).size).toBe(labels.length);
+    expect(labels[0]).toBe("2026年4月–5月");
+    expect(labels).toContain("2027年4月–5月");
+    expect(periodCsvLoadWindow(PERIOD_ALL, range)).toBe("全期間 2026年4月–5月");
+    expect(periodCsvLoadWindow(PERIOD_ALL, range)).not.toContain("起点");
+  });
+
+  it("treats empty data and a span outside the holiday calendar as two different empties", () => {
+    const empty = periodRange(PERIOD_ALL, origin, null);
+    expect(empty).toMatchObject({ from: "2026-09-01", to: "2026-09-30", clipped: false });
+    expect(empty.buckets).toEqual([{ from: "2026-09-01", to: "2026-09-30" }]);
+    expect(periodRange(PERIOD_ALL, "2036-01-01", { from: "2036-01-01", to: "2036-06-30" })).toEqual({
+      from: "", to: "", buckets: [], clipped: true,
+    });
+    expect(() => periodRange(PERIOD_ALL, origin)).toThrow(/planningSpan/u);
+  });
+
+  it("includes staffing dates that outrun the parent, and ignores history", () => {
+    const project = { ...initialWorkspace.projects[0], startDate: "2026-06-01", endDate: "2026-06-30" };
+    expect(planningSpan({
+      assignments: [],
+      projects: [project],
+      needs: [{
+        id: "n",
+        projectId: project.id,
+        role: "QA",
+        skills: [],
+        startDate: "2026-01-01",
+        endDate: "2026-12-31",
+        allocation: 40,
+        status: "open",
+      }],
+      opportunities: [],
+      opportunityNeeds: [],
+    })).toEqual({ from: "2026-01-01", to: "2026-12-31" });
+    expect(planningSpan({
+      assignments: [],
+      projects: [],
+      needs: [],
+      opportunities: [],
+      opportunityNeeds: [],
+    })).toBeNull();
   });
 });
 

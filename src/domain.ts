@@ -802,17 +802,29 @@ const HOLIDAY_CALENDAR_START = `${JAPAN_HOLIDAY_YEAR_MIN}-01-01`;
 const HOLIDAY_CALENDAR_END = `${JAPAN_HOLIDAY_YEAR_MAX}-12-31`;
 
 /**
- * How far ahead a figure looks. Month choices only (#393); week unit remains on
- * `PeriodChoice` / `periodRange` for callers that build an ad-hoc span. Bucket
- * count stays at 12 or fewer so `.horizon-grid` does not wrap (#329).
+ * How far ahead a figure looks. Month choices and 「全て」 (#393, #396); week
+ * unit remains on `PeriodChoice` / `periodRange` for callers that build an
+ * ad-hoc span. `BoardUnit` stays week|month — the board's grain — so 「全て」 is
+ * not a board unit. Bucket count stays at 12 or fewer so `.horizon-grid` does
+ * not wrap (#329).
  */
-export type PeriodChoice = { unit: BoardUnit; count: number };
+export type CountedPeriodChoice = { unit: BoardUnit; count: number };
+export type AllPeriodChoice = { unit: "all" };
+export type PeriodChoice = CountedPeriodChoice | AllPeriodChoice;
+
+export const PERIOD_ALL: AllPeriodChoice = { unit: "all" };
 
 export const PERIOD_CHOICES: readonly PeriodChoice[] = [
   { unit: "month", count: 1 },
   { unit: "month", count: 6 },
   { unit: "month", count: 12 },
+  PERIOD_ALL,
 ];
+
+/** Inclusive min–max of planning dates, or null when none are valid. */
+export type PlanningSpan = { from: string; to: string };
+
+const ALL_BUCKET_WIDTHS = [1, 2, 3, 6, 12, 24] as const;
 
 export type PeriodBucket = { from: string; to: string };
 
@@ -850,8 +862,19 @@ export type PeriodMemberStats = {
   buckets: PeriodBucketStats[];
 };
 
+export function periodChoiceEquals(left: PeriodChoice, right: PeriodChoice) {
+  if (left.unit === "all" || right.unit === "all") return left.unit === right.unit;
+  return left.unit === right.unit && left.count === right.count;
+}
+
 export function periodChoiceLabel(choice: PeriodChoice) {
+  if (choice.unit === "all") return "全て";
   return choice.unit === "week" ? `${choice.count}週間` : `${choice.count}か月`;
+}
+
+/** Tab text is 「全て」; headings and captions say 「全期間」 so 「全ての稼働」 is not the prose. */
+export function periodChoiceProseLabel(choice: PeriodChoice) {
+  return choice.unit === "all" ? "全期間" : periodChoiceLabel(choice);
 }
 
 /**
@@ -863,10 +886,31 @@ export const PERIOD_CLIP_NOTE = "祝日カレンダーは2016年から2035年ま
 /**
  * Week buckets keep #146: the first cell names its Monday, the rest stay
  * relative. Month buckets use the same `${month}月` the report horizon uses.
+ * 「全て」 includes the year so a 24-month span cannot print two identical `4月`.
  */
 export function periodBucketLabel(choice: PeriodChoice, bucket: PeriodBucket, index: number) {
+  if (choice.unit === "all") {
+    const startYear = bucket.from.slice(0, 4);
+    const startMonth = Number(bucket.from.slice(5, 7));
+    const endYear = bucket.to.slice(0, 4);
+    const endMonth = Number(bucket.to.slice(5, 7));
+    if (startYear === endYear && startMonth === endMonth) return `${startYear}年${startMonth}月`;
+    if (startYear === endYear) return `${startYear}年${startMonth}月–${endMonth}月`;
+    return `${startYear}年${startMonth}月–${endYear}年${endMonth}月`;
+  }
   if (choice.unit === "month") return `${Number(bucket.from.slice(5, 7))}月`;
   return index === 0 ? weekLabel(bucket.from) : `${index + 1}週後`;
+}
+
+/**
+ * The load-window cell in a proposal CSV. Counted periods keep 「起点」; 「全て」
+ * names the span rather than pretending the first bucket is an origin (#396).
+ */
+export function periodCsvLoadWindow(choice: PeriodChoice, range: PeriodRange) {
+  if (!range.from || range.buckets.length === 0) return "";
+  const bucket = periodBucketLabel(choice, range.buckets[0], 0);
+  if (choice.unit === "all") return `${periodChoiceProseLabel(choice)} ${bucket}`;
+  return `${periodChoiceLabel(choice)} ${bucket}起点`;
 }
 
 function emptyPeriodRange(): PeriodRange {
@@ -888,12 +932,62 @@ function addCalendarMonths(iso: string, amount: number) {
   return isoDate(new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + amount, 1)));
 }
 
+function calendarMonthIndex(iso: string) {
+  const date = new Date(iso + "T00:00:00Z");
+  return date.getUTCFullYear() * 12 + date.getUTCMonth();
+}
+
+function considerPlanningDate(dates: string[], value: string | null | undefined) {
+  if (!value || isoDayNumber(value) === null) return;
+  dates.push(value);
+}
+
 /**
- * The civil span a period choice covers from an origin, clipped to the holiday
- * calendar. Years outside 2016–2035 are not walked: treating them as working days
- * would invent supply (#323, #329).
+ * The data span 「全て」 covers: assignments, projects, opportunities, and the
+ * staffing rows on them. History and unavailability are not planning demand.
  */
-export function periodRange(choice: PeriodChoice, originIso: string): PeriodRange {
+export function planningSpan(state: Pick<WorkspaceState, "assignments" | "projects" | "opportunities" | "needs" | "opportunityNeeds">): PlanningSpan | null {
+  const dates: string[] = [];
+  for (const item of state.assignments) {
+    considerPlanningDate(dates, item.startDate);
+    considerPlanningDate(dates, item.endDate);
+  }
+  for (const item of state.projects) {
+    considerPlanningDate(dates, item.startDate);
+    considerPlanningDate(dates, item.endDate);
+  }
+  for (const item of state.opportunities ?? []) {
+    considerPlanningDate(dates, item.startDate);
+    considerPlanningDate(dates, item.endDate);
+  }
+  for (const item of state.needs) {
+    considerPlanningDate(dates, item.startDate);
+    considerPlanningDate(dates, item.endDate);
+  }
+  for (const item of state.opportunityNeeds ?? []) {
+    considerPlanningDate(dates, item.startDate);
+    considerPlanningDate(dates, item.endDate);
+  }
+  if (dates.length === 0) return null;
+  let from = dates[0];
+  let to = dates[0];
+  for (const date of dates) {
+    if (date < from) from = date;
+    if (date > to) to = date;
+  }
+  return from <= to ? { from, to } : null;
+}
+
+function clipBucketsToSpan(rawBuckets: PeriodBucket[], from: string, to: string): PeriodBucket[] {
+  return rawBuckets
+    .map((bucket) => ({
+      from: bucket.from < from ? from : bucket.from,
+      to: bucket.to > to ? to : bucket.to,
+    }))
+    .filter((bucket) => bucket.from <= bucket.to);
+}
+
+function countedPeriodRange(choice: CountedPeriodChoice, originIso: string): PeriodRange {
   if (isoDayNumber(originIso) === null) return emptyPeriodRange();
   if (choice.count < 1 || choice.count > 12) return emptyPeriodRange();
   if (originIso > HOLIDAY_CALENDAR_END) return emptyPeriodRange();
@@ -919,15 +1013,50 @@ export function periodRange(choice: PeriodChoice, originIso: string): PeriodRang
   const to = rawTo > HOLIDAY_CALENDAR_END ? HOLIDAY_CALENDAR_END : rawTo;
   const clipped = from !== rawFrom || to !== rawTo;
   if (!from || !to || from > to) return emptyPeriodRange();
+  return { from, to, buckets: clipBucketsToSpan(rawBuckets, from, to), clipped };
+}
 
-  const buckets = rawBuckets
-    .map((bucket) => ({
-      from: bucket.from < from ? from : bucket.from,
-      to: bucket.to > to ? to : bucket.to,
-    }))
-    .filter((bucket) => bucket.from <= bucket.to);
+function allPeriodRange(originIso: string, span: PlanningSpan | null): PeriodRange {
+  if (span === null) return countedPeriodRange({ unit: "month", count: 1 }, originIso);
+  if (isoDayNumber(span.from) === null || isoDayNumber(span.to) === null) return emptyPeriodRange();
 
-  return { from, to, buckets, clipped };
+  const rawFrom = span.from;
+  const rawTo = span.to;
+  const from = rawFrom < HOLIDAY_CALENDAR_START ? HOLIDAY_CALENDAR_START : rawFrom;
+  const to = rawTo > HOLIDAY_CALENDAR_END ? HOLIDAY_CALENDAR_END : rawTo;
+  const clipped = from !== rawFrom || to !== rawTo;
+  if (!from || !to || from > to) return emptyPeriodRange();
+
+  const startMonth = monthStartIso(from);
+  const monthCount = calendarMonthIndex(monthStartIso(to)) - calendarMonthIndex(startMonth) + 1;
+  const width = ALL_BUCKET_WIDTHS.find((candidate) => Math.ceil(monthCount / candidate) <= 12) ?? 24;
+  const bucketCount = Math.ceil(monthCount / width);
+  const rawBuckets: PeriodBucket[] = [];
+  for (let index = 0; index < bucketCount; index += 1) {
+    const bucketFrom = addCalendarMonths(startMonth, index * width);
+    rawBuckets.push({
+      from: bucketFrom,
+      to: monthEndIso(addCalendarMonths(bucketFrom, width - 1)),
+    });
+  }
+  return { from, to, buckets: clipBucketsToSpan(rawBuckets, from, to), clipped };
+}
+
+/**
+ * The civil span a period choice covers, clipped to the holiday calendar.
+ * Years outside 2016–2035 are not walked: treating them as working days would
+ * invent supply (#323, #329). 「全て」 uses the planning span, not origin+N months
+ * labelled as the whole (#396).
+ */
+export function periodRange(choice: AllPeriodChoice, originIso: string, span: PlanningSpan | null): PeriodRange;
+export function periodRange(choice: CountedPeriodChoice, originIso: string, span?: PlanningSpan | null): PeriodRange;
+export function periodRange(choice: PeriodChoice, originIso: string, span?: PlanningSpan | null): PeriodRange;
+export function periodRange(choice: PeriodChoice, originIso: string, span?: PlanningSpan | null): PeriodRange {
+  if (choice.unit === "all") {
+    if (span === undefined) throw new Error("periodRange(all) requires planningSpan");
+    return allPeriodRange(originIso, span);
+  }
+  return countedPeriodRange(choice, originIso);
 }
 
 /**
