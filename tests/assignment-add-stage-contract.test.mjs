@@ -69,11 +69,15 @@ test("detail overlays center above the bottom-sheet breakpoint; settings stay ri
 
   assert.equal(declaration(stage, ".dialog-md", "height"), "auto");
   assert.equal(declaration(stage, ".dialog-md", "max-height"), "100%");
+  assert.equal(declaration(stage, ".dialog-md", "animation-name"), "assignment-add-in");
   assert.match(declaration(stage, ".dialog-md", "width") ?? "",
     /min\(\s*100%\s*,\s*clamp\(\s*410px\s*,\s*48vw\s*,\s*720px\s*\)\s*\)/u);
 
+  assert.equal(declaration(css, ".drawer", "height"), "100%",
+    "lg inherits height: 100% from the base .drawer rule");
   assert.equal(declaration(stage, ".dialog-lg", "height"), null,
     "lg keeps .drawer height: 100%; auto would re-center when details expand");
+  assert.equal(declaration(stage, ".dialog-lg", "animation-name"), "assignment-add-in");
   assert.match(declaration(stage, ".dialog-lg", "width") ?? "",
     /min\(\s*100%\s*,\s*clamp\(\s*410px\s*,\s*62vw\s*,\s*1000px\s*\)\s*\)/u);
 
@@ -88,9 +92,18 @@ test("detail overlays center above the bottom-sheet breakpoint; settings stay ri
   assert.equal(declaration(outside, ".overlay", "align-items"), null,
     "centering align-items must not sit outside the 621px media query");
 
+  const cssNoComments = css;
+  const themeRail = [...cssNoComments.matchAll(/\.drawer\s*\{([^}]*)\}/gu)]
+    .map((m) => ({ index: m.index, body: m[1] }))
+    .find((m) => /box-shadow:\s*-18px/u.test(m.body));
+  assert.ok(themeRail, "theme .drawer keeps the left-biased rail shadow");
+
   const lastStage = [...bodies].reverse().find((body) =>
     /dialog-lg\s*\{[^}]*box-shadow/u.test(body.replace(/\s+/gu, " ")));
   assert.ok(lastStage, "size modifiers must re-declare box-shadow after the theme drawer block");
+  const groupedStart = cssNoComments.lastIndexOf(lastStage.trim().slice(0, 40));
+  assert.ok(groupedStart > themeRail.index,
+    "card shadow re-declaration must follow the theme .drawer rail shadow");
   const grouped = lastStage.replace(/\s+/gu, " ");
   assert.match(declaration(grouped, ".dialog-sm, .dialog-md, .dialog-lg", "box-shadow") ?? "", /^0\s+/u,
     "stage shadow must not keep the rail's left-biased offset");
@@ -123,4 +136,10 @@ test("App wires one size modifier per Drawer member and attention md (#407)", as
   assert.equal((source.match(/assignment-add-overlay/gu) ?? []).length, 0);
   assert.equal((source.match(/assignment-add-panel/gu) ?? []).length, 0);
   assert.equal((source.match(/attention-overlay/gu) ?? []).length, 0);
+
+  const ops = await readFile(path.join(root, "src/production/OperationsPanel.tsx"), "utf8");
+  assert.match(ops, /className="overlay production-operations-overlay"/u);
+  assert.match(ops, /className="drawer production-operations-panel"/u);
+  assert.equal((ops.match(/dialog-(?:sm|md|lg)/gu) ?? []).length, 0,
+    "settings panel must not take a detail-dialog size modifier");
 });
