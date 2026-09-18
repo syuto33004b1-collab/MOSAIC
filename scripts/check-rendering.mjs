@@ -53,7 +53,7 @@ const KEEP_OPEN = process.argv.includes("--keep-open");
 
 /** The nine sidebar entries, and the `<h1>` each screen puts up (from `pageMeta`). */
 const SCREENS = [
-  ["アサインボード", "チーム編成"],
+  ["アサインボード", "アサインボード"],
   ["プロジェクト", "プロジェクト・ポートフォリオ"],
   ["受注前", "受注前案件"],
   ["メンバー", "メンバーと空き状況"],
@@ -297,7 +297,7 @@ async function main() {
       const nav = document.querySelector('nav[aria-label="メインナビゲーション"]');
       [...nav.querySelectorAll("button")].find((item) => item.textContent.trim().startsWith("アサインボード")).click();
     });
-    await until(page, "the board", () => document.querySelector("h1")?.textContent?.trim() === "チーム編成");
+    await until(page, "the board", () => document.querySelector("h1")?.textContent?.trim() === "アサインボード");
 
     // The states that sit on top of the board. #305 lists these as never checked.
     await click("通知");
