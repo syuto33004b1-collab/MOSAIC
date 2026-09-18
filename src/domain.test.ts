@@ -1912,6 +1912,48 @@ describe("period all (#396)", () => {
       opportunityNeeds: [],
     })).toBeNull();
   });
+
+  it("takes dates from every planning source and ignores history, leave, and impossible days", () => {
+    const project = { ...initialWorkspace.projects[0], startDate: "2026-06-01", endDate: "2026-06-30" };
+    const opportunity = {
+      ...(initialWorkspace.opportunities ?? [])[0],
+      startDate: "2026-05-01",
+      endDate: "2026-05-31",
+    };
+    expect(planningSpan({
+      assignments: [{
+        ...initialWorkspace.assignments[0],
+        startDate: "2026-07-01",
+        endDate: "2026-07-15",
+      }],
+      projects: [project],
+      needs: [],
+      opportunities: [opportunity],
+      opportunityNeeds: [{
+        id: "on",
+        opportunityId: opportunity.id,
+        role: "QA",
+        skills: [],
+        startDate: "2026-03-01",
+        endDate: "2026-03-31",
+        allocation: 40,
+      }],
+    })).toEqual({ from: "2026-03-01", to: "2026-07-15" });
+    expect(planningSpan({
+      assignments: [],
+      projects: [{ ...project, startDate: "2026-02-30", endDate: "2026-03-01" }],
+      needs: [],
+      opportunities: [],
+      opportunityNeeds: [],
+    })).toEqual({ from: "2026-03-01", to: "2026-03-01" });
+    expect(planningSpan({
+      assignments: [],
+      projects: [{ ...project, startDate: "2026-02-30", endDate: "not-a-date" }],
+      needs: [],
+      opportunities: [],
+      opportunityNeeds: [],
+    })).toBeNull();
+  });
 });
 
 describe("normalizeMemberUnavailability", () => {

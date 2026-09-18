@@ -937,8 +937,16 @@ function calendarMonthIndex(iso: string) {
   return date.getUTCFullYear() * 12 + date.getUTCMonth();
 }
 
+/** YYYY-MM-DD that names a real civil day. `Date.parse` accepts 2026-02-30. */
+function isCivilIsoDate(value: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/u.test(value)) return false;
+  const milliseconds = Date.parse(`${value}T00:00:00Z`);
+  if (!Number.isFinite(milliseconds)) return false;
+  return isoDate(new Date(milliseconds)) === value;
+}
+
 function considerPlanningDate(dates: string[], value: string | null | undefined) {
-  if (!value || isoDayNumber(value) === null) return;
+  if (!value || !isCivilIsoDate(value)) return;
   dates.push(value);
 }
 
