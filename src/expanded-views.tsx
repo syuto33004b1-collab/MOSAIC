@@ -82,9 +82,12 @@ import {
   PERIOD_CHOICES,
   PERIOD_CLIP_NOTE,
   periodBucketLabel,
+  periodChoiceEquals,
   periodChoiceLabel,
+  periodChoiceProseLabel,
   periodMemberStats,
   periodRange,
+  planningSpan,
   isActiveProfileRequest,
   matchMembers,
   skillInputProblems,
@@ -679,7 +682,7 @@ export function ProjectsView({
   const weekStart = getWeekStart(weekOffset);
   // Named, not 「今週」: these screens follow the board's paging (#146).
   const weekName = weekLabel(weekStart);
-  const range = useMemo(() => periodRange(choice, origin), [choice, origin]);
+  const range = useMemo(() => periodRange(choice, origin, planningSpan(state)), [choice, origin, state]);
   const searchValue = query ?? localQuery;
   // Trimmed, for the reason at MembersView: the chip and the filter have to agree
   // on what counts as searching (#138).
@@ -754,13 +757,13 @@ export function ProjectsView({
           than per row. `aria-describedby` rather than adjacency alone: jumping
           straight to the table would otherwise miss this (#85). */}
       <p className="viz-caption" id="portfolio-rail-key">{range.buckets[0]
-        ? `「${periodChoiceLabel(choice)}の充足」は、${periodBucketLabel(choice, range.buckets[0], 0)}から${periodChoiceLabel(choice)}の充足率を示します。バーの長さが充足率で、必要人数に届かないバケットは橙色、案件期間外は—、必要人数未設定のバケットは空になります。`
-        : `「${periodChoiceLabel(choice)}の充足」はこの期間では表示できません。`}</p>
+        ? `「${periodChoiceProseLabel(choice)}の充足」は、${periodBucketLabel(choice, range.buckets[0], 0)}から${periodChoiceProseLabel(choice)}の充足率を示します。バーの長さが充足率で、必要人数に届かないバケットは橙色、案件期間外は—、必要人数未設定のバケットは空になります。`
+        : `「${periodChoiceProseLabel(choice)}の充足」はこの期間では表示できません。`}</p>
 
       <div className="portfolio-table-wrap">
         <table className="portfolio-table" aria-describedby="portfolio-rail-key">
           <thead>
-            <tr><th className="col-favorite"><span className="sr-only">お気に入り</span></th><th className="col-name">プロジェクト</th><th className="col-status">状態</th>{listFields.map((field) => <th key={field.id} className="col-custom">{field.label}</th>)}<th className="col-rail">{periodChoiceLabel(choice)}の充足</th><th className="col-progress">進捗</th><th className="col-milestone">次の節目</th><th className="col-owner">責任者</th><th className="col-open"><span className="sr-only">詳細</span></th></tr>
+            <tr><th className="col-favorite"><span className="sr-only">お気に入り</span></th><th className="col-name">プロジェクト</th><th className="col-status">状態</th>{listFields.map((field) => <th key={field.id} className="col-custom">{field.label}</th>)}<th className="col-rail">{periodChoiceProseLabel(choice)}の充足</th><th className="col-progress">進捗</th><th className="col-milestone">次の節目</th><th className="col-owner">責任者</th><th className="col-open"><span className="sr-only">詳細</span></th></tr>
           </thead>
           <tbody>
             {filtered.map((project) => {
@@ -787,7 +790,7 @@ export function ProjectsView({
                         in the name, and each bar's `title` reached a pointer
                         only. */}
                     {range.buckets.length > 0 && (
-                    <div className="four-week-rail" role="img" aria-label={project.name + `の${periodChoiceLabel(choice)}の充足人数：` + range.buckets.map((bucket, index) => periodStaffingLabel(choice, bucket, index, counts[index] ?? null, project.demand)).join("、")}>
+                    <div className="four-week-rail" role="img" aria-label={project.name + `の${periodChoiceProseLabel(choice)}の充足人数：` + range.buckets.map((bucket, index) => periodStaffingLabel(choice, bucket, index, counts[index] ?? null, project.demand)).join("、")}>
                       {range.buckets.map((bucket, index) => {
                         const count = counts[index] ?? null;
                         const outside = count === null;
@@ -931,7 +934,7 @@ function memberNextOpenCopy(
   const supply = (stats?.buckets ?? []).reduce((sum, bucket) => sum + bucket.capacity, 0);
   if (supply === 0) return "稼働できる日がありません";
   const nextOpen = stats?.buckets.findIndex((bucket) => bucket.open) ?? -1;
-  if (nextOpen === -1 || !stats) return `${periodChoiceLabel(choice)}で該当なし`;
+  if (nextOpen === -1 || !stats) return `${periodChoiceProseLabel(choice)}で該当なし`;
   const bucket = stats.buckets[nextOpen];
   const label = periodBucketLabel(choice, bucket, nextOpen);
   return nextOpen === 0 ? `${label} 空き${bucket.slack}%` : label;
@@ -975,7 +978,7 @@ export function MembersView({
   const weekStart = getWeekStart(weekOffset);
   // Named, not 「今週」: these screens follow the board's paging (#146).
   const weekName = weekLabel(weekStart);
-  const range = useMemo(() => periodRange(choice, origin), [choice, origin]);
+  const range = useMemo(() => periodRange(choice, origin, planningSpan(state)), [choice, origin, state]);
   const periodStatsById = useMemo(() => {
     const next = new Map<string, PeriodMemberStats>();
     for (const member of state.members) next.set(member.id, periodMemberStats(state, member, range));
@@ -1178,7 +1181,7 @@ export function MembersView({
 
       <div className="member-table-wrap">
         <table className="member-table" aria-describedby={selectedScene ? "member-score-key" : undefined}>
-          <thead><tr><th className="col-favorite"><span className="sr-only">お気に入り</span></th><th className="col-name">メンバー</th><th className="col-skills">スキル</th>{selectedScene && <th className="col-score">スコア</th>}{listFields.map((field) => <th key={field.id} className="col-custom">{field.label}</th>)}<th className="col-week">{weekName}の稼働</th><th className="col-rail">{periodChoiceLabel(choice)}の稼働</th><th className="col-next">次に稼働率60%以下</th><th className="col-actions"><span className="sr-only">操作</span></th></tr></thead>
+          <thead><tr><th className="col-favorite"><span className="sr-only">お気に入り</span></th><th className="col-name">メンバー</th><th className="col-skills">スキル</th>{selectedScene && <th className="col-score">スコア</th>}{listFields.map((field) => <th key={field.id} className="col-custom">{field.label}</th>)}<th className="col-week">{weekName}の稼働</th><th className="col-rail">{periodChoiceProseLabel(choice)}の稼働</th><th className="col-next">次に稼働率60%以下</th><th className="col-actions"><span className="sr-only">操作</span></th></tr></thead>
           <tbody>
             {filtered.map((member) => {
               const stats = memberWeekStats(state, member, weekStart);
@@ -1232,7 +1235,7 @@ export function ProposalView({
   /** Which columns the file carries. Minimal until the sender adds to it (#148). */
   const [exportColumns, setExportColumns] = useState<string[]>([...DEFAULT_PROPOSAL_CSV_COLUMNS]);
   const [choice, setChoice] = useState<PeriodChoice>(PERIOD_CHOICES[0]);
-  const range = useMemo(() => periodRange(choice, origin), [choice, origin]);
+  const range = useMemo(() => periodRange(choice, origin, planningSpan(state)), [choice, origin, state]);
   /**
    * What the proposal answers. A project's unfilled staffing need or an
    * opportunity's staffing plan — the screen could build a list of people and
@@ -1512,7 +1515,7 @@ export function ProposalView({
                     </p>
                   );
                 })()}
-                <div className="proposal-weeks" aria-label={`${label}の${periodChoiceLabel(choice)}の稼働`}>
+                <div className="proposal-weeks" aria-label={`${label}の${periodChoiceProseLabel(choice)}の稼働`}>
                   {range.buckets.length === 0
                     ? <p className="proposal-weeks-empty">この期間は表示できません</p>
                     : (periodStats?.buckets ?? []).map((bucket, index) => (
@@ -1536,10 +1539,11 @@ export function ProposalView({
 export function PeriodRangeTabs({ choice, onChange, namePrefix }: { choice: PeriodChoice; onChange: (choice: PeriodChoice) => void; namePrefix?: string }) {
   return (
     <div className="range-tabs" aria-label={namePrefix ? `${namePrefix}の表示期間` : "表示期間"}>{PERIOD_CHOICES.map((option) => {
-      const selected = choice.unit === option.unit && choice.count === option.count;
+      const selected = periodChoiceEquals(choice, option);
       const label = periodChoiceLabel(option);
       const name = namePrefix ? `${namePrefix}の${label}` : label;
-      return <button type="button" className={selected ? "selected" : ""} aria-label={name} aria-pressed={selected} onClick={() => onChange(option)} key={label}>{label}</button>;
+      const key = option.unit === "all" ? "all" : `${option.unit}:${option.count}`;
+      return <button type="button" className={selected ? "selected" : ""} aria-label={name} aria-pressed={selected} onClick={() => onChange(option)} key={key}>{label}</button>;
     })}</div>
   );
 }
@@ -1569,7 +1573,7 @@ export function ReportsView({ state, onOpenWeek, onResolveNeed, onOpenOpportunit
   const [error, setError] = useState("");
   const [planCostAxis, setPlanCostAxis] = useState<PlanCostAxis>("project");
   const origin = currentLocalDate();
-  const range = periodRange(choice, origin);
+  const range = periodRange(choice, origin, planningSpan(state));
   const showPlanCost = workspaceShowsMonthlyCost(state);
   const planCost = showPlanCost && range.from && range.to
     ? buildPlanCostRows(state, range, planCostAxis)
@@ -1585,7 +1589,6 @@ export function ReportsView({ state, onOpenWeek, onResolveNeed, onOpenOpportunit
     const draft = state.assignments.filter((assignment) => (
       assignment.status === "draft" && overlaps(assignment.startDate, assignment.endDate, bucket.from, bucket.to)
     )).length;
-    const month = Number(bucket.from.slice(5, 7));
     return {
       offset,
       from: bucket.from,
@@ -1593,7 +1596,7 @@ export function ReportsView({ state, onOpenWeek, onResolveNeed, onOpenOpportunit
       average: capacity > 0 ? Math.round(load / capacity * 100) : 0,
       draft,
       pipelineDemand: pipelineDemandForSpan(state, bucket.from, bucket.to),
-      label: choice.unit === "month" ? `${month}月` : `${formatMonthDay(bucket.from)}週`,
+      label: periodBucketLabel(choice, bucket, offset),
     };
   });
   const statsByMember = new Map(memberPeriodStats.map((row) => [row.member.id, row.stats]));
@@ -1664,7 +1667,7 @@ export function ReportsView({ state, onOpenWeek, onResolveNeed, onOpenOpportunit
 
       <section className="balance-card saved-report-card" aria-labelledby="saved-report-heading">
         <div className="card-heading"><div><small>SAVED REPORTS</small><h3 id="saved-report-heading">任意項目レポート</h3></div><Gauge size={18} /></div>
-        {selectedReport?.metric === "avgLoad" && <p className="viz-caption">{periodChoiceLabel(choice)}の平均稼働率</p>}
+        {selectedReport?.metric === "avgLoad" && <p className="viz-caption">{periodChoiceProseLabel(choice)}の平均稼働率</p>}
         <div className="view-toolbar">
           <label className="view-filter"><span className="filter-label">レポート</span><select value={selectedReport?.id ?? ""} onChange={(event) => setReportId(event.target.value)} aria-label="レポートを選ぶ">
             {reports.length === 0 && <option value="">レポートなし</option>}

@@ -72,7 +72,7 @@ function linkedStaffingWorkspace(): WorkspaceState {
 /** Cards live in the 要調整 dialog; open it from the pulse count first (#395). */
 async function openAttentionDialog(user: ReturnType<typeof userEvent.setup>) {
   if (!document.querySelector(".attention-dialog")) {
-    await user.click(screen.getByRole("button", { name: /^\d+件(1か月|6か月|12か月)の要調整$/u }));
+    await user.click(screen.getByRole("button", { name: /^\d+件(1か月|6か月|12か月|全期間)の要調整$/u }));
   }
   return within(screen.getByRole("dialog", { name: "要調整" }));
 }
@@ -650,7 +650,7 @@ describe("role-aware workspace", () => {
 
     // #255: 「status !== filled」 kept the finished one on the board, asking for a
     // person 「by the start date」 after the end had passed.
-    await userEvent.setup().click(screen.getByRole("button", { name: /^\d+件(1か月|6か月|12か月)の要調整$/u }));
+    await userEvent.setup().click(screen.getByRole("button", { name: /^\d+件(1か月|6か月|12か月|全期間)の要調整$/u }));
     const panel = within(screen.getByRole("dialog", { name: "要調整" }));
     expect(panel.queryByText(/QA Engineerが未定/u)).toBeNull();
     expect(panel.getByText(/Backend Engineerが未定/u)).toBeInTheDocument();
@@ -1411,6 +1411,10 @@ describe("role-aware workspace", () => {
       await user.click(screen.getByRole("button", { name: "12か月" }));
       expect(cols()).toBe("12");
       expect(document.querySelectorAll(".horizon-week")).toHaveLength(12);
+
+      await user.click(screen.getByRole("button", { name: "全て" }));
+      expect(cols()).toBe("12");
+      expect(document.querySelector(".horizon-week small")!.textContent).toBe("2026年4月");
     });
 
     it("extends the report horizon across the shared period choices", async () => {
@@ -1426,6 +1430,7 @@ describe("role-aware workspace", () => {
       expect(screen.queryByRole("button", { name: "12週間" })).not.toBeInTheDocument();
       expect(screen.getByRole("button", { name: "1か月" })).toBeInTheDocument();
       expect(screen.getByRole("button", { name: "12か月" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "全て" })).toBeInTheDocument();
       expect(document.querySelectorAll(".horizon-week")).toHaveLength(6);
       expect(screen.getByRole("button", { name: /8月/ })).toBeInTheDocument();
       const sixMonthOrg = screen.getByText("開発本部").closest("div")!.textContent;
@@ -3534,7 +3539,7 @@ describe("the board's row header opens the row", () => {
 describe("the 要調整 count opens the list dialog (#395)", () => {
   // The summary button, by its own shape: 「3件1か月の要調整」. The overload card in the
   // dialog also has 要調整 in its long accessible name, so the anchor matters.
-  const countButton = () => screen.getByRole("button", { name: /^\d+件(1か月|6か月|12か月)の要調整$/u });
+  const countButton = () => screen.getByRole("button", { name: /^\d+件(1か月|6か月|12か月|全期間)の要調整$/u });
   const openAttention = async (user: ReturnType<typeof userEvent.setup>) => {
     await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^アサインボード( |$)/u }));
     await user.click(countButton());
@@ -3636,7 +3641,7 @@ describe("the 要調整 count opens the list dialog (#395)", () => {
 
 describe("the 要調整 panel names the period it counts (#367)", () => {
   const owner = { name: "管理 花子", email: "owner@example.com", role: "owner" as const };
-  const countButton = () => screen.getByRole("button", { name: /^\d+件(1か月|6か月|12か月)の要調整$/u });
+  const countButton = () => screen.getByRole("button", { name: /^\d+件(1か月|6か月|12か月|全期間)の要調整$/u });
   const attentionRoot = () => document.querySelector(".attention-panel") as HTMLElement;
   /** Panel mounts only while the dialog is open (#395). */
   const ensureAttentionOpen = async (user: ReturnType<typeof userEvent.setup>) => {
@@ -3775,6 +3780,49 @@ describe("the 要調整 panel names the period it counts (#367)", () => {
     expect(card.textContent).toContain("今週 太郎");
     expect(card.textContent).not.toContain("後週 花子");
     expect(document.querySelector(".attention-breakdown")!.textContent).toBe("6か月 · 過負荷2人 · 未充足ニーズ0件");
+  });
+
+  it("does not count a pre-origin overload under 12 months labelled as 全て (#396)", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date("2026-09-18T09:00:00+09:00"));
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    const later = { ...initialWorkspace.members[0], id: "april", name: "四月 花子", capacity: 50 };
+    const project = {
+      ...initialWorkspace.projects[0],
+      id: "project",
+      ownerPersonId: later.id,
+      startDate: "2026-04-01",
+      endDate: "2027-03-31",
+    };
+    const adapter = sharedAdapter();
+    adapter.initialState = {
+      members: [later],
+      projects: [project],
+      assignments: [{
+        id: "apr",
+        personId: later.id,
+        projectId: project.id,
+        startDate: "2026-04-06",
+        endDate: "2026-04-10",
+        allocation: 100,
+        status: "confirmed",
+      }],
+      needs: [],
+    } as unknown as WorkspaceState;
+    try {
+      render(<App mode="shared" organizationName="Example Inc." identity={owner} shared={adapter} />);
+      expect(countButton()).toHaveAccessibleName("0件1か月の要調整");
+      const panel = await ensureAttentionOpen(user);
+      await user.click(screen.getByRole("button", { name: "要調整の12か月" }));
+      expect(countButton()).toHaveAccessibleName("0件12か月の要調整");
+      expect(panel.querySelector(".attention-breakdown")!.textContent).toBe("12か月 · 過負荷0人 · 未充足ニーズ0件");
+      await user.click(screen.getByRole("button", { name: "要調整の全て" }));
+      expect(countButton()).toHaveAccessibleName("1件全期間の要調整");
+      expect(document.querySelector(".attention-breakdown")!.textContent).toBe("全期間 · 過負荷1人 · 未充足ニーズ0件");
+      expect(screen.getByText("2026年4月の稼働配分が稼働上限を超えています。")).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("does not move the member drawer horizon when the attention period changes", async () => {
@@ -4882,6 +4930,14 @@ describe("detail drawer period horizon (#366)", () => {
       await user.click(dialog.getByRole("button", { name: "6か月" }));
       expect(dialog.getByText("6か月の稼働")).toBeInTheDocument();
       expect(rail.querySelectorAll(":scope > div")).toHaveLength(6);
+
+      await user.click(dialog.getByRole("button", { name: "全て" }));
+      expect(dialog.getByText("全期間の稼働")).toBeInTheDocument();
+      expect(dialog.queryByText("全ての稼働")).toBeNull();
+      const allLabels = [...rail.querySelectorAll(":scope > div > span")].map((node) => node.textContent);
+      expect(allLabels[0]).toBe("2026年4月");
+      expect(allLabels[0]).not.toBe("8月");
+      expect(allLabels).toHaveLength(12);
     } finally {
       vi.useRealTimers();
     }
@@ -6136,6 +6192,27 @@ describe("the proposal rail follows the selected period", () => {
     expect(document.querySelector(".proposal-weeks")!.getAttribute("aria-label")).toMatch(/の12か月の稼働$/u);
   });
 
+  it("lets 全て show the data span rather than twelve months from the origin (#396)", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date("2026-09-18T09:00:00+09:00"));
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    try {
+      render(<App />);
+      await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^提案( |$)/u }));
+      await user.click(document.querySelectorAll(".proposal-picker-item")[0]);
+      await user.click(screen.getByRole("button", { name: "候補者提案の12か月" }));
+      const twelveFirst = document.querySelector(".proposal-weeks")!.querySelector(":scope > div > span")!.textContent;
+      expect(twelveFirst).toBe("9月");
+      await user.click(screen.getByRole("button", { name: "候補者提案の全て" }));
+      const rail = document.querySelector(".proposal-weeks")!;
+      expect(rail.getAttribute("aria-label")).toMatch(/の全期間の稼働$/u);
+      expect(rail.querySelector(":scope > div > span")!.textContent).toBe("2026年4月");
+      expect(rail.querySelector(":scope > div > span")!.textContent).not.toBe(twelveFirst);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("writes the same peaks the cards show after the period changes", async () => {
     const user = userEvent.setup();
     render(<App />);
@@ -6688,7 +6765,7 @@ describe("the board narrows by more than one thing", () => {
     expect(search).not.toHaveFocus();
     await user.keyboard("{Escape}");
 
-    await user.click(screen.getByRole("button", { name: /^\d+件(1か月|6か月|12か月)の要調整$/u }));
+    await user.click(screen.getByRole("button", { name: /^\d+件(1か月|6か月|12か月|全期間)の要調整$/u }));
     expect(screen.getByRole("dialog", { name: "要調整" })).toBeInTheDocument();
     fireEvent.keyDown(window, { key: "/" });
     expect(search).not.toHaveFocus();
