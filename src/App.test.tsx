@@ -7463,7 +7463,7 @@ describe("printing a skill sheet", () => {
 describe("member drawer assignments follow the selected period (#422)", () => {
   const owner = { name: "管理 花子", email: "owner@example.com", role: "owner" as const };
   const member = { ...initialWorkspace.members[0], id: "period-member", name: "期間 太郎", workHistory: [], unavailability: [] };
-  const weekProject = { ...initialWorkspace.projects[0], id: "week-project", name: "今週だけ案件" };
+  const weekProject = { ...initialWorkspace.projects[0], id: "week-project", name: "週内案件" };
   const laterProject = { ...initialWorkspace.projects[1], id: "later-project", name: "月末案件" };
   const winterProject = {
     ...initialWorkspace.projects[2],
@@ -7513,7 +7513,7 @@ describe("member drawer assignments follow the selected period (#422)", () => {
     ]));
     expect(dialog.getByText("1か月のアサイン")).toBeInTheDocument();
     expect(assignmentCount(panel)).toBe("2件");
-    expect(assignmentNames(panel)).toEqual(["今週だけ案件", "月末案件"]);
+    expect(assignmentNames(panel)).toEqual(["週内案件", "月末案件"]);
     expect(dialog.queryByText("現在のアサイン")).not.toBeInTheDocument();
     expect(panel.querySelectorAll(".allocation-list button")).toHaveLength(0);
   });
@@ -7525,11 +7525,11 @@ describe("member drawer assignments follow the selected period (#422)", () => {
       { id: "later-august", personId: member.id, projectId: laterProject.id, startDate: "2026-08-24", endDate: "2026-08-31", allocation: 30, status: "confirmed" },
       { id: "winter", personId: member.id, projectId: winterProject.id, startDate: "2026-12-01", endDate: "2026-12-15", allocation: 20, status: "confirmed" },
     ]));
-    expect(assignmentNames(panel)).toEqual(["今週だけ案件", "月末案件"]);
+    expect(assignmentNames(panel)).toEqual(["週内案件", "月末案件"]);
     await user.click(dialog.getByRole("button", { name: "全て" }));
     expect(dialog.getByText("全期間のアサイン")).toBeInTheDocument();
     expect(assignmentCount(panel)).toBe("3件");
-    expect(assignmentNames(panel)).toEqual(["今週だけ案件", "月末案件", winterProject.name]);
+    expect(assignmentNames(panel)).toEqual(["週内案件", "月末案件", winterProject.name]);
   });
 
   it("sorts by startDate then endDate", async () => {
@@ -7539,7 +7539,7 @@ describe("member drawer assignments follow the selected period (#422)", () => {
       { id: "early-start", personId: member.id, projectId: weekProject.id, startDate: "2026-08-10", endDate: "2026-08-31", allocation: 10, status: "confirmed" },
       { id: "same-start-earlier-end", personId: member.id, projectId: winterProject.id, startDate: "2026-08-20", endDate: "2026-08-22", allocation: 10, status: "confirmed", label: "短い方" },
     ]));
-    expect(assignmentNames(panel)).toEqual(["今週だけ案件", "短い方", "月末案件"]);
+    expect(assignmentNames(panel)).toEqual(["週内案件", "短い方", "月末案件"]);
   });
 
   it("uses the empty copy when the span has days but no row", async () => {
