@@ -3634,7 +3634,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
               `no-static-element-interactions` both skip an `aria-hidden` element, and
               a directive here reports as unused. */}
           <div className="overlay-backdrop" aria-hidden="true" onClick={closeDrawer} />
-          <section className={"drawer " + DRAWER_DIALOG_SIZE[drawer]} ref={drawerRef} role="dialog" aria-modal="true" aria-label="詳細パネル" tabIndex={-1}>
+          <section className={"drawer " + DRAWER_DIALOG_SIZE[drawer] + (drawer === "member" ? " member-detail-open" : "")} ref={drawerRef} role="dialog" aria-modal="true" aria-label="詳細パネル" tabIndex={-1}>
             <div className="drawer-handle" />
             <div className="drawer-top"><span className="drawer-kicker">{drawer === "needForm" && editingNeedId ? "EDIT STAFFING NEED" : drawer === "opportunityNeedForm" && editingOpportunityNeedId ? "EDIT STAFFING PLAN" : DRAWER_KICKER[drawer]}</span><button className="close-button" aria-label="詳細パネルを閉じる" onClick={closeDrawer}><X size={18} /></button></div>
 
@@ -3820,43 +3820,50 @@ export default function Home({ mode = "demo", organizationId, organizationName =
             )}
 
             {drawer === "member" && selectedMember && (
-              <div className="drawer-content">
+              <div className="member-detail">
                 <div className="profile-hero">
                   <span className={"avatar profile-avatar " + selectedMember.avatarTone}>{selectedMember.initials}</span>
                   <div><h2>{memberLabel(workspace, selectedMember)}</h2><p>{selectedMember.role} · {selectedMember.department}</p><small>{selectedMember.location}</small></div>
                   <FavoriteStar name={memberLabel(workspace, selectedMember)} pressed={isFavorited(favorites, "member", selectedMember.id)} onToggle={() => void toggleFavoriteTarget("member", selectedMember.id)} />
-                  <strong title={selectedMemberWeekLoadLabel} aria-label={selectedMemberWeekLoadLabel}>{selectedMemberWeekLoad}%</strong>
+                  <strong title={selectedMemberWeekLoadLabel} aria-label={selectedMemberWeekLoadLabel}>{selectedMemberWeekLoad}%<small>{weekLabel(weekStart)}</small></strong>
                 </div>
-                <div className="profile-skills">{memberSkillLevels(selectedMember).map((level) => <span key={level.name}>{level.name}<small>{level.proficiency}</small></span>)}</div>
-                <OrgFacts state={workspace} personId={selectedMember.id} />
-                <CustomFieldFacts fields={visibleCustomFields(workspace.customFields, "member", "detail")} values={selectedMember.customValues} />
-                <div className="drawer-section-title"><span>業務経歴</span><small>{(selectedMember.workHistory ?? []).length}件</small></div>
-                <WorkHistoryList entries={selectedMember.workHistory} />
-                <div className="drawer-section-title"><span>期間指定の稼働上限</span><small>{(selectedMember.unavailability ?? []).length}件</small></div>
-                <UnavailabilityList entries={selectedMember.unavailability} />
-                <PeriodRangeTabs choice={drawerPeriod} onChange={setDrawerPeriod} />
-                <div className="drawer-section-title"><span>{periodChoiceProseLabel(drawerPeriod)}の稼働</span><small>稼働上限 {selectedMember.capacity}%</small></div>
-                {drawerRange.clipped && <p className="horizon-clip-note" role="note">{PERIOD_CLIP_NOTE}</p>}
-                <div className="profile-capacity">{drawerRange.buckets.map((bucket, index) => {
-                  const stats = drawerMemberStats?.buckets[index];
-                  const average = stats?.average ?? 0;
-                  return <div key={`${bucket.from}:${bucket.to}`}><span>{periodBucketLabel(drawerPeriod, bucket, index)}</span><i><b className={stats?.exceeds ? "over" : ""} style={{ width: Math.min(100, average) + "%" }} /></i><strong>{average}%</strong></div>;
-                })}</div>
-                {memberPeriodHasRange && (
-                  <>
-                    <div className="drawer-section-title"><span>{periodChoiceProseLabel(drawerPeriod)}のアサイン</span><small>{memberPeriodAssignments.length}件</small></div>
-                    {memberPeriodAssignments.length === 0
-                      ? <div className="candidate-empty"><BriefcaseBusiness size={18} /><span><strong>この期間のアサインはありません</strong></span></div>
-                      : <div className="allocation-list">{memberPeriodAssignments.map((assignment) => <div key={assignment.id}><span className={"project-dot " + (projectById(workspace, assignment.projectId)?.tone || "plum")} /><span><strong>{assignment.label || projectById(workspace, assignment.projectId)?.name || "プロジェクト未登録"}</strong><small>{formatDate(assignment.startDate)} — {formatDate(assignment.endDate)}</small></span><b>{assignment.allocation}%</b></div>)}</div>}
-                  </>
-                )}
-                <div className="entity-action-row">
+                <div className="member-detail-panes">
+                  <div className="member-detail-load" role="region" aria-label="期間の稼働とアサイン" tabIndex={0}>
+                    <PeriodRangeTabs choice={drawerPeriod} onChange={setDrawerPeriod} />
+                    <div className="drawer-section-title"><span>{periodChoiceProseLabel(drawerPeriod)}の稼働</span><small>稼働上限 {selectedMember.capacity}%</small></div>
+                    {drawerRange.clipped && <p className="horizon-clip-note" role="note">{PERIOD_CLIP_NOTE}</p>}
+                    <div className="profile-capacity">{drawerRange.buckets.map((bucket, index) => {
+                      const stats = drawerMemberStats?.buckets[index];
+                      const average = stats?.average ?? 0;
+                      return <div key={`${bucket.from}:${bucket.to}`}><span>{periodBucketLabel(drawerPeriod, bucket, index)}</span><i><b className={stats?.exceeds ? "over" : ""} style={{ width: Math.min(100, average) + "%" }} /></i><strong>{average}%</strong></div>;
+                    })}</div>
+                    {memberPeriodHasRange && (
+                      <>
+                        <div className="drawer-section-title"><span>{periodChoiceProseLabel(drawerPeriod)}のアサイン</span><small>{memberPeriodAssignments.length}件</small></div>
+                        {memberPeriodAssignments.length === 0
+                          ? <div className="candidate-empty"><BriefcaseBusiness size={18} /><span><strong>この期間のアサインはありません</strong></span></div>
+                          : <div className="allocation-list">{memberPeriodAssignments.map((assignment) => <div key={assignment.id}><span className={"project-dot " + (projectById(workspace, assignment.projectId)?.tone || "plum")} /><span><strong>{assignment.label || projectById(workspace, assignment.projectId)?.name || "プロジェクト未登録"}</strong><small>{formatDate(assignment.startDate)} — {formatDate(assignment.endDate)}</small></span><b>{assignment.allocation}%</b></div>)}</div>}
+                      </>
+                    )}
+                  </div>
+                  <div className="member-detail-who" role="region" aria-label="所属と経歴" tabIndex={0}>
+                    <div className="profile-skills">{memberSkillLevels(selectedMember).map((level) => <span key={level.name}>{level.name}<small>{level.proficiency}</small></span>)}</div>
+                    <OrgFacts state={workspace} personId={selectedMember.id} />
+                    <CustomFieldFacts fields={visibleCustomFields(workspace.customFields, "member", "detail")} values={selectedMember.customValues} />
+                    <div className="drawer-section-title"><span>業務経歴</span><small>{(selectedMember.workHistory ?? []).length}件</small></div>
+                    <WorkHistoryList entries={selectedMember.workHistory} />
+                    <div className="drawer-section-title"><span>期間指定の稼働上限</span><small>{(selectedMember.unavailability ?? []).length}件</small></div>
+                    <UnavailabilityList entries={selectedMember.unavailability} />
+                  </div>
+                </div>
+                <div className="member-detail-actions">
                   <button className="drawer-secondary" type="button" onClick={() => void copyShareLink({ nav: "members", open: selectedMember.id }, "メンバーリンクをコピーしました")}>このメンバーのリンクをコピー</button>
                   <button className="drawer-secondary" type="button" onClick={() => addMemberToProposal(selectedMember.id)}>提案ビューに追加</button>
                   <button className="drawer-secondary" type="button" onClick={printSkillSheet}><Printer size={15} />スキルシートを印刷</button>
+                  {canEdit && <button className="drawer-primary" onClick={() => openAssignmentFor(selectedMember.id)}><Plus size={16} />この人へアサインを追加</button>}
+                  {canManageMembers && <button className="drawer-secondary" onClick={() => openMemberEditor(selectedMember)}>メンバー情報を編集</button>}
+                  {canManageMembers && <button className="drawer-danger" onClick={archiveMember}><Trash2 size={15} />メンバーをアーカイブ</button>}
                 </div>
-                {canEdit && <button className="drawer-primary" onClick={() => openAssignmentFor(selectedMember.id)}><Plus size={16} />この人へアサインを追加</button>}
-                {canManageMembers && <div className="entity-action-row"><button className="drawer-secondary" onClick={() => openMemberEditor(selectedMember)}>メンバー情報を編集</button><button className="drawer-danger" onClick={archiveMember}><Trash2 size={15} />メンバーをアーカイブ</button></div>}
               </div>
             )}
 

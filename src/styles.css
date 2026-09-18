@@ -2571,7 +2571,79 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .profile-hero h2 { margin: 0; font-size: 18px; letter-spacing: -.04em; }
 .profile-hero p { margin: 4px 0 0; color: #7f899b; font-size: 8px; }
 .profile-hero small { margin-top: 4px; display: block; color: #a0a7b5; font-size: 7px; }
-.profile-hero > strong { color: #5665c2; font-family: var(--font-data); font-size: 20px; }
+.profile-hero > strong {
+  color: #5665c2;
+  font-family: var(--font-data);
+  font-size: 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  line-height: 1.05;
+}
+.profile-hero > strong > small {
+  margin-top: 4px;
+  font-family: var(--font-ui);
+  font-weight: 700;
+  letter-spacing: 0;
+}
+/* Member detail (#426): judgment first in the DOM so a single column still
+   shows load before history. The two-pane switch is a viewport media query,
+   not `@container detail-panel`, because `.drawer` *is* that container and
+   cannot set its own `overflow: hidden` from inside the query.
+   1052px: `.dialog-lg` width is `min(100%, 62vw)` under a 24px overlay pad.
+   0.62 × 1052 = 652, minus drawer pad 48 and border 2 → content ~602px, the
+   same 600px floor the existing two-column blocks use. Below that, or below
+   720px tall, the shell keeps `overflow-y: auto` so content is not clipped. */
+.member-detail-panes { display: flex; flex-direction: column; }
+.member-detail-actions {
+  margin-top: 14px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.member-detail-actions .drawer-primary,
+.member-detail-actions .drawer-secondary,
+.member-detail-actions .drawer-danger {
+  margin-top: 0;
+  flex: 1 1 calc(50% - 8px);
+}
+@media (min-width: 1052px) and (min-height: 720px) {
+  .drawer.member-detail-open {
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  .drawer.member-detail-open .drawer-top { flex: 0 0 auto; }
+  .member-detail {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .member-detail .profile-hero { flex: 0 0 auto; }
+  .member-detail-panes {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: grid;
+    grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
+    gap: 0 20px;
+    align-items: stretch;
+  }
+  .member-detail-load,
+  .member-detail-who {
+    min-height: 0;
+    overflow: auto;
+    overscroll-behavior: contain;
+  }
+  .member-detail-actions { flex: 0 0 auto; }
+  /* Keep the load rail a single column so adjacent months stay stacked.
+     Specificity beats the `@container detail-panel` 2-col rule. */
+  .drawer.member-detail-open .profile-capacity,
+  .drawer.member-detail-open .allocation-list {
+    display: flex;
+    flex-direction: column;
+  }
+}
 .profile-skills { margin-bottom: 22px; display: flex; flex-wrap: wrap; gap: 5px; }
 .profile-capacity { margin-bottom: 22px; display: flex; flex-direction: column; gap: 9px; }
 /* 52px, not 42: the first label names its week now rather than saying 「今週」

@@ -7598,4 +7598,32 @@ describe("member drawer assignments follow the selected period (#422)", () => {
     expect(hero).toHaveAccessibleName(`${weekLabel(pagedWeek)}の稼働 ${load}%`);
     expect(weekLabel(pagedWeek)).not.toBe(weekLabel(getWeekStart(0)));
   });
+
+  it("draws the board-week window under the hero percent (#426)", async () => {
+    const user = userEvent.setup();
+    const { panel } = await openPeriodMember(user, periodState([
+      { id: "week-only", personId: member.id, projectId: weekProject.id, startDate: "2026-08-17", endDate: "2026-08-21", allocation: 40, status: "confirmed" },
+    ]));
+    const hero = panel.querySelector(".profile-hero > strong");
+    const windowLabel = hero?.querySelector("small");
+    expect(windowLabel).toHaveTextContent(weekLabel(getWeekStart(0)));
+    expect(windowLabel?.textContent).not.toContain("%");
+    expect(windowLabel?.textContent).not.toContain("今週");
+  });
+
+  it("puts period load before history in the DOM (#426)", async () => {
+    const user = userEvent.setup();
+    const { panel } = await openPeriodMember(user, periodState([
+      { id: "week-only", personId: member.id, projectId: weekProject.id, startDate: "2026-08-17", endDate: "2026-08-21", allocation: 40, status: "confirmed" },
+    ]));
+    expect(panel).toHaveClass("member-detail-open");
+    const load = panel.querySelector(".member-detail-load");
+    const who = panel.querySelector(".member-detail-who");
+    expect(load).toBeTruthy();
+    expect(who).toBeTruthy();
+    expect(load!.compareDocumentPosition(who!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(load!.querySelector(".allocation-list")).not.toBeNull();
+    expect(who!.textContent).toContain("業務経歴");
+    expect(load!.textContent).not.toContain("業務経歴");
+  });
 });
