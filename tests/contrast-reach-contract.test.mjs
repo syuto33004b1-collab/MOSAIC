@@ -84,6 +84,21 @@ test("calendar day colours use dedicated tokens after today's glyph rule (#392)"
     "calendar colour rules must come after `.day-label.today strong` so today×Sat stays blue");
 });
 
+test("body holiday columns share the weekend fill, and a worked weekend still wins (#404)", () => {
+  const weekend = /\.day-grid i\.weekend\s*\{([^}]*)\}/u.exec(css);
+  const holiday = /\.day-grid i\.holiday\s*\{([^}]*)\}/u.exec(css);
+  assert.ok(weekend, "`.day-grid i.weekend` lost its fill");
+  assert.ok(holiday, "`.day-grid i.holiday` fill missing — weekday holidays would look like working days");
+  const weekendFill = /background:\s*([^;]+)/u.exec(weekend[1]);
+  const holidayFill = /background:\s*([^;]+)/u.exec(holiday[1]);
+  assert.ok(weekendFill && holidayFill, "weekend or holiday body fill lost `background`");
+  assert.equal(holidayFill[1].trim(), weekendFill[1].trim());
+  const holidayAt = css.indexOf(".day-grid i.holiday");
+  const workedAt = css.indexOf(".day-grid i.weekend.worked");
+  assert.ok(workedAt > holidayAt,
+    "`.day-grid i.weekend.worked` must follow `.holiday` so a recorded Saturday keeps its fill");
+});
+
 test("the sweep waits for the board heading pageMeta actually renders (#403)", () => {
   const title = /board:\s*\{[^}]*title:\s*"([^"]+)"/u.exec(app)?.[1];
   assert.equal(title, "アサインボード");

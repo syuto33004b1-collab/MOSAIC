@@ -3412,7 +3412,14 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                           <div className="week-cell" role="gridcell" aria-label={row.name + "のアサイン"}>
                             {/* One line per column, from the range rather than a
                                 hard-coded five (#139). */}
-                            <div className="day-grid" aria-hidden="true">{days.map((day) => <i className={day.weekend ? (row.weekendWorked.has(day.iso) ? "weekend worked" : "weekend") : ""} key={day.iso} />)}</div>
+                            <div className="day-grid" aria-hidden="true">{days.map((day) => {
+                              const holiday = isJapanHoliday(day.iso);
+                              const className = [
+                                day.weekend ? (row.weekendWorked.has(day.iso) ? "weekend worked" : "weekend") : "",
+                                holiday ? "holiday" : "",
+                              ].filter(Boolean).join(" ");
+                              return <i className={className} key={day.iso} />;
+                            })}</div>
                             {/* The bracket holds what this bar is: whose row it sits in,
                                 which days it covers, and how much of them it takes. The
                                 figure is on screen in the `<small>` and in the `title`,
