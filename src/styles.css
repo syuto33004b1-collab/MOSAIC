@@ -74,9 +74,8 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .icon-button, .primary-button, .toolbar-actions button, .view-tabs button { border: 1px solid var(--line); background: var(--paper); cursor: pointer; }
 .icon-button { position: relative; width: 39px; height: 39px; border-radius: 11px; color: #626b7e; font-family: var(--font-data); font-size: 19px; }
 .icon-button.has-dot::after { content: ""; position: absolute; top: 9px; right: 9px; width: 5px; height: 5px; border: 2px solid #fff; border-radius: 50%; background: var(--coral); }
-/* Never shrinks, never wraps: with the search box open the topbar squeezed it into
-   「アサインを追／加」 (#256). The room comes from stacking the bar while the box is
-   out (the `search-open` rule below); this only rules out breaking inside the label. */
+/* Never shrinks, never wraps. The topbar search box that used to squeeze this
+   label is gone (#409); nowrap still stops the primary from breaking inside a word. */
 .primary-button { flex-shrink: 0; height: 40px; padding: 0 16px; border-color: var(--cobalt); border-radius: 11px; background: var(--cobalt); color: #fff; font-size: var(--text-min); font-weight: 700; white-space: nowrap; box-shadow: 0 8px 18px rgba(86,104,232,.2); }
 .primary-button span { margin-right: 5px; font-size: var(--text-lg); font-weight: 400; }
 
@@ -118,10 +117,7 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .view-tabs button.selected { background: #fff; color: var(--ink); box-shadow: 0 2px 7px rgba(42,52,77,.09); }
 .toolbar-actions { display: flex; gap: 6px; }
 /* This row scrolls sideways rather than shrinking — that is what the
-   `overflow-x` at 620px is for. Without these two, flex shrank the buttons to
-   their 52px min-width and wrapped the labels instead: 「絞り込み」 came out on
-   three clipped lines at 375px, and the month jump on two before that (#198). */
-.toolbar-actions > * { flex: none; }
+   `overflow-x` at 620px is for. Without flex:none, the month pager shrinks. */
 .toolbar-actions button { min-width: 52px; height: 31px; padding: 0 10px; border-radius: 8px; color: #747d90; font-size: 8px; white-space: nowrap; }
 .toolbar-actions .arrow-button { min-width: 30px; padding: 0; font-family: var(--font-data); font-size: 17px; }
 .schedule-head { min-height: 46px; display: grid; grid-template-columns: var(--schedule-label-col) var(--schedule-day-tracks); border-bottom: 1px solid var(--line); background: #fafbfc; }
@@ -297,14 +293,6 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 
 @media (max-width: 820px) { .app-shell { grid-template-columns: 74px minmax(0,1fr); }.sidebar { padding-inline: 13px; }.brand { padding-inline: 10px; }.brand > span:last-child { display: none; }.nav-item { justify-content: center; padding: 0; font-size: 0; }.nav-icon { font-size: 18px; }.nav-count, .month-card, .profile-row > span:not(.avatar), .profile-row button { display: none; }.profile-row { justify-content: center; }.workspace { padding: 24px 18px; }.board-layout { overflow-x: auto; }.schedule-card { min-width: 720px; } }
 @media (max-width: 620px) { .topbar { flex-direction: column; }.topbar-actions { width: 100%; }.primary-button { margin-left: auto; }.pulse-strip { gap: 16px; }.pulse-heading { width: 100%; }.pulse-rule { display: none; }.attention-panel { display: block; }.alert-card { margin-bottom: 10px; } }
-/* The board's open search box adds 238px to the actions, and a flex row pays for it
-   out of the title: measured at 816px the eyebrow broke inside 「第1週」 and the button
-   inside 「アサインを追加」; at 700px the button's label stood 66px tall in a 44px box
-   (#256). The row cannot shrink the box instead — a definite width counts as the box's
-   minimum, and a flex basis does not count towards the actions' width at all — so
-   while the box is open, the bar stacks the way it already does below 620px. Above
-   900px the row has room (title 259px + actions 439px, measured at 935px). */
-@media (max-width: 900px) { .topbar.search-open { flex-direction: column; align-items: stretch; }.topbar.search-open .topbar-actions { width: 100%; }.topbar.search-open .primary-button { margin-left: auto; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; animation: none !important; } }
 
 /* Interaction layer */
@@ -339,29 +327,7 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   box-shadow: 0 10px 22px rgba(86, 104, 232, .28);
   transform: translateY(-1px);
 }
-.search-box {
-  width: 238px;
-  height: 40px;
-  padding: 0 10px 0 12px;
-  border: 1px solid #cfd6e2;
-  border-radius: 11px;
-  background: #fff;
-  box-shadow: 0 8px 24px rgba(36, 48, 78, .08);
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: #7b8496;
-}
-.search-box input {
-  min-width: 0;
-  flex: 1;
-  border: 0;
-  background: transparent;
-  color: var(--ink);
-  font-size: var(--text-min);
-}
-.search-box input::placeholder { color: #a5adbb; }
-.search-box button, .popover-head button {
+.popover-head button {
   width: 25px;
   height: 25px;
   padding: 0;
@@ -373,7 +339,7 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   display: grid;
   place-items: center;
 }
-.search-box button:hover, .popover-head button:hover { background: #f0f2f6; color: var(--ink); }
+.popover-head button:hover { background: #f0f2f6; color: var(--ink); }
 .notification-wrap { position: relative; }
 .notification-popover {
   position: absolute;
@@ -454,9 +420,6 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   transition: border-color .2s ease, background .2s ease;
 }
 .toolbar-actions > button:hover { border-color: #cdd4e0; background: #fafbfc; }
-/* The trigger takes the shape `.toolbar-actions button` already gives 今月 and
-   the arrows, so it only needs to say when it is doing something. */
-.filter-trigger.active { border-color: #b9c2ea; background: #f4f6fd; color: var(--cobalt); }
 /* Sized like `.nav-count`, the count pill the sidebar already uses: the token
    rather than a literal, so it is not a hole in the 12px floor. */
 .filter-count {
@@ -477,6 +440,30 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   padding: 10px 15px 10px 18px;
   border-bottom: 1px solid var(--line);
   background: #fafbfc;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.board-filter-panel .inline-search { flex: 0 1 220px; }
+.board-filter-details-toggle {
+  min-height: 40px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: #fff;
+  color: var(--ink);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--text-min);
+  font-weight: 700;
+  white-space: nowrap;
+}
+.board-filter-details-toggle:hover { border-color: #cdd4e0; background: #fafbfc; }
+.board-filter-details {
+  flex: 1 0 100%;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -1323,7 +1310,6 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   .workspace { padding: 21px 14px 32px; }
   .topbar { margin-bottom: 18px; }
   .topbar-actions { padding-top: 0; }
-  .search-box { position: absolute; z-index: 12; left: 0; right: 0; top: 0; width: auto; }
   .pulse-strip { padding: 15px; }
   /* Stacked, not hidden. The labels used to be `display: none` here, which left 「69%」
      「14.5人日」 「3件」 standing on their own with nothing saying what any of them was.
@@ -3126,12 +3112,11 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .view-tabs button,
 .toolbar-actions button,
 .range-tabs button { min-height: 36px; }
-.search-box,
 .inline-search,
 .view-filter,
 .view-toggle,
-.view-add-button { min-height: 40px; }
-.search-box button,
+.view-add-button,
+.board-filter-details-toggle { min-height: 40px; }
 .popover-head button,
 .row-open,
 .quick-assign,
@@ -3404,14 +3389,12 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 
   .app-shell:not(.production-shell) > .workspace { padding: 20px 14px 30px; }
   .topbar-actions { flex-wrap: wrap; }
-  .topbar-actions .search-box { position: relative; inset: auto; width: 100%; order: -1; }
   .notification-popover { top: 72px; left: 14px; right: 14px; }
   .change-bar { left: 14px; right: 14px; }
   .primary-button { min-height: 44px; }
   .view-tabs button,
   .toolbar-actions button,
   .range-tabs button,
-  .search-box button,
   .popover-head button,
   .row-open,
   .quick-assign,
@@ -3433,7 +3416,8 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   .week-cell { grid-auto-rows: minmax(44px, auto); }
   .inline-search,
   .view-filter,
-  .view-add-button { min-height: 44px; }
+  .view-add-button,
+  .board-filter-details-toggle { min-height: 44px; }
   .view-add-button { flex: 1 1 100%; justify-content: center; }
   .report-insight { flex-wrap: wrap; }
   .production-operations-panel { width: 100vw; }
@@ -3825,14 +3809,12 @@ h1 {
   transform: translateY(-1px);
 }
 
-.search-box,
 .inline-search,
 .view-filter {
   border-color: var(--line-strong);
   border-radius: 3px;
   background: var(--paper-pure);
 }
-.search-box:focus-within,
 .inline-search:focus-within,
 .view-filter:focus-within {
   border-color: var(--coral-deep);

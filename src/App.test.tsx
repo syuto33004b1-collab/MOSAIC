@@ -6450,10 +6450,9 @@ describe("moving a department", () => {
 });
 
 /**
- * The board could only ever narrow by one thing: 職種 on the member axis, 状態 on
- * the project axis. The conditions now live behind a trigger, because the
- * toolbar had 74px of spare width at a 1425px viewport — the board is 758px of
- * it — and three more controls want about 410px (#198).
+ * The board used to hide every extra condition behind a trigger (#198). #409
+ * keeps search, 職種/状態, the warning toggle, a details disclosure and the
+ * result count on one always-on row; 部門 and お気に入り stay in the second row.
  *
  * What these hold is the behaviour, not the geometry: the widths are in the PR.
  */
@@ -6473,11 +6472,53 @@ describe("the board narrows by more than one thing", () => {
   const openBoard = async (user: ReturnType<typeof userEvent.setup>) => {
     await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^アサインボード( |$)/u }));
   };
-  const openFilters = async (user: ReturnType<typeof userEvent.setup>) => {
-    await user.click(screen.getByRole("button", { name: /絞り込み/u }));
+  const openDetails = async (user: ReturnType<typeof userEvent.setup>) => {
+    const toggle = screen.getByRole("button", { name: /詳細な条件/u });
+    if (toggle.getAttribute("aria-expanded") !== "true") await user.click(toggle);
   };
   const rowNames = () => [...document.querySelectorAll(".schedule-row .person-open strong")].map((el) => el.textContent ?? "");
   const chips = () => [...document.querySelectorAll(".filter-chip")].map((el) => el.textContent ?? "");
+
+  it("shows the always-on filter row without a trigger (#409)", async () => {
+    const user = onWednesday();
+    render(<App />);
+    await openBoard(user);
+    const group = screen.getByRole("group", { name: "絞り込み" });
+    expect(group.querySelector(".inline-search")).not.toBeNull();
+    expect(screen.getByLabelText("メンバー・案件を検索")).toHaveAttribute("aria-keyshortcuts", "/");
+    expect(screen.getByLabelText("職種で絞り込み")).toBeInTheDocument();
+    expect(screen.getByLabelText("上限超過のみ")).toBeInTheDocument();
+    const toggle = screen.getByRole("button", { name: "詳細な条件" });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(toggle).toHaveAttribute("aria-controls", "board-filter-details");
+    expect(screen.getByText(/名を表示$/u)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "絞り込み" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "検索" })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("部門で絞り込み")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("お気に入りのみ")).not.toBeInTheDocument();
+  });
+
+  it("keeps department and favorites in the details row (#409)", async () => {
+    const user = onWednesday();
+    render(<App />);
+    await openBoard(user);
+    const toggle = screen.getByRole("button", { name: "詳細な条件" });
+    await openDetails(user);
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(document.getElementById("board-filter-details")).not.toBeNull();
+    expect(screen.getByLabelText("部門で絞り込み")).toBeInTheDocument();
+    expect(screen.getByLabelText("お気に入りのみ")).toBeInTheDocument();
+
+    await user.click(screen.getByLabelText("お気に入りのみ"));
+    expect(toggle.querySelector(".filter-count")).toHaveTextContent("1");
+    expect(chips()).toEqual(["お気に入りのみ"]);
+
+    await user.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByLabelText("部門で絞り込み")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("お気に入りのみ")).not.toBeInTheDocument();
+    expect(chips()).toEqual(["お気に入りのみ"]);
+  });
 
   it("narrows the member axis by department, and says so in a chip", async () => {
     const user = onWednesday();
@@ -6489,7 +6530,7 @@ describe("the board narrows by more than one thing", () => {
     // the height it was.
     expect(document.querySelector(".toolbar-chips")).toBeNull();
 
-    await openFilters(user);
+    await openDetails(user);
     await user.selectOptions(screen.getByLabelText("部門で絞り込み"), "org-design");
     const designers = rowNames();
     expect(designers.length).toBeGreaterThan(0);
@@ -6497,6 +6538,7 @@ describe("the board narrows by more than one thing", () => {
     expect(everyone).toEqual(expect.arrayContaining(designers));
     expect(chips()).toEqual(["部門: デザイン本部 / デザイン"]);
     expect(document.querySelector(".toolbar-chips-lead")!.textContent).toBe(`絞り込み中 · ${designers.length}名`);
+    expect(screen.getByRole("button", { name: /詳細な条件/u }).querySelector(".filter-count")).toHaveTextContent("1");
 
     // The chip is the way back out of that one condition.
     await user.click(screen.getByRole("button", { name: /部門の絞り込み「デザイン本部 \/ デザイン」を外す/u }));
@@ -6510,7 +6552,6 @@ describe("the board narrows by more than one thing", () => {
     await openBoard(user);
     const everyone = rowNames();
 
-    await openFilters(user);
     await user.click(screen.getByLabelText("上限超過のみ"));
     const overloaded = rowNames();
     expect(overloaded.length).toBeGreaterThan(0);
@@ -6525,11 +6566,11 @@ describe("the board narrows by more than one thing", () => {
     const user = onWednesday();
     render(<App />);
     await openBoard(user);
-    await openFilters(user);
     await user.click(screen.getByLabelText("上限超過のみ"));
     // #252: the chip read 「上限超過: のみ」, forcing 「ラベル: 値」 onto a condition
     // that has no value. A condition with a chosen value keeps the colon.
     expect(chips()).toEqual(["上限超過のみ"]);
+    await openDetails(user);
     await user.selectOptions(screen.getByLabelText("部門で絞り込み"), "org-design");
     expect(chips()).toEqual(["部門: デザイン本部 / デザイン", "上限超過のみ"]);
 
@@ -6547,7 +6588,7 @@ describe("the board narrows by more than one thing", () => {
     const user = onWednesday();
     render(<App />);
     await openBoard(user);
-    await openFilters(user);
+    await openDetails(user);
 
     expect(screen.getByLabelText("職種で絞り込み")).toBeInTheDocument();
     expect(screen.getByLabelText("部門で絞り込み")).toBeInTheDocument();
@@ -6577,7 +6618,7 @@ describe("the board narrows by more than one thing", () => {
     await openBoard(user);
     const everyone = rowNames();
 
-    await openFilters(user);
+    await openDetails(user);
     await user.selectOptions(screen.getByLabelText("部門で絞り込み"), "org-design");
     await user.click(screen.getByLabelText("上限超過のみ"));
     // Designers who are over capacity: none, which is the state worth testing —
@@ -6592,57 +6633,71 @@ describe("the board narrows by more than one thing", () => {
     expect(document.querySelector(".toolbar-chips")).toBeNull();
   });
 
-  /**
-   * #256: with the search box out, the bar stacks below 900px instead of squeezing
-   * the title into 「第1／週」. jsdom lays nothing out, so this pins the hook the
-   * stylesheet keys on; the widths themselves are measured in the browser.
-   */
-  it("marks the bar while the search box is out", async () => {
-    const user = onWednesday();
-    render(<App />);
-    await openBoard(user);
-    const bar = document.querySelector(".topbar")!;
-    expect(bar.classList.contains("search-open")).toBe(false);
-
-    await user.click(screen.getByRole("button", { name: "検索" }));
-    expect(bar.classList.contains("search-open")).toBe(true);
-    await user.click(screen.getByRole("button", { name: "検索を閉じる" }));
-    expect(bar.classList.contains("search-open")).toBe(false);
-  });
-
-  it("puts the keyboard in the search box, and hands it back on the way out", async () => {
+  it("focuses the board search with / and leaves the field on Escape (#409)", async () => {
     const user = onWednesday();
     render(<App />);
     await openBoard(user);
     const everyone = rowNames();
+    const search = screen.getByLabelText("メンバー・案件を検索");
 
-    // #257: the box replaces the button that opens it, so focus fell to the body on
-    // the way in and on the way out, and Escape — the way out of the drawer and the
-    // popover — did nothing here.
-    await user.click(screen.getByRole("button", { name: "検索" }));
-    expect(screen.getByLabelText("メンバー・案件を検索")).toHaveFocus();
+    await user.keyboard("/");
+    expect(search).toHaveFocus();
     await user.keyboard("Atlas");
     expect(rowNames().length).toBeLessThan(everyone.length);
 
     await user.keyboard("{Escape}");
-    expect(screen.queryByLabelText("メンバー・案件を検索")).toBeNull();
-    expect(rowNames()).toEqual(everyone);
-    expect(screen.getByRole("button", { name: "検索" })).toHaveFocus();
+    expect(search).toBeInTheDocument();
+    expect(search).toHaveValue("Atlas");
 
-    await user.click(screen.getByRole("button", { name: "検索" }));
-    await user.click(screen.getByRole("button", { name: "検索を閉じる" }));
-    expect(screen.getByRole("button", { name: "検索" })).toHaveFocus();
-
-    // The window closes the popover on Escape; the box does not stop that, so with
-    // both open, one Escape from the box closes both.
-    await user.click(screen.getByRole("button", { name: "検索" }));
     await user.click(screen.getByRole("button", { name: "通知" }));
     expect(screen.getByRole("button", { name: "通知を閉じる" })).toBeInTheDocument();
-    await user.click(screen.getByLabelText("メンバー・案件を検索"));
+    await user.click(search);
     await user.keyboard("{Escape}");
     expect(screen.queryByRole("button", { name: "通知を閉じる" })).toBeNull();
-    expect(screen.queryByLabelText("メンバー・案件を検索")).toBeNull();
-    expect(screen.getByRole("button", { name: "検索" })).toHaveFocus();
+    expect(search).toBeInTheDocument();
+  });
+
+  it("does not steal / from overlays, modifiers, IME, or another field (#409)", async () => {
+    const user = onWednesday();
+    render(<App />);
+    await openBoard(user);
+    const search = screen.getByLabelText("メンバー・案件を検索");
+    await user.click(search);
+    await user.keyboard("/");
+    expect(search).toHaveValue("/");
+    expect(search).toHaveFocus();
+    await user.clear(search);
+    search.blur();
+
+    fireEvent.keyDown(window, { key: "/", ctrlKey: true });
+    expect(search).not.toHaveFocus();
+    fireEvent.keyDown(window, { key: "/", metaKey: true });
+    expect(search).not.toHaveFocus();
+    fireEvent.keyDown(window, { key: "/", altKey: true });
+    expect(search).not.toHaveFocus();
+    fireEvent.keyDown(window, { key: "/", isComposing: true });
+    expect(search).not.toHaveFocus();
+
+    const axis = screen.getByLabelText("職種で絞り込み");
+    axis.focus();
+    fireEvent.keyDown(axis, { key: "/" });
+    expect(search).not.toHaveFocus();
+
+    await user.click(screen.getByRole("button", { name: "通知" }));
+    fireEvent.keyDown(window, { key: "/" });
+    expect(search).not.toHaveFocus();
+    await user.keyboard("{Escape}");
+
+    await user.click(screen.getByRole("button", { name: /^\d+件(1か月|6か月|12か月)の要調整$/u }));
+    expect(screen.getByRole("dialog", { name: "要調整" })).toBeInTheDocument();
+    fireEvent.keyDown(window, { key: "/" });
+    expect(search).not.toHaveFocus();
+    await user.keyboard("{Escape}");
+
+    await user.click(screen.getByRole("button", { name: "新規追加" }));
+    fireEvent.keyDown(window, { key: "/" });
+    expect(search).not.toHaveFocus();
+    expect(screen.getByRole("dialog", { name: "詳細パネル" })).toBeInTheDocument();
   });
 });
 
