@@ -9,10 +9,10 @@ import {
   memberExceedsCapacity,
   memberLabel,
   memberPeakLoad,
-  periodBucketLabel,
-  periodChoiceLabel,
+  periodCsvLoadWindow,
   periodMemberStats,
   periodRange,
+  planningSpan,
   type PeriodChoice,
   memberSkillLevels,
   normalizeCustomValues,
@@ -249,7 +249,7 @@ export function exportProposalCsv(state: WorkspaceState, input: {
   const need = input.needId ? (state.needs ?? []).find((item) => item.id === input.needId) : undefined;
   const matches = need ? matchMembers(state, searchSceneFromNeed(need)) : [];
   const availableById = new Map(matches.map((match) => [match.member.id, match.availablePercent]));
-  const range = periodRange(input.choice, input.origin);
+  const range = periodRange(input.choice, input.origin, planningSpan(state));
   const rows = input.memberIds
     .map((id) => state.members.find((member) => member.id === id))
     .filter((member): member is Member => Boolean(member))
@@ -268,7 +268,7 @@ export function exportProposalCsv(state: WorkspaceState, input: {
         case "見通しの稼働率": {
           if (!range.from || range.buckets.length === 0) return "";
           const stats = periodMemberStats(state, member, range);
-          const window = `${periodChoiceLabel(input.choice)} ${periodBucketLabel(input.choice, range.buckets[0], 0)}起点`;
+          const window = periodCsvLoadWindow(input.choice, range);
           return `${window} ${stats.buckets.map((bucket) => `${bucket.peak}%`).join(" / ")}`;
         }
       }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { normalizeCsvPresets, applyAssignmentImport, applyMemberImport, applyProjectImport, assignmentCsvColumns, exportAssignmentsCsv, previewAssignmentImport, DEFAULT_PROPOSAL_CSV_COLUMNS, exportMembersCsv, exportProjectsCsv, exportProposalCsv, memberCsvColumns, parseCsv, previewMemberImport, previewProjectImport, proposalCsvColumns, PROPOSAL_CSV_COLUMNS, serializeCsv } from "./csv";
-import { initialWorkspace, matchMembers, periodBucketLabel, periodChoiceLabel, periodMemberStats, periodRange, searchSceneFromNeed, type PeriodChoice, type WorkspaceState } from "./domain";
+import { initialWorkspace, matchMembers, periodCsvLoadWindow, periodMemberStats, periodRange, PERIOD_ALL, planningSpan, searchSceneFromNeed, type PeriodChoice, type WorkspaceState } from "./domain";
 
 describe("csv round-trip", () => {
   it("parses quoted commas and serializes a BOM", () => {
@@ -143,7 +143,7 @@ describe("writing a proposal out", () => {
     const member = initialWorkspace.members.find((item) => item.id === "matsumoto")!;
     const range = periodRange(choice, origin);
     const stats = periodMemberStats(initialWorkspace, member, range);
-    expect(row[2]).toBe(`${periodChoiceLabel(choice)} ${periodBucketLabel(choice, range.buckets[0], 0)}起点 ${stats.buckets.map((bucket) => `${bucket.peak}%`).join(" / ")}`);
+    expect(row[2]).toBe(`${periodCsvLoadWindow(choice, range)} ${stats.buckets.map((bucket) => `${bucket.peak}%`).join(" / ")}`);
     // Blank rather than 0 when the requirement does not reach this person: an empty cell
     // says 「not scored」 and 「0%」 would say 「no room」. Somebody who certainly fails the
     // requirement, so this is the empty case and not a coincidence.
@@ -183,7 +183,7 @@ describe("writing a proposal out", () => {
       memberIds: ["saeki"], columns: ["見通しの稼働率"], choice: clippedChoice, origin: clippedOrigin,
     });
     expect(parseCsv(csv).rows[0]["見通しの稼働率"]).toBe(
-      `${periodChoiceLabel(clippedChoice)} ${periodBucketLabel(clippedChoice, range.buckets[0], 0)}起点 ${stats.buckets.map((bucket) => `${bucket.peak}%`).join(" / ")}`,
+      `${periodCsvLoadWindow(clippedChoice, range)} ${stats.buckets.map((bucket) => `${bucket.peak}%`).join(" / ")}`,
     );
   });
 
@@ -213,6 +213,19 @@ describe("writing a proposal out", () => {
     });
     expect(rows(csv)[1][1]).toContain("80%");
     expect(rows(csv)[1][1]).not.toContain(`${stats.buckets[0].average}%`);
+  });
+
+  it("names 全て as 全期間 without pretending the first bucket is an origin (#396)", () => {
+    const range = periodRange(PERIOD_ALL, origin, planningSpan(initialWorkspace));
+    const member = initialWorkspace.members.find((item) => item.id === "saeki")!;
+    const stats = periodMemberStats(initialWorkspace, member, range);
+    const csv = exportProposalCsv(initialWorkspace, {
+      memberIds: ["saeki"], columns: ["見通しの稼働率"], choice: PERIOD_ALL, origin,
+    });
+    const cell = parseCsv(csv).rows[0]["見通しの稼働率"];
+    expect(cell).not.toContain("起点");
+    expect(cell).toBe(`${periodCsvLoadWindow(PERIOD_ALL, range)} ${stats.buckets.map((bucket) => `${bucket.peak}%`).join(" / ")}`);
+    expect(cell.startsWith("全期間 ")).toBe(true);
   });
 });
 
