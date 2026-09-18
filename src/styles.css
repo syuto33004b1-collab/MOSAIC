@@ -722,35 +722,36 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   overflow-y: auto;
   animation: drawer-in .34s cubic-bezier(.2, .8, .2, 1);
 }
-/* #395: 要調整 dialog also centers above the bottom-sheet breakpoint, same shell
-   as #394's add stage (modifier detail 0,1,0; no :has). */
+/* #407: 621px 以上は詳細ドロワーを中央へ。位置は `.overlay` 一箇所。
+   幅は `.dialog-sm` / `.dialog-md` / `.dialog-lg`（:has は使わない）。
+   設定パネル（`.production-operations-overlay`）は対象外で右寄せを残す。
+   620px 以下のボトムシートは触らない。621–660px では clamp 下限の 410px に揃う。
+   animation-name だけ上書き。ショートハンドだと 620px 側の drawer-up が
+   duration/easing を奪ったまま戻せず、狭幅シートの挙動が変わる。
+   影・角丸・border は後段のテーマ `.drawer` が上書きするので、テーマの直後で再宣言する。 */
 @media (min-width: 621px) {
-  .attention-overlay {
+  .overlay {
     justify-content: center;
     align-items: center;
   }
-  .attention-dialog {
+  .production-operations-overlay {
+    justify-content: flex-end;
+    align-items: stretch;
+  }
+  .dialog-sm {
+    width: min(100%, clamp(410px, 48vw, 620px));
+    height: auto;
+    max-height: 100%;
+    animation-name: assignment-add-in;
+  }
+  .dialog-md {
     width: min(100%, clamp(410px, 48vw, 720px));
     height: auto;
     max-height: 100%;
     animation-name: assignment-add-in;
   }
-}
-/* #394: 「アサインを追加」だけ中央の台。620px 以下のボトムシートは触らないので
-   min-width: 621px で囲む（修飾クラスの詳細度を 0,1,0 のまま保ち、:has は使わない）。
-   621–1000px も台 — 右端に細い板を貼るより中央カードの方が素直。 */
-@media (min-width: 621px) {
-  .assignment-add-overlay {
-    justify-content: center;
-    align-items: center;
-  }
-  .assignment-add-panel {
-    width: min(100%, clamp(410px, 48vw, 620px));
-    height: auto;
-    max-height: 100%;
-    /* animation-name だけ上書き。ショートハンドだと 620px 側の drawer-up が
-       duration/easing を奪ったまま戻せず、狭幅シートの挙動が変わる。
-       影・角丸は後段のテーマ `.drawer` が上書きするので、テーマの直後で再宣言する。 */
+  .dialog-lg {
+    width: min(100%, clamp(410px, 62vw, 1000px));
     animation-name: assignment-add-in;
   }
 }
@@ -4214,15 +4215,12 @@ h1 {
   box-shadow: -18px 0 55px rgba(52, 17, 3, .14);
 }
 /* Theme `.drawer { box-shadow: -18px … }` comes later; the last matching stage
-   rule inside min-width 621 must re-assert a symmetric shadow and radius (#394).
-   Attention dialog gets the same card treatment in its own rule (#395). */
+   rule inside min-width 621 must re-assert a full border, symmetric shadow and
+   radius (#394/#407). Settings panel is not in this list. */
 @media (min-width: 621px) {
-  .assignment-add-panel {
-    border: 1px solid var(--line);
-    border-radius: 20px;
-    box-shadow: 0 24px 70px rgba(52, 17, 3, .22);
-  }
-  .attention-dialog {
+  .dialog-sm,
+  .dialog-md,
+  .dialog-lg {
     border: 1px solid var(--line);
     border-radius: 20px;
     box-shadow: 0 24px 70px rgba(52, 17, 3, .22);
