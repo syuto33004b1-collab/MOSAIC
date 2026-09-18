@@ -1284,6 +1284,8 @@ export default function Home({ mode = "demo", organizationId, organizationName =
       .slice()
       .sort((left, right) => left.startDate.localeCompare(right.startDate) || left.endDate.localeCompare(right.endDate))
     : [];
+  const selectedMemberWeekLoad = selectedMember ? memberLoad(workspace, selectedMember.id, weekStart) : 0;
+  const selectedMemberWeekLoadLabel = `${weekLabel(weekStart)}の稼働 ${selectedMemberWeekLoad}%`;
   const selectedAssignment = workspace.assignments.find((assignment) => assignment.id === selectedAssignmentId);
   const selectedAssignmentIsPersisted = Boolean(selectedAssignment && committedWorkspace.assignments.some((assignment) => assignment.id === selectedAssignment.id));
   const selectedOpportunity = opportunityById(workspace, selectedOpportunityId);
@@ -3823,7 +3825,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                   <span className={"avatar profile-avatar " + selectedMember.avatarTone}>{selectedMember.initials}</span>
                   <div><h2>{memberLabel(workspace, selectedMember)}</h2><p>{selectedMember.role} · {selectedMember.department}</p><small>{selectedMember.location}</small></div>
                   <FavoriteStar name={memberLabel(workspace, selectedMember)} pressed={isFavorited(favorites, "member", selectedMember.id)} onToggle={() => void toggleFavoriteTarget("member", selectedMember.id)} />
-                  <strong title={`${weekLabel(weekStart)}の稼働`} aria-label={`${weekLabel(weekStart)}の稼働`}>{memberLoad(workspace, selectedMember.id, weekStart)}%</strong>
+                  <strong title={selectedMemberWeekLoadLabel} aria-label={selectedMemberWeekLoadLabel}>{selectedMemberWeekLoad}%</strong>
                 </div>
                 <div className="profile-skills">{memberSkillLevels(selectedMember).map((level) => <span key={level.name}>{level.name}<small>{level.proficiency}</small></span>)}</div>
                 <OrgFacts state={workspace} personId={selectedMember.id} />

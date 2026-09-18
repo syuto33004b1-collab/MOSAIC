@@ -6,7 +6,7 @@ import App, { type SharedWorkspaceAdapter } from "./App";
 import { parseCsv } from "./csv";
 import { MembersView, ProjectsView, ProposalView } from "./expanded-views";
 import { DEMO_FAVORITES_KEY } from "./collaboration";
-import { addDays, boardRange, getWeekDays, getWeekStart, initialWorkspace, memberDailyLoads, memberLoad, memberPeakLoad, PERIOD_CLIP_NOTE, periodMemberStats, periodRange, weekLabel, type StaffingNeed, type WorkspaceState } from "./domain";
+import { addDays, boardBasisWeek, boardRange, getWeekDays, getWeekStart, initialWorkspace, memberDailyLoads, memberLoad, memberPeakLoad, PERIOD_CLIP_NOTE, periodMemberStats, periodRange, weekLabel, type StaffingNeed, type WorkspaceState } from "./domain";
 import type { ChatTransport } from "./lib/ai/chatClient";
 
 function sharedAdapter(): SharedWorkspaceAdapter {
@@ -7577,11 +7577,25 @@ describe("member drawer assignments follow the selected period (#422)", () => {
     const { panel } = await openPeriodMember(user, state);
     const hero = panel.querySelector(".profile-hero > strong");
     const weekStart = getWeekStart(0);
-    expect(hero).not.toBeNull();
-    expect(hero!.textContent).toBe(`${memberLoad(state, member.id, weekStart)}%`);
-    expect(hero).toHaveAttribute("aria-label", `${weekLabel(weekStart)}の稼働`);
-    expect(hero).toHaveAttribute("title", `${weekLabel(weekStart)}の稼働`);
-    expect(hero!.getAttribute("aria-label")).not.toContain("今週");
+    const load = memberLoad(state, member.id, weekStart);
+    const label = `${weekLabel(weekStart)}の稼働 ${load}%`;
+    expect(hero).toHaveTextContent(`${load}%`);
+    expect(hero).toHaveAccessibleName(label);
+    expect(hero).toHaveAttribute("title", label);
+    expect(label).not.toContain("今週");
     expect(document.body.textContent).not.toContain("今週");
+  });
+
+  it("keeps the hero name on the board week after paging a month", async () => {
+    const user = userEvent.setup();
+    render(<App mode="shared" organizationName="Example Inc." identity={owner} shared={sharedAdapter()} />);
+    await user.click(screen.getByRole("button", { name: "次の月" }));
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: "メンバー" }));
+    await user.click(screen.getByRole("button", { name: "佐伯 優斗をお気に入りに追加" }).closest("tr")!.querySelector(".member-name-cell")!);
+    const hero = screen.getByRole("dialog", { name: "詳細パネル" }).querySelector(".profile-hero > strong");
+    const pagedWeek = boardBasisWeek(boardRange("month", 1));
+    const load = memberLoad(initialWorkspace, "saeki", pagedWeek);
+    expect(hero).toHaveAccessibleName(`${weekLabel(pagedWeek)}の稼働 ${load}%`);
+    expect(weekLabel(pagedWeek)).not.toBe(weekLabel(getWeekStart(0)));
   });
 });
