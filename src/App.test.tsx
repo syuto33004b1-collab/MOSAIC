@@ -6,7 +6,7 @@ import App, { type SharedWorkspaceAdapter } from "./App";
 import { parseCsv } from "./csv";
 import { MembersView, ProjectsView, ProposalView } from "./expanded-views";
 import { DEMO_FAVORITES_KEY } from "./collaboration";
-import { addDays, boardRange, getWeekDays, getWeekStart, initialWorkspace, memberDailyLoads, memberLoad, memberPeakLoad, periodMemberStats, periodRange, type StaffingNeed, type WorkspaceState } from "./domain";
+import { addDays, boardBasisWeek, boardRange, getWeekDays, getWeekStart, initialWorkspace, memberDailyLoads, memberLoad, memberPeakLoad, PERIOD_CLIP_NOTE, periodMemberStats, periodRange, weekLabel, type StaffingNeed, type WorkspaceState } from "./domain";
 import type { ChatTransport } from "./lib/ai/chatClient";
 
 function sharedAdapter(): SharedWorkspaceAdapter {
@@ -7409,7 +7409,8 @@ describe("printing a skill sheet", () => {
     expect(sheet.textContent).toContain("英語");
     expect(sheet.textContent).not.toContain("650000");
     expect(sheet.textContent).not.toContain("月額原価");
-    expect(sheet.textContent).not.toContain("現在のアサイン");
+    expect(sheet.textContent).not.toContain("1か月のアサイン");
+    expect(sheet.textContent).not.toContain("全期間のアサイン");
   });
 
   it("omits a custom value whose field is no longer in the catalog", async () => {
@@ -7451,5 +7452,150 @@ describe("printing a skill sheet", () => {
     expect(sheet.textContent).toContain("スキルはまだありません");
     expect(sheet.textContent).toContain("業務経歴はまだありません");
     expect(sheet.querySelector(".skill-sheet-fields")).toBeNull();
+  });
+});
+
+/**
+ * #422: the member drawer's assignment list follows `drawerRange`, not the board
+ * week. The rail already did; the list did not, so a 12-month or 全て load had
+ * no rows naming the assignments that made it.
+ */
+describe("member drawer assignments follow the selected period (#422)", () => {
+  const owner = { name: "管理 花子", email: "owner@example.com", role: "owner" as const };
+  const member = { ...initialWorkspace.members[0], id: "period-member", name: "期間 太郎", workHistory: [], unavailability: [] };
+  const weekProject = { ...initialWorkspace.projects[0], id: "week-project", name: "週内案件" };
+  const laterProject = { ...initialWorkspace.projects[1], id: "later-project", name: "月末案件" };
+  const winterProject = {
+    ...initialWorkspace.projects[2],
+    id: "winter-project",
+    name: "超長案件名超長案件名超長案件名超長案件名超長案件名超長案件名",
+    startDate: "2026-12-01",
+    endDate: "2026-12-20",
+  };
+
+  function periodState(assignments: WorkspaceState["assignments"], extra: Partial<WorkspaceState> = {}): WorkspaceState {
+    return {
+      members: [member],
+      projects: [weekProject, laterProject, winterProject],
+      assignments,
+      needs: [],
+      opportunities: [],
+      opportunityNeeds: [],
+      ...extra,
+    } as WorkspaceState;
+  }
+
+  async function openPeriodMember(user: ReturnType<typeof userEvent.setup>, state: WorkspaceState) {
+    const adapter = sharedAdapter();
+    adapter.initialState = state;
+    adapter.reload = vi.fn().mockResolvedValue({ state, revision: 7 });
+    render(<App mode="shared" organizationName="Example Inc." identity={owner} shared={adapter} />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: "メンバー" }));
+    await user.click(screen.getByRole("button", { name: `${member.name}をお気に入りに追加` }).closest("tr")!.querySelector(".member-name-cell")!);
+    const panel = screen.getByRole("dialog", { name: "詳細パネル" });
+    return { panel, dialog: within(panel) };
+  }
+
+  function assignmentNames(panel: HTMLElement) {
+    return [...panel.querySelectorAll(".allocation-list strong")].map((node) => node.textContent);
+  }
+
+  function assignmentCount(panel: HTMLElement) {
+    const title = [...panel.querySelectorAll(".drawer-section-title")].find((node) => (node.textContent ?? "").includes("のアサイン"));
+    return title?.querySelector("small")?.textContent ?? "";
+  }
+
+  it("lists every assignment that overlaps the default month, not only the board week", async () => {
+    const user = userEvent.setup();
+    const { panel, dialog } = await openPeriodMember(user, periodState([
+      { id: "week-only", personId: member.id, projectId: weekProject.id, startDate: "2026-08-17", endDate: "2026-08-21", allocation: 40, status: "confirmed" },
+      { id: "later-august", personId: member.id, projectId: laterProject.id, startDate: "2026-08-24", endDate: "2026-08-31", allocation: 30, status: "confirmed" },
+    ]));
+    expect(dialog.getByText("1か月のアサイン")).toBeInTheDocument();
+    expect(assignmentCount(panel)).toBe("2件");
+    expect(assignmentNames(panel)).toEqual(["週内案件", "月末案件"]);
+    expect(dialog.queryByText("現在のアサイン")).not.toBeInTheDocument();
+    expect(panel.querySelectorAll(".allocation-list button")).toHaveLength(0);
+  });
+
+  it("adds the winter row under 全て and keeps the long name", async () => {
+    const user = userEvent.setup();
+    const { panel, dialog } = await openPeriodMember(user, periodState([
+      { id: "week-only", personId: member.id, projectId: weekProject.id, startDate: "2026-08-17", endDate: "2026-08-21", allocation: 40, status: "confirmed" },
+      { id: "later-august", personId: member.id, projectId: laterProject.id, startDate: "2026-08-24", endDate: "2026-08-31", allocation: 30, status: "confirmed" },
+      { id: "winter", personId: member.id, projectId: winterProject.id, startDate: "2026-12-01", endDate: "2026-12-15", allocation: 20, status: "confirmed" },
+    ]));
+    expect(assignmentNames(panel)).toEqual(["週内案件", "月末案件"]);
+    await user.click(dialog.getByRole("button", { name: "全て" }));
+    expect(dialog.getByText("全期間のアサイン")).toBeInTheDocument();
+    expect(assignmentCount(panel)).toBe("3件");
+    expect(assignmentNames(panel)).toEqual(["週内案件", "月末案件", winterProject.name]);
+  });
+
+  it("sorts by startDate then endDate", async () => {
+    const user = userEvent.setup();
+    const { panel } = await openPeriodMember(user, periodState([
+      { id: "late-start", personId: member.id, projectId: laterProject.id, startDate: "2026-08-20", endDate: "2026-08-30", allocation: 10, status: "confirmed" },
+      { id: "early-start", personId: member.id, projectId: weekProject.id, startDate: "2026-08-10", endDate: "2026-08-31", allocation: 10, status: "confirmed" },
+      { id: "same-start-earlier-end", personId: member.id, projectId: winterProject.id, startDate: "2026-08-20", endDate: "2026-08-22", allocation: 10, status: "confirmed", label: "短い方" },
+    ]));
+    expect(assignmentNames(panel)).toEqual(["週内案件", "短い方", "月末案件"]);
+  });
+
+  it("uses the empty copy when the span has days but no row", async () => {
+    const user = userEvent.setup();
+    const { panel, dialog } = await openPeriodMember(user, periodState([]));
+    expect(dialog.getByText("1か月のアサイン")).toBeInTheDocument();
+    expect(assignmentCount(panel)).toBe("0件");
+    expect(panel.querySelector(".allocation-list")).toBeNull();
+    const empty = [...panel.querySelectorAll(".candidate-empty")].find((node) => node.textContent?.includes("この期間のアサインはありません"));
+    expect(empty).toBeDefined();
+  });
+
+  it("hides the list when the holiday calendar has already ended", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date("2036-02-03T09:00:00+09:00"));
+    try {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      const { panel, dialog } = await openPeriodMember(user, periodState([
+        { id: "week-only", personId: member.id, projectId: weekProject.id, startDate: "2026-08-17", endDate: "2026-08-21", allocation: 40, status: "confirmed" },
+      ]));
+      expect(dialog.getByText(PERIOD_CLIP_NOTE)).toBeInTheDocument();
+      expect(dialog.queryByText("1か月のアサイン")).not.toBeInTheDocument();
+      expect(panel.querySelector(".allocation-list")).toBeNull();
+      expect(dialog.queryByText("この期間のアサインはありません")).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("names the hero load after the board week, not 今週", async () => {
+    const user = userEvent.setup();
+    const state = periodState([
+      { id: "week-only", personId: member.id, projectId: weekProject.id, startDate: "2026-08-17", endDate: "2026-08-21", allocation: 40, status: "confirmed" },
+    ]);
+    const { panel } = await openPeriodMember(user, state);
+    const hero = panel.querySelector(".profile-hero > strong");
+    const weekStart = getWeekStart(0);
+    const load = memberLoad(state, member.id, weekStart);
+    const label = `${weekLabel(weekStart)}の稼働 ${load}%`;
+    expect(hero).toHaveTextContent(`${load}%`);
+    expect(hero).toHaveAccessibleName(label);
+    expect(hero).toHaveAttribute("title", label);
+    expect(label).not.toContain("今週");
+    expect(document.body.textContent).not.toContain("今週");
+  });
+
+  it("keeps the hero name on the board week after paging a month", async () => {
+    const user = userEvent.setup();
+    render(<App mode="shared" organizationName="Example Inc." identity={owner} shared={sharedAdapter()} />);
+    await user.click(screen.getByRole("button", { name: "次の月" }));
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: "メンバー" }));
+    await user.click(screen.getByRole("button", { name: "佐伯 優斗をお気に入りに追加" }).closest("tr")!.querySelector(".member-name-cell")!);
+    const hero = screen.getByRole("dialog", { name: "詳細パネル" }).querySelector(".profile-hero > strong");
+    const pagedWeek = boardBasisWeek(boardRange("month", 1));
+    const load = memberLoad(initialWorkspace, "saeki", pagedWeek);
+    expect(hero).toHaveAccessibleName(`${weekLabel(pagedWeek)}の稼働 ${load}%`);
+    expect(weekLabel(pagedWeek)).not.toBe(weekLabel(getWeekStart(0)));
   });
 });

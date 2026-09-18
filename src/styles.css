@@ -1048,8 +1048,10 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 }
 .allocation-list > div + div { border-top: 1px solid var(--line); }
 .allocation-list > div > span:nth-child(2) { flex: 1; }
+.drawer .allocation-list > div > span:nth-child(2) { min-width: 0; }
 .allocation-list strong, .allocation-list small { display: block; }
 .allocation-list strong { font-size: 9px; }
+.drawer .allocation-list strong { overflow-wrap: anywhere; }
 .allocation-list small { margin-top: 3px; color: #939baa; font-size: 7px; }
 .allocation-list b { font-family: var(--font-data); font-size: var(--text-min); }
 .project-dot { width: 8px; height: 8px; border-radius: 3px; }
