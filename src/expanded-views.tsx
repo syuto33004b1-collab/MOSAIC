@@ -1,4 +1,4 @@
-import { Fragment, useMemo, useRef, useState, type CSSProperties } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import {
   AlertTriangle,
   ArrowRight,
@@ -1995,6 +1995,31 @@ export function CustomFieldInputs({
   );
 }
 
+/**
+ * After a row is removed, focus the delete button that slid into that index.
+ * Removing the last row has no such button, so focus lands on the add control
+ * instead of the previous row's delete (#438).
+ */
+function useFocusAfterEntryRemoved<T>(entries: readonly T[], onChange: (next: T[]) => void) {
+  const rootRef = useRef<HTMLDivElement>(null);
+  const pendingIndex = useRef<number | null>(null);
+  useEffect(() => {
+    const index = pendingIndex.current;
+    if (index === null) return;
+    pendingIndex.current = null;
+    const root = rootRef.current;
+    if (!root) return;
+    const removes = root.querySelectorAll<HTMLButtonElement>("[data-remove-entry]");
+    const next = removes[index] ?? root.querySelector<HTMLButtonElement>("[data-add-entry]");
+    next?.focus();
+  }, [entries]);
+  const removeAt = (index: number) => {
+    pendingIndex.current = index;
+    onChange(entries.filter((_, current) => current !== index));
+  };
+  return { rootRef, removeAt };
+}
+
 export function WorkHistoryEditor({
   entries,
   onChange,
@@ -2005,8 +2030,9 @@ export function WorkHistoryEditor({
   const update = (index: number, patch: Partial<WorkHistoryEntry>) => {
     onChange(entries.map((entry, current) => current === index ? { ...entry, ...patch } : entry));
   };
+  const { rootRef, removeAt } = useFocusAfterEntryRemoved(entries, onChange);
   return (
-    <div className="work-history-editor">
+    <div className="work-history-editor" ref={rootRef}>
       <div className="drawer-section-title"><span>業務経歴</span><small>{entries.length}件</small></div>
       {entries.map((entry, index) => (
         <div className="work-history-form" key={entry.id}>
@@ -2017,10 +2043,12 @@ export function WorkHistoryEditor({
             <label>終了日<input aria-label={`経歴${index + 1}の終了日`} type="date" value={entry.endDate ?? ""} onChange={(event) => update(index, { endDate: event.target.value || null })} /></label>
           </div>
           <label>概要<textarea aria-label={`経歴${index + 1}の概要`} rows={2} value={entry.description ?? ""} onChange={(event) => update(index, { description: event.target.value })} /></label>
-          <button type="button" className="drawer-danger compact" onClick={() => onChange(entries.filter((_, current) => current !== index))}>この経歴を削除</button>
+          <button type="button" className="drawer-danger compact" data-remove-entry="" aria-label={`経歴${index + 1}を削除`} onClick={() => removeAt(index)}>
+            <Trash2 size={13} aria-hidden="true" />削除
+          </button>
         </div>
       ))}
-      <button type="button" className="drawer-secondary" onClick={() => onChange([...entries, { id: crypto.randomUUID(), title: "", organization: "", startDate: "", endDate: null, description: "" }])}>
+      <button type="button" className="drawer-secondary" data-add-entry="" onClick={() => onChange([...entries, { id: crypto.randomUUID(), title: "", organization: "", startDate: "", endDate: null, description: "" }])}>
         <Plus size={15} />経歴を追加
       </button>
     </div>
@@ -2053,8 +2081,9 @@ export function UnavailabilityEditor({
   const update = (index: number, patch: Partial<MemberUnavailability>) => {
     onChange(entries.map((entry, current) => current === index ? { ...entry, ...patch } : entry));
   };
+  const { rootRef, removeAt } = useFocusAfterEntryRemoved(entries, onChange);
   return (
-    <div className="work-history-editor unavailability-editor">
+    <div className="work-history-editor unavailability-editor" ref={rootRef}>
       <div className="drawer-section-title"><span>期間指定の稼働上限</span><small>{entries.length}件</small></div>
       <p className="unavailability-editor-note">通常の稼働上限より低い期間です。0%の日にはアサインを載せません。メモに健康情報は書かないでください。</p>
       {entries.map((entry, index) => (
@@ -2065,12 +2094,15 @@ export function UnavailabilityEditor({
           </div>
           <label>この期間の稼働上限（%）<input aria-label={`期間${index + 1}の稼働上限`} required type="number" min="0" max="100" step="1" value={Number.isFinite(entry.capacityPercent) ? entry.capacityPercent : ""} onChange={(event) => update(index, { capacityPercent: Number(event.target.value) })} /></label>
           <label>メモ（任意）<input aria-label={`期間${index + 1}のメモ`} maxLength={UNAVAILABILITY_NOTE_MAX} value={entry.note ?? ""} onChange={(event) => update(index, { note: event.target.value })} placeholder="社内向けの短いメモ" /></label>
-          <button type="button" className="drawer-danger compact" onClick={() => onChange(entries.filter((_, current) => current !== index))}>この期間を削除</button>
+          <button type="button" className="drawer-danger compact" data-remove-entry="" aria-label={`期間${index + 1}を削除`} onClick={() => removeAt(index)}>
+            <Trash2 size={13} aria-hidden="true" />削除
+          </button>
         </div>
       ))}
       <button
         type="button"
         className="drawer-secondary"
+        data-add-entry=""
         disabled={entries.length >= UNAVAILABILITY_ROW_LIMIT}
         onClick={() => onChange([...entries, { id: crypto.randomUUID(), startDate: "", endDate: "", capacityPercent: 100 }])}
       >
