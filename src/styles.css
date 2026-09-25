@@ -2834,6 +2834,17 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
     display: flex;
     flex-direction: column;
   }
+  /* The drawer container query puts these lists in two columns once the
+     panel is 650px. Inside a pane that is half of that, the name column
+     fell to 18px. Keep one column here. */
+  .drawer.project-detail-open .detail-member-list,
+  .drawer.project-detail-open .detail-need-list {
+    display: flex;
+    flex-direction: column;
+  }
+  .drawer.project-detail-open .detail-member-list button:nth-child(odd):not(:last-child) {
+    border-right: 0;
+  }
 }
 .profile-skills { margin-bottom: 22px; display: flex; flex-wrap: wrap; gap: 5px; }
 .profile-capacity { margin-bottom: 22px; display: flex; flex-direction: column; gap: 9px; }

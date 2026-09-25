@@ -17,6 +17,7 @@ test("the project drawer panes scroll the assignee list and the facts, not the m
   assert.match(list[1], /overflow:\s*auto/);
   assert.match(facts[1], /overflow:\s*auto/);
   assert.match(media, /\.drawer\.project-detail-open \.profile-capacity \{[^}]*flex-direction:\s*column/);
+  assert.match(media, /\.drawer\.project-detail-open \.detail-member-list,\s*\.drawer\.project-detail-open \.detail-need-list \{[^}]*display:\s*flex[^}]*flex-direction:\s*column/);
   assert.equal(app.includes('className="project-detail"'), true);
   assert.equal(app.includes("project-detail-open"), true);
   assert.match(app, /\$\{count\}\/\$\{selectedProject\.demand\}名/);
