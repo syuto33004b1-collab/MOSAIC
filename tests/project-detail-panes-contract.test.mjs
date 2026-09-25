@@ -33,4 +33,8 @@ test("the project drawer panes scroll the assignee list and the facts, not the m
   const projectFrom = app.indexOf('className="project-detail"');
   const projectBlock = app.slice(projectFrom, app.indexOf('drawer === "member"', projectFrom));
   assert.equal(projectBlock.includes("member-detail"), false);
+  const projectCssStart = css.indexOf("/* Project detail (#439)");
+  const projectCss = css.slice(projectCssStart, css.indexOf(".profile-skills", projectCssStart));
+  assert.ok(projectCss.length > 0, "expected the project detail rules before .profile-skills");
+  assert.equal(projectCss.includes("member-detail"), false);
 });

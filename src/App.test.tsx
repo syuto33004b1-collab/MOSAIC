@@ -7917,6 +7917,9 @@ describe("project drawer assignees follow the selected period (#423)", () => {
     expect(assigneeTitle(panel)?.querySelector("small")?.textContent).toBe("3件");
     expect(within(panel).queryByRole("button", { name: "案件情報を編集" })).not.toBeInTheDocument();
     expect(within(panel).queryByRole("button", { name: "案件をアーカイブ" })).not.toBeInTheDocument();
+    expect(within(panel).queryByRole("button", { name: "要員要件を追加" })).not.toBeInTheDocument();
+    expect(within(panel).queryByRole("button", { name: "この案件へアサインを追加" })).not.toBeInTheDocument();
+    expect(panel.querySelector(".project-detail-actions")).toBeNull();
   });
 
   it("hides the list when the holiday calendar has already ended", async () => {
