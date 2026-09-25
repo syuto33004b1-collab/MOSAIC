@@ -6,7 +6,7 @@ import App, { type SharedWorkspaceAdapter } from "./App";
 import { parseCsv } from "./csv";
 import { MembersView, ProjectsView, ProposalView } from "./expanded-views";
 import { DEMO_FAVORITES_KEY } from "./collaboration";
-import { addDays, boardBasisWeek, boardRange, getWeekDays, getWeekStart, initialWorkspace, memberDailyLoads, memberLoad, memberPeakLoad, PERIOD_CLIP_NOTE, periodMemberStats, periodRange, planningSpan, weekLabel, type StaffingNeed, type WorkspaceState } from "./domain";
+import { addDays, boardBasisWeek, boardRange, formatDate, getWeekDays, getWeekStart, initialWorkspace, memberDailyLoads, memberLoad, memberPeakLoad, PERIOD_CLIP_NOTE, periodMemberStats, periodRange, planningSpan, weekLabel, type StaffingNeed, type WorkspaceState } from "./domain";
 import type { ChatTransport } from "./lib/ai/chatClient";
 
 function sharedAdapter(): SharedWorkspaceAdapter {
@@ -7692,5 +7692,183 @@ describe("member drawer assignments follow the selected period (#422)", () => {
     expect(bucket.ratio).toBeGreaterThan(bucket.peak);
     expect(panel.querySelector(".member-detail-load")!.textContent).toContain("稼働上限 100%");
     expect(panel.querySelector(".member-week-rail")).toHaveAccessibleName(new RegExp(`稼働率${bucket.ratio}%`, "u"));
+  });
+});
+
+/**
+ * #423: the project drawer's assignee list follows `drawerRange`, not the board
+ * week. The fulfillment rail stays the thinnest week (`projectPeriodCount`);
+ * the list is every overlapping assignment, drafts included, and is not clipped
+ * to the project's own dates. The heading names the period so the two figures
+ * can disagree without being read as the same count.
+ */
+describe("project drawer assignees follow the selected period (#423)", () => {
+  const owner = { name: "管理 花子", email: "owner@example.com", role: "owner" as const };
+  const person = { ...initialWorkspace.members[0], id: "period-person", name: "期間 太郎", role: "Engineer" };
+  const other = { ...initialWorkspace.members[1], id: "winter-person", name: "冬季 花子", role: "Designer" };
+  const project = {
+    ...initialWorkspace.projects[0],
+    id: "period-project",
+    name: "期間案件",
+    startDate: "2026-08-20",
+    endDate: "2026-12-31",
+    demand: 5,
+  };
+
+  function periodState(assignments: WorkspaceState["assignments"], extra: Partial<WorkspaceState> = {}): WorkspaceState {
+    return {
+      members: [person, other],
+      projects: [project],
+      assignments,
+      needs: [{
+        id: "later-need",
+        projectId: project.id,
+        role: "QA",
+        skills: [],
+        startDate: "2026-12-01",
+        endDate: "2026-12-15",
+        allocation: 50,
+        status: "open",
+      }],
+      opportunities: [],
+      opportunityNeeds: [],
+      ...extra,
+    } as WorkspaceState;
+  }
+
+  const rows = [
+    { id: "before-project", personId: person.id, projectId: project.id, startDate: "2026-08-10", endDate: "2026-08-12", allocation: 20, status: "confirmed" as const },
+    { id: "inside", personId: person.id, projectId: project.id, startDate: "2026-08-24", endDate: "2026-08-28", allocation: 40, status: "confirmed" as const },
+    { id: "draft", personId: person.id, projectId: project.id, startDate: "2026-08-26", endDate: "2026-08-27", allocation: 10, status: "draft" as const },
+    { id: "winter", personId: other.id, projectId: project.id, startDate: "2026-12-01", endDate: "2026-12-15", allocation: 30, status: "confirmed" as const },
+  ];
+
+  function onAugust() {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date("2026-08-19T09:00:00+09:00"));
+    return userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+  }
+
+  afterEach(() => { vi.useRealTimers(); });
+
+  async function openPeriodProject(user: ReturnType<typeof userEvent.setup>, state: WorkspaceState) {
+    const adapter = sharedAdapter();
+    adapter.initialState = state;
+    adapter.reload = vi.fn().mockResolvedValue({ state, revision: 7 });
+    render(<App mode="shared" organizationName="Example Inc." identity={owner} shared={adapter} />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^プロジェクト( |$)/u }));
+    await user.click(screen.getByText(project.name).closest("button")!);
+    const panel = screen.getByRole("dialog", { name: "詳細パネル" });
+    return { panel, dialog: within(panel) };
+  }
+
+  function assigneeTitle(panel: HTMLElement) {
+    return [...panel.querySelectorAll(".drawer-section-title")].find((node) => (node.textContent ?? "").includes("の担当"));
+  }
+
+  function assigneeNames(panel: HTMLElement) {
+    return [...panel.querySelectorAll(".detail-member-list strong")].map((node) => node.textContent);
+  }
+
+  it("lists every assignment that overlaps the month, including drafts and dates before the project starts", async () => {
+    const user = onAugust();
+    const { panel, dialog } = await openPeriodProject(user, periodState(rows));
+    expect(dialog.getByText("1か月の充足")).toBeInTheDocument();
+    expect(dialog.getByText("1か月の担当")).toBeInTheDocument();
+    expect(assigneeTitle(panel)?.querySelector("small")?.textContent).toBe("3件");
+    expect(dialog.queryByText("担当メンバー")).not.toBeInTheDocument();
+    expect(assigneeNames(panel)).toEqual(["期間 太郎", "期間 太郎", "期間 太郎"]);
+    expect(dialog.queryByText("冬季 花子")).not.toBeInTheDocument();
+    const dates = [...panel.querySelectorAll(".detail-member-list small")].map((node) => node.textContent);
+    expect(dates).toContain(`${formatDate("2026-08-10")} — ${formatDate("2026-08-12")}`);
+    expect(dates).toContain(`${formatDate("2026-08-24")} — ${formatDate("2026-08-28")}`);
+    expect(dates).toContain(`${formatDate("2026-08-26")} — ${formatDate("2026-08-27")}`);
+    // The rail is the thinnest week, which is empty before anyone starts.
+    expect(panel.querySelector(".profile-capacity")?.textContent).toContain("0/5");
+    // Needs stay the project's own list, not the selected period.
+    expect(dialog.getByText("QA")).toBeInTheDocument();
+  });
+
+  it("adds the winter row under 全て and opens the member from a row", async () => {
+    const user = onAugust();
+    const { panel, dialog } = await openPeriodProject(user, periodState(rows));
+    await user.click(dialog.getByRole("button", { name: "全て" }));
+    expect(dialog.getByText("全期間の担当")).toBeInTheDocument();
+    expect(assigneeTitle(panel)?.querySelector("small")?.textContent).toBe("4件");
+    expect(assigneeNames(panel)).toEqual(["期間 太郎", "期間 太郎", "期間 太郎", "冬季 花子"]);
+    await user.click(dialog.getByRole("button", { name: /冬季 花子/ }));
+    expect(document.querySelector(".drawer-kicker")!.textContent).toBe("MEMBER PROFILE");
+    expect(document.querySelector(".drawer")!.textContent).toContain("冬季 花子");
+  });
+
+  it("uses the empty copy outside the list when the span has days but no row", async () => {
+    const user = onAugust();
+    const { panel, dialog } = await openPeriodProject(user, periodState([]));
+    expect(dialog.getByText("1か月の担当")).toBeInTheDocument();
+    expect(assigneeTitle(panel)?.querySelector("small")?.textContent).toBe("0件");
+    expect(panel.querySelector(".detail-member-list")).toBeNull();
+    const empty = dialog.getByText("この期間の担当はありません");
+    expect(empty.closest(".candidate-empty")).not.toBeNull();
+  });
+
+  it("keeps the list when the span is only partly past the holiday calendar", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date("2035-06-16T09:00:00+09:00"));
+    try {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      const inside = { id: "inside-calendar", personId: person.id, projectId: project.id, startDate: "2035-06-02", endDate: "2035-06-06", allocation: 25, status: "confirmed" as const };
+      const past = { id: "past-calendar", personId: other.id, projectId: project.id, startDate: "2036-03-02", endDate: "2036-03-06", allocation: 25, status: "confirmed" as const };
+      const { panel, dialog } = await openPeriodProject(user, periodState([inside, past]));
+      await user.click(dialog.getByRole("button", { name: "12か月" }));
+      expect(dialog.getByText(PERIOD_CLIP_NOTE)).toBeInTheDocument();
+      expect(dialog.getByText("12か月の担当")).toBeInTheDocument();
+      expect(assigneeTitle(panel)?.querySelector("small")?.textContent).toBe("1件");
+      expect(assigneeNames(panel)).toEqual(["期間 太郎"]);
+      expect(dialog.queryByText("冬季 花子")).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("sorts a shared start date by end date", async () => {
+    const user = onAugust();
+    const { panel } = await openPeriodProject(user, periodState([
+      { id: "longer", personId: person.id, projectId: project.id, startDate: "2026-08-20", endDate: "2026-08-30", allocation: 10, status: "confirmed" },
+      { id: "shorter", personId: other.id, projectId: project.id, startDate: "2026-08-20", endDate: "2026-08-22", allocation: 15, status: "confirmed" },
+    ]));
+    expect(assigneeNames(panel)).toEqual(["冬季 花子", "期間 太郎"]);
+    expect(panel.querySelector(".detail-member-list")?.textContent).toContain("15%");
+    expect(panel.querySelector(".detail-member-list")?.textContent).toContain("Designer");
+  });
+
+  it("shows the same period list to a viewer, without the edit actions", async () => {
+    const user = onAugust();
+    const state = periodState(rows);
+    const adapter = sharedAdapter();
+    adapter.initialState = state;
+    adapter.reload = vi.fn().mockResolvedValue({ state, revision: 7 });
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "閲覧 太郎", email: "viewer@example.com", role: "viewer" }} shared={adapter} />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^プロジェクト( |$)/u }));
+    await user.click(screen.getByText(project.name).closest("button")!);
+    const panel = screen.getByRole("dialog", { name: "詳細パネル" });
+    expect(within(panel).getByText("1か月の担当")).toBeInTheDocument();
+    expect(assigneeTitle(panel)?.querySelector("small")?.textContent).toBe("3件");
+    expect(within(panel).queryByRole("button", { name: "案件情報を編集" })).not.toBeInTheDocument();
+    expect(within(panel).queryByRole("button", { name: "案件をアーカイブ" })).not.toBeInTheDocument();
+  });
+
+  it("hides the list when the holiday calendar has already ended", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date("2036-02-03T09:00:00+09:00"));
+    try {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      const { panel, dialog } = await openPeriodProject(user, periodState(rows));
+      expect(dialog.getByText(PERIOD_CLIP_NOTE)).toBeInTheDocument();
+      expect(dialog.queryByText("1か月の担当")).not.toBeInTheDocument();
+      expect(panel.querySelector(".detail-member-list")).toBeNull();
+      expect(dialog.queryByText("この期間の担当はありません")).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
