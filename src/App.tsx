@@ -3512,7 +3512,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                               project's in プロジェクト別 (#195). */}
                           <div className="person-cell" role="rowheader">
                             <button className="person-open" onClick={() => viewMode === "members" ? openMember(row.id) : openProject(row.id)}>
-                              <span className={"avatar avatar-" + row.kind + " " + row.avatarTone}>{row.initials}</span><span className="person-copy"><strong>{row.name}</strong><small>{row.role}</small></span>
+                              <span className={"avatar " + (row.kind === "project" ? "avatar-project" : "avatar-person") + " " + row.avatarTone}>{row.initials}</span><span className="person-copy"><strong>{row.name}</strong><small>{row.role}</small></span>
                             </button>
                             <span className={"load " + (row.alert ? "over" : "")}>{row.tagLabel}</span>
                           </div>
