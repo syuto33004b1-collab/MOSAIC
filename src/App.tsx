@@ -349,7 +349,9 @@ type ScheduleRow = {
   initials: string;
   name: string;
   role: string;
-  avatarTone: AvatarTone;
+  /** Board row head only. Person is a circle in `avatarTone`; project is a 3px square in `project.tone`. */
+  kind: "person" | "project";
+  avatarTone: AvatarTone | Tone;
   tagLabel: string;
   alert?: boolean;
   filterKey: string;
@@ -1477,6 +1479,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
       // (#123).
       name: memberLabel(workspace, member),
       role: member.role + " · " + member.department,
+      kind: "person",
       avatarTone: member.avatarTone,
       tagLabel: load + "%",
       alert: memberExceedsCapacity(workspace, member, range.start, range.end),
@@ -1529,7 +1532,8 @@ export default function Home({ mode = "demo", organizationId, organizationName =
       initials: project.code.slice(0, 2),
       name: project.name,
       role: project.summary,
-      avatarTone: project.status === "要注意" ? "peach" : project.status === "準備中" ? "sky" : "lavender",
+      kind: "project",
+      avatarTone: project.tone,
       tagLabel: project.demand === 0 ? "未設定" : staffed + "/" + project.demand + "名",
       alert: staffed < project.demand,
       filterKey: project.status,
@@ -3504,7 +3508,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                               project's in プロジェクト別 (#195). */}
                           <div className="person-cell" role="rowheader">
                             <button className="person-open" onClick={() => viewMode === "members" ? openMember(row.id) : openProject(row.id)}>
-                              <span className={"avatar " + row.avatarTone}>{row.initials}</span><span className="person-copy"><strong>{row.name}</strong><small>{row.role}</small></span>
+                              <span className={"avatar " + (row.kind === "project" ? "avatar-project" : "avatar-person") + " " + row.avatarTone}>{row.initials}</span><span className="person-copy"><strong>{row.name}</strong><small>{row.role}</small></span>
                             </button>
                             <span className={"load " + (row.alert ? "over" : "")}>{row.tagLabel}</span>
                           </div>
@@ -3938,7 +3942,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
             )}
 
             {drawer === "editMember" && selectedMember && (
-              <form className="assignment-form" onChange={markFormDraftDirty} onSubmit={handleEditMember}>
+              <form className="assignment-form member-edit-form" onChange={markFormDraftDirty} onSubmit={handleEditMember}>
                 <div className="drawer-heading"><span className="drawer-icon mint"><UsersRound size={19} /></span><div><h2>メンバー情報を編集</h2><p>スキルと稼働上限は候補判定にも反映されます。</p></div></div>
                 <label>氏名<input required value={memberEditForm.name} onChange={(event) => setMemberEditForm({ ...memberEditForm, name: event.target.value })} /></label>
                 <label>職種<input required value={memberEditForm.role} onChange={(event) => setMemberEditForm({ ...memberEditForm, role: event.target.value })} /></label>
