@@ -3938,7 +3938,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
             )}
 
             {drawer === "editMember" && selectedMember && (
-              <form className="assignment-form" onChange={markFormDraftDirty} onSubmit={handleEditMember}>
+              <form className="assignment-form member-edit-form" onChange={markFormDraftDirty} onSubmit={handleEditMember}>
                 <div className="drawer-heading"><span className="drawer-icon mint"><UsersRound size={19} /></span><div><h2>メンバー情報を編集</h2><p>スキルと稼働上限は候補判定にも反映されます。</p></div></div>
                 <label>氏名<input required value={memberEditForm.name} onChange={(event) => setMemberEditForm({ ...memberEditForm, name: event.target.value })} /></label>
                 <label>職種<input required value={memberEditForm.role} onChange={(event) => setMemberEditForm({ ...memberEditForm, role: event.target.value })} /></label>

@@ -7993,3 +7993,45 @@ describe("assignment detail opens the saved member and project (#424)", () => {
     expect(adapter.reload).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("member edit history and period removal (#438)", () => {
+  const openEditor = async (user: ReturnType<typeof userEvent.setup>) => {
+    render(<App />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^メンバー( |$)/u }));
+    await user.click(memberRowButton("佐伯 優斗"));
+    await user.click(screen.getByRole("button", { name: "メンバー情報を編集" }));
+    return within(screen.getByRole("dialog", { name: "詳細パネル" }));
+  };
+
+  it("names each delete after its row, shows 削除, and focuses the next control", async () => {
+    const user = userEvent.setup();
+    const dialog = await openEditor(user);
+    const form = dialog.getByRole("heading", { name: "メンバー情報を編集" }).closest("form");
+    expect(form).toHaveClass("member-edit-form");
+    expect(form).toHaveClass("assignment-form");
+
+    const first = dialog.getByRole("button", { name: "経歴1を削除" });
+    const second = dialog.getByRole("button", { name: "経歴2を削除" });
+    expect(first).toHaveTextContent("削除");
+    expect(second).toHaveTextContent("削除");
+    expect(first.querySelector("svg")).not.toBeNull();
+    expect(dialog.queryByRole("button", { name: "この経歴を削除" })).not.toBeInTheDocument();
+    expect(dialog.queryByRole("button", { name: /期間\d+を削除/u })).not.toBeInTheDocument();
+
+    await user.click(dialog.getByRole("button", { name: "経歴を追加" }));
+    await user.click(dialog.getByRole("button", { name: "経歴2を削除" }));
+    expect(dialog.getByRole("button", { name: "経歴2を削除" })).toHaveFocus();
+    expect(dialog.getByRole("button", { name: "経歴1を削除" })).not.toHaveFocus();
+
+    await user.click(dialog.getByRole("button", { name: "経歴2を削除" }));
+    expect(dialog.getByRole("button", { name: "経歴を追加" })).toHaveFocus();
+    expect(dialog.getByRole("button", { name: "経歴1を削除" })).not.toHaveFocus();
+
+    await user.click(dialog.getByRole("button", { name: "期間を追加" }));
+    const period = dialog.getByRole("button", { name: "期間1を削除" });
+    expect(period).toHaveTextContent("削除");
+    await user.click(period);
+    expect(dialog.getByRole("button", { name: "期間を追加" })).toHaveFocus();
+    expect(dialog.queryByRole("button", { name: "期間1を削除" })).not.toBeInTheDocument();
+  });
+});
