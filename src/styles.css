@@ -5582,6 +5582,7 @@ h1 {
    button and stays at the start of its cell. */
 .work-history-form > .drawer-danger.compact {
   justify-self: end;
+  width: auto;
 }
 .field-catalog-form {
   margin: 0 0 14px;

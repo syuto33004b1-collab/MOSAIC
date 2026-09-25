@@ -14,7 +14,13 @@ test("the member edit form alone is capped at 36rem and stays left", () => {
 });
 
 test("history and period delete buttons sit at the end of their card", () => {
-  assert.match(css, /\.work-history-form\s*>\s*\.drawer-danger\.compact\s*\{[^}]*justify-self:\s*end/);
+  const rule = css.match(/\.work-history-form\s*>\s*\.drawer-danger\.compact\s*\{([^}]+)\}/);
+  assert.ok(rule, "expected the history-card delete rule");
+  assert.match(rule[1], /justify-self:\s*end/);
+  // `.drawer-danger` is `width: 100%`. `justify-self: end` does not shrink that,
+  // so the card stays full width unless this rule puts the width back to auto.
+  assert.match(rule[1], /width:\s*auto/);
+  assert.match(css, /\.drawer-primary,\s*\.drawer-secondary,\s*\.drawer-danger\s*\{[^}]*width:\s*100%/);
   assert.match(views, /aria-label=\{`経歴\$\{index \+ 1\}を削除`\}/);
   assert.match(views, /aria-label=\{`期間\$\{index \+ 1\}を削除`\}/);
   assert.equal(views.includes("この経歴を削除"), false);
