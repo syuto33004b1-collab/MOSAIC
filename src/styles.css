@@ -4094,6 +4094,28 @@ h1 {
 .person-copy small { color: var(--muted); }
 .avatar { border-radius: 50%; color: var(--ink); }
 .avatar.avatar-dark { color: #fff8f4; }
+/* Board row heads only (#433). Members stay circles; projects are 3px squares in
+   `project.tone`, the same hues as `.project-code`, one step darker, with a 1px
+   border so the shape survives forced colors and a pale fill. The member list
+   keeps the lighter `.avatar` fills. Attention cards stay at 8px. */
+.avatar.avatar-person,
+.avatar.avatar-project { border: 1px solid transparent; }
+.avatar.avatar-project { border-radius: 3px; }
+.avatar.avatar-person.lavender { background: #c4aea4; border-color: #6d534b; }
+.avatar.avatar-person.peach { background: #e09a7c; border-color: #7a4534; }
+.avatar.avatar-person.sky { background: #a9c3b6; border-color: #34584c; }
+.avatar.avatar-person.mint { background: #8fbfae; border-color: #275445; }
+.avatar.avatar-person.sand { background: #d4b56a; border-color: #5c481c; }
+.avatar.avatar-person.rose { background: #e08aaa; border-color: #7a3450; }
+.avatar.avatar-project.blue { background: #e7b5a6; border-color: #8a3422; }
+.avatar.avatar-project.orange { background: #e8c09a; border-color: #7a4522; }
+.avatar.avatar-project.mint { background: #b7d4c6; border-color: #2c4e40; }
+.avatar.avatar-project.plum { background: #cbbbe4; border-color: #4e3c68; }
+.avatar.avatar-project.sky { background: #aed4e2; border-color: #245668; }
+@media (forced-colors: active) {
+  .avatar.avatar-person,
+  .avatar.avatar-project { border-color: CanvasText; }
+}
 .load { border-radius: 3px; background: var(--paper-deep); color: var(--muted); }
 .load.over { background: var(--coral-soft); color: #a83e27; }
 .day-grid i { border-left-color: #eee6e2; }
