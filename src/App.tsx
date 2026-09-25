@@ -1221,7 +1221,6 @@ export default function Home({ mode = "demo", organizationId, organizationName =
   const totalCapacity = workspace.members.reduce((sum, member) => sum + weekdaySupplyCapacity(workspace, member, weekStart, weekdayEnd), 0);
   const loadSum = currentDailyLoads.reduce((sum, day) => sum + day.load, 0);
   const averageLoad = totalCapacity > 0 ? Math.round(loadSum / totalCapacity * 100) : 0;
-  const hasMemberCeiling = workspace.members.some((member) => member.capacity > 0);
   /*
    * Weekdays only, and this is the asymmetry: an unbooked Saturday is not capacity
    * anyone can spend. Counting it would have added two days a week of imaginary
@@ -3284,27 +3283,6 @@ export default function Home({ mode = "demo", organizationId, organizationName =
         </nav>
 
         <div className="sidebar-spacer" />
-        <div className="month-card">
-          {/* `averageLoad` is week-scoped: memberDailyLoads includes Saturday and
-              Sunday only when they were recorded, and the denominator is the
-              weekday ceilings after holidays and remaining-0 days drop out.
-              Weekend work is excess above that ceiling, not extra room (#222,
-              #323). This label said 「{month}月のチーム稼働」,
-              presenting a week's figure as a month's — and paging the board moved
-              the month in the label while the metric stayed week-scoped (#115).
-              It names the Monday now, the way the board's own header does.
-              「平均稼働率」 rather than 「チーム稼働率」: the board's pulse strip
-              shows this same variable under that name, and one value with two
-              names is what #82 is about.
-              Named from `weekStart`, the week the figure is actually
-              measured over, and not from the board's first column. Those are the
-              same thing while the board shows a week; once it can show a month,
-              the first column is the 1st and the week began in the month before —
-              which is #115 again, from the other end (#139). */}
-          <div className="month-card-label"><span>{measuredWeekLabel}の平均稼働率</span><strong>{averageLoad}%</strong></div>
-          <div className="month-track"><span style={{ width: Math.min(100, averageLoad) + "%" }} /></div>
-          <p>{totalCapacity === 0 ? (hasMemberCeiling ? "この週は稼働できる日がありません。" : "稼働上限が未設定です。") : averageLoad > 100 ? `稼働上限を ${averageLoad - 100}% 超えています。` : `稼働上限まであと ${100 - averageLoad}%。`}{mode === "shared" ? "変更は組織内で共有されます。" : "サンプルデータはこの端末だけに保存されます。"}</p>
-        </div>
         {!syncNeedsAction && syncBanner}
         {onOpenOperations ? (
           <button type="button" className="profile-row profile-account" aria-label="設定を開く" disabled={accountActionLocked} onClick={openOperations}>
@@ -3377,7 +3355,21 @@ export default function Home({ mode = "demo", organizationId, organizationName =
           <>
             <section className="pulse-strip" aria-label="チームの稼働サマリー">
               <div className="pulse-heading"><span className="live-dot" /><div><small>TEAM PULSE</small><strong>チームの稼働サマリー</strong></div></div>
-              <div className="pulse-metric"><strong>{averageLoad}<small>%</small></strong><span>平均稼働率</span></div>
+              {/* `averageLoad` is week-scoped: memberDailyLoads includes Saturday and
+                  Sunday only when they were recorded, and the denominator is the
+                  weekday ceilings after holidays and remaining-0 days drop out.
+                  Weekend work is excess above that ceiling, not extra room (#222,
+                  #323). The sidebar used to say 「{month}月のチーム稼働」,
+                  presenting a week's figure as a month's — and paging the board moved
+                  the month in the label while the metric stayed week-scoped (#115).
+                  It names the Monday now. 「平均稼働率」 rather than 「チーム稼働率」:
+                  one value with two names is what #82 is about. The sidebar card that
+                  repeated this figure is gone (#435); the week stays in this label,
+                  named from `weekStart` and not from the board's first column. Those
+                  are the same thing while the board shows a week; once it shows a
+                  month, the first column is the 1st and the week began in the month
+                  before — which is #115 again, from the other end (#139). */}
+              <div className="pulse-metric"><strong>{averageLoad}<small>%</small></strong><span>{measuredWeekLabel}の平均稼働率</span></div>
               <div className="pulse-rule" />
               <div className="pulse-metric"><strong>{freeDays}<small>人日</small></strong><span>{measuredWeekLabel}の空き</span></div>
               <div className="pulse-rule" />
