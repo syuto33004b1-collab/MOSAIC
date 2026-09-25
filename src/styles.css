@@ -2619,24 +2619,70 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   font-weight: 700;
 }
 .member-detail-load-summary strong { color: var(--ink); }
-/* The rail's own grid is the list contract. Margin only — do not restyle
-   `display` / `grid-auto-columns` / height here (`tests/rail-label-contract.test.mjs`). */
-.member-detail-load .member-week-rail {
-  margin: 0 0 4px;
-  justify-items: start;
-}
-/* The shared rail grows tracks with `1fr`, which is right in a table column.
-   In this pane a single month would become a full-width strip. Cap the bar,
-   not the track (`grid-auto-columns` is the list contract). */
-.member-detail-load .member-week-rail i {
-  width: 100%;
-  max-width: 28px;
-}
-.member-detail-load-span {
-  margin: 0 0 14px;
-  color: var(--muted);
+/* The hero figure used to be a 20px percent stacked on a week name. The
+   sentence is the whole label now (#437), so it wraps at 12px instead of
+   staying one nowrap column. */
+.member-detail .profile-hero > strong {
+  flex: 0 1 9.5rem;
+  min-width: 0;
+  max-width: 9.5rem;
+  color: var(--ink);
+  font-family: var(--font-ui);
   font-size: var(--text-min);
   font-weight: 700;
+  display: block;
+  line-height: var(--leading);
+  text-align: right;
+  white-space: normal;
+}
+.member-month-scroll {
+  overflow-x: auto;
+  overflow-y: hidden;
+  margin: 0 0 12px;
+}
+.member-month-chart {
+  position: relative;
+  height: 120px;
+  color: var(--sage);
+}
+.member-month-chart svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  overflow: visible;
+}
+.member-month-dot {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  border: 1px solid #2c4e40;
+  border-radius: 50%;
+  background: var(--sage);
+  transform: translate(-50%, 50%);
+}
+.member-month-dot.over {
+  background: var(--coral);
+  border-color: var(--coral-deep);
+}
+.member-month-labels {
+  display: flex;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.member-month-labels li {
+  flex: 1 0 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  color: var(--muted);
+  font-size: var(--text-min);
+  line-height: var(--leading);
+  overflow-wrap: anywhere;
 }
 .member-detail-who-actions,
 .member-detail-actions {
@@ -2680,18 +2726,30 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
     align-items: stretch;
     overflow: hidden;
   }
-  .member-detail-load,
   .member-detail-who {
     min-height: 0;
     overflow: auto;
     overscroll-behavior: contain;
     background: var(--paper);
   }
-  .member-detail-load .range-tabs {
-    position: sticky;
-    top: 0;
-    z-index: 1;
+  .member-detail-load {
+    min-height: 0;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
     background: var(--paper);
+  }
+  .member-detail-load > .drawer-section-title,
+  .member-detail-load > .horizon-clip-note,
+  .member-detail-load > .member-detail-load-summary,
+  .member-detail-load > .member-month-scroll {
+    flex: 0 0 auto;
+  }
+  .member-detail-assignments {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: auto;
+    overscroll-behavior: contain;
   }
   .member-detail-actions {
     flex: 0 0 auto;
@@ -2701,7 +2759,6 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
     background: var(--paper);
     z-index: 1;
   }
-  /* Keep stacked assignment cards; the period rail is `.member-week-rail` now. */
   .drawer.member-detail-open .allocation-list {
     display: flex;
     flex-direction: column;

@@ -1,4 +1,4 @@
-import { Fragment, type CSSProperties, type FormEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { type CSSProperties, type FormEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   ArrowRight,
@@ -76,6 +76,12 @@ import {
   memberDailyLoads,
   memberExceedsCapacity,
   memberLoad,
+  memberMonthChartLabel,
+  memberMonthOutlook,
+  memberMonthPointLabel,
+  memberMonthScrollLeft,
+  memberMonthShowsYear,
+  memberMonthSummaryLabel,
   memberMatchesNeed,
   memberOrgMemberships,
   membersInOrgSubtree,
@@ -464,15 +470,6 @@ function firstExceedWindow(stats: PeriodMemberStats | null | undefined, choice: 
   };
 }
 
-function memberLoadRailBucketCopy(
-  label: string,
-  stats: { peak: number; ratio: number; exceeds: boolean } | undefined,
-) {
-  const peak = stats?.peak ?? 0;
-  const ratio = stats?.ratio ?? 0;
-  return `${label} 稼働${peak}% 稼働率${ratio}%${stats?.exceeds ? " 上限超過" : ""}`;
-}
-
 function attentionBreakdownText(periodLabel: string, overloadCount: number, needCount: number, plannedCount: number) {
   const parts = [periodLabel, `過負荷${overloadCount}人`, `未充足ニーズ${needCount}件`];
   if (plannedCount > 0) parts.push(`予定超過${plannedCount}人`);
@@ -600,6 +597,70 @@ function drawerFromShare(link: ReturnType<typeof parseShareSearch>, state: Works
     return { drawer: null, toast: "共有リンクのプロジェクトが見つかりません" };
   }
   return { drawer: null };
+}
+
+function monthChartBottom(peak: number, yMax: number) {
+  const pad = 8;
+  return pad + (peak / yMax) * (100 - pad * 2);
+}
+
+function MemberMonthChart({ outlook }: { outlook: ReturnType<typeof memberMonthOutlook> }) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const { points, basisIndex } = outlook;
+  const firstFrom = points[0]?.from ?? "";
+  useLayoutEffect(() => {
+    const node = scrollRef.current;
+    if (!node) return;
+    node.scrollLeft = memberMonthScrollLeft(basisIndex, node.clientWidth);
+  }, [basisIndex, firstFrom, points.length]);
+
+  const yMax = Math.max(100, ...points.map((point) => point.peak), 0);
+  const trackStyle = {
+    width: points.length === 0 ? "100%" : "calc(100% * var(--month-count) / 12)",
+    "--month-count": points.length,
+  } as CSSProperties;
+  return (
+    // A sideways scrollport. `region` is not an interactive role, but without
+    // tabIndex the keyboard cannot move the line (#437).
+    // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- scrollport
+    <div className="member-month-scroll" tabIndex={0} role="region" aria-label="月の稼働の折れ線" ref={scrollRef}>
+      <div className="member-month-track" style={trackStyle}>
+        {points.length > 0 && (
+          <div className="member-month-chart" role="img" aria-label={memberMonthChartLabel(points)}>
+            <svg viewBox={`0 0 ${points.length} 100`} preserveAspectRatio="none" aria-hidden="true">
+              <polyline
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinejoin="round"
+                strokeLinecap="round"
+                vectorEffect="non-scaling-stroke"
+                points={points.map((point, index) => `${index + 0.5},${(100 - monthChartBottom(point.peak, yMax)).toFixed(2)}`).join(" ")}
+              />
+            </svg>
+            {points.map((point, index) => (
+              <span
+                key={point.from}
+                className={"member-month-dot" + (point.exceeds ? " over" : "")}
+                style={{ left: `${((index + 0.5) / points.length) * 100}%`, bottom: `${monthChartBottom(point.peak, yMax)}%` }}
+              />
+            ))}
+          </div>
+        )}
+        {points.length > 0 && (
+          <ol className="member-month-labels">
+            {points.map((point, index) => (
+              <li key={point.from}>
+                <span className="member-month-year" aria-hidden="true">{memberMonthShowsYear(point.from, index) ? `${Number(point.from.slice(0, 4))}年` : "\u00a0"}</span>
+                <span className="member-month-tick" aria-hidden="true">{`${Number(point.from.slice(5, 7))}月`}</span>
+                <span className="sr-only">{memberMonthPointLabel(point)}</span>
+              </li>
+            ))}
+          </ol>
+        )}
+      </div>
+    </div>
+  );
 }
 
 export default function Home({ mode = "demo", organizationId, organizationName = "MOSAIC デモ", identity, shared, onOpenOperations, onAccessInvalidated, aiChatTransport }: AppProps) {
@@ -1280,34 +1341,20 @@ export default function Home({ mode = "demo", organizationId, organizationName =
   const selectedProject = projectById(workspace, selectedProjectId);
   const selectedProjectNeeds = selectedProject ? workspace.needs.filter((need) => need.projectId === selectedProject.id) : [];
   const selectedMember = memberById(workspace, selectedMemberId);
-  const drawerMemberStats = selectedMember ? periodMemberStats(workspace, selectedMember, drawerRange) : null;
-  const drawerLoadBearing = (drawerMemberStats?.buckets ?? []).filter((bucket) => bucket.capacity > 0);
-  const drawerPeriodPeak = drawerLoadBearing.reduce((highest, bucket) => Math.max(highest, bucket.peak), 0);
-  const drawerPeriodSlack = drawerLoadBearing.length === 0
-    ? null
-    : drawerLoadBearing.reduce((lowest, bucket) => Math.min(lowest, bucket.slack), Number.POSITIVE_INFINITY);
-  const drawerLoadFirst = drawerRange.buckets[0];
-  const drawerLoadLast = drawerRange.buckets.at(-1);
-  const drawerLoadFirstLabel = drawerLoadFirst ? periodBucketLabel(drawerPeriod, drawerLoadFirst, 0) : "";
-  const drawerLoadLastLabel = drawerLoadLast && drawerRange.buckets.length > 1
-    ? periodBucketLabel(drawerPeriod, drawerLoadLast, drawerRange.buckets.length - 1)
-    : "";
-  const drawerLoadRailLabel = `${periodChoiceProseLabel(drawerPeriod)}の稼働：` + drawerRange.buckets.map((bucket, index) => (
-    memberLoadRailBucketCopy(periodBucketLabel(drawerPeriod, bucket, index), drawerMemberStats?.buckets[index])
-  )).join("、");
-  /*
-   * One flag for both detail lists (#422, #423). An empty span (clipped past
-   * the holiday calendar) is not "zero rows" — the clip note already said the
-   * outlook stopped, so the lists stay out. `clipped` alone does not: a partial
-   * clip still has buckets.
-   */
-  const drawerPeriodHasRange = Boolean(drawerRange.from && drawerRange.buckets.length > 0);
-  const memberPeriodAssignments = selectedMember && drawerPeriodHasRange
+  const memberOutlook = selectedMember ? memberMonthOutlook(workspace, selectedMember, drawerOrigin) : null;
+  const memberAssignments = selectedMember
     ? workspace.assignments
-      .filter((assignment) => assignment.personId === selectedMember.id && overlaps(assignment.startDate, assignment.endDate, drawerRange.from, drawerRange.to))
+      .filter((assignment) => assignment.personId === selectedMember.id)
       .slice()
       .sort((left, right) => left.startDate.localeCompare(right.startDate) || left.endDate.localeCompare(right.endDate))
     : [];
+  /*
+   * The project list follows the selected period (#423). An empty span (clipped
+   * past the holiday calendar) is not "zero rows" — the clip note already said
+   * the outlook stopped, so that list stays out. The member list does not use
+   * this flag: it shows every assignment of that person (#437).
+   */
+  const drawerPeriodHasRange = Boolean(drawerRange.from && drawerRange.buckets.length > 0);
   /*
    * Rows, not unique people (#423). `projectMembers` counted a Set, so two
    * assignments for one person already read as 1名 beside two buttons. The
@@ -3874,49 +3921,32 @@ export default function Home({ mode = "demo", organizationId, organizationName =
               </div>
             )}
 
-            {drawer === "member" && selectedMember && (
+            {drawer === "member" && selectedMember && memberOutlook && (
               <div className="member-detail">
                 <div className="profile-hero">
                   <span className={"avatar profile-avatar " + selectedMember.avatarTone}>{selectedMember.initials}</span>
                   <div><h2>{memberLabel(workspace, selectedMember)}</h2><p>{selectedMember.role} · {selectedMember.department}</p><small>{selectedMember.location}</small></div>
                   <FavoriteStar name={memberLabel(workspace, selectedMember)} pressed={isFavorited(favorites, "member", selectedMember.id)} onToggle={() => void toggleFavoriteTarget("member", selectedMember.id)} />
-                  <strong title={selectedMemberWeekLoadLabel} aria-label={selectedMemberWeekLoadLabel}>{selectedMemberWeekLoad}%<small>{weekLabel(weekStart)}</small></strong>
+                  <strong>{selectedMemberWeekLoadLabel}</strong>
                 </div>
                 <div className="member-detail-panes">
-                  <div className="member-detail-load" role="region" aria-label="期間の稼働とアサイン">
-                    <PeriodRangeTabs choice={drawerPeriod} onChange={setDrawerPeriod} />
-                    <div className="drawer-section-title"><span>{periodChoiceProseLabel(drawerPeriod)}の稼働</span><small>稼働上限 {selectedMember.capacity}%</small></div>
-                    {drawerRange.clipped && <p className="horizon-clip-note" role="note">{PERIOD_CLIP_NOTE}</p>}
-                    {drawerRange.buckets.length > 0 && (
-                      <>
-                        <p className="member-detail-load-summary">
-                          <span>ピーク <strong>{drawerPeriodPeak}%</strong></span>
-                          <span>最小空き <strong>{drawerPeriodSlack == null ? "—" : `${drawerPeriodSlack}%`}</strong></span>
-                        </p>
-                        <div className="member-week-rail" role="img" aria-label={drawerLoadRailLabel}>
-                          {drawerRange.buckets.map((bucket, index) => {
-                            const stats = drawerMemberStats?.buckets[index];
-                            return (
-                              <Fragment key={`${bucket.from}:${bucket.to}`}>
-                                <i className={stats?.exceeds ? "over" : stats?.open ? "open" : ""}>
-                                  <b style={{ height: Math.max(12, Math.min(100, stats?.ratio ?? 0)) + "%" }} />
-                                </i>
-                                <small>{stats?.peak ?? 0}%</small>
-                              </Fragment>
-                            );
-                          })}
-                        </div>
-                        <p className="member-detail-load-span">{drawerLoadLastLabel ? `${drawerLoadFirstLabel} — ${drawerLoadLastLabel}` : drawerLoadFirstLabel}</p>
-                      </>
-                    )}
-                    {drawerPeriodHasRange && (
-                      <>
-                        <div className="drawer-section-title"><span>{periodChoiceProseLabel(drawerPeriod)}のアサイン</span><small>{memberPeriodAssignments.length}件</small></div>
-                        {memberPeriodAssignments.length === 0
-                          ? <div className="candidate-empty"><BriefcaseBusiness size={18} /><span><strong>この期間のアサインはありません</strong></span></div>
-                          : <div className="allocation-list">{memberPeriodAssignments.map((assignment) => <div key={assignment.id}><span className={"project-dot " + (projectById(workspace, assignment.projectId)?.tone || "plum")} /><span><strong>{assignment.label || projectById(workspace, assignment.projectId)?.name || "プロジェクト未登録"}</strong><small>{formatDate(assignment.startDate)} — {formatDate(assignment.endDate)}</small></span><b>{assignment.allocation}%</b></div>)}</div>}
-                      </>
-                    )}
+                  <div className="member-detail-load">
+                    <div className="drawer-section-title"><span>月の稼働</span><small>稼働上限 {selectedMember.capacity}%</small></div>
+                    {memberOutlook.clipped && <p className="horizon-clip-note" role="note">{PERIOD_CLIP_NOTE}</p>}
+                    <p className="member-detail-load-summary">
+                      <span>{memberMonthSummaryLabel(memberOutlook.summaryFrom)}</span>
+                      <span>ピーク <strong>{memberOutlook.summaryPeak}%</strong></span>
+                      <span>最小空き <strong>{memberOutlook.summarySlack == null ? "—" : `${memberOutlook.summarySlack}%`}</strong></span>
+                    </p>
+                    <MemberMonthChart outlook={memberOutlook} />
+                    {/* The list is the only vertical scrollport in the left pane (#437). */}
+                    {/* eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- scrollport */}
+                    <div className="member-detail-assignments" tabIndex={0} role="region" aria-label="アサイン一覧">
+                      <div className="drawer-section-title"><span>{`アサイン ${memberAssignments.length}件`}</span></div>
+                      {memberAssignments.length === 0
+                        ? <div className="candidate-empty"><BriefcaseBusiness size={18} /><span><strong>アサインはありません</strong></span></div>
+                        : <div className="allocation-list">{memberAssignments.map((assignment) => <div key={assignment.id}><span className={"project-dot " + (projectById(workspace, assignment.projectId)?.tone || "plum")} /><span><strong>{assignment.label || projectById(workspace, assignment.projectId)?.name || "プロジェクト未登録"}</strong><small>{formatDate(assignment.startDate)} — {formatDate(assignment.endDate)}</small></span><b>{assignment.allocation}%</b></div>)}</div>}
+                    </div>
                   </div>
                   <div className="member-detail-who" role="region" aria-label="所属と経歴">
                     <div className="profile-skills">{memberSkillLevels(selectedMember).map((level) => <span key={level.name}>{level.name}<small>{level.proficiency}</small></span>)}</div>
