@@ -1322,6 +1322,15 @@ export default function Home({ mode = "demo", organizationId, organizationName =
   const selectedMemberWeekLoadLabel = `${weekLabel(weekStart)}の稼働 ${selectedMemberWeekLoad}%`;
   const selectedAssignment = workspace.assignments.find((assignment) => assignment.id === selectedAssignmentId);
   const selectedAssignmentIsPersisted = Boolean(selectedAssignment && committedWorkspace.assignments.some((assignment) => assignment.id === selectedAssignment.id));
+  /*
+   * The heading and the two detail links name the saved assignment (#424).
+   * The form underneath can already point at someone else; following that
+   * draft would open a person the click itself throws away.
+   */
+  const selectedAssignmentProject = selectedAssignment ? projectById(workspace, selectedAssignment.projectId) : undefined;
+  const selectedAssignmentPerson = selectedAssignment ? memberById(workspace, selectedAssignment.personId) : undefined;
+  const selectedAssignmentProjectName = selectedAssignmentProject?.name ?? "プロジェクト";
+  const selectedAssignmentPersonName = selectedAssignmentPerson ? memberLabel(workspace, selectedAssignmentPerson) : "担当者";
   const selectedOpportunity = opportunityById(workspace, selectedOpportunityId);
   const selectedOpportunityNeeds = selectedOpportunity ? opportunityNeedsFor(workspace, selectedOpportunity.id) : [];
   const selectedOpportunityNeed = selectedOpportunityNeeds.find((need) => need.id === selectedOpportunityNeedId) ?? selectedOpportunityNeeds[0];
@@ -3727,7 +3736,13 @@ export default function Home({ mode = "demo", organizationId, organizationName =
 
             {drawer === "assignment" && selectedAssignment && (
               <form className="assignment-form assignment-edit-form" onChange={markFormDraftDirty} onSubmit={handleEditAssignment}>
-                <div className="drawer-heading"><span className="drawer-icon cobalt"><CalendarDays size={19} /></span><div><h2>アサインの詳細</h2><p>{projectById(workspace, selectedAssignment.projectId)?.name ?? "プロジェクト"} · {(() => { const person = memberById(workspace, selectedAssignment.personId); return person ? memberLabel(workspace, person) : "担当者"; })()}</p></div></div>
+                <div className="drawer-heading"><span className="drawer-icon cobalt"><CalendarDays size={19} /></span><div><h2>アサインの詳細</h2><p>{selectedAssignmentProjectName} · {selectedAssignmentPersonName}</p></div></div>
+                {(selectedAssignmentPerson || selectedAssignmentProject) && (
+                  <div className="entity-action-row">
+                    {selectedAssignmentPerson && <button className="drawer-secondary" type="button" onClick={() => { clearFormDraft(); openMember(selectedAssignmentPerson.id); }}>{selectedAssignmentPersonName}の詳細を開く</button>}
+                    {selectedAssignmentProject && <button className="drawer-secondary" type="button" onClick={() => { clearFormDraft(); openProject(selectedAssignmentProject.id); }}>{selectedAssignmentProjectName}の詳細を開く</button>}
+                  </div>
+                )}
                 {/* 「付け替えた場合の稼働」, not the plain load: this assignment is already in
                     the workspace, so a plain reading counts it against whoever holds it and
                     means something different for them than for everyone else in the list.

@@ -7872,3 +7872,109 @@ describe("project drawer assignees follow the selected period (#423)", () => {
     }
   });
 });
+
+/**
+ * #424: assignment detail can open the saved member and project. The links
+ * follow the record in the heading, not the unsaved form, and they do not
+ * ask before leaving — the close button already discards the draft.
+ */
+describe("assignment detail opens the saved member and project (#424)", () => {
+  const owner = { name: "管理 花子", email: "owner@example.com", role: "owner" as const };
+
+  function onAugust() {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date("2026-08-19T09:00:00+09:00"));
+    return userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+  }
+
+  afterEach(() => { vi.useRealTimers(); });
+
+  async function openFirstAssignment(user: ReturnType<typeof userEvent.setup>, identity: { name: string; email: string; role: "owner" | "viewer" } = owner) {
+    render(<App mode="shared" organizationName="Example Inc." identity={identity} shared={sharedAdapter()} />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^アサインボード( |$)/u }));
+    await user.click(screen.getAllByRole("button", { name: /のアサイン詳細/ })[0]);
+    return screen.getByRole("dialog", { name: "詳細パネル" });
+  }
+
+  function savedNames(dialog: HTMLElement) {
+    const caption = within(dialog).getByRole("heading", { name: "アサインの詳細" }).closest(".drawer-heading")!.querySelector("p")!.textContent ?? "";
+    const splitAt = caption.lastIndexOf(" · ");
+    return { projectName: caption.slice(0, splitAt), personName: caption.slice(splitAt + 3) };
+  }
+
+  it("opens the member and the project named in the heading", async () => {
+    const user = onAugust();
+    const dialog = await openFirstAssignment(user);
+    const { projectName, personName } = savedNames(dialog);
+    expect(within(dialog).getByRole("button", { name: `${personName}の詳細を開く` })).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: `${projectName}の詳細を開く` })).toBeInTheDocument();
+
+    await user.click(within(dialog).getByRole("button", { name: `${personName}の詳細を開く` }));
+    expect(document.querySelector(".drawer-kicker")!.textContent).toBe("MEMBER PROFILE");
+    expect(document.querySelector(".drawer")!.textContent).toContain(personName);
+
+    await user.click(screen.getByRole("button", { name: "詳細パネルを閉じる" }));
+    await user.click(screen.getAllByRole("button", { name: /のアサイン詳細/ })[0]);
+    const again = screen.getByRole("dialog", { name: "詳細パネル" });
+    await user.click(within(again).getByRole("button", { name: `${projectName}の詳細を開く` }));
+    expect(document.querySelector(".drawer-kicker")!.textContent).toBe("PROJECT DETAIL");
+    expect(document.querySelector(".drawer")!.textContent).toContain(projectName);
+  });
+
+  it("keeps the saved project when the form has already been changed, and does not ask", async () => {
+    const user = onAugust();
+    const confirm = vi.spyOn(window, "confirm").mockImplementation(() => false);
+    try {
+      const dialog = await openFirstAssignment(user);
+      const { projectName } = savedNames(dialog);
+      const select = within(dialog).getByLabelText("プロジェクト") as HTMLSelectElement;
+      const other = [...select.options].map((option) => option.value).find((value) => value !== select.value);
+      expect(other).toBeDefined();
+      await user.selectOptions(select, other!);
+      await user.type(within(dialog).getByLabelText("付け替え先のメンバーを検索"), "あ");
+      await user.click(within(dialog).getByRole("button", { name: `${projectName}の詳細を開く` }));
+      expect(confirm).not.toHaveBeenCalled();
+      expect(document.querySelector(".drawer-kicker")!.textContent).toBe("PROJECT DETAIL");
+      expect(document.querySelector(".drawer h2")!.textContent).toBe(projectName);
+      const leaving = new Event("beforeunload", { cancelable: true });
+      window.dispatchEvent(leaving);
+      expect(leaving.defaultPrevented).toBe(false);
+    } finally {
+      confirm.mockRestore();
+    }
+  });
+
+  it("shows both links to a viewer", async () => {
+    const user = onAugust();
+    const dialog = await openFirstAssignment(user, { name: "閲覧 太郎", email: "viewer@example.com", role: "viewer" });
+    const { projectName, personName } = savedNames(dialog);
+    expect(within(dialog).getByRole("button", { name: `${personName}の詳細を開く` })).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: `${projectName}の詳細を開く` })).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "閉じる" })).toBeInTheDocument();
+    expect(within(dialog).queryByRole("button", { name: "変更を仮置き" })).not.toBeInTheDocument();
+  });
+
+  it("accepts a later team revision after the link clears the form draft", async () => {
+    const user = onAugust();
+    let notify: ((revision?: number) => void) | undefined;
+    const adapter = sharedAdapter();
+    adapter.subscribe = (onRevision) => {
+      notify = onRevision;
+      return () => undefined;
+    };
+    adapter.reload = vi.fn().mockResolvedValue({ state: initialWorkspace, revision: 9 });
+    render(<App mode="shared" organizationName="Example Inc." identity={owner} shared={adapter} />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^アサインボード( |$)/u }));
+    await user.click(screen.getAllByRole("button", { name: /のアサイン詳細/ })[0]);
+    const dialog = screen.getByRole("dialog", { name: "詳細パネル" });
+    const { projectName } = savedNames(dialog);
+    await user.type(within(dialog).getByLabelText("付け替え先のメンバーを検索"), "あ");
+    notify?.(8);
+    expect(adapter.reload).not.toHaveBeenCalled();
+    await user.click(within(dialog).getByRole("button", { name: `${projectName}の詳細を開く` }));
+    expect(document.querySelector(".drawer-kicker")!.textContent).toBe("PROJECT DETAIL");
+    notify?.(9);
+    expect(await screen.findByText("チームの最新変更を反映しました")).toBeInTheDocument();
+    expect(adapter.reload).toHaveBeenCalledTimes(1);
+  });
+});
