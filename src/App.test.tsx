@@ -305,6 +305,24 @@ describe("role-aware workspace", () => {
     expect(document.querySelector(".drawer")).not.toHaveClass("dialog-sm");
   });
 
+  it("caps the saved assignment form and leaves the add form at the drawer width (#440)", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getAllByRole("button", { name: /のアサイン詳細/ })[0]);
+    const detail = screen.getByRole("heading", { name: "アサインの詳細" }).closest("form");
+    expect(detail).toHaveClass("assignment-edit-form");
+    expect(detail).toHaveClass("assignment-form");
+    expect(document.querySelector(".drawer")).toHaveClass("dialog-lg");
+    await user.keyboard("{Escape}");
+
+    await user.click(screen.getByRole("button", { name: "新規追加" }));
+    await user.click(within(screen.getByRole("dialog", { name: "詳細パネル" })).getByRole("button", { name: "アサイン" }));
+    const add = screen.getByRole("heading", { name: "アサインを追加" }).closest("form");
+    expect(add).toHaveClass("assignment-form");
+    expect(add).not.toHaveClass("assignment-edit-form");
+    expect(document.querySelector(".drawer")).toHaveClass("dialog-sm");
+  });
+
   it("opens a board chooser for assignment, project, opportunity and member (#408)", async () => {
     const user = userEvent.setup();
     render(<App />);

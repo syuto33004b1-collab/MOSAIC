@@ -5732,6 +5732,14 @@ h1 {
   margin-right: auto;
   margin-left: 0;
 }
+/* Assignment detail only (#440). The add form and the other drawers keep the
+   drawer width. 36rem is the cap; a narrower drawer still fills it, and the
+   block stays left. */
+.assignment-edit-form {
+  max-width: 36rem;
+  margin-right: auto;
+  margin-left: 0;
+}
 /* History and period cards only. The department row uses the same compact
    button and stays at the start of its cell. */
 .work-history-form > .drawer-danger.compact {
