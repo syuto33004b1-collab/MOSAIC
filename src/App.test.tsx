@@ -7775,4 +7775,28 @@ describe("assignment detail opens the saved member and project (#424)", () => {
     expect(within(dialog).getByRole("button", { name: "閉じる" })).toBeInTheDocument();
     expect(within(dialog).queryByRole("button", { name: "変更を仮置き" })).not.toBeInTheDocument();
   });
+
+  it("accepts a later team revision after the link clears the form draft", async () => {
+    const user = onAugust();
+    let notify: ((revision?: number) => void) | undefined;
+    const adapter = sharedAdapter();
+    adapter.subscribe = (onRevision) => {
+      notify = onRevision;
+      return () => undefined;
+    };
+    adapter.reload = vi.fn().mockResolvedValue({ state: initialWorkspace, revision: 9 });
+    render(<App mode="shared" organizationName="Example Inc." identity={owner} shared={adapter} />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^アサインボード( |$)/u }));
+    await user.click(screen.getAllByRole("button", { name: /のアサイン詳細/ })[0]);
+    const dialog = screen.getByRole("dialog", { name: "詳細パネル" });
+    const { projectName } = savedNames(dialog);
+    await user.type(within(dialog).getByLabelText("付け替え先のメンバーを検索"), "あ");
+    notify?.(8);
+    expect(adapter.reload).not.toHaveBeenCalled();
+    await user.click(within(dialog).getByRole("button", { name: `${projectName}の詳細を開く` }));
+    expect(document.querySelector(".drawer-kicker")!.textContent).toBe("PROJECT DETAIL");
+    notify?.(9);
+    expect(await screen.findByText("チームの最新変更を反映しました")).toBeInTheDocument();
+    expect(adapter.reload).toHaveBeenCalledTimes(1);
+  });
 });
