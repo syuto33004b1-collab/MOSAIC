@@ -74,9 +74,11 @@ import {
   memberDailyLoads,
   memberExceedsCapacity,
   memberLoad,
+  memberMonthChartLabel,
   memberMonthOutlook,
   memberMonthPointLabel,
   memberMonthScrollLeft,
+  memberMonthShowsYear,
   memberMonthSummaryLabel,
   memberMatchesNeed,
   memberOrgMemberships,
@@ -620,7 +622,7 @@ function MemberMonthChart({ outlook }: { outlook: ReturnType<typeof memberMonthO
     <div className="member-month-scroll" tabIndex={0} role="region" aria-label="月の稼働の折れ線" ref={scrollRef}>
       <div className="member-month-track" style={trackStyle}>
         {points.length > 0 && (
-          <div className="member-month-chart" role="img" aria-label={points.map(memberMonthPointLabel).join("、")}>
+          <div className="member-month-chart" role="img" aria-label={memberMonthChartLabel(points)}>
             <svg viewBox={`0 0 ${points.length} 100`} preserveAspectRatio="none" aria-hidden="true">
               <polyline
                 fill="none"
@@ -642,9 +644,15 @@ function MemberMonthChart({ outlook }: { outlook: ReturnType<typeof memberMonthO
           </div>
         )}
         {points.length > 0 && (
-          <div className="member-month-labels" aria-hidden="true">
-            {points.map((point) => <span key={point.from}>{Number(point.from.slice(5, 7))}月</span>)}
-          </div>
+          <ol className="member-month-labels">
+            {points.map((point, index) => (
+              <li key={point.from}>
+                <span className="member-month-year" aria-hidden="true">{memberMonthShowsYear(point.from, index) ? `${Number(point.from.slice(0, 4))}年` : "\u00a0"}</span>
+                <span className="member-month-tick" aria-hidden="true">{`${Number(point.from.slice(5, 7))}月`}</span>
+                <span className="sr-only">{memberMonthPointLabel(point)}</span>
+              </li>
+            ))}
+          </ol>
         )}
       </div>
     </div>

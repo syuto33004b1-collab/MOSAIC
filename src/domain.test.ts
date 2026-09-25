@@ -45,9 +45,11 @@ import {
   weekendDatesBetween,
   weekEnd,
   memberLoad,
+  memberMonthChartLabel,
   memberMonthOutlook,
   memberMonthPointLabel,
   memberMonthScrollLeft,
+  memberMonthShowsYear,
   memberMonthSummaryLabel,
   memberMatchesNeed,
   memberPeakLoad,
@@ -1862,10 +1864,29 @@ describe("member month outlook (#437)", () => {
     expect(outlook.summarySlack).not.toBeNull();
     expect(memberMonthPointLabel(outlook.points[0]!)).toBe("2026年4月 80%");
     expect(memberMonthPointLabel({ from: "2026-08-01", peak: 120, exceeds: true })).toBe("2026年8月 120% 上限超過");
+    expect(memberMonthShowsYear(outlook.points[0]!.from, 0)).toBe(true);
+    expect(memberMonthShowsYear("2026-05-01", 1)).toBe(false);
+    expect(memberMonthShowsYear("2027-01-01", 9)).toBe(true);
+    expect(memberMonthChartLabel(outlook.points)).toBe("2026年4月から2027年12月まで21か月の稼働");
+    expect(memberMonthChartLabel([])).toBe("月の稼働の折れ線");
+    expect(memberMonthChartLabel([{ from: "2026-08-01" }])).toBe("2026年8月の稼働");
     expect(memberMonthScrollLeft(outlook.basisIndex, 360)).toBe(120);
     expect(memberMonthScrollLeft(6, 360)).toBe(180);
     expect(memberMonthScrollLeft(0, 360)).toBe(0);
     expect(memberMonthScrollLeft(4, 0)).toBe(0);
+  });
+
+  it("counts the basis month through the 11th month after it, and not the month after that", () => {
+    const state = stateWith([
+      { id: "before", personId: "m", projectId: "p", startDate: "2026-07-01", endDate: "2026-07-15", allocation: 70, status: "confirmed" },
+      { id: "edge", personId: "m", projectId: "p", startDate: "2027-07-01", endDate: "2027-07-15", allocation: 40, status: "confirmed" },
+      { id: "next", personId: "m", projectId: "p", startDate: "2027-08-02", endDate: "2027-08-14", allocation: 90, status: "confirmed" },
+    ]);
+    const outlook = memberMonthOutlook(state, member, "2026-08-19");
+    expect(outlook.points.find((point) => point.from === "2026-07-01")).toMatchObject({ peak: 70 });
+    expect(outlook.points.find((point) => point.from === "2027-07-01")).toMatchObject({ peak: 40 });
+    expect(outlook.points.find((point) => point.from === "2027-08-01")).toMatchObject({ peak: 90 });
+    expect(outlook.summaryPeak).toBe(40);
   });
 
   it("marks a month over the daily ceiling even when the peak is under the registered cap", () => {

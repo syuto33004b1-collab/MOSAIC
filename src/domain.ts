@@ -1154,6 +1154,23 @@ export function memberMonthPointLabel(point: Pick<MemberMonthPoint, "from" | "pe
   return point.exceeds ? `${text} 上限超過` : text;
 }
 
+/** The first month, and every January, carries the year so a scrolled year is identifiable. */
+export function memberMonthShowsYear(from: string, index: number) {
+  return index === 0 || Number(from.slice(5, 7)) === 1;
+}
+
+/**
+ * Short name for the chart image. Per-month peaks live in the label list,
+ * not in this string: one name for every month does not scale past a year.
+ */
+export function memberMonthChartLabel(points: readonly { from: string }[]) {
+  const head = (from: string) => `${Number(from.slice(0, 4))}年${Number(from.slice(5, 7))}月`;
+  if (points.length === 0) return "月の稼働の折れ線";
+  const first = head(points[0]!.from);
+  if (points.length === 1) return `${first}の稼働`;
+  return `${first}から${head(points[points.length - 1]!.from)}まで${points.length}か月の稼働`;
+}
+
 export function memberMonthSummaryLabel(summaryFrom: string) {
   if (!/^\d{4}-\d{2}-\d{2}$/u.test(summaryFrom)) return "";
   return `${Number(summaryFrom.slice(0, 4))}年${Number(summaryFrom.slice(5, 7))}月からの12か月`;
