@@ -45,6 +45,10 @@ import {
   weekendDatesBetween,
   weekEnd,
   memberLoad,
+  memberMonthOutlook,
+  memberMonthPointLabel,
+  memberMonthScrollLeft,
+  memberMonthSummaryLabel,
   memberMatchesNeed,
   memberPeakLoad,
   weekdaySupplyCapacity,
@@ -1825,6 +1829,97 @@ describe("period range (#329 / #364)", () => {
     expect(periodBucketLabel({ unit: "month", count: 6 }, months.buckets[0]!, 0)).toBe("10月");
     expect(PERIOD_CLIP_NOTE).toContain("2016");
     expect(PERIOD_CLIP_NOTE).toContain("2035");
+  });
+});
+
+describe("member month outlook (#437)", () => {
+  const member: Member = {
+    id: "m", initials: "M", name: "Member", role: "QA", department: "QA", avatarTone: "mint", skills: [], location: "Tokyo", capacity: 100,
+  };
+
+  function stateWith(assignments: WorkspaceState["assignments"], people: Member[] = [member]): WorkspaceState {
+    return { ...initialWorkspace, members: people, assignments };
+  }
+
+  it("keeps a zero month on the line between two assignments and names every month", () => {
+    const state = stateWith([
+      { id: "apr", personId: "m", projectId: "p", startDate: "2026-04-06", endDate: "2026-04-10", allocation: 80, status: "confirmed" },
+      { id: "aug", personId: "m", projectId: "p", startDate: "2026-08-17", endDate: "2026-08-21", allocation: 10, status: "confirmed" },
+      { id: "far", personId: "m", projectId: "p", startDate: "2027-12-01", endDate: "2027-12-15", allocation: 70, status: "confirmed" },
+    ]);
+    const outlook = memberMonthOutlook(state, member, "2026-08-19");
+    expect(outlook.clipped).toBe(false);
+    expect(outlook.summaryFrom).toBe("2026-08-01");
+    expect(memberMonthSummaryLabel(outlook.summaryFrom)).toBe("2026年8月からの12か月");
+    expect(outlook.points[0]).toMatchObject({ from: "2026-04-01", peak: 80, exceeds: false });
+    expect(outlook.basisIndex).toBe(4);
+    const june = outlook.points.find((point) => point.from === "2026-06-01");
+    expect(june).toMatchObject({ peak: 0, exceeds: false });
+    expect(outlook.points.at(-1)).toMatchObject({ from: "2027-12-01", peak: 70 });
+    expect(outlook.points).toHaveLength(21);
+    expect(outlook.summaryPeak).toBe(10);
+    expect(outlook.summaryPeak).not.toBe(80);
+    expect(outlook.summarySlack).not.toBeNull();
+    expect(memberMonthPointLabel(outlook.points[0]!)).toBe("2026年4月 80%");
+    expect(memberMonthPointLabel({ from: "2026-08-01", peak: 120, exceeds: true })).toBe("2026年8月 120% 上限超過");
+    expect(memberMonthScrollLeft(outlook.basisIndex, 360)).toBe(120);
+    expect(memberMonthScrollLeft(6, 360)).toBe(180);
+    expect(memberMonthScrollLeft(0, 360)).toBe(0);
+    expect(memberMonthScrollLeft(4, 0)).toBe(0);
+  });
+
+  it("marks a month over the daily ceiling even when the peak is under the registered cap", () => {
+    const capped: Member = {
+      ...member,
+      unavailability: [{ id: "leave", startDate: "2026-08-01", endDate: "2026-08-31", capacityPercent: 50 }],
+    };
+    const state = stateWith(
+      [{ id: "part", personId: "m", projectId: "p", startDate: "2026-08-03", endDate: "2026-08-31", allocation: 60, status: "confirmed" }],
+      [capped],
+    );
+    const august = memberMonthOutlook(state, capped, "2026-08-19").points.find((point) => point.from === "2026-08-01");
+    expect(august).toMatchObject({ peak: 60, exceeds: true });
+  });
+
+  it("ignores another person's assignments and a reversed date", () => {
+    const other: Member = { ...member, id: "other", name: "Other" };
+    const state = stateWith([
+      { id: "theirs", personId: "other", projectId: "p", startDate: "2025-01-06", endDate: "2025-01-10", allocation: 90, status: "confirmed" },
+      { id: "reversed", personId: "m", projectId: "p", startDate: "2026-12-20", endDate: "2026-12-01", allocation: 90, status: "confirmed" },
+      { id: "mine", personId: "m", projectId: "p", startDate: "2026-08-17", endDate: "2026-08-21", allocation: 25, status: "confirmed" },
+    ], [member, other]);
+    const outlook = memberMonthOutlook(state, member, "2026-08-19");
+    expect(outlook.points[0]?.from).toBe("2026-08-01");
+    expect(outlook.points).toHaveLength(12);
+    expect(outlook.basisIndex).toBe(0);
+  });
+
+  it("clips to the holiday calendar and still reports the basis month in the summary", () => {
+    const state = stateWith([
+      { id: "early", personId: "m", projectId: "p", startDate: "2015-11-02", endDate: "2015-11-06", allocation: 30, status: "confirmed" },
+    ]);
+    const outlook = memberMonthOutlook(state, member, "2016-03-04");
+    expect(outlook.clipped).toBe(true);
+    expect(outlook.points[0]?.from).toBe("2016-01-01");
+    expect(outlook.basisIndex).toBe(2);
+    expect(outlook.summaryFrom).toBe("2016-03-01");
+    expect(outlook.points.some((point) => point.from.startsWith("2015-"))).toBe(false);
+  });
+
+  it("drops the chart when the basis window is entirely past the calendar", () => {
+    const state = stateWith([
+      { id: "old", personId: "m", projectId: "p", startDate: "2026-08-17", endDate: "2026-08-21", allocation: 40, status: "confirmed" },
+    ]);
+    const outlook = memberMonthOutlook(state, member, "2036-02-03");
+    expect(outlook.clipped).toBe(true);
+    expect(outlook.points.at(-1)?.from).toBe("2035-12-01");
+    expect(outlook.points[0]?.from).toBe("2026-08-01");
+    expect(outlook.basisIndex).toBe(outlook.points.length);
+    expect(outlook.summaryFrom).toBe("2036-02-01");
+    expect(outlook.summaryPeak).toBe(0);
+    expect(outlook.summarySlack).toBeNull();
+    expect(memberMonthSummaryLabel("")).toBe("");
+    expect(memberMonthOutlook(state, member, "2026-02-30").points).toEqual([]);
   });
 });
 
