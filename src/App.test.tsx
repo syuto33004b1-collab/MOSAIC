@@ -6580,7 +6580,15 @@ describe("the board narrows by more than one thing", () => {
     const toggle = screen.getByRole("button", { name: "詳細な条件" });
     expect(toggle).toHaveAttribute("aria-expanded", "false");
     expect(toggle).toHaveAttribute("aria-controls", "board-filter-details");
-    expect(screen.getByText(/名を表示$/u)).toBeInTheDocument();
+    expect(toggle.className).not.toContain("is-open");
+    const icons = [...toggle.querySelectorAll("svg")];
+    expect(icons).toHaveLength(2);
+    expect(icons[0]).toHaveClass("lucide-sliders-horizontal");
+    expect(icons[1]).toHaveClass("lucide-chevron-down");
+    expect(icons[0]).toHaveAttribute("aria-hidden", "true");
+    expect(icons[1]).toHaveAttribute("aria-hidden", "true");
+    const result = screen.getByText(/名を表示$/u);
+    expect(result.compareDocumentPosition(toggle) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(screen.queryByRole("button", { name: "絞り込み" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "検索" })).not.toBeInTheDocument();
     expect(screen.queryByLabelText("部門で絞り込み")).not.toBeInTheDocument();
@@ -6594,6 +6602,10 @@ describe("the board narrows by more than one thing", () => {
     const toggle = screen.getByRole("button", { name: "詳細な条件" });
     await openDetails(user);
     expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(toggle.className).toContain("is-open");
+    expect(toggle.querySelector("svg.lucide-sliders-horizontal")).toHaveAttribute("aria-hidden", "true");
+    expect(toggle.querySelector("svg.lucide-chevron-up")).toHaveAttribute("aria-hidden", "true");
+    expect(toggle.querySelector("svg.lucide-chevron-down")).toBeNull();
     expect(document.getElementById("board-filter-details")).not.toBeNull();
     expect(screen.getByLabelText("部門で絞り込み")).toBeInTheDocument();
     expect(screen.getByLabelText("お気に入りのみ")).toBeInTheDocument();
