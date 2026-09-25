@@ -142,10 +142,18 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .toolbar-actions .board-month-label {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
+  /* Border box, padding included. Widest label measured with Zen Kaku Gothic
+     New loaded was 「2030年 10月」 at 99.47px against a 16px font, so 6.25em
+     (100px at 16px) holds every 1-digit and 2-digit month without moving the
+     arrows (#434). This face has no tabular figures; the declaration stays so
+     a later face does not shrink a digit under this floor. */
+  min-width: 6.25em;
   min-height: 31px;
   padding: 0 8px;
   color: var(--ink);
   font-size: var(--text-lg);
+  font-variant-numeric: tabular-nums;
   font-weight: 800;
   white-space: nowrap;
 }
