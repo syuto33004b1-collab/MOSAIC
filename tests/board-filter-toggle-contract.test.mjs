@@ -23,8 +23,12 @@ test("the details toggle is pushed to the row end and its open fill is not ink",
   const found = rules(await read());
   const toggle = found.filter((rule) => rule.selector === ".board-filter-details-toggle");
   assert.ok(toggle.some((rule) => declarations(rule.body, "margin-left").includes("auto")));
+  assert.ok(toggle.some((rule) => declarations(rule.body, "background").includes("#fff")));
   const open = found.find((rule) => rule.selector === ".board-filter-details-toggle.is-open");
   assert.ok(open, "expected an open state");
-  const background = declarations(open.body, "background").join(" ");
-  assert.ok(!background.includes("var(--ink)") && !background.includes("#232323"), background);
+  assert.deepEqual(declarations(open.body, "background"), ["#e7edf5"]);
+  const openHover = found.find((rule) => rule.selector === ".board-filter-details-toggle.is-open:hover");
+  assert.ok(openHover, "expected an open hover state");
+  assert.deepEqual(declarations(openHover.body, "background"), ["#dbe3ee"]);
+  assert.ok(declarations(openHover.body, "color").includes("var(--ink)"));
 });
