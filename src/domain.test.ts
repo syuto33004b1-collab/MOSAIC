@@ -47,6 +47,8 @@ import {
   memberLoad,
   memberMonthChartLabel,
   memberMonthOutlook,
+  memberMonthLedger,
+  assignmentLoadsMonth,
   memberMonthPointLabel,
   memberMonthScrollLeft,
   memberMonthShowsYear,
@@ -1941,6 +1943,69 @@ describe("member month outlook (#437)", () => {
     expect(outlook.summarySlack).toBeNull();
     expect(memberMonthSummaryLabel("")).toBe("");
     expect(memberMonthOutlook(state, member, "2026-02-30").points).toEqual([]);
+  });
+});
+
+describe("member month ledger (#450)", () => {
+  const member: Member = {
+    id: "m", initials: "M", name: "Member", role: "QA", department: "QA", avatarTone: "mint", skills: [], location: "Tokyo", capacity: 100,
+  };
+
+  function stateWith(assignments: WorkspaceState["assignments"], people: Member[] = [member]): WorkspaceState {
+    return { ...initialWorkspace, members: people, assignments, projects: initialWorkspace.projects };
+  }
+
+  it("plots the busiest day, not the sum of allocations that never share a day", () => {
+    const takahashi = initialWorkspace.members.find((item) => item.id === "takahashi")!;
+    const ledger = memberMonthLedger(initialWorkspace, takahashi, "2026-08-19");
+    expect(ledger.months).toHaveLength(12);
+    expect(ledger.months[0]).toMatchObject({ from: "2026-08-01", label: "8月", peak: 90, exceeds: false, ceiling: 100 });
+    const august = ledger.months[0]!;
+    const touching = initialWorkspace.assignments.filter((assignment) => assignment.personId === "takahashi" && assignmentLoadsMonth(initialWorkspace, assignment, august.from, august.to));
+    expect(touching.map((assignment) => assignment.allocation).sort((left, right) => left - right)).toEqual([30, 60, 60]);
+    expect(touching.reduce((sum, assignment) => sum + assignment.allocation, 0)).toBe(150);
+    expect(august.peak).toBe(90);
+    expect(ledger.nextOpen).toBe("9月");
+    expect(ledger.months.at(-1)?.from).toBe("2027-07-01");
+  });
+
+  it("leaves a weekend-only assignment blank and keeps a later assignment off the twelve months", () => {
+    const state = stateWith([
+      { id: "weekend", personId: "m", projectId: "p", startDate: "2026-08-22", endDate: "2026-08-23", allocation: 80, status: "confirmed" },
+      { id: "far", personId: "m", projectId: "p", startDate: "2027-12-01", endDate: "2027-12-15", allocation: 70, status: "confirmed" },
+    ]);
+    const ledger = memberMonthLedger(state, member, "2026-08-19");
+    const august = ledger.months[0]!;
+    const weekend = state.assignments[0]!;
+    const far = state.assignments[1]!;
+    expect(assignmentLoadsMonth(state, weekend, august.from, august.to)).toBe(false);
+    expect(august.peak).toBe(0);
+    expect(ledger.months.some((month) => month.from === "2027-12-01")).toBe(false);
+    expect(assignmentLoadsMonth(state, far, ledger.months.at(-1)!.from, ledger.months.at(-1)!.to)).toBe(false);
+    expect(ledger.nextOpen).toBe("8月 空き100%");
+  });
+
+  it("reads the month ceiling from the daily cap, including a period limit", () => {
+    const capped: Member = {
+      ...member,
+      unavailability: [{ id: "leave", startDate: "2026-08-01", endDate: "2026-08-31", capacityPercent: 50 }],
+    };
+    const state = stateWith(
+      [{ id: "part", personId: "m", projectId: "p", startDate: "2026-08-03", endDate: "2026-08-31", allocation: 60, status: "confirmed" }],
+      [capped],
+    );
+    const august = memberMonthLedger(state, capped, "2026-08-19").months[0]!;
+    expect(august.ceiling).toBe(50);
+    expect(august.peak).toBe(60);
+    expect(august.exceeds).toBe(true);
+  });
+
+  it("names an unusable window without inventing months", () => {
+    const ledger = memberMonthLedger(stateWith([]), member, "2026-02-30");
+    expect(ledger.months).toEqual([]);
+    expect(ledger.nextOpen).toBe("この期間は表示できません");
+    const closed = { ...member, capacity: 0 };
+    expect(memberMonthLedger(stateWith([], [closed]), closed, "2026-08-19").nextOpen).toBe("稼働不可 · 稼働上限0%");
   });
 });
 
