@@ -106,7 +106,6 @@ import {
   MONTHLY_COST_FIELD_LABEL,
   MONTHLY_COST_YEN_MAX,
   projectById,
-  projectMembers,
   projectPeriodCount,
   projectMembersOnDays,
   projectSearchText,
@@ -1294,16 +1293,28 @@ export default function Home({ mode = "demo", organizationId, organizationName =
     memberLoadRailBucketCopy(periodBucketLabel(drawerPeriod, bucket, index), drawerMemberStats?.buckets[index])
   )).join("、");
   /*
-   * One binding for the member-drawer list and its count (#422). The rail already
-   * follows `drawerRange`; the list used to clip to `weekStart` and hide the
-   * assignments that made a 12-month or 全て load. An empty span (clipped past
-   * the holiday calendar) is not "zero rows" — the clip note above already said
-   * the outlook stopped, so the list stays out.
+   * One flag for both detail lists (#422, #423). An empty span (clipped past
+   * the holiday calendar) is not "zero rows" — the clip note already said the
+   * outlook stopped, so the lists stay out. `clipped` alone does not: a partial
+   * clip still has buckets.
    */
-  const memberPeriodHasRange = Boolean(drawerRange.from && drawerRange.buckets.length > 0);
-  const memberPeriodAssignments = selectedMember && memberPeriodHasRange
+  const drawerPeriodHasRange = Boolean(drawerRange.from && drawerRange.buckets.length > 0);
+  const memberPeriodAssignments = selectedMember && drawerPeriodHasRange
     ? workspace.assignments
       .filter((assignment) => assignment.personId === selectedMember.id && overlaps(assignment.startDate, assignment.endDate, drawerRange.from, drawerRange.to))
+      .slice()
+      .sort((left, right) => left.startDate.localeCompare(right.startDate) || left.endDate.localeCompare(right.endDate))
+    : [];
+  /*
+   * Rows, not unique people (#423). `projectMembers` counted a Set, so two
+   * assignments for one person already read as 1名 beside two buttons. The
+   * fulfillment rail stays `projectPeriodCount` (the thinnest week); this list
+   * is every assignment that overlaps the selected span, including drafts and
+   * dates outside the project's own start/end.
+   */
+  const projectPeriodAssignments = selectedProject && drawerPeriodHasRange
+    ? workspace.assignments
+      .filter((assignment) => assignment.projectId === selectedProject.id && overlaps(assignment.startDate, assignment.endDate, drawerRange.from, drawerRange.to))
       .slice()
       .sort((left, right) => left.startDate.localeCompare(right.startDate) || left.endDate.localeCompare(right.endDate))
     : [];
@@ -3843,8 +3854,14 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                   const figure = outside ? "—" : unset ? "未設定" : `${count}/${selectedProject.demand}`;
                   return <div key={`${bucket.from}:${bucket.to}`}><span>{periodBucketLabel(drawerPeriod, bucket, index)}</span><i><b className={!outside && !unset && count < selectedProject.demand ? "short" : ""} style={{ width: width + "%" }} /></i><strong>{figure}</strong></div>;
                 })}</div>
-                <div className="drawer-section-title"><span>担当メンバー</span><small>{projectMembers(workspace, selectedProject.id, weekStart)}名</small></div>
-                <div className="detail-member-list">{workspace.assignments.filter((assignment) => assignment.projectId === selectedProject.id && overlaps(assignment.startDate, assignment.endDate, weekStart, weekEnd(weekStart))).map((assignment) => { const member = memberById(workspace, assignment.personId); return <button onClick={() => member && openMember(member.id)} key={assignment.id}><span className={"avatar " + member?.avatarTone}>{member?.initials}</span><span><strong>{member?.name}</strong><small>{member?.role}</small></span><b>{assignment.allocation}%</b></button>; })}</div>
+                {drawerPeriodHasRange && (
+                  <>
+                    <div className="drawer-section-title"><span>{periodChoiceProseLabel(drawerPeriod)}の担当</span><small>{projectPeriodAssignments.length}件</small></div>
+                    {projectPeriodAssignments.length === 0
+                      ? <div className="candidate-empty"><UsersRound size={18} /><span><strong>この期間の担当はありません</strong></span></div>
+                      : <div className="detail-member-list">{projectPeriodAssignments.map((assignment) => { const member = memberById(workspace, assignment.personId); return <button onClick={() => member && openMember(member.id)} key={assignment.id}><span className={"avatar " + member?.avatarTone}>{member?.initials}</span><span><strong>{member?.name}</strong><small>{member?.role}</small><small>{formatDate(assignment.startDate)} — {formatDate(assignment.endDate)}</small></span><b>{assignment.allocation}%</b></button>; })}</div>}
+                  </>
+                )}
                 <div className="drawer-section-title"><span>要員要件</span><small>{selectedProjectNeeds.length}件</small></div>
                 {selectedProjectNeeds.length > 0 ? <div className="detail-need-list">{selectedProjectNeeds.map((need) => <button onClick={() => openStaffingNeed(need.id)} key={need.id}><span><strong>{need.role}</strong><small>{formatDate(need.startDate)} — {formatDate(need.endDate)} · {need.allocation}%</small></span><em>{need.status === "open" ? "候補を見る" : need.status === "planned" ? "解消予定" : "充足済み"}</em><ChevronRight size={14} /></button>)}</div> : <div className="candidate-empty"><UsersRound size={18} /><span><strong>要員要件はありません</strong><small>必要なロールと期間を追加できます。</small></span></div>}
                 {canEdit && <button className="drawer-primary" onClick={() => openNeedCreator(selectedProject.id)}><UserRoundPlus size={16} />要員要件を追加</button>}
@@ -3892,7 +3909,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                         <p className="member-detail-load-span">{drawerLoadLastLabel ? `${drawerLoadFirstLabel} — ${drawerLoadLastLabel}` : drawerLoadFirstLabel}</p>
                       </>
                     )}
-                    {memberPeriodHasRange && (
+                    {drawerPeriodHasRange && (
                       <>
                         <div className="drawer-section-title"><span>{periodChoiceProseLabel(drawerPeriod)}のアサイン</span><small>{memberPeriodAssignments.length}件</small></div>
                         {memberPeriodAssignments.length === 0
