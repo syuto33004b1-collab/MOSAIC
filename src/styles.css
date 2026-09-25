@@ -457,6 +457,7 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .board-filter-panel .inline-search { flex: 0 1 220px; }
 .board-filter-details-toggle {
   min-height: 40px;
+  margin-left: auto;
   padding: 0 10px;
   border: 1px solid var(--line);
   border-radius: 9px;
@@ -470,7 +471,10 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   font-weight: 700;
   white-space: nowrap;
 }
-.board-filter-details-toggle:hover { border-color: #cdd4e0; background: #fafbfc; }
+/* Not the panel's own #fafbfc: a hover that matches the row reads as no hover (#436). */
+.board-filter-details-toggle:hover { border-color: #9aa6b8; background: #fff; }
+.board-filter-details-toggle.is-open { border-color: #5d6b80; background: #e7edf5; }
+.board-filter-details-toggle.is-open:hover { border-color: #445266; background: #dbe3ee; color: var(--ink); }
 .board-filter-details {
   flex: 1 0 100%;
   display: flex;

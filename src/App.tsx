@@ -9,8 +9,10 @@ import {
   ChartNoAxesCombined,
   Check,
   CheckCircle2,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
+  ChevronUp,
   Clock3,
   FolderKanban,
   Inbox,
@@ -3438,17 +3440,19 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                     {(viewMode === "members" ? Array.from(new Set(workspace.members.map((member) => member.role))) : ["進行中", "要注意", "準備中", "完了間近", "完了"]).map((option) => <option key={option}>{option}</option>)}
                   </select></label>
                   <label className="view-toggle"><input type="checkbox" checked={alertOnly} onChange={(event) => setAlertOnly(event.target.checked)} />{alertOnlyLabel}</label>
+                  <span className="toolbar-result">{rows.length}{viewMode === "members" ? "名" : "件"}を表示</span>
                   <button
                     type="button"
-                    className="board-filter-details-toggle"
+                    className={"board-filter-details-toggle" + (boardFilterDetailsOpen ? " is-open" : "")}
                     aria-expanded={boardFilterDetailsOpen}
                     aria-controls="board-filter-details"
                     onClick={() => setBoardFilterDetailsOpen((open) => !open)}
                   >
+                    <SlidersHorizontal size={14} aria-hidden="true" />
                     詳細な条件
                     {boardDetailFilterCount > 0 && <span className="filter-count">{boardDetailFilterCount}</span>}
+                    {boardFilterDetailsOpen ? <ChevronUp size={14} aria-hidden="true" /> : <ChevronDown size={14} aria-hidden="true" />}
                   </button>
-                  <span className="toolbar-result">{rows.length}{viewMode === "members" ? "名" : "件"}を表示</span>
                   {boardFilterDetailsOpen && (
                     <div className="board-filter-details" id="board-filter-details">
                       {viewMode === "members" && boardOrgUnits.length > 0 && (
