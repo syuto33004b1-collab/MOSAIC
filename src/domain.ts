@@ -1118,6 +1118,133 @@ export function periodMemberStats(
   return periodStatsFromDays(dailyLoads(state, member.id, range.from, range.to), range.buckets);
 }
 
+export type MemberMonthPoint = {
+  from: string;
+  to: string;
+  peak: number;
+  exceeds: boolean;
+};
+
+/**
+ * The member-detail line (#437).
+ *
+ * `points` is one month each, from the earlier of this member's first assignment
+ * month and the basis month through the later of the last assignment month and
+ * basis+11, clipped to the holiday calendar. Months with no assignment stay in
+ * the list at peak 0 so the line does not break. `basisIndex` is where the basis
+ * month sits in that list (or `points.length` when the basis month was clipped
+ * off the right). Peak and slack are a separate fixed window: the 12 months
+ * that start at the basis month. They do not follow which months are scrolled
+ * into view.
+ */
+export type MemberMonthOutlook = {
+  points: MemberMonthPoint[];
+  clipped: boolean;
+  basisIndex: number;
+  summaryPeak: number;
+  summarySlack: number | null;
+  /** Basis month as YYYY-MM-01, or "" when `basisIso` is not a civil date. */
+  summaryFrom: string;
+};
+
+export function memberMonthPointLabel(point: Pick<MemberMonthPoint, "from" | "peak" | "exceeds">) {
+  const year = Number(point.from.slice(0, 4));
+  const month = Number(point.from.slice(5, 7));
+  const text = `${year}年${month}月 ${point.peak}%`;
+  return point.exceeds ? `${text} 上限超過` : text;
+}
+
+/** The first month, and every January, carries the year so a scrolled year is identifiable. */
+export function memberMonthShowsYear(from: string, index: number) {
+  return index === 0 || Number(from.slice(5, 7)) === 1;
+}
+
+/**
+ * Short name for the chart image. Per-month peaks live in the label list,
+ * not in this string: one name for every month does not scale past a year.
+ */
+export function memberMonthChartLabel(points: readonly { from: string }[]) {
+  const head = (from: string) => `${Number(from.slice(0, 4))}年${Number(from.slice(5, 7))}月`;
+  if (points.length === 0) return "月の稼働の折れ線";
+  const first = head(points[0]!.from);
+  if (points.length === 1) return `${first}の稼働`;
+  return `${first}から${head(points[points.length - 1]!.from)}まで${points.length}か月の稼働`;
+}
+
+export function memberMonthSummaryLabel(summaryFrom: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/u.test(summaryFrom)) return "";
+  return `${Number(summaryFrom.slice(0, 4))}年${Number(summaryFrom.slice(5, 7))}月からの12か月`;
+}
+
+/** `scrollLeft` that puts the basis month at the left of a 12-month-wide scroller. */
+export function memberMonthScrollLeft(basisIndex: number, viewportWidth: number) {
+  if (!Number.isFinite(viewportWidth) || viewportWidth <= 0) return 0;
+  if (!Number.isFinite(basisIndex) || basisIndex <= 0) return 0;
+  return basisIndex * viewportWidth / 12;
+}
+
+function emptyMemberMonthOutlook(): MemberMonthOutlook {
+  return { points: [], clipped: false, basisIndex: 0, summaryPeak: 0, summarySlack: null, summaryFrom: "" };
+}
+
+function memberAssignmentMonthBounds(state: WorkspaceState, memberId: string): { from: string; to: string } | null {
+  let from = "";
+  let to = "";
+  for (const assignment of state.assignments) {
+    if (assignment.personId !== memberId) continue;
+    if (!isCivilIsoDate(assignment.startDate) || !isCivilIsoDate(assignment.endDate)) continue;
+    if (assignment.startDate > assignment.endDate) continue;
+    const start = monthStartIso(assignment.startDate);
+    const end = monthStartIso(assignment.endDate);
+    if (!from || start < from) from = start;
+    if (!to || end > to) to = end;
+  }
+  return from && to ? { from, to } : null;
+}
+
+export function memberMonthOutlook(state: WorkspaceState, member: Member, basisIso: string): MemberMonthOutlook {
+  if (!isCivilIsoDate(basisIso)) return emptyMemberMonthOutlook();
+
+  const basisMonth = monthStartIso(basisIso);
+  const summaryRange = periodRange({ unit: "month", count: 12 }, basisIso);
+  const summaryStats = periodMemberStats(state, member, summaryRange);
+  const bearing = summaryStats.buckets.filter((bucket) => bucket.capacity > 0);
+  const summaryPeak = bearing.reduce((highest, bucket) => Math.max(highest, bucket.peak), 0);
+  const summarySlack = bearing.length === 0
+    ? null
+    : bearing.reduce((lowest, bucket) => Math.min(lowest, bucket.slack), Number.POSITIVE_INFINITY);
+
+  const bounds = memberAssignmentMonthBounds(state, member.id);
+  const rawFrom = !bounds || basisMonth < bounds.from ? basisMonth : bounds.from;
+  const lastMonth = !bounds || addCalendarMonths(basisMonth, 11) > bounds.to
+    ? addCalendarMonths(basisMonth, 11)
+    : bounds.to;
+  const rawTo = monthEndIso(lastMonth);
+  const from = rawFrom < HOLIDAY_CALENDAR_START ? HOLIDAY_CALENDAR_START : rawFrom;
+  const to = rawTo > HOLIDAY_CALENDAR_END ? HOLIDAY_CALENDAR_END : rawTo;
+  const clipped = from !== rawFrom || to !== rawTo;
+  const summary = { clipped, summaryPeak, summarySlack, summaryFrom: basisMonth };
+
+  if (!from || !to || from > to) return { ...summary, points: [], basisIndex: 0 };
+
+  const startMonth = monthStartIso(from);
+  const endMonth = monthStartIso(to);
+  const buckets: PeriodBucket[] = [];
+  for (let month = startMonth; month <= endMonth; month = addCalendarMonths(month, 1)) {
+    buckets.push({ from: month, to: monthEndIso(month) });
+  }
+  const stats = periodMemberStats(state, member, { from, to, buckets, clipped });
+  const points = stats.buckets.map((bucket) => ({
+    from: bucket.from,
+    to: bucket.to,
+    peak: bucket.peak,
+    exceeds: bucket.exceeds,
+  }));
+  const basisOffset = calendarMonthIndex(basisMonth) - calendarMonthIndex(startMonth);
+  const basisIndex = basisOffset < 0 ? 0 : basisOffset > points.length ? points.length : basisOffset;
+  return { ...summary, points, basisIndex };
+}
+
 export function parseMonthlyCostYen(raw: string): number | null {
   const trimmed = raw.trim();
   if (!trimmed) return null;
