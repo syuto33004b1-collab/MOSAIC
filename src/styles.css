@@ -2764,6 +2764,88 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
     flex-direction: column;
   }
 }
+/* Project detail (#439). Own classes, same breakpoint as the member panes.
+   Below either threshold the drawer itself scrolls and these rules do not apply. */
+.project-detail-panes { display: flex; flex-direction: column; min-width: 0; }
+.project-detail-period,
+.project-detail-facts { min-width: 0; }
+.project-detail-actions {
+  margin-top: 14px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.project-detail-actions .drawer-primary,
+.project-detail-actions .drawer-secondary {
+  margin-top: 0;
+  width: auto;
+  flex: 1 1 calc(50% - 8px);
+}
+@media (min-width: 1052px) and (min-height: 720px) {
+  .drawer.project-detail-open {
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  .drawer.project-detail-open .drawer-top { flex: 0 0 auto; }
+  .project-detail {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .project-detail > .drawer-heading { flex: 0 0 auto; }
+  .project-detail-panes {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: grid;
+    grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
+    gap: 0 20px;
+    align-items: stretch;
+    overflow: hidden;
+  }
+  .project-detail-period {
+    min-height: 0;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  .project-detail-period > .range-tabs,
+  .project-detail-period > .drawer-section-title { flex: 0 0 auto; }
+  .project-detail-assignees {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: auto;
+    overscroll-behavior: contain;
+  }
+  .project-detail-facts {
+    min-height: 0;
+    overflow: auto;
+    overscroll-behavior: contain;
+  }
+  .project-detail-actions {
+    flex: 0 0 auto;
+    margin-top: 0;
+    padding-top: 10px;
+    border-top: 1px solid var(--line);
+    background: var(--paper);
+  }
+  .drawer.project-detail-open .profile-capacity {
+    display: flex;
+    flex-direction: column;
+  }
+  /* The drawer container query puts these lists in two columns once the
+     panel is 650px. Inside a pane that is half of that, the name column
+     fell to 18px. Keep one column here. */
+  .drawer.project-detail-open .detail-member-list,
+  .drawer.project-detail-open .detail-need-list {
+    display: flex;
+    flex-direction: column;
+  }
+  .drawer.project-detail-open .detail-member-list button:nth-child(odd):not(:last-child) {
+    border-right: 0;
+  }
+}
 .profile-skills { margin-bottom: 22px; display: flex; flex-wrap: wrap; gap: 5px; }
 .profile-capacity { margin-bottom: 22px; display: flex; flex-direction: column; gap: 9px; }
 /* 52px, not 42: the first label names its week now rather than saying 「今週」

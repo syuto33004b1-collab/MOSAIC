@@ -5024,7 +5024,7 @@ describe("detail drawer period horizon (#366)", () => {
     const rows = [...document.querySelectorAll(".drawer .profile-capacity > div")];
     expect(rows).toHaveLength(6);
     expect(rows[0].querySelector("span")!.textContent).toBe("8月");
-    expect(rows[0].querySelector("strong")!.textContent).toBe("1/2");
+    expect(rows[0].querySelector("strong")!.textContent).toBe("1/2名");
     expect(rows[0].querySelector("b")!.classList.contains("short")).toBe(true);
     expect(rows.slice(1).every((row) => row.querySelector("strong")!.textContent === "—")).toBe(true);
   });
@@ -5058,7 +5058,7 @@ describe("detail drawer period horizon (#366)", () => {
     await user.click(dialog.getByRole("button", { name: "6か月" }));
     const august = [...document.querySelectorAll(".drawer .profile-capacity > div")].find((row) => row.querySelector("span")?.textContent === "8月");
     expect(august).toBeDefined();
-    expect(august!.querySelector("strong")!.textContent).toBe("2/2");
+    expect(august!.querySelector("strong")!.textContent).toBe("2/2名");
     expect(august!.querySelector("b")!.classList.contains("short")).toBe(false);
   });
 });
@@ -7841,7 +7841,12 @@ describe("project drawer assignees follow the selected period (#423)", () => {
     expect(dates).toContain(`${formatDate("2026-08-24")} — ${formatDate("2026-08-28")}`);
     expect(dates).toContain(`${formatDate("2026-08-26")} — ${formatDate("2026-08-27")}`);
     // The rail is the thinnest week, which is empty before anyone starts.
-    expect(panel.querySelector(".profile-capacity")?.textContent).toContain("0/5");
+    expect(panel.querySelector(".profile-capacity")?.textContent).toContain("0/5名");
+    expect(panel.querySelector(".project-detail")).toBeTruthy();
+    expect(dialog.getByRole("region", { name: "1か月の充足と担当" })).toBeInTheDocument();
+    expect(panel.querySelector(".detail-member-list b")?.textContent).toMatch(/^稼働配分 \d+%$/u);
+    expect(panel.querySelector(".project-detail-actions")?.textContent).toContain("要員要件を追加");
+    expect(panel.querySelector(".project-detail-actions")?.textContent).toContain("この案件へアサインを追加");
     // Needs stay the project's own list, not the selected period.
     expect(dialog.getByText("QA")).toBeInTheDocument();
   });
@@ -7912,6 +7917,9 @@ describe("project drawer assignees follow the selected period (#423)", () => {
     expect(assigneeTitle(panel)?.querySelector("small")?.textContent).toBe("3件");
     expect(within(panel).queryByRole("button", { name: "案件情報を編集" })).not.toBeInTheDocument();
     expect(within(panel).queryByRole("button", { name: "案件をアーカイブ" })).not.toBeInTheDocument();
+    expect(within(panel).queryByRole("button", { name: "要員要件を追加" })).not.toBeInTheDocument();
+    expect(within(panel).queryByRole("button", { name: "この案件へアサインを追加" })).not.toBeInTheDocument();
+    expect(panel.querySelector(".project-detail-actions")).toBeNull();
   });
 
   it("hides the list when the holiday calendar has already ended", async () => {
