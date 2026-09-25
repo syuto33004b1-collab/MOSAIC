@@ -3724,7 +3724,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
               `no-static-element-interactions` both skip an `aria-hidden` element, and
               a directive here reports as unused. */}
           <div className="overlay-backdrop" aria-hidden="true" onClick={closeDrawer} />
-          <section className={"drawer " + DRAWER_DIALOG_SIZE[drawer] + (drawer === "member" ? " member-detail-open" : "")} ref={drawerRef} role="dialog" aria-modal="true" aria-label="詳細パネル" tabIndex={-1}>
+          <section className={"drawer " + DRAWER_DIALOG_SIZE[drawer] + (drawer === "member" ? " member-detail-open" : "") + (drawer === "project" ? " project-detail-open" : "")} ref={drawerRef} role="dialog" aria-modal="true" aria-label="詳細パネル" tabIndex={-1}>
             <div className="drawer-handle" />
             <div className="drawer-top"><span className="drawer-kicker">{drawer === "needForm" && editingNeedId ? "EDIT STAFFING NEED" : drawer === "opportunityNeedForm" && editingOpportunityNeedId ? "EDIT STAFFING PLAN" : DRAWER_KICKER[drawer]}</span><button className="close-button" aria-label="詳細パネルを閉じる" onClick={closeDrawer}><X size={18} /></button></div>
 
@@ -3883,41 +3883,56 @@ export default function Home({ mode = "demo", organizationId, organizationName =
             )}
 
             {drawer === "project" && selectedProject && (
-              <div className="drawer-content">
+              <div className="project-detail">
                 <div className="drawer-heading"><span className={"project-code drawer-code " + selectedProject.tone}><span>{selectedProject.code}</span></span><div><h2>{selectedProject.name}</h2><p>{selectedProject.summary}</p></div></div>
-                <div className="detail-facts"><div><span>状態</span><strong>{selectedProject.status}</strong></div><div><span>進捗</span><strong>{selectedProject.progress}%</strong></div><div><span>責任者</span><strong>{ownerLabel(workspace, selectedProject) ?? "未設定"}</strong></div><div><span>完了予定</span><strong>{formatDate(selectedProject.endDate).replace(/^\d{4}年/, "")}</strong></div><div className="fact-wide"><span>次の節目</span><strong><ProjectMilestoneValue project={selectedProject} /></strong></div></div>
-                <CustomFieldFacts fields={visibleCustomFields(workspace.customFields, "project", "detail")} values={selectedProject.customValues} />
-                {(workspace.opportunities ?? []).some((opportunity) => opportunity.convertedProjectId === selectedProject.id) && (
-                  <button className="drawer-secondary" onClick={() => openOpportunity((workspace.opportunities ?? []).find((opportunity) => opportunity.convertedProjectId === selectedProject.id)!.id)}>元の受注前案件を開く</button>
-                )}
-                <PeriodRangeTabs choice={drawerPeriod} onChange={setDrawerPeriod} />
-                <div className="drawer-section-title"><span>{periodChoiceProseLabel(drawerPeriod)}の充足</span><small>{selectedProject.demand === 0 ? "必要人数 未設定" : `必要 ${selectedProject.demand}名`}</small></div>
-                {drawerRange.clipped && <p className="horizon-clip-note" role="note">{PERIOD_CLIP_NOTE}</p>}
-                <div className="profile-capacity">{drawerRange.buckets.map((bucket, index) => {
-                  const count = projectPeriodCount(workspace, selectedProject, bucket.from, bucket.to);
-                  const outside = count === null;
-                  const unset = selectedProject.demand === 0;
-                  const width = outside ? 0 : unset ? 100 : Math.min(100, count / selectedProject.demand * 100);
-                  const figure = outside ? "—" : unset ? "未設定" : `${count}/${selectedProject.demand}`;
-                  return <div key={`${bucket.from}:${bucket.to}`}><span>{periodBucketLabel(drawerPeriod, bucket, index)}</span><i><b className={!outside && !unset && count < selectedProject.demand ? "short" : ""} style={{ width: width + "%" }} /></i><strong>{figure}</strong></div>;
-                })}</div>
-                {drawerPeriodHasRange && (
-                  <>
-                    <div className="drawer-section-title"><span>{periodChoiceProseLabel(drawerPeriod)}の担当</span><small>{projectPeriodAssignments.length}件</small></div>
-                    {projectPeriodAssignments.length === 0
-                      ? <div className="candidate-empty"><UsersRound size={18} /><span><strong>この期間の担当はありません</strong></span></div>
-                      : <div className="detail-member-list">{projectPeriodAssignments.map((assignment) => { const member = memberById(workspace, assignment.personId); return <button onClick={() => member && openMember(member.id)} key={assignment.id}><span className={"avatar " + member?.avatarTone}>{member?.initials}</span><span><strong>{member?.name}</strong><small>{member?.role}</small><small>{formatDate(assignment.startDate)} — {formatDate(assignment.endDate)}</small></span><b>{assignment.allocation}%</b></button>; })}</div>}
-                  </>
-                )}
-                <div className="drawer-section-title"><span>要員要件</span><small>{selectedProjectNeeds.length}件</small></div>
-                {selectedProjectNeeds.length > 0 ? <div className="detail-need-list">{selectedProjectNeeds.map((need) => <button onClick={() => openStaffingNeed(need.id)} key={need.id}><span><strong>{need.role}</strong><small>{formatDate(need.startDate)} — {formatDate(need.endDate)} · {need.allocation}%</small></span><em>{need.status === "open" ? "候補を見る" : need.status === "planned" ? "解消予定" : "充足済み"}</em><ChevronRight size={14} /></button>)}</div> : <div className="candidate-empty"><UsersRound size={18} /><span><strong>要員要件はありません</strong><small>必要なロールと期間を追加できます。</small></span></div>}
-                {canEdit && <button className="drawer-primary" onClick={() => openNeedCreator(selectedProject.id)}><UserRoundPlus size={16} />要員要件を追加</button>}
-                {canEdit && <button className="drawer-secondary" onClick={() => openNewAssignment(undefined, selectedProject.id)}>この案件へアサインを追加</button>}
-                <div className="entity-action-row">
-                  <FavoriteStar name={selectedProject.name} pressed={isFavorited(favorites, "project", selectedProject.id)} onToggle={() => void toggleFavoriteTarget("project", selectedProject.id)} />
-                  <button className="drawer-secondary" type="button" onClick={() => void copyShareLink({ nav: "projects", open: selectedProject.id }, "案件リンクをコピーしました")}>この案件のリンクをコピー</button>
+                <div className="project-detail-panes">
+                  <div className="project-detail-period">
+                    <PeriodRangeTabs choice={drawerPeriod} onChange={setDrawerPeriod} />
+                    <div className="drawer-section-title"><span>{periodChoiceProseLabel(drawerPeriod)}の充足</span><small>{selectedProject.demand === 0 ? "必要人数 未設定" : `必要 ${selectedProject.demand}名`}</small></div>
+                    {/* 12 bars leave the assignee list at 34px on 1052×720, so the
+                        bars scroll with the list. Tabs and this heading stay put. */}
+                    {/* eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- scrollport */}
+                    <div className="project-detail-assignees" tabIndex={0} role="region" aria-label={`${periodChoiceProseLabel(drawerPeriod)}の充足${drawerPeriodHasRange ? "と担当" : ""}`}>
+                      {drawerRange.clipped && <p className="horizon-clip-note" role="note">{PERIOD_CLIP_NOTE}</p>}
+                      <div className="profile-capacity">{drawerRange.buckets.map((bucket, index) => {
+                        const count = projectPeriodCount(workspace, selectedProject, bucket.from, bucket.to);
+                        const outside = count === null;
+                        const unset = selectedProject.demand === 0;
+                        const width = outside ? 0 : unset ? 100 : Math.min(100, count / selectedProject.demand * 100);
+                        const figure = outside ? "—" : unset ? "未設定" : `${count}/${selectedProject.demand}名`;
+                        return <div key={`${bucket.from}:${bucket.to}`}><span>{periodBucketLabel(drawerPeriod, bucket, index)}</span><i><b className={!outside && !unset && count < selectedProject.demand ? "short" : ""} style={{ width: width + "%" }} /></i><strong>{figure}</strong></div>;
+                      })}</div>
+                      {drawerPeriodHasRange && (
+                        <>
+                          <div className="drawer-section-title"><span>{periodChoiceProseLabel(drawerPeriod)}の担当</span><small>{projectPeriodAssignments.length}件</small></div>
+                          {projectPeriodAssignments.length === 0
+                            ? <div className="candidate-empty"><UsersRound size={18} /><span><strong>この期間の担当はありません</strong></span></div>
+                            : <div className="detail-member-list">{projectPeriodAssignments.map((assignment) => { const member = memberById(workspace, assignment.personId); return <button onClick={() => member && openMember(member.id)} key={assignment.id}><span className={"avatar " + member?.avatarTone}>{member?.initials}</span><span><strong>{member?.name}</strong><small>{member?.role}</small><small>{formatDate(assignment.startDate)} — {formatDate(assignment.endDate)}</small></span><b>{`稼働配分 ${assignment.allocation}%`}</b></button>; })}</div>}
+                        </>
+                      )}
+                    </div>
+                  </div>
+                  <div className="project-detail-facts" role="region" aria-label="案件の事実と要員要件">
+                    <div className="detail-facts"><div><span>状態</span><strong>{selectedProject.status}</strong></div><div><span>進捗</span><strong>{selectedProject.progress}%</strong></div><div><span>責任者</span><strong>{ownerLabel(workspace, selectedProject) ?? "未設定"}</strong></div><div><span>完了予定</span><strong>{formatDate(selectedProject.endDate).replace(/^\d{4}年/, "")}</strong></div><div className="fact-wide"><span>次の節目</span><strong><ProjectMilestoneValue project={selectedProject} /></strong></div></div>
+                    <CustomFieldFacts fields={visibleCustomFields(workspace.customFields, "project", "detail")} values={selectedProject.customValues} />
+                    {(workspace.opportunities ?? []).some((opportunity) => opportunity.convertedProjectId === selectedProject.id) && (
+                      <button className="drawer-secondary" onClick={() => openOpportunity((workspace.opportunities ?? []).find((opportunity) => opportunity.convertedProjectId === selectedProject.id)!.id)}>元の受注前案件を開く</button>
+                    )}
+                    <div className="drawer-section-title"><span>要員要件</span><small>{selectedProjectNeeds.length}件</small></div>
+                    {selectedProjectNeeds.length > 0 ? <div className="detail-need-list">{selectedProjectNeeds.map((need) => <button onClick={() => openStaffingNeed(need.id)} key={need.id}><span><strong>{need.role}</strong><small>{formatDate(need.startDate)} — {formatDate(need.endDate)} · {`稼働配分 ${need.allocation}%`}</small></span><em>{need.status === "open" ? "候補を見る" : need.status === "planned" ? "解消予定" : "充足済み"}</em><ChevronRight size={14} /></button>)}</div> : <div className="candidate-empty"><UsersRound size={18} /><span><strong>要員要件はありません</strong><small>必要なロールと期間を追加できます。</small></span></div>}
+                    <div className="entity-action-row">
+                      <FavoriteStar name={selectedProject.name} pressed={isFavorited(favorites, "project", selectedProject.id)} onToggle={() => void toggleFavoriteTarget("project", selectedProject.id)} />
+                      <button className="drawer-secondary" type="button" onClick={() => void copyShareLink({ nav: "projects", open: selectedProject.id }, "案件リンクをコピーしました")}>この案件のリンクをコピー</button>
+                    </div>
+                    {canEdit && <div className="entity-action-row"><button className="drawer-secondary" onClick={() => openProjectEditor(selectedProject)}>案件情報を編集</button><button className="drawer-danger" onClick={archiveProject}><Trash2 size={15} />案件をアーカイブ</button></div>}
+                  </div>
                 </div>
-                {canEdit && <div className="entity-action-row"><button className="drawer-secondary" onClick={() => openProjectEditor(selectedProject)}>案件情報を編集</button><button className="drawer-danger" onClick={archiveProject}><Trash2 size={15} />案件をアーカイブ</button></div>}
+                {canEdit && (
+                  <div className="project-detail-actions">
+                    <button className="drawer-primary" onClick={() => openNeedCreator(selectedProject.id)}><UserRoundPlus size={16} />要員要件を追加</button>
+                    <button className="drawer-secondary" onClick={() => openNewAssignment(undefined, selectedProject.id)}>この案件へアサインを追加</button>
+                  </div>
+                )}
               </div>
             )}
 
