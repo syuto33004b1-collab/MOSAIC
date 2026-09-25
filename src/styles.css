@@ -143,12 +143,13 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  /* Border box, padding included. Widest label measured with Zen Kaku Gothic
-     New loaded was 「2030年 10月」 at 99.47px against a 16px font, so 6.25em
-     (100px at 16px) holds every 1-digit and 2-digit month without moving the
-     arrows (#434). This face has no tabular figures; the declaration stays so
-     a later face does not shrink a digit under this floor. */
-  min-width: 6.25em;
+  /* Border box, padding included. With Zen Kaku Gothic New loaded, the
+     widest month is 10 and the widest digit is 8, so 「8888年 10月」 is the
+     wide case: 101.02px at 16px. 6.75em is 108px at 16px, enough that a
+     four-digit year does not grow the box and move the arrows (#434).
+     This face has no tabular figures; the declaration stays so a later face
+     does not shrink a digit under this floor. */
+  min-width: 6.75em;
   min-height: 31px;
   padding: 0 8px;
   color: var(--ink);
