@@ -410,17 +410,16 @@ describe("role-aware workspace", () => {
     expect(screen.getByRole("button", { name: "チームへ保存" })).toBeDisabled();
   });
 
-  it("places a quiet shared sync status between the week card and the account row (#406)", async () => {
+  it("places a quiet shared sync status above the account row (#406)", async () => {
     render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={sharedAdapter()} />);
     const idle = screen.getByText("チームと同期済み");
     expect(idle.closest("aside.sidebar")).toBeTruthy();
     expect(idle.closest("section.workspace")).toBeNull();
     const sidebar = document.querySelector("aside.sidebar")!;
-    const card = sidebar.querySelector(".month-card");
+    expect(sidebar.querySelector(".month-card")).toBeNull();
     const banner = sidebar.querySelector(".sync-banner-sidebar");
     const account = sidebar.querySelector(".profile-row");
-    expect(card && banner && account, "sidebar is missing the week card, sync banner, or account row").toBeTruthy();
-    expect(card!.compareDocumentPosition(banner!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(banner && account, "sidebar is missing the sync banner or account row").toBeTruthy();
     expect(banner!.compareDocumentPosition(account!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     const navigation = within(screen.getByRole("navigation", { name: "メインナビゲーション" }));
     await userEvent.setup().click(navigation.getByRole("button", { name: /^プロジェクト 登録 \d+件$/u }));
@@ -2438,13 +2437,11 @@ describe("the member screen's scene form", () => {
   });
 });
 
-describe("the sidebar's utilisation card", () => {
+describe("the pulse average load", () => {
   /**
-   * `averageLoad` is week-scoped: `memberDailyLoads` skips Saturday and Sunday
-   * and `capacity` is a per-day percentage, so the denominator is capacity times
-   * five weekdays. The card labelled it 「{month}月のチーム稼働」, so a week's
-   * figure read as a month's, and paging the board moved the month in the label
-   * while the metric stayed week-scoped (#115).
+   * `averageLoad` is week-scoped. The sidebar card that named the week is gone
+   * (#435); the pulse label carries the same week, so paging the board still
+   * moves the name with the measured week (#115).
    */
   it("names the week it measures, and follows the board when the month changes", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
@@ -2452,19 +2449,14 @@ describe("the sidebar's utilisation card", () => {
     try {
       const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
       render(<App />);
-      const card = document.querySelector(".month-card-label");
-      expect(card).not.toBeNull();
-      const label = () => card!.querySelector("span")!.textContent ?? "";
+      const metric = () => [...document.querySelectorAll(".pulse-metric")].find((el) => el.querySelector("span")?.textContent?.endsWith("の平均稼働率"));
+      const label = () => metric()?.querySelector("span")?.textContent ?? "";
 
-      // 稼働率 rather than 稼働: the value is a percentage. 平均稼働率 rather than
-      // チーム稼働率: the board's pulse strip shows this same variable under that
-      // name, and #82 is about one value not carrying two names.
-      // The board is month-only (#391); the figure stays week-scoped and names that week (#115).
+      expect(document.querySelector(".month-card")).toBeNull();
       expect(label()).toBe("8/17週の平均稼働率");
       expect(label()).not.toMatch(/月のチーム稼働|チーム稼働率/u);
-      expect(card!.querySelector("strong")!.textContent).toMatch(/^\d+%$/u);
+      expect(metric()!.querySelector("strong")!.textContent).toMatch(/^\d+%$/u);
 
-      // Paging by a month moves the measured week to the one the new month stands on.
       await user.click(screen.getByRole("button", { name: "次の月" }));
       expect(label()).toBe("8/31週の平均稼働率");
       expect(document.querySelector(".board-month-label")!.textContent).toContain("2026年 9月");
@@ -2567,15 +2559,12 @@ describe("one word per quantity", () => {
     expect(cell.textContent).toContain("稼働上限 50%");
   });
 
-  it("gives averageLoad one name in both places it is shown", () => {
+  it("gives averageLoad one name", () => {
     render(<App />);
-    const sidebar = document.querySelector(".month-card-label")!;
-    const strip = [...document.querySelectorAll(".pulse-metric")].filter((el) => el.querySelector("span")?.textContent === "平均稼働率");
+    const strip = [...document.querySelectorAll(".pulse-metric")].filter((el) => el.querySelector("span")?.textContent?.endsWith("の平均稼働率"));
 
     expect(strip).toHaveLength(1);
-    expect(sidebar.querySelector("span")!.textContent).toContain("平均稼働率");
-    // Same variable, so the two figures must agree — the point of one name.
-    expect(strip[0].querySelector("strong")!.textContent).toBe(sidebar.querySelector("strong")!.textContent);
+    expect(document.querySelector(".month-card")).toBeNull();
     expect(document.body.textContent).not.toContain("チーム稼働");
   });
 
@@ -2682,7 +2671,7 @@ describe("one word per quantity", () => {
     expect(screen.getByRole("note")).toHaveTextContent("祝日カレンダーは2016年から2035年までです");
   });
 
-  it("says which side of the 稼働上限 the team average is on", async () => {
+  it("keeps a team average past the ceiling as that percentage on the pulse", async () => {
     const project = { ...initialWorkspace.projects[0], id: "project" };
     const member = { ...initialWorkspace.members[0], id: "over", name: "超過 四郎", capacity: 50 };
     const adapter = sharedAdapter();
@@ -2693,12 +2682,12 @@ describe("one word per quantity", () => {
     } as unknown as WorkspaceState;
     render(<App mode="shared" organizationName="Example Inc." identity={owner} shared={adapter} />);
 
-    // 100 of a 50% ceiling is a 200% average, so 「稼働上限まであと 0%。」 would
-    // read as "just at the limit" while the team is 100 points past it.
-    const card = document.querySelector(".month-card")!;
-    expect(card.querySelector("strong")!.textContent).toBe("200%");
-    expect(card.querySelector("p")!.textContent).toContain("稼働上限を 100% 超えています。");
-    expect(card.querySelector("p")!.textContent).not.toContain("まであと");
+    // 100 of a 50% ceiling is a 200% average. The sidebar sentence that said which
+    // side of the ceiling that was is gone with the card (#435); the number stays.
+    const metric = [...document.querySelectorAll(".pulse-metric")].find((el) => el.querySelector("span")?.textContent?.endsWith("の平均稼働率"))!;
+    expect(metric.querySelector("strong")!.textContent).toBe("200%");
+    expect(document.querySelector(".month-card")).toBeNull();
+    expect(document.body.textContent).not.toContain("稼働上限を 100% 超えています。");
   });
 
   it("names the metric on a need's allocation in the planned branch too", async () => {
@@ -3996,7 +3985,7 @@ describe("the board shows a month", () => {
     try {
       const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
       render(<App />);
-      const label = () => document.querySelector(".month-card-label span")!.textContent;
+      const label = () => [...document.querySelectorAll(".pulse-metric")].find((el) => el.querySelector("span")?.textContent?.endsWith("の平均稼働率"))?.querySelector("span")?.textContent;
       expect(label()).toBe("9/14週の平均稼働率");
       expect(columns()[0]).toBe("1");
       // Today is in this month, so the figure is the week today is in — not the week the
@@ -4023,13 +4012,13 @@ describe("the board shows a month", () => {
     try {
       const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
       render(<App />);
-      expect(document.querySelector(".month-card-label span")!.textContent).toBe("9/14週の平均稼働率");
+      expect([...document.querySelectorAll(".pulse-metric")].find((el) => el.querySelector("span")?.textContent?.endsWith("の平均稼働率"))?.querySelector("span")?.textContent).toBe("9/14週の平均稼働率");
 
       await user.click(screen.getByRole("button", { name: "次の月" }));
       expect(columns()[0]).toBe("1");
       // October opens on a Thursday, so its first week began on 9/28 — not
       // 9/21, which is where a week-counted offset of 1 would have landed.
-      expect(document.querySelector(".month-card-label span")!.textContent).toBe("9/28週の平均稼働率");
+      expect([...document.querySelectorAll(".pulse-metric")].find((el) => el.querySelector("span")?.textContent?.endsWith("の平均稼働率"))?.querySelector("span")?.textContent).toBe("9/28週の平均稼働率");
     } finally {
       vi.useRealTimers();
     }
@@ -4769,12 +4758,13 @@ describe("a week-scoped figure names the week it measures", () => {
     const user = onWednesday();
     render(<App />);
 
-    const average = () => document.querySelector(".month-card-label strong")!.textContent;
+    const averageMetric = () => [...document.querySelectorAll(".pulse-metric")].find((el) => el.querySelector("span")?.textContent?.endsWith("の平均稼働率"))!;
+    const average = () => averageMetric().querySelector("strong")!.textContent;
     const rowFor = (name: string) => [...document.querySelectorAll(".member-picker-item")]
       .find((row) => row.querySelector("strong")!.textContent === name)!;
 
     expect(average()).toMatch(/^\d+%$/u);
-    expect(document.querySelector(".month-card-label span")!.textContent).toBe("8/17週の平均稼働率");
+    expect(averageMetric().querySelector("span")!.textContent).toBe("8/17週の平均稼働率");
 
     await openAssignmentFormFromBoard(user);
     // The form opens on this week, Monday to Friday, which is what the legend names.
