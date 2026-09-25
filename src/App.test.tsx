@@ -3515,6 +3515,31 @@ describe("the board's row header opens the row", () => {
     expect(document.querySelector(".drawer")!.textContent).toContain(projectName);
   });
 
+  it("draws members as circles and projects as squares in the project's own tone", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await openBoardScreen(user);
+
+    const memberMarks = [...document.querySelectorAll(".schedule-row .person-open .avatar")];
+    expect(memberMarks.length).toBeGreaterThan(0);
+    for (const mark of memberMarks) {
+      expect(mark.className).toContain("avatar-person");
+      expect(mark.className).not.toContain("avatar-project");
+    }
+    const saeki = memberMarks.find((mark) => mark.textContent === "YS");
+    expect(saeki?.className).toContain("lavender");
+
+    await user.click(within(screen.getByRole("group", { name: "表示軸" })).getByRole("button", { name: /プロジェクト別/u }));
+    const projectMarks = [...document.querySelectorAll(".schedule-row .person-open .avatar")];
+    expect(projectMarks.length).toBeGreaterThan(0);
+    for (const mark of projectMarks) expect(mark.className).toContain("avatar-project");
+    const atlas = [...document.querySelectorAll(".schedule-row")].find((row) => row.textContent?.includes("Atlas リニューアル"));
+    const payment = [...document.querySelectorAll(".schedule-row")].find((row) => row.textContent?.includes("決済基盤アップデート"));
+    expect(atlas?.querySelector(".avatar")?.className).toContain("blue");
+    expect(payment?.querySelector(".avatar")?.className).toContain("orange");
+    expect(payment?.querySelector(".avatar")?.className).not.toContain("peach");
+  });
+
   /** The load chip is a status, not part of what you press to open the row. */
   it("leaves the load chip outside the control", async () => {
     const user = userEvent.setup();
