@@ -2599,14 +2599,8 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   font-weight: 700;
   letter-spacing: 0;
 }
-/* Member detail (#426): judgment first in the DOM so a single column still
-   shows load before history. The two-pane switch is a viewport media query,
-   not `@container detail-panel`, because `.drawer` *is* that container and
-   cannot set its own `overflow: hidden` from inside the query.
-   1052px: `.dialog-lg` width is `min(100%, 62vw)` under a 24px overlay pad.
-   0.62 × 1052 = 652, minus drawer pad 48 and border 2 → content ~602px, the
-   same 600px floor the existing two-column blocks use. Below that, or below
-   720px tall, the shell keeps `overflow-y: auto` so content is not clipped. */
+/* Member detail (#450): one column so the line and the month table share a
+   width. The tall breakpoint only pins the actions; below it the drawer scrolls. */
 .member-detail-panes { display: flex; flex-direction: column; }
 .member-detail-load-summary {
   margin: 0 0 8px;
@@ -2635,14 +2629,86 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   text-align: right;
   white-space: normal;
 }
-.member-month-scroll {
+.member-load-scroll {
   overflow-x: auto;
   overflow-y: hidden;
   margin: 0 0 12px;
 }
+.member-load-sheet {
+  width: 100%;
+  min-width: 44rem;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-size: var(--text-min);
+  line-height: var(--leading);
+}
+.member-load-sheet col.member-load-label { width: 9.5rem; }
+.member-load-sheet th,
+.member-load-sheet td {
+  padding: 4px 3px;
+  border-bottom: 1px solid var(--line);
+  text-align: center;
+  vertical-align: bottom;
+  font-weight: 600;
+}
+.member-load-sheet th:first-child,
+.member-load-sheet td:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--paper);
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+.member-load-sheet thead th { color: var(--muted); font-weight: 600; }
+.member-load-sheet th:first-child { color: var(--ink); }
+.member-load-sheet button {
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: 700;
+  text-align: left;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.member-load-sheet button.provisional,
+.member-load-names button.provisional { outline: 1px dashed currentColor; outline-offset: 2px; }
+.member-load-sheet th small,
+.member-load-names { color: var(--muted); font-weight: 500; }
+/* `<small>` otherwise inherits the UA `smaller` size and lands at 10px. */
+.member-load-sheet th small { font-size: var(--text-min); }
+.member-load-sheet td.over { color: var(--coral-deep); }
+.member-load-sheet td.open { color: var(--sage); }
+.member-load-sheet tr.member-load-total th,
+.member-load-sheet tr.member-load-total td { border-top: 2px solid var(--ink); }
+/* (0, 2, 1) against the cell rule's (0, 1, 1), so the 3px horizontal
+   padding does not inset the line from the month centers. */
+.member-load-sheet td.member-load-plot-cell { padding: 0; }
+.member-month-year,
+.member-month-tick { display: block; }
+.member-load-names { display: flex; flex-direction: column; gap: 6px; }
+.member-load-names small { display: block; font-size: var(--text-min); font-weight: 500; }
+.member-load-names button {
+  width: fit-content;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: 700;
+  text-align: left;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
 .member-month-chart {
   position: relative;
-  height: 120px;
+  height: 96px;
   color: var(--sage);
 }
 .member-month-chart svg {
@@ -2665,24 +2731,6 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .member-month-dot.over {
   background: var(--coral);
   border-color: var(--coral-deep);
-}
-.member-month-labels {
-  display: flex;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-.member-month-labels li {
-  flex: 1 0 0;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  text-align: center;
-  color: var(--muted);
-  font-size: var(--text-min);
-  line-height: var(--leading);
-  overflow-wrap: anywhere;
 }
 .member-detail-who-actions,
 .member-detail-actions {
@@ -2720,36 +2768,9 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   .member-detail-panes {
     flex: 1 1 auto;
     min-height: 0;
-    display: grid;
-    grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
-    gap: 0 20px;
-    align-items: stretch;
-    overflow: hidden;
-  }
-  .member-detail-who {
-    min-height: 0;
     overflow: auto;
-    overscroll-behavior: contain;
-    background: var(--paper);
-  }
-  .member-detail-load {
-    min-height: 0;
-    overflow: hidden;
     display: flex;
     flex-direction: column;
-    background: var(--paper);
-  }
-  .member-detail-load > .drawer-section-title,
-  .member-detail-load > .horizon-clip-note,
-  .member-detail-load > .member-detail-load-summary,
-  .member-detail-load > .member-month-scroll {
-    flex: 0 0 auto;
-  }
-  .member-detail-assignments {
-    flex: 1 1 auto;
-    min-height: 0;
-    overflow: auto;
-    overscroll-behavior: contain;
   }
   .member-detail-actions {
     flex: 0 0 auto;
@@ -2758,10 +2779,6 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
     border-top: 1px solid var(--line);
     background: var(--paper);
     z-index: 1;
-  }
-  .drawer.member-detail-open .allocation-list {
-    display: flex;
-    flex-direction: column;
   }
 }
 /* Project detail (#439). Own classes, same breakpoint as the member panes.

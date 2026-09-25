@@ -6,7 +6,7 @@ import App, { type SharedWorkspaceAdapter } from "./App";
 import { parseCsv } from "./csv";
 import { MembersView, ProjectsView, ProposalView } from "./expanded-views";
 import { DEMO_FAVORITES_KEY } from "./collaboration";
-import { addDays, boardBasisWeek, boardRange, formatDate, getWeekDays, getWeekStart, initialWorkspace, memberDailyLoads, memberLoad, memberMonthChartLabel, memberMonthOutlook, memberMonthPointLabel, memberMonthShowsYear, memberMonthSummaryLabel, memberPeakLoad, PERIOD_CLIP_NOTE, weekLabel, type StaffingNeed, type WorkspaceState } from "./domain";
+import { addDays, boardBasisWeek, boardRange, formatDate, getWeekDays, getWeekStart, initialWorkspace, memberDailyLoads, memberLoad, memberMonthChartLabel, memberMonthLedger, memberMonthPointLabel, memberPeakLoad, PERIOD_CLIP_NOTE, weekLabel, type StaffingNeed, type WorkspaceState } from "./domain";
 import type { ChatTransport } from "./lib/ai/chatClient";
 
 function sharedAdapter(): SharedWorkspaceAdapter {
@@ -3873,7 +3873,7 @@ describe("the 要調整 panel names the period it counts (#367)", () => {
     await user.click(document.querySelector(".schedule-row .person-open") as HTMLElement);
     const dialog = within(screen.getByRole("dialog", { name: "詳細パネル" }));
     expect(dialog.getByText("月の稼働")).toBeInTheDocument();
-    expect(dialog.getByText("2026年8月からの12か月")).toBeInTheDocument();
+    expect(dialog.queryByText("2026年8月からの12か月")).not.toBeInTheDocument();
     expect(dialog.queryByRole("button", { name: "1か月" })).toBeNull();
     expect(dialog.queryByRole("button", { name: "12か月" })).toBeNull();
     expect(dialog.queryByText("12か月の稼働")).toBeNull();
@@ -4914,17 +4914,16 @@ describe("a week-scoped figure names the week it measures", () => {
     const name = document.querySelector(".drawer .profile-headline strong, .drawer h2, .drawer h3")?.textContent ?? "";
     const member = initialWorkspace.members.find((item) => name.includes(item.name));
     expect(member, `could not identify the member from 「${name}」`).toBeDefined();
-    const outlook = memberMonthOutlook(initialWorkspace, member!, "2026-08-19");
-    expect(document.querySelector(".member-detail-load-summary")!.textContent).toContain("2026年8月からの12か月");
-    expect(chart.getAttribute("aria-label")).toBe(memberMonthChartLabel(outlook.points));
-    const ticks = [...document.querySelectorAll(".member-month-labels li")];
-    expect(ticks).toHaveLength(outlook.points.length);
-    const august = outlook.points.find((point) => point.from === "2026-08-01")!;
-    expect(ticks.map((item) => item.querySelector(".sr-only")!.textContent)).toContain(memberMonthPointLabel(august));
-    expect(ticks[0]!.querySelector(".member-month-year")!.textContent).toBe(`${Number(outlook.points[0]!.from.slice(0, 4))}年`);
-    for (const [index, point] of outlook.points.entries()) {
-      const year = ticks[index]!.querySelector(".member-month-year")!.textContent;
-      expect(year).toBe(memberMonthShowsYear(point.from, index) ? `${Number(point.from.slice(0, 4))}年` : "\u00a0");
+    const ledger = memberMonthLedger(initialWorkspace, member!, "2026-08-19");
+    expect(chart.getAttribute("aria-label")).toBe(memberMonthChartLabel(ledger.months));
+    const heads = [...document.querySelectorAll(".member-load-sheet thead th")].slice(1);
+    expect(heads).toHaveLength(ledger.months.length);
+    const august = ledger.months.find((month) => month.from === "2026-08-01")!;
+    const names = [...document.querySelectorAll(".member-load-total .sr-only")].map((node) => node.textContent);
+    expect(names).toContain(memberMonthPointLabel(august));
+    expect(heads[0]!.querySelector(".member-month-year")!.textContent).toBe(`${Number(ledger.months[0]!.from.slice(0, 4))}年`);
+    for (const [index, month] of ledger.months.entries()) {
+      expect(heads[index]!.querySelector(".member-month-year")!.textContent).toBe(month.yearLabel || "\u00a0");
     }
     expect(document.querySelector(".member-detail-load .member-week-rail")).toBeNull();
   });
@@ -4942,8 +4941,8 @@ describe("a week-scoped figure names the week it measures", () => {
     await waitFor(() => {
       expect(document.querySelector(".member-detail-load .member-month-chart")).not.toBeNull();
     });
-    expect(document.querySelector(".member-detail-load-summary")!.textContent).toContain("2026年9月からの12か月");
-    expect([...document.querySelectorAll(".member-month-labels .sr-only")].some((node) => node.textContent?.includes("2026年9月"))).toBe(true);
+    expect(document.querySelector(".member-month-chart")!.getAttribute("aria-label")).toMatch(/^2026年9月/u);
+    expect([...document.querySelectorAll(".member-load-total .sr-only")].some((node) => node.textContent?.includes("2026年9月"))).toBe(true);
   });
 });
 
@@ -4960,16 +4959,16 @@ describe("detail drawer period horizon (#366)", () => {
       await user.click(document.querySelector(".member-table tbody tr .member-name-cell") as HTMLElement);
       const dialog = within(screen.getByRole("dialog", { name: "詳細パネル" }));
       expect(dialog.getByText("月の稼働")).toBeInTheDocument();
-      expect(dialog.getByText("2026年8月からの12か月")).toBeInTheDocument();
+      expect(dialog.queryByText("2026年8月からの12か月")).not.toBeInTheDocument();
       expect(dialog.queryByRole("button", { name: "1か月" })).toBeNull();
       expect(dialog.queryByRole("button", { name: "6か月" })).toBeNull();
       expect(dialog.queryByRole("button", { name: "12か月" })).toBeNull();
       expect(dialog.queryByRole("button", { name: "全て" })).toBeNull();
       const chart = document.querySelector(".member-detail-load .member-month-chart")!;
-      expect(chart.getAttribute("aria-label")).toMatch(/^\d+年\d+月から\d+年\d+月まで\d+か月の稼働$/u);
-      expect([...document.querySelectorAll(".member-month-labels .sr-only")].some((node) => node.textContent?.includes("2026年8月"))).toBe(true);
+      expect(chart.getAttribute("aria-label")).toMatch(/^2026年8月から2027年7月まで12か月の稼働$/u);
+      expect([...document.querySelectorAll(".member-load-total .sr-only")].some((node) => node.textContent?.includes("2026年8月"))).toBe(true);
       expect(chart.querySelector("polyline")!.getAttribute("vector-effect")).toBe("non-scaling-stroke");
-      expect(document.querySelector(".member-month-scroll")).toHaveAttribute("tabindex", "0");
+      expect(document.querySelector(".member-load-scroll")).toHaveAttribute("tabindex", "0");
     } finally {
       vi.useRealTimers();
     }
@@ -4984,8 +4983,8 @@ describe("detail drawer period horizon (#366)", () => {
       await user.click(screen.getByRole("button", { name: "次の月" }));
       await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^メンバー( |$)/u }));
       await user.click(document.querySelector(".member-table tbody tr .member-name-cell") as HTMLElement);
-      expect(document.querySelector(".member-detail-load-summary")!.textContent).toContain("2026年9月からの12か月");
-      expect([...document.querySelectorAll(".member-month-labels .sr-only")].some((node) => node.textContent?.includes("2026年9月"))).toBe(true);
+      expect(document.querySelector(".member-month-chart")!.getAttribute("aria-label")).toMatch(/^2026年9月/u);
+      expect([...document.querySelectorAll(".member-load-total .sr-only")].some((node) => node.textContent?.includes("2026年9月"))).toBe(true);
       expect(document.querySelector(".member-month-chart")!.getAttribute("aria-label")).not.toContain("8/31週");
     } finally {
       vi.useRealTimers();
@@ -7539,7 +7538,7 @@ describe("member drawer assignments are the whole history (#437)", () => {
   }
 
   function assignmentNames(panel: HTMLElement) {
-    return [...panel.querySelectorAll(".allocation-list strong")].map((node) => node.textContent);
+    return [...panel.querySelectorAll(".member-load-sheet tbody th button, .member-load-names button")].map((node) => node.textContent);
   }
 
   function assignmentHeading(panel: HTMLElement) {
@@ -7558,8 +7557,10 @@ describe("member drawer assignments are the whole history (#437)", () => {
     expect(assignmentNames(panel)).toEqual(["週内案件", "月末案件"]);
     expect(dialog.queryByText("現在のアサイン")).not.toBeInTheDocument();
     expect(dialog.queryByText("1か月のアサイン")).not.toBeInTheDocument();
-    expect(panel.querySelectorAll(".allocation-list button")).toHaveLength(0);
-    expect(panel.querySelector(".member-detail-assignments")).toHaveAttribute("tabindex", "0");
+    expect(panel.querySelector(".allocation-list")).toBeNull();
+    expect(panel.querySelector(".member-load-scroll")).toHaveAttribute("tabindex", "0");
+    await user.click(dialog.getByRole("button", { name: "週内案件のアサイン詳細" }));
+    expect(dialog.getByRole("heading", { name: "アサインの詳細" })).toBeInTheDocument();
   });
 
   it("includes a later month without a period tab and keeps the long name", async () => {
@@ -7590,8 +7591,10 @@ describe("member drawer assignments are the whole history (#437)", () => {
     expect(dialog.getByText("アサイン 0件")).toBeInTheDocument();
     expect(assignmentHeading(panel)).toBe("アサイン 0件");
     expect(panel.querySelector(".allocation-list")).toBeNull();
-    expect(dialog.getByText("アサインはありません")).toBeInTheDocument();
+    expect(dialog.queryByText("アサインはありません")).not.toBeInTheDocument();
     expect(dialog.queryByText("この期間のアサインはありません")).not.toBeInTheDocument();
+    const rowLabels = [...panel.querySelectorAll(".member-load-sheet tbody th")].map((node) => node.textContent);
+    expect(rowLabels).toEqual(expect.arrayContaining(["稼働上限", "稼働", "空き"]));
   });
 
   it("keeps the assignment list when the holiday calendar has already ended", async () => {
@@ -7605,9 +7608,10 @@ describe("member drawer assignments are the whole history (#437)", () => {
       expect(dialog.getByText(PERIOD_CLIP_NOTE)).toBeInTheDocument();
       expect(assignmentHeading(panel)).toBe("アサイン 1件");
       expect(assignmentNames(panel)).toEqual(["週内案件"]);
+      expect(panel.querySelector(".member-load-names small")!.textContent).toBe("2026年8月17日 — 2026年8月21日");
       expect(dialog.queryByText("アサインはありません")).not.toBeInTheDocument();
-      expect(dialog.getByText("2036年2月からの12か月")).toBeInTheDocument();
-      expect(panel.querySelector(".member-detail-load-summary")!.textContent).toContain("最小空き —");
+      expect(dialog.queryByText("2036年2月からの12か月")).not.toBeInTheDocument();
+      expect(panel.querySelector(".member-detail-load-summary")!.textContent).toContain("この期間は表示できません");
     } finally {
       vi.useRealTimers();
     }
@@ -7667,7 +7671,7 @@ describe("member drawer assignments are the whole history (#437)", () => {
     expect(load).toBeTruthy();
     expect(who).toBeTruthy();
     expect(load!.compareDocumentPosition(who!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(load!.querySelector(".allocation-list")).not.toBeNull();
+    expect(load!.querySelector(".member-load-sheet")).not.toBeNull();
     expect(who!.textContent).toContain("業務経歴");
     expect(load!.textContent).not.toContain("業務経歴");
     expect(who!.textContent).toContain("スキルシートを印刷");
@@ -7683,29 +7687,36 @@ describe("member drawer assignments are the whole history (#437)", () => {
       { id: "far", personId: member.id, projectId: winterProject.id, startDate: "2027-12-01", endDate: "2027-12-15", allocation: 70, status: "confirmed" },
     ]);
     const { panel } = await openPeriodMember(user, state);
-    const outlook = memberMonthOutlook(state, member, "2026-08-19");
-    expect(outlook.points.length).toBeGreaterThan(12);
-    expect(outlook.summaryPeak).toBe(10);
+    const ledger = memberMonthLedger(state, member, "2026-08-19");
+    expect(ledger.months).toHaveLength(12);
+    const august = ledger.months.find((month) => month.from === "2026-08-01")!;
+    expect(august.peak).toBe(10);
     const chart = panel.querySelector(".member-month-chart");
     expect(chart).toHaveAttribute("role", "img");
-    expect(chart).toHaveAccessibleName(memberMonthChartLabel(outlook.points));
-    const names = [...panel.querySelectorAll(".member-month-labels .sr-only")].map((node) => node.textContent);
-    expect(names).toHaveLength(outlook.points.length);
-    expect(names).toContain(memberMonthPointLabel(outlook.points.find((point) => point.from === "2026-04-01")!));
-    expect(names).toContain(memberMonthPointLabel(outlook.points.find((point) => point.from === "2026-06-01")!));
-    expect(names).toContain("2027年12月 70%");
+    expect(chart).toHaveAccessibleName(memberMonthChartLabel(ledger.months));
+    const names = [...panel.querySelectorAll(".member-load-total .sr-only")].map((node) => node.textContent);
+    expect(names).toHaveLength(12);
+    expect(names).toContain(memberMonthPointLabel(august));
+    expect(names.join("")).not.toContain("2026年4月");
+    expect(names.join("")).not.toContain("2027年12月");
     expect(names.join("")).not.toContain("稼働率");
     expect(chart!.getAttribute("aria-label")).not.toContain("、");
-    expect(chart!.querySelectorAll(".member-month-dot")).toHaveLength(outlook.points.length);
-    const track = panel.querySelector(".member-month-track") as HTMLElement;
-    expect(track.style.getPropertyValue("--month-count")).toBe(String(outlook.points.length));
-    expect(track.style.width).toBe("calc(100% * var(--month-count) / 12)");
+    expect(chart!.querySelectorAll(".member-month-dot")).toHaveLength(12);
+    const totals = [...panel.querySelectorAll(".member-load-total td")].map((node) => node.querySelector(".sr-only")!.textContent);
+    expect(totals).toEqual(ledger.months.map((month) => memberMonthPointLabel(month)));
     const summary = panel.querySelector(".member-detail-load-summary")!;
-    expect(summary.textContent).toContain(memberMonthSummaryLabel(outlook.summaryFrom));
-    expect(summary.textContent).toContain(`ピーク ${outlook.summaryPeak}%`);
-    expect(summary.textContent).toMatch(/最小空き \d+%/u);
+    expect(summary.textContent).toContain(`次に稼働率60%以下 ${ledger.nextOpen}`);
+    expect(summary.textContent).not.toContain("ピーク");
+    expect(summary.textContent).not.toContain("最小空き");
     expect(panel.querySelector(".member-detail-load .profile-capacity")).toBeNull();
     expect(assignmentNames(panel)).toEqual(["週内案件", "月末案件", winterProject.name]);
+    const cellsFor = (name: string) => {
+      const row = [...panel.querySelectorAll(".member-load-sheet tbody tr")].find((node) => node.querySelector("th button")?.textContent === name);
+      return [...row!.querySelectorAll("td")].map((cell) => cell.textContent);
+    };
+    expect(cellsFor("月末案件")).toEqual(ledger.months.map((month) => (month.from === "2026-08-01" ? "10" : "")));
+    expect(cellsFor("週内案件")).toEqual(ledger.months.map(() => ""));
+    expect(cellsFor(winterProject.name)).toEqual(ledger.months.map(() => ""));
   });
 
   it("names every plotted month, including one past the basis window", async () => {
@@ -7715,18 +7726,18 @@ describe("member drawer assignments are the whole history (#437)", () => {
       { id: "winter", personId: member.id, projectId: winterProject.id, startDate: "2027-12-01", endDate: "2027-12-15", allocation: 20, status: "confirmed" as const },
     ];
     const { panel } = await openPeriodMember(user, periodState(rows));
-    const outlook = memberMonthOutlook(periodState(rows), member, "2026-08-19");
-    const august = outlook.points.find((point) => point.from === "2026-08-01");
-    const december = outlook.points.find((point) => point.from === "2027-12-01");
-    expect(august?.exceeds).toBe(true);
-    expect(outlook.points.length).toBeGreaterThan(12);
+    const ledger = memberMonthLedger(periodState(rows), member, "2026-08-19");
+    const august = ledger.months.find((month) => month.from === "2026-08-01")!;
+    expect(august.exceeds).toBe(true);
+    expect(ledger.months.some((month) => month.from === "2027-12-01")).toBe(false);
     const chart = panel.querySelector(".member-month-chart");
-    expect(chart).toHaveAccessibleName(memberMonthChartLabel(outlook.points));
-    const names = [...panel.querySelectorAll(".member-month-labels .sr-only")].map((node) => node.textContent);
-    expect(names).toContain(memberMonthPointLabel(august!));
-    expect(names).toContain(`2027年12月 ${december!.peak}%`);
-    expect(names).toHaveLength(outlook.points.length);
-    expect(panel.querySelectorAll(".member-month-dot.over").length).toBe(outlook.points.filter((point) => point.exceeds).length);
+    expect(chart).toHaveAccessibleName(memberMonthChartLabel(ledger.months));
+    const names = [...panel.querySelectorAll(".member-load-total .sr-only")].map((node) => node.textContent);
+    expect(names).toContain(memberMonthPointLabel(august));
+    expect(names.join("")).not.toContain("2027年12月");
+    expect(names).toHaveLength(ledger.months.length);
+    expect(panel.querySelectorAll(".member-month-dot.over").length).toBe(ledger.months.filter((month) => month.exceeds).length);
+    expect(assignmentNames(panel)).toContain(winterProject.name);
   });
 
   it("reads the line against the daily ceiling, not the registered cap", async () => {
@@ -7741,13 +7752,15 @@ describe("member drawer assignments are the whole history (#437)", () => {
       { members: [capped] },
     );
     const { panel } = await openPeriodMember(user, state);
-    const outlook = memberMonthOutlook(state, capped, "2026-08-19");
-    const august = outlook.points.find((point) => point.from === "2026-08-01")!;
+    const august = memberMonthLedger(state, capped, "2026-08-19").months[0]!;
     expect(august.peak).toBe(60);
     expect(august.exceeds).toBe(true);
+    expect(august.ceiling).toBe(50);
     expect(panel.querySelector(".member-detail-load")!.textContent).toContain("稼働上限 100%");
-    expect(panel.querySelector(".member-month-labels")!.textContent).toContain("2026年8月 60% 上限超過");
-    expect(panel.querySelector(".member-month-chart")).toHaveAccessibleName(memberMonthChartLabel(outlook.points));
+    expect(panel.querySelector(".member-load-total")!.textContent).toContain("2026年8月 60% 上限超過");
+    const ceiling = [...panel.querySelectorAll(".member-load-sheet tbody tr")].find((row) => row.querySelector("th")?.textContent === "稼働上限");
+    expect(ceiling?.querySelector("td")?.textContent).toBe("50");
+    expect(panel.querySelector(".member-month-chart")).toHaveAccessibleName(memberMonthChartLabel(memberMonthLedger(state, capped, "2026-08-19").months));
     expect(panel.querySelector(".member-month-chart")!.getAttribute("aria-label")).not.toContain("稼働率");
   });
 });

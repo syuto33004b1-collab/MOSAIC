@@ -77,11 +77,9 @@ import {
   memberExceedsCapacity,
   memberLoad,
   memberMonthChartLabel,
-  memberMonthOutlook,
+  memberMonthLedger,
   memberMonthPointLabel,
-  memberMonthScrollLeft,
-  memberMonthShowsYear,
-  memberMonthSummaryLabel,
+  assignmentLoadsMonth,
   memberMatchesNeed,
   memberOrgMemberships,
   membersInOrgSubtree,
@@ -604,61 +602,123 @@ function monthChartBottom(peak: number, yMax: number) {
   return pad + (peak / yMax) * (100 - pad * 2);
 }
 
-function MemberMonthChart({ outlook }: { outlook: ReturnType<typeof memberMonthOutlook> }) {
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const { points, basisIndex } = outlook;
-  const firstFrom = points[0]?.from ?? "";
-  useLayoutEffect(() => {
-    const node = scrollRef.current;
-    if (!node) return;
-    node.scrollLeft = memberMonthScrollLeft(basisIndex, node.clientWidth);
-  }, [basisIndex, firstFrom, points.length]);
-
-  const yMax = Math.max(100, ...points.map((point) => point.peak), 0);
-  const trackStyle = {
-    width: points.length === 0 ? "100%" : "calc(100% * var(--month-count) / 12)",
-    "--month-count": points.length,
-  } as CSSProperties;
-  return (
-    // A sideways scrollport. `region` is not an interactive role, but without
-    // tabIndex the keyboard cannot move the line (#437).
-    // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- scrollport
-    <div className="member-month-scroll" tabIndex={0} role="region" aria-label="月の稼働の折れ線" ref={scrollRef}>
-      <div className="member-month-track" style={trackStyle}>
-        {points.length > 0 && (
-          <div className="member-month-chart" role="img" aria-label={memberMonthChartLabel(points)}>
-            <svg viewBox={`0 0 ${points.length} 100`} preserveAspectRatio="none" aria-hidden="true">
-              <polyline
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinejoin="round"
-                strokeLinecap="round"
-                vectorEffect="non-scaling-stroke"
-                points={points.map((point, index) => `${index + 0.5},${(100 - monthChartBottom(point.peak, yMax)).toFixed(2)}`).join(" ")}
-              />
-            </svg>
-            {points.map((point, index) => (
-              <span
-                key={point.from}
-                className={"member-month-dot" + (point.exceeds ? " over" : "")}
-                style={{ left: `${((index + 0.5) / points.length) * 100}%`, bottom: `${monthChartBottom(point.peak, yMax)}%` }}
-              />
-            ))}
-          </div>
-        )}
-        {points.length > 0 && (
-          <ol className="member-month-labels">
-            {points.map((point, index) => (
-              <li key={point.from}>
-                <span className="member-month-year" aria-hidden="true">{memberMonthShowsYear(point.from, index) ? `${Number(point.from.slice(0, 4))}年` : "\u00a0"}</span>
-                <span className="member-month-tick" aria-hidden="true">{`${Number(point.from.slice(5, 7))}月`}</span>
-                <span className="sr-only">{memberMonthPointLabel(point)}</span>
-              </li>
-            ))}
-          </ol>
-        )}
+function MemberLoadSheet({
+  ledger,
+  assignments,
+  state,
+  onOpen,
+}: {
+  ledger: ReturnType<typeof memberMonthLedger>;
+  assignments: Assignment[];
+  state: WorkspaceState;
+  onOpen: (assignmentId: string) => void;
+}) {
+  const { months } = ledger;
+  if (months.length === 0) {
+    return (
+      <div className="member-load-names">
+        {assignments.map((assignment) => {
+          const name = assignment.label || projectById(state, assignment.projectId)?.name || "プロジェクト未登録";
+          return (
+            <div key={assignment.id}>
+              <button type="button" className={assignment.status === "draft" ? "provisional" : undefined} onClick={() => onOpen(assignment.id)} aria-label={`${name}のアサイン詳細`}>{name}</button>
+              <small>{formatDate(assignment.startDate)} — {formatDate(assignment.endDate)}</small>
+            </div>
+          );
+        })}
       </div>
+    );
+  }
+  const yMax = Math.max(100, ...months.map((month) => month.peak), 0);
+  const points = months.map((month, index) => `${index + 0.5},${(100 - monthChartBottom(month.peak, yMax)).toFixed(2)}`).join(" ");
+  return (
+    // The sheet is the sideways scrollport. `region` is not an interactive role,
+    // but without tabIndex the keyboard cannot move the line (#437, #450).
+    // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- scrollport
+    <div className="member-load-scroll" tabIndex={0} role="region" aria-label="月の稼働">
+      <table className="member-load-sheet">
+        <caption className="sr-only">月の稼働。折れ線は稼働の行と同じ値です。</caption>
+        <colgroup>
+          <col className="member-load-label" />
+          {months.map((month) => <col key={month.from} />)}
+        </colgroup>
+        <thead>
+          <tr>
+            <th scope="col">単位 %</th>
+            {months.map((month) => (
+              <th key={month.from} scope="col">
+                <span className="member-month-year" aria-hidden="true">{month.yearLabel || "\u00a0"}</span>
+                <span className="member-month-tick">{month.label}</span>
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <th scope="row"><span className="sr-only">折れ線</span></th>
+            <td className="member-load-plot-cell" colSpan={months.length}>
+              <div className="member-month-chart" role="img" aria-label={memberMonthChartLabel(months)}>
+                <svg viewBox={`0 0 ${months.length} 100`} preserveAspectRatio="none" aria-hidden="true">
+                  <polyline
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinejoin="round"
+                    strokeLinecap="round"
+                    vectorEffect="non-scaling-stroke"
+                    points={points}
+                  />
+                </svg>
+                {months.map((month, index) => (
+                  <span
+                    key={month.from}
+                    className={"member-month-dot" + (month.exceeds ? " over" : "")}
+                    style={{ left: `${((index + 0.5) / months.length) * 100}%`, bottom: `${monthChartBottom(month.peak, yMax)}%` }}
+                  />
+                ))}
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <th scope="row">稼働上限</th>
+            {months.map((month) => <td key={month.from}>{month.ceiling == null ? "—" : month.ceiling}</td>)}
+          </tr>
+          {assignments.map((assignment) => {
+            const name = assignment.label || projectById(state, assignment.projectId)?.name || "プロジェクト未登録";
+            return (
+              <tr key={assignment.id}>
+                <th scope="row">
+                  <button
+                    type="button"
+                    className={assignment.status === "draft" ? "provisional" : undefined}
+                    onClick={() => onOpen(assignment.id)}
+                    aria-label={`${name}のアサイン詳細`}
+                  >{name}</button>
+                  <small>{formatDate(assignment.startDate)} — {formatDate(assignment.endDate)}</small>
+                </th>
+                {months.map((month) => (
+                  <td key={month.from}>{assignmentLoadsMonth(state, assignment, month.from, month.to) ? assignment.allocation : ""}</td>
+                ))}
+              </tr>
+            );
+          })}
+          <tr className="member-load-total">
+            <th scope="row">稼働</th>
+            {months.map((month) => (
+              <td key={month.from} className={month.exceeds ? "over" : month.open ? "open" : undefined}>
+                {month.peak}
+                <span className="sr-only">{memberMonthPointLabel(month)}</span>
+              </td>
+            ))}
+          </tr>
+          <tr>
+            <th scope="row">空き</th>
+            {months.map((month) => (
+              <td key={month.from} className={month.exceeds ? "over" : month.open ? "open" : undefined}>{month.slack}</td>
+            ))}
+          </tr>
+        </tbody>
+      </table>
     </div>
   );
 }
@@ -1341,7 +1401,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
   const selectedProject = projectById(workspace, selectedProjectId);
   const selectedProjectNeeds = selectedProject ? workspace.needs.filter((need) => need.projectId === selectedProject.id) : [];
   const selectedMember = memberById(workspace, selectedMemberId);
-  const memberOutlook = selectedMember ? memberMonthOutlook(workspace, selectedMember, drawerOrigin) : null;
+  const memberLedger = selectedMember ? memberMonthLedger(workspace, selectedMember, drawerOrigin) : null;
   const memberAssignments = selectedMember
     ? workspace.assignments
       .filter((assignment) => assignment.personId === selectedMember.id)
@@ -3936,7 +3996,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
               </div>
             )}
 
-            {drawer === "member" && selectedMember && memberOutlook && (
+            {drawer === "member" && selectedMember && memberLedger && (
               <div className="member-detail">
                 <div className="profile-hero">
                   <span className={"avatar profile-avatar " + selectedMember.avatarTone}>{selectedMember.initials}</span>
@@ -3947,21 +4007,14 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                 <div className="member-detail-panes">
                   <div className="member-detail-load">
                     <div className="drawer-section-title"><span>月の稼働</span><small>稼働上限 {selectedMember.capacity}%</small></div>
-                    {memberOutlook.clipped && <p className="horizon-clip-note" role="note">{PERIOD_CLIP_NOTE}</p>}
+                    {memberLedger.clipped && <p className="horizon-clip-note" role="note">{PERIOD_CLIP_NOTE}</p>}
                     <p className="member-detail-load-summary">
-                      <span>{memberMonthSummaryLabel(memberOutlook.summaryFrom)}</span>
-                      <span>ピーク <strong>{memberOutlook.summaryPeak}%</strong></span>
-                      <span>最小空き <strong>{memberOutlook.summarySlack == null ? "—" : `${memberOutlook.summarySlack}%`}</strong></span>
+                      <span>次に稼働率60%以下 <strong>{memberLedger.nextOpen}</strong></span>
                     </p>
-                    <MemberMonthChart outlook={memberOutlook} />
-                    {/* The list is the only vertical scrollport in the left pane (#437). */}
-                    {/* eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- scrollport */}
-                    <div className="member-detail-assignments" tabIndex={0} role="region" aria-label="アサイン一覧">
+                    <div className="member-detail-assignments">
                       <div className="drawer-section-title"><span>{`アサイン ${memberAssignments.length}件`}</span></div>
-                      {memberAssignments.length === 0
-                        ? <div className="candidate-empty"><BriefcaseBusiness size={18} /><span><strong>アサインはありません</strong></span></div>
-                        : <div className="allocation-list">{memberAssignments.map((assignment) => <div key={assignment.id}><span className={"project-dot " + (projectById(workspace, assignment.projectId)?.tone || "plum")} /><span><strong>{assignment.label || projectById(workspace, assignment.projectId)?.name || "プロジェクト未登録"}</strong><small>{formatDate(assignment.startDate)} — {formatDate(assignment.endDate)}</small></span><b>{assignment.allocation}%</b></div>)}</div>}
                     </div>
+                    <MemberLoadSheet ledger={memberLedger} assignments={memberAssignments} state={workspace} onOpen={openAssignment} />
                   </div>
                   <div className="member-detail-who" role="region" aria-label="所属と経歴">
                     <div className="profile-skills">{memberSkillLevels(selectedMember).map((level) => <span key={level.name}>{level.name}<small>{level.proficiency}</small></span>)}</div>

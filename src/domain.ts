@@ -1245,6 +1245,99 @@ export function memberMonthOutlook(state: WorkspaceState, member: Member, basisI
   return { ...summary, points, basisIndex };
 }
 
+/** The member detail sheet is this window, not the variable-length outlook line. */
+export const MEMBER_DETAIL_MONTH_CHOICE: CountedPeriodChoice = { unit: "month", count: 12 };
+
+export type MemberMonthLedgerMonth = {
+  from: string;
+  to: string;
+  label: string;
+  /** Set on the first month and on January, so a year boundary stays readable. */
+  yearLabel: string;
+  peak: number;
+  slack: number;
+  exceeds: boolean;
+  open: boolean;
+  /** Lowest weekday ceiling above 0, or null when the month has none. */
+  ceiling: number | null;
+};
+
+export type MemberMonthLedger = {
+  clipped: boolean;
+  months: MemberMonthLedgerMonth[];
+  /** Same words as the member list's 「次に稼働率60%以下」. */
+  nextOpen: string;
+};
+
+/**
+ * The list column and this sheet must say the same thing for the same buckets.
+ * Kept here so the detail does not grow a second copy of the list's sentence.
+ */
+export function memberNextOpenLabel(member: Member, stats: PeriodMemberStats | undefined, range: PeriodRange, choice: PeriodChoice) {
+  if (member.capacity === 0) return "稼働不可 · 稼働上限0%";
+  if (!range.from || range.buckets.length === 0) return "この期間は表示できません";
+  const supply = (stats?.buckets ?? []).reduce((sum, bucket) => sum + bucket.capacity, 0);
+  if (supply === 0) return "稼働できる日がありません";
+  const nextOpen = stats?.buckets.findIndex((bucket) => bucket.open) ?? -1;
+  if (nextOpen === -1 || !stats) return `${periodChoiceProseLabel(choice)}で該当なし`;
+  const bucket = stats.buckets[nextOpen]!;
+  const label = periodBucketLabel(choice, bucket, nextOpen);
+  return nextOpen === 0 ? `${label} 空き${bucket.slack}%` : label;
+}
+
+/**
+ * True when this assignment contributes to a day's load inside the month.
+ * A date overlap that never clears `assignmentPutsLoadOnDate` (a weekend with
+ * no recorded work, a holiday, a zero ceiling) stays a blank cell.
+ */
+export function assignmentLoadsMonth(state: WorkspaceState, assignment: Assignment, from: string, to: string) {
+  if (!isCivilIsoDate(from) || !isCivilIsoDate(to) || to < from) return false;
+  if (!isCivilIsoDate(assignment.startDate) || !isCivilIsoDate(assignment.endDate)) return false;
+  const start = assignment.startDate > from ? assignment.startDate : from;
+  const end = assignment.endDate < to ? assignment.endDate : to;
+  if (end < start) return false;
+  for (let date = start; date <= end; date = addDays(date, 1)) {
+    if (assignmentPutsLoadOnDate(state, assignment, date)) return true;
+  }
+  return false;
+}
+
+/**
+ * Twelve months from the basis, one walk.
+ *
+ * The line and the 稼働 row are `peak` (the busiest day). Assignment cells are
+ * the allocation attribute, not a share of that peak: summing them marks a
+ * month over when the bookings never share a day (高橋, 2026-08).
+ */
+export function memberMonthLedger(state: WorkspaceState, member: Member, basisIso: string): MemberMonthLedger {
+  const choice = MEMBER_DETAIL_MONTH_CHOICE;
+  const range = isCivilIsoDate(basisIso) ? periodRange(choice, basisIso) : emptyPeriodRange();
+  if (!range.from || range.buckets.length === 0) {
+    return { clipped: range.clipped, months: [], nextOpen: memberNextOpenLabel(member, undefined, range, choice) };
+  }
+  const stats = periodMemberStats(state, member, range);
+  const days = memberDailyLoads(state, member.id, range.from, range.to);
+  const months = stats.buckets.map((bucket, index) => {
+    let ceiling: number | null = null;
+    for (const day of days) {
+      if (day.date < bucket.from || day.date > bucket.to || day.weekend || day.capacity <= 0) continue;
+      ceiling = ceiling === null ? day.capacity : Math.min(ceiling, day.capacity);
+    }
+    return {
+      from: bucket.from,
+      to: bucket.to,
+      label: periodBucketLabel(choice, bucket, index),
+      yearLabel: memberMonthShowsYear(bucket.from, index) ? `${Number(bucket.from.slice(0, 4))}年` : "",
+      peak: bucket.peak,
+      slack: bucket.slack,
+      exceeds: bucket.exceeds,
+      open: bucket.open,
+      ceiling,
+    };
+  });
+  return { clipped: range.clipped, months, nextOpen: memberNextOpenLabel(member, stats, range, choice) };
+}
+
 export function parseMonthlyCostYen(raw: string): number | null {
   const trimmed = raw.trim();
   if (!trimmed) return null;
