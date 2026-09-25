@@ -43,6 +43,9 @@ test("the plot cell is not inset and the date stays at the text floor", async ()
   assert.match(plot[1], /padding:\s*0/u);
   assert.ok(date, "the assignment date has no size of its own");
   assert.match(date[1], /font-size:\s*var\(--text-min\)/u);
+  const names = css.match(/\.member-load-names small \{([^}]+)\}/u);
+  assert.ok(names, "the dateless-window date has no size of its own");
+  assert.match(names[1], /font-size:\s*var\(--text-min\)/u);
 });
 
 test("the month line shares the table and keeps a non-scaling stroke", async () => {

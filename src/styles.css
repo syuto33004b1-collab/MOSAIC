@@ -2687,12 +2687,13 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .member-load-sheet td.open { color: var(--sage); }
 .member-load-sheet tr.member-load-total th,
 .member-load-sheet tr.member-load-total td { border-top: 2px solid var(--ink); }
-/* Equal specificity to `.member-load-sheet td`, and later, so the 3px
-   horizontal padding does not inset the line from the month centers. */
+/* (0, 2, 1) against the cell rule's (0, 1, 1), so the 3px horizontal
+   padding does not inset the line from the month centers. */
 .member-load-sheet td.member-load-plot-cell { padding: 0; }
 .member-month-year,
 .member-month-tick { display: block; }
 .member-load-names { display: flex; flex-direction: column; gap: 6px; }
+.member-load-names small { display: block; font-size: var(--text-min); font-weight: 500; }
 .member-load-names button {
   width: fit-content;
   border: 0;

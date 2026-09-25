@@ -620,7 +620,10 @@ function MemberLoadSheet({
         {assignments.map((assignment) => {
           const name = assignment.label || projectById(state, assignment.projectId)?.name || "プロジェクト未登録";
           return (
-            <button key={assignment.id} type="button" className={assignment.status === "draft" ? "provisional" : undefined} onClick={() => onOpen(assignment.id)} aria-label={`${name}のアサイン詳細`}>{name}</button>
+            <div key={assignment.id}>
+              <button type="button" className={assignment.status === "draft" ? "provisional" : undefined} onClick={() => onOpen(assignment.id)} aria-label={`${name}のアサイン詳細`}>{name}</button>
+              <small>{formatDate(assignment.startDate)} — {formatDate(assignment.endDate)}</small>
+            </div>
           );
         })}
       </div>

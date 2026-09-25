@@ -7593,7 +7593,8 @@ describe("member drawer assignments are the whole history (#437)", () => {
     expect(panel.querySelector(".allocation-list")).toBeNull();
     expect(dialog.queryByText("アサインはありません")).not.toBeInTheDocument();
     expect(dialog.queryByText("この期間のアサインはありません")).not.toBeInTheDocument();
-    expect(panel.querySelector(".member-load-total")).not.toBeNull();
+    const rowLabels = [...panel.querySelectorAll(".member-load-sheet tbody th")].map((node) => node.textContent);
+    expect(rowLabels).toEqual(expect.arrayContaining(["稼働上限", "稼働", "空き"]));
   });
 
   it("keeps the assignment list when the holiday calendar has already ended", async () => {
@@ -7607,6 +7608,7 @@ describe("member drawer assignments are the whole history (#437)", () => {
       expect(dialog.getByText(PERIOD_CLIP_NOTE)).toBeInTheDocument();
       expect(assignmentHeading(panel)).toBe("アサイン 1件");
       expect(assignmentNames(panel)).toEqual(["週内案件"]);
+      expect(panel.querySelector(".member-load-names small")!.textContent).toBe("2026年8月17日 — 2026年8月21日");
       expect(dialog.queryByText("アサインはありません")).not.toBeInTheDocument();
       expect(dialog.queryByText("2036年2月からの12か月")).not.toBeInTheDocument();
       expect(panel.querySelector(".member-detail-load-summary")!.textContent).toContain("この期間は表示できません");
@@ -7708,6 +7710,13 @@ describe("member drawer assignments are the whole history (#437)", () => {
     expect(summary.textContent).not.toContain("最小空き");
     expect(panel.querySelector(".member-detail-load .profile-capacity")).toBeNull();
     expect(assignmentNames(panel)).toEqual(["週内案件", "月末案件", winterProject.name]);
+    const cellsFor = (name: string) => {
+      const row = [...panel.querySelectorAll(".member-load-sheet tbody tr")].find((node) => node.querySelector("th button")?.textContent === name);
+      return [...row!.querySelectorAll("td")].map((cell) => cell.textContent);
+    };
+    expect(cellsFor("月末案件")).toEqual(ledger.months.map((month) => (month.from === "2026-08-01" ? "10" : "")));
+    expect(cellsFor("週内案件")).toEqual(ledger.months.map(() => ""));
+    expect(cellsFor(winterProject.name)).toEqual(ledger.months.map(() => ""));
   });
 
   it("names every plotted month, including one past the basis window", async () => {
