@@ -2655,10 +2655,50 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   flex: 1 1 auto;
   min-height: 0;
 }
-/* With rows, keep the line, one assignment, and 空き inside the sheet.
-   The floor is on this block so the who text yields before the buttons do. */
-.member-detail-load:has(.member-load-assignments tbody tr) {
-  min-height: 24rem;
+/* The chart, one assignment row, and 空き stay inside this block. History
+   stays in normal flow underneath, so it cannot paint over 空き. */
+.member-detail-load:has(.member-load-scroll) {
+  min-height: 20rem;
+}
+/* No assignment rows: don't reserve a blank band between the line and 空き.
+   The sheet still refuses to shrink, so a long history cannot cover 空き. */
+.member-detail-load:has(.member-load-scroll):not(:has(.member-load-assignments tbody tr)) {
+  min-height: 0;
+  flex: 0 0 auto;
+}
+.member-load-scroll:not(:has(.member-load-assignments tbody tr)) {
+  min-height: auto;
+  flex: 0 0 auto;
+}
+.member-load-scroll .member-load-assignments:not(:has(tbody tr)) {
+  display: none;
+}
+.member-detail-facts {
+  grid-column: 1 / -1;
+  min-width: 0;
+}
+.member-detail-facts:not(:has(.detail-facts)) { display: none; }
+.member-detail-facts .detail-facts {
+  margin: 4px 0 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 14px;
+}
+.member-detail-facts .detail-facts > div {
+  display: flex;
+  gap: 0.4em;
+  align-items: baseline;
+  min-width: 0;
+}
+.member-detail-facts .detail-facts span,
+.member-detail-facts .detail-facts strong {
+  display: inline;
+  margin: 0;
+  font-size: var(--text-min);
 }
 .member-detail-load-summary {
   margin: 0 0 4px;
@@ -2684,7 +2724,7 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   overflow-y: hidden;
   margin: 0;
   flex: 1 1 auto;
-  min-height: 0;
+  min-height: 14.5rem;
   display: flex;
   flex-direction: column;
 }
@@ -2697,6 +2737,7 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
 }
+.member-load-assignments:has(.member-load-names) { min-width: 0; }
 .member-load-head-wrap,
 .member-load-slack-wrap {
   flex: 0 0 auto;
@@ -2735,6 +2776,26 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   color: var(--muted);
   font-weight: 600;
   overflow-wrap: anywhere;
+}
+/* Beats the sticky first-cell rule so a repeated month head stays in the
+   accessibility tree without painting a second header row. */
+.member-load-sheet thead th.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+.member-load-sheet tr.member-month-points th,
+.member-load-sheet tr.member-month-points td {
+  height: 0;
+  padding: 0;
+  border: 0;
+  line-height: 0;
 }
 .member-load-sheet th:not(:first-child),
 .member-load-sheet td:not(:first-child) { padding-inline: 1px; }
@@ -2833,17 +2894,8 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   border-color: var(--coral-deep);
 }
 .member-detail-who {
-  flex: 1 1 auto;
-  min-height: 2.75rem;
-  overflow-y: auto;
-}
-.member-detail-who .detail-facts {
-  margin: 8px 0 0;
-  padding: 0;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  gap: 4px 16px;
+  flex: 0 0 auto;
+  overflow: visible;
 }
 .member-work-history { margin: 8px 0 0; display: flex; flex-direction: column; gap: 2px; }
 .member-work-history p {

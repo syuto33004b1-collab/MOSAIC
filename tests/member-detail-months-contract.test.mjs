@@ -40,6 +40,14 @@ test("the member drawer sizes to its content and scrolls only assignment rows", 
   const actions = css.match(/\.member-detail-actions \{([^}]+)\}/u);
   assert.ok(actions);
   assert.match(actions[1], /flex:\s*0 0 auto/u);
+  const who = css.match(/\.member-detail-who \{([^}]+)\}/u);
+  assert.ok(who, "history has no block of its own");
+  assert.match(who[1], /flex:\s*0 0 auto/u);
+  assert.doesNotMatch(who[1], /overflow-y:\s*auto/u);
+  assert.doesNotMatch(css, /min-height:\s*24rem/u);
+  assert.match(css, /\.member-detail-load:has\(\.member-load-scroll\)\s*\{[^}]*min-height:\s*20rem/u);
+  const scrollBox = css.match(/\.member-load-scroll \{([^}]+)\}/u);
+  assert.match(scrollBox[1], /min-height:\s*14\.5rem/u);
   const media = css.slice(css.indexOf("@media (min-width: 1052px) and (min-height: 720px)"));
   assert.doesNotMatch(media, /\.member-detail-panes/u);
   assert.doesNotMatch(media, /\.drawer\.member-detail-open/u);
@@ -75,7 +83,11 @@ test("the month line shares the table and keeps a non-scaling stroke", async () 
   assert.match(app, /vectorEffect="non-scaling-stroke"/u);
   assert.match(app, /preserveAspectRatio="none"/u);
   assert.match(app, /data-mark=\{value\}/u);
+  assert.match(app, /className="member-month-points"/u);
   assert.doesNotMatch(app, /memberMonthScrollLeft/u);
+  const empty = app.slice(app.indexOf("if (months.length === 0)"), app.indexOf("const yMax"));
+  assert.match(empty, /member-load-assignments/u);
+  assert.match(empty, /member-load-names/u);
   const sheet = css.match(/\.member-load-sheet \{([^}]+)\}/u);
   assert.ok(sheet);
   assert.doesNotMatch(sheet[1], /min-width:\s*44rem/u);

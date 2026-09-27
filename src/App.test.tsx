@@ -4926,10 +4926,10 @@ describe("a week-scoped figure names the week it measures", () => {
     expect(member, `could not identify the member from 「${name}」`).toBeDefined();
     const ledger = memberMonthLedger(initialWorkspace, member!, "2026-08-19");
     expect(chart.getAttribute("aria-label")).toBe(memberMonthChartLabel(ledger.months));
-    const heads = [...document.querySelectorAll(".member-load-sheet thead th")].slice(1);
+    const heads = [...document.querySelectorAll(".member-load-head thead th")].slice(1);
     expect(heads).toHaveLength(ledger.months.length);
     const august = ledger.months.find((month) => month.from === "2026-08-01")!;
-    const names = [...document.querySelectorAll(".member-month-dot .sr-only")].map((node) => node.textContent);
+    const names = [...document.querySelectorAll(".member-month-points td .sr-only")].map((node) => node.textContent);
     expect(names).toContain(memberMonthPointLabel(august));
     expect(heads[0]!.querySelector(".member-month-year")!.textContent).toBe(`${Number(ledger.months[0]!.from.slice(0, 4))}年`);
     for (const [index, month] of ledger.months.entries()) {
@@ -4952,7 +4952,7 @@ describe("a week-scoped figure names the week it measures", () => {
       expect(document.querySelector(".member-detail-load .member-month-chart")).not.toBeNull();
     });
     expect(document.querySelector(".member-month-chart")!.getAttribute("aria-label")).toMatch(/^2026年9月/u);
-    expect([...document.querySelectorAll(".member-month-dot .sr-only")].some((node) => node.textContent?.includes("2026年9月"))).toBe(true);
+    expect([...document.querySelectorAll(".member-month-points td .sr-only")].some((node) => node.textContent?.includes("2026年9月"))).toBe(true);
   });
 });
 
@@ -4976,7 +4976,7 @@ describe("detail drawer period horizon (#366)", () => {
       expect(dialog.queryByRole("button", { name: "全て" })).toBeNull();
       const chart = document.querySelector(".member-detail-load .member-month-chart")!;
       expect(chart.getAttribute("aria-label")).toMatch(/^2026年8月から2027年7月まで12か月の稼働$/u);
-      expect([...document.querySelectorAll(".member-month-dot .sr-only")].some((node) => node.textContent?.includes("2026年8月"))).toBe(true);
+      expect([...document.querySelectorAll(".member-month-points td .sr-only")].some((node) => node.textContent?.includes("2026年8月"))).toBe(true);
       expect(chart.querySelector("polyline")!.getAttribute("vector-effect")).toBe("non-scaling-stroke");
       expect(document.querySelector(".member-load-scroll")).toHaveAttribute("tabindex", "0");
     } finally {
@@ -4994,7 +4994,7 @@ describe("detail drawer period horizon (#366)", () => {
       await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^メンバー( |$)/u }));
       await user.click(document.querySelector(".member-table tbody tr .member-name-cell") as HTMLElement);
       expect(document.querySelector(".member-month-chart")!.getAttribute("aria-label")).toMatch(/^2026年9月/u);
-      expect([...document.querySelectorAll(".member-month-dot .sr-only")].some((node) => node.textContent?.includes("2026年9月"))).toBe(true);
+      expect([...document.querySelectorAll(".member-month-points td .sr-only")].some((node) => node.textContent?.includes("2026年9月"))).toBe(true);
       expect(document.querySelector(".member-month-chart")!.getAttribute("aria-label")).not.toContain("8/31週");
     } finally {
       vi.useRealTimers();
@@ -7609,7 +7609,7 @@ describe("member drawer assignments are the whole history (#437)", () => {
     expect(dialog.getByText("折れ線は、その月でいちばん忙しい日の稼働です。罫線は10%刻みです。")).toBeInTheDocument();
     expect(panel.querySelector(".member-detail-who")!.textContent).toContain("業務経歴　なし");
     expect(panel.textContent).not.toContain("業務経歴はまだありません");
-    expect(panel.querySelector(".member-load-slack th")?.textContent).toBe("空き");
+    expect(panel.querySelector(".member-load-slack tbody th")?.textContent).toBe("空き");
     const rowLabels = [...panel.querySelectorAll(".member-load-sheet tbody th")].map((node) => node.textContent);
     expect(rowLabels).not.toContain("稼働");
     expect(rowLabels).not.toContain("稼働上限");
@@ -7629,6 +7629,7 @@ describe("member drawer assignments are the whole history (#437)", () => {
       expect(dialog.getByText(PERIOD_CLIP_NOTE)).toBeInTheDocument();
       expect(assignmentHeading(panel)).toBe("");
       expect(assignmentNames(panel)).toEqual(["週内案件"]);
+      expect(panel.querySelector(".member-load-assignments")!.contains(panel.querySelector(".member-load-names"))).toBe(true);
       expect(panel.querySelector(".member-load-names small")!.textContent).toBe("2026年8月17日 — 2026年8月21日");
       expect(dialog.queryByText("アサインはありません")).not.toBeInTheDocument();
       expect(dialog.queryByText("2036年2月からの12か月")).not.toBeInTheDocument();
@@ -7667,6 +7668,9 @@ describe("member drawer assignments are the whole history (#437)", () => {
     const load = memberLoad(initialWorkspace, "saeki", pagedWeek);
     expect(hero?.querySelector(".member-week-figure")?.textContent).toBe(`${load}%`);
     expect(hero?.querySelector(".member-week-caption")?.textContent).toBe(`${weekLabel(pagedWeek)}の稼働`);
+    const opened = screen.getByRole("dialog", { name: "詳細パネル" });
+    expect(opened.querySelector(".profile-hero .member-detail-facts")!.textContent).toContain("主所属");
+    expect(opened.querySelector(".member-detail-who")!.textContent).not.toContain("主所属");
     expect(weekLabel(pagedWeek)).not.toBe(weekLabel(getWeekStart(0)));
   });
 
@@ -7720,7 +7724,7 @@ describe("member drawer assignments are the whole history (#437)", () => {
     const chart = panel.querySelector(".member-month-chart");
     expect(chart).toHaveAttribute("role", "img");
     expect(chart).toHaveAccessibleName(memberMonthChartLabel(ledger.months));
-    const names = [...panel.querySelectorAll(".member-month-dot .sr-only")].map((node) => node.textContent);
+    const names = [...panel.querySelectorAll(".member-month-points td .sr-only")].map((node) => node.textContent);
     expect(names).toHaveLength(12);
     expect(names).toContain(memberMonthPointLabel(august));
     expect(names.join("")).not.toContain("2026年4月");
@@ -7729,6 +7733,16 @@ describe("member drawer assignments are the whole history (#437)", () => {
     expect(chart!.getAttribute("aria-label")).not.toContain("、");
     expect(chart!.querySelectorAll(".member-month-dot")).toHaveLength(12);
     expect(names).toEqual(ledger.months.map((month) => memberMonthPointLabel(month)));
+    expect(chart!.querySelector(".sr-only")).toBeNull();
+    expect(chart!.contains(panel.querySelector(".member-month-points"))).toBe(false);
+    const monthLabel = ledger.months[0]!.label;
+    for (const selector of [".member-load-assignments table", ".member-load-slack"]) {
+      const headers = [...panel.querySelectorAll(`${selector} thead th`)];
+      expect(headers).toHaveLength(ledger.months.length + 1);
+      expect(headers.every((header) => header.classList.contains("sr-only"))).toBe(true);
+      expect(headers.some((header) => header.textContent?.includes(monthLabel))).toBe(true);
+    }
+    expect([...panel.querySelectorAll(".member-load-head thead th")].some((header) => !header.classList.contains("sr-only"))).toBe(true);
     const summary = panel.querySelector(".member-detail-load-summary")!;
     expect(summary.textContent).toContain(`次に稼働率60%以下は ${ledger.nextOpen}`);
     expect(summary.textContent).not.toContain("ピーク");
@@ -7757,7 +7771,7 @@ describe("member drawer assignments are the whole history (#437)", () => {
     expect(ledger.months.some((month) => month.from === "2027-12-01")).toBe(false);
     const chart = panel.querySelector(".member-month-chart");
     expect(chart).toHaveAccessibleName(memberMonthChartLabel(ledger.months));
-    const names = [...panel.querySelectorAll(".member-month-dot .sr-only")].map((node) => node.textContent);
+    const names = [...panel.querySelectorAll(".member-month-points td .sr-only")].map((node) => node.textContent);
     expect(names).toContain(memberMonthPointLabel(august));
     expect(names.join("")).not.toContain("2027年12月");
     expect(names).toHaveLength(ledger.months.length);
@@ -7783,7 +7797,7 @@ describe("member drawer assignments are the whole history (#437)", () => {
     expect(august.ceiling).toBe(50);
     expect(panel.querySelector(".profile-hero")!.textContent).toContain("稼働上限 100%");
     expect(panel.querySelector(".member-load-total")).toBeNull();
-    expect([...panel.querySelectorAll(".member-month-dot .sr-only")].some((node) => node.textContent === "2026年8月 60% 上限超過")).toBe(true);
+    expect([...panel.querySelectorAll(".member-month-points td .sr-only")].some((node) => node.textContent === "2026年8月 60% 上限超過")).toBe(true);
     const ceiling = [...panel.querySelectorAll(".member-load-sheet tbody tr")].find((row) => row.querySelector("th")?.textContent === "稼働上限");
     expect(ceiling?.querySelector("td")?.textContent).toBe("50");
     expect(panel.querySelector(".member-load-slack td")?.textContent).toBe(String(august.slack));
@@ -7791,6 +7805,22 @@ describe("member drawer assignments are the whole history (#437)", () => {
     expect(panel.querySelector(".member-load-assignments")!.contains(panel.querySelector(".member-load-slack"))).toBe(false);
     expect(panel.querySelector(".member-month-chart")).toHaveAccessibleName(memberMonthChartLabel(memberMonthLedger(state, capped, "2026-08-19").months));
     expect(panel.querySelector(".member-month-chart")!.getAttribute("aria-label")).not.toContain("稼働率");
+  });
+
+  it("keeps 10% guides when the busiest day is not a multiple of 10", async () => {
+    const user = userEvent.setup();
+    const rows = [
+      { id: "hot", personId: member.id, projectId: weekProject.id, startDate: "2026-08-17", endDate: "2026-08-21", allocation: 125, status: "confirmed" as const },
+    ];
+    const state = periodState(rows);
+    const { panel } = await openPeriodMember(user, state);
+    const august = memberMonthLedger(state, member, "2026-08-19").months[0]!;
+    expect(august.peak).toBe(125);
+    const marks = [...panel.querySelectorAll(".member-month-chart line")].map((line) => Number(line.getAttribute("data-mark")));
+    expect(marks).toEqual([0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 130]);
+    expect(panel.querySelector('.member-month-chart line[data-mark="125"]')).toBeNull();
+    expect(panel.querySelector('.member-month-chart line[data-mark="130"]')?.classList.contains("strong")).toBe(true);
+    expect(panel.querySelector('.member-month-chart line[data-mark="60"]')?.classList.contains("strong")).toBe(false);
   });
 
   it("keeps a compact history line and folds maintenance into その他", async () => {
