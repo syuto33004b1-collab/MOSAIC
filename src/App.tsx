@@ -31,7 +31,7 @@ import {
   X,
   type LucideIcon,
 } from "lucide-react";
-import { ActiveFilters, CustomFieldFacts, CustomFieldInputs, MemberPicker, WeekendWorkPicker, type MemberCandidate, CsvTransferPanel, FavoriteStar, FieldsView, MemberOrgFields, MembersView, OpportunitiesView, OrgFacts, OrgView, PeriodRangeTabs, ProjectsView, ProposalView, ReportsView, SkillsView, UnavailabilityEditor, UnavailabilityList, WorkHistoryEditor, WorkHistoryList } from "./expanded-views";
+import { ActiveFilters, CustomFieldFacts, CustomFieldInputs, MemberPicker, WeekendWorkPicker, type MemberCandidate, CsvTransferPanel, FavoriteStar, FieldsView, MemberOrgFields, MembersView, OpportunitiesView, OrgFacts, OrgView, PeriodRangeTabs, ProjectsView, ProposalView, ReportsView, SkillsView, UnavailabilityEditor, WorkHistoryEditor } from "./expanded-views";
 import { SkillSheet, printSkillSheet } from "./skill-sheet";
 import { AiChat } from "./components/ai-chat/AiChat";
 import type { ChatTransport } from "./lib/ai/chatClient";
@@ -76,9 +76,11 @@ import {
   memberDailyLoads,
   memberExceedsCapacity,
   memberLoad,
+  formatWorkHistoryPeriod,
   memberMonthChartLabel,
   memberMonthLedger,
   memberMonthPointLabel,
+  sortedWorkHistory,
   assignmentLoadsMonth,
   memberMatchesNeed,
   memberOrgMemberships,
@@ -597,18 +599,47 @@ function drawerFromShare(link: ReturnType<typeof parseShareSearch>, state: Works
   return { drawer: null };
 }
 
-function monthChartBottom(peak: number, yMax: number) {
-  const pad = 8;
-  return pad + (peak / yMax) * (100 - pad * 2);
+/** 0 and 100 sit inside the plot, with room for a 12px tick. */
+function monthChartBottom(value: number, yMax: number) {
+  const pad = 6;
+  if (yMax <= 0) return pad;
+  return pad + (value / yMax) * (100 - pad * 2);
+}
+
+function monthChartMarks(yMax: number) {
+  const marks: number[] = [];
+  for (let value = 0; value <= yMax; value += 10) marks.push(value);
+  if (yMax > 0 && marks[marks.length - 1] !== yMax) marks.push(yMax);
+  return marks;
+}
+
+/** 60 is an ordinary 10% line. A stronger stroke there would pretend the open rule is a y value. */
+function monthChartGuideStrong(value: number, yMax: number) {
+  return value === 0 || value === 50 || value === 100 || value === yMax;
+}
+
+function monthChartTickLabel(value: number, yMax: number) {
+  return value === 0 || value === 50 || value === 100 || (value === yMax && yMax > 100);
+}
+
+function MemberLoadCols({ months }: { months: ReturnType<typeof memberMonthLedger>["months"] }) {
+  return (
+    <colgroup>
+      <col className="member-load-label" />
+      {months.map((month) => <col key={month.from} />)}
+    </colgroup>
+  );
 }
 
 function MemberLoadSheet({
   ledger,
+  capacity,
   assignments,
   state,
   onOpen,
 }: {
   ledger: ReturnType<typeof memberMonthLedger>;
+  capacity: number;
   assignments: Assignment[];
   state: WorkspaceState;
   onOpen: (assignmentId: string) => void;
@@ -630,18 +661,20 @@ function MemberLoadSheet({
     );
   }
   const yMax = Math.max(100, ...months.map((month) => month.peak), 0);
+  const marks = monthChartMarks(yMax);
+  const showCeiling = months.some((month) => month.ceiling !== capacity);
   const points = months.map((month, index) => `${index + 0.5},${(100 - monthChartBottom(month.peak, yMax)).toFixed(2)}`).join(" ");
   return (
-    // The sheet is the sideways scrollport. `region` is not an interactive role,
-    // but without tabIndex the keyboard cannot move the line (#437, #450).
+    // The month line and 空き stay outside the row scroller, and the three
+    // bands share one sideways port so a narrow width does not shift the
+    // months (#454). `region` is not an interactive role, but without tabIndex
+    // the keyboard cannot move the line (#437, #450).
     // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- scrollport
     <div className="member-load-scroll" tabIndex={0} role="region" aria-label="月の稼働">
-      <table className="member-load-sheet">
-        <caption className="sr-only">月の稼働。折れ線は稼働の行と同じ値です。</caption>
-        <colgroup>
-          <col className="member-load-label" />
-          {months.map((month) => <col key={month.from} />)}
-        </colgroup>
+      <div className="member-load-head-wrap">
+      <table className="member-load-sheet member-load-head">
+        <caption className="sr-only">月の稼働。折れ線はその月でいちばん忙しい日の稼働です。罫線は10%刻みです。</caption>
+        <MemberLoadCols months={months} />
         <thead>
           <tr>
             <th scope="col">単位 %</th>
@@ -655,10 +688,30 @@ function MemberLoadSheet({
         </thead>
         <tbody>
           <tr>
-            <th scope="row"><span className="sr-only">折れ線</span></th>
+            <th scope="row" className="member-load-axis">
+              <span className="sr-only">折れ線</span>
+              {marks.filter((value) => monthChartTickLabel(value, yMax)).map((value) => (
+                <span key={value} className="member-month-tick-label" style={{ bottom: `${monthChartBottom(value, yMax)}%` }} aria-hidden="true">{value}</span>
+              ))}
+            </th>
             <td className="member-load-plot-cell" colSpan={months.length}>
               <div className="member-month-chart" role="img" aria-label={memberMonthChartLabel(months)}>
                 <svg viewBox={`0 0 ${months.length} 100`} preserveAspectRatio="none" aria-hidden="true">
+                  {marks.map((value) => {
+                    const y = (100 - monthChartBottom(value, yMax)).toFixed(2);
+                    return (
+                      <line
+                        key={value}
+                        className={monthChartGuideStrong(value, yMax) ? "member-month-guide strong" : "member-month-guide"}
+                        data-mark={value}
+                        x1="0"
+                        x2={months.length}
+                        y1={y}
+                        y2={y}
+                        vectorEffect="non-scaling-stroke"
+                      />
+                    );
+                  })}
                   <polyline
                     fill="none"
                     stroke="currentColor"
@@ -674,43 +727,52 @@ function MemberLoadSheet({
                     key={month.from}
                     className={"member-month-dot" + (month.exceeds ? " over" : "")}
                     style={{ left: `${((index + 0.5) / months.length) * 100}%`, bottom: `${monthChartBottom(month.peak, yMax)}%` }}
-                  />
+                  >
+                    <span className="sr-only">{memberMonthPointLabel(month)}</span>
+                  </span>
                 ))}
               </div>
             </td>
           </tr>
-          <tr>
-            <th scope="row">稼働上限</th>
-            {months.map((month) => <td key={month.from}>{month.ceiling == null ? "—" : month.ceiling}</td>)}
-          </tr>
-          {assignments.map((assignment) => {
-            const name = assignment.label || projectById(state, assignment.projectId)?.name || "プロジェクト未登録";
-            return (
-              <tr key={assignment.id}>
-                <th scope="row">
-                  <button
-                    type="button"
-                    className={assignment.status === "draft" ? "provisional" : undefined}
-                    onClick={() => onOpen(assignment.id)}
-                    aria-label={`${name}のアサイン詳細`}
-                  >{name}</button>
-                  <small>{formatDate(assignment.startDate)} — {formatDate(assignment.endDate)}</small>
-                </th>
-                {months.map((month) => (
-                  <td key={month.from}>{assignmentLoadsMonth(state, assignment, month.from, month.to) ? assignment.allocation : ""}</td>
-                ))}
-              </tr>
-            );
-          })}
-          <tr className="member-load-total">
-            <th scope="row">稼働</th>
-            {months.map((month) => (
-              <td key={month.from} className={month.exceeds ? "over" : month.open ? "open" : undefined}>
-                {month.peak}
-                <span className="sr-only">{memberMonthPointLabel(month)}</span>
-              </td>
-            ))}
-          </tr>
+          {showCeiling && (
+            <tr className="member-load-ceiling">
+              <th scope="row">稼働上限</th>
+              {months.map((month) => <td key={month.from}>{month.ceiling == null ? "—" : month.ceiling}</td>)}
+            </tr>
+          )}
+        </tbody>
+      </table>
+      </div>
+      <div className="member-load-assignments">
+        <table className="member-load-sheet">
+          <MemberLoadCols months={months} />
+          <tbody>
+            {assignments.map((assignment) => {
+              const name = assignment.label || projectById(state, assignment.projectId)?.name || "プロジェクト未登録";
+              return (
+                <tr key={assignment.id}>
+                  <th scope="row">
+                    <button
+                      type="button"
+                      className={assignment.status === "draft" ? "provisional" : undefined}
+                      onClick={() => onOpen(assignment.id)}
+                      aria-label={`${name}のアサイン詳細`}
+                    >{name}</button>
+                    <small>{formatDate(assignment.startDate)} — {formatDate(assignment.endDate)}</small>
+                  </th>
+                  {months.map((month) => (
+                    <td key={month.from}>{assignmentLoadsMonth(state, assignment, month.from, month.to) ? assignment.allocation : ""}</td>
+                  ))}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <div className="member-load-slack-wrap">
+      <table className="member-load-sheet member-load-slack">
+        <MemberLoadCols months={months} />
+        <tbody>
           <tr>
             <th scope="row">空き</th>
             {months.map((month) => (
@@ -719,6 +781,7 @@ function MemberLoadSheet({
           </tr>
         </tbody>
       </table>
+      </div>
     </div>
   );
 }
@@ -1429,7 +1492,6 @@ export default function Home({ mode = "demo", organizationId, organizationName =
       .sort((left, right) => left.startDate.localeCompare(right.startDate) || left.endDate.localeCompare(right.endDate))
     : [];
   const selectedMemberWeekLoad = selectedMember ? memberLoad(workspace, selectedMember.id, weekStart) : 0;
-  const selectedMemberWeekLoadLabel = `${weekLabel(weekStart)}の稼働 ${selectedMemberWeekLoad}%`;
   const selectedAssignment = workspace.assignments.find((assignment) => assignment.id === selectedAssignmentId);
   const selectedAssignmentIsPersisted = Boolean(selectedAssignment && committedWorkspace.assignments.some((assignment) => assignment.id === selectedAssignment.id));
   /*
@@ -4000,41 +4062,60 @@ export default function Home({ mode = "demo", organizationId, organizationName =
               <div className="member-detail">
                 <div className="profile-hero">
                   <span className={"avatar profile-avatar " + selectedMember.avatarTone}>{selectedMember.initials}</span>
-                  <div><h2>{memberLabel(workspace, selectedMember)}</h2><p>{selectedMember.role} · {selectedMember.department}</p><small>{selectedMember.location}</small></div>
+                  <div>
+                    <h2>{memberLabel(workspace, selectedMember)}</h2>
+                    <p>{selectedMember.role} · {selectedMember.department}</p>
+                    <small>{selectedMember.location} · 稼働上限 {selectedMember.capacity}%</small>
+                  </div>
+                  <div className="profile-skills">{memberSkillLevels(selectedMember).map((level) => <span key={level.name}>{level.name}<small>{level.proficiency}</small></span>)}</div>
                   <FavoriteStar name={memberLabel(workspace, selectedMember)} pressed={isFavorited(favorites, "member", selectedMember.id)} onToggle={() => void toggleFavoriteTarget("member", selectedMember.id)} />
-                  <strong>{selectedMemberWeekLoadLabel}</strong>
+                  <strong>
+                    <span className="member-week-figure">{selectedMemberWeekLoad}%</span>
+                    <span className="member-week-caption">{weekLabel(weekStart)}の稼働</span>
+                  </strong>
                 </div>
                 <div className="member-detail-panes">
                   <div className="member-detail-load">
-                    <div className="drawer-section-title"><span>月の稼働</span><small>稼働上限 {selectedMember.capacity}%</small></div>
+                    <div className="drawer-section-title"><span>月の稼働</span></div>
                     {memberLedger.clipped && <p className="horizon-clip-note" role="note">{PERIOD_CLIP_NOTE}</p>}
                     <p className="member-detail-load-summary">
-                      <span>次に稼働率60%以下 <strong>{memberLedger.nextOpen}</strong></span>
+                      <span>次に稼働率60%以下は <strong>{memberLedger.nextOpen}</strong></span>
                     </p>
-                    <div className="member-detail-assignments">
-                      <div className="drawer-section-title"><span>{`アサイン ${memberAssignments.length}件`}</span></div>
-                    </div>
-                    <MemberLoadSheet ledger={memberLedger} assignments={memberAssignments} state={workspace} onOpen={openAssignment} />
+                    <p className="member-load-note">折れ線は、その月でいちばん忙しい日の稼働です。罫線は10%刻みです。</p>
+                    <MemberLoadSheet ledger={memberLedger} capacity={selectedMember.capacity} assignments={memberAssignments} state={workspace} onOpen={openAssignment} />
                   </div>
                   <div className="member-detail-who" role="region" aria-label="所属と経歴">
-                    <div className="profile-skills">{memberSkillLevels(selectedMember).map((level) => <span key={level.name}>{level.name}<small>{level.proficiency}</small></span>)}</div>
                     <OrgFacts state={workspace} personId={selectedMember.id} />
-                    <CustomFieldFacts fields={visibleCustomFields(workspace.customFields, "member", "detail")} values={selectedMember.customValues} />
-                    <div className="drawer-section-title"><span>業務経歴</span><small>{(selectedMember.workHistory ?? []).length}件</small></div>
-                    <WorkHistoryList entries={selectedMember.workHistory} />
-                    <div className="drawer-section-title"><span>期間指定の稼働上限</span><small>{(selectedMember.unavailability ?? []).length}件</small></div>
-                    <UnavailabilityList entries={selectedMember.unavailability} />
-                    <div className="member-detail-who-actions">
-                      <button className="drawer-secondary" type="button" onClick={() => void copyShareLink({ nav: "members", open: selectedMember.id }, "メンバーリンクをコピーしました")}>このメンバーのリンクをコピー</button>
-                      <button className="drawer-secondary" type="button" onClick={printSkillSheet}><Printer size={15} />スキルシートを印刷</button>
-                      {canManageMembers && <button className="drawer-secondary" onClick={() => openMemberEditor(selectedMember)}>メンバー情報を編集</button>}
-                      {canManageMembers && <button className="drawer-danger" onClick={archiveMember}><Trash2 size={15} />メンバーをアーカイブ</button>}
+                    <CustomFieldFacts
+                      fields={visibleCustomFields(workspace.customFields, "member", "detail").filter((field) => (selectedMember.customValues?.[field.id] ?? "").trim())}
+                      values={selectedMember.customValues}
+                    />
+                    <div className="member-work-history">
+                      {sortedWorkHistory(selectedMember.workHistory).length === 0
+                        ? <p>{"業務経歴\u3000なし"}</p>
+                        : sortedWorkHistory(selectedMember.workHistory).map((entry, index) => (
+                          <p key={entry.id}>
+                            {index === 0 && <span>業務経歴</span>}
+                            <span>{formatWorkHistoryPeriod(entry)}</span>
+                            <span>{entry.title}</span>
+                            <span>{entry.organization}</span>
+                          </p>
+                        ))}
                     </div>
                   </div>
                 </div>
                 <div className="member-detail-actions">
+                  <details className="member-detail-more">
+                    <summary role="button">その他</summary>
+                    <div className="member-detail-more-menu">
+                      <button className="drawer-secondary" type="button" onClick={() => void copyShareLink({ nav: "members", open: selectedMember.id }, "メンバーリンクをコピーしました")}>このメンバーのリンクをコピー</button>
+                      <button className="drawer-secondary" type="button" onClick={printSkillSheet}><Printer size={15} />スキルシートを印刷</button>
+                      {canManageMembers && <button className="drawer-secondary" type="button" onClick={() => openMemberEditor(selectedMember)}>メンバー情報を編集</button>}
+                      {canManageMembers && <button className="drawer-danger" type="button" onClick={archiveMember}><Trash2 size={15} />メンバーをアーカイブ</button>}
+                    </div>
+                  </details>
                   <button className="drawer-secondary" type="button" onClick={() => addMemberToProposal(selectedMember.id)}>提案ビューに追加</button>
-                  {canEdit && <button className="drawer-primary" onClick={() => openAssignmentFor(selectedMember.id)}><Plus size={16} />この人へアサインを追加</button>}
+                  {canEdit && <button className="drawer-primary" type="button" onClick={() => openAssignmentFor(selectedMember.id)}><Plus size={16} />この人へアサインを追加</button>}
                 </div>
               </div>
             )}

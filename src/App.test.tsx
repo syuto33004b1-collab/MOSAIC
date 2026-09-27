@@ -6,7 +6,7 @@ import App, { type SharedWorkspaceAdapter } from "./App";
 import { parseCsv } from "./csv";
 import { MembersView, ProjectsView, ProposalView } from "./expanded-views";
 import { DEMO_FAVORITES_KEY } from "./collaboration";
-import { addDays, boardBasisWeek, boardRange, formatDate, getWeekDays, getWeekStart, initialWorkspace, memberDailyLoads, memberLoad, memberMonthChartLabel, memberMonthLedger, memberMonthPointLabel, memberPeakLoad, PERIOD_CLIP_NOTE, weekLabel, type StaffingNeed, type WorkspaceState } from "./domain";
+import { addDays, boardBasisWeek, boardRange, formatDate, formatWorkHistoryPeriod, getWeekDays, getWeekStart, initialWorkspace, memberDailyLoads, memberLoad, memberMonthChartLabel, memberMonthLedger, memberMonthPointLabel, memberPeakLoad, PERIOD_CLIP_NOTE, weekLabel, type StaffingNeed, type WorkspaceState } from "./domain";
 import type { ChatTransport } from "./lib/ai/chatClient";
 
 function sharedAdapter(): SharedWorkspaceAdapter {
@@ -103,7 +103,7 @@ describe("role-aware workspace", () => {
     await user.click(document.querySelector(".member-table tbody tr .member-name-cell") as HTMLElement);
     const memberPanel = screen.getByRole("dialog", { name: "詳細パネル" });
     expect(within(memberPanel).queryByRole("button", { name: /アサインを追加/u })).not.toBeInTheDocument();
-    expect(within(memberPanel).queryByRole("button", { name: /メンバー情報を編集/u })).not.toBeInTheDocument();
+    expect(within(memberPanel).queryByRole("button", { name: /メンバー情報を編集/u, hidden: true })).not.toBeInTheDocument();
     expect(within(memberPanel).getByRole("button", { name: "提案ビューに追加" })).toBeInTheDocument();
   });
 
@@ -967,6 +967,7 @@ describe("role-aware workspace", () => {
 
     await user.click(navigation.getByRole("button", { name: "メンバー" }));
     await user.click(screen.getByText("佐伯 優斗").closest("button")!);
+    await user.click(screen.getByRole("button", { name: "その他" }));
     await user.click(screen.getByRole("button", { name: "メンバー情報を編集" }));
     const dialog = within(screen.getByRole("dialog", { name: "詳細パネル" }));
     await user.clear(dialog.getByLabelText("職種"));
@@ -997,6 +998,7 @@ describe("role-aware workspace", () => {
 
     await user.click(navigation.getByRole("button", { name: "メンバー" }));
     await user.click(screen.getByText("佐伯 優斗").closest("button")!);
+    await user.click(screen.getByRole("button", { name: "その他" }));
     await user.click(screen.getByRole("button", { name: "メンバーをアーカイブ" }));
     await user.click(screen.getByRole("button", { name: "チームへ保存" }));
     await waitFor(() => expect(save).toHaveBeenCalledOnce());
@@ -1014,6 +1016,7 @@ describe("role-aware workspace", () => {
     navigation = within(screen.getByRole("navigation", { name: "メインナビゲーション" }));
     await user.click(navigation.getByRole("button", { name: "メンバー" }));
     await user.click(screen.getByText(owner.name).closest("button")!);
+    await user.click(screen.getByRole("button", { name: "その他" }));
     await user.click(screen.getByRole("button", { name: "メンバーをアーカイブ" }));
     expect(confirm).not.toHaveBeenCalled();
     expect(await screen.findByText(/別メンバーへ変更してからアーカイブ/)).toBeInTheDocument();
@@ -1137,7 +1140,7 @@ describe("role-aware workspace", () => {
 
     await user.click(navigation.getByRole("button", { name: "メンバー" }));
     await user.click(screen.getByText("佐伯 優斗").closest("button")!);
-    expect(screen.queryByRole("button", { name: "メンバー情報を編集" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "メンバー情報を編集", hidden: true })).not.toBeInTheDocument();
     await user.click(within(screen.getByRole("dialog", { name: "詳細パネル" })).getByRole("button", { name: "詳細パネルを閉じる" }));
 
     await user.click(navigation.getByRole("button", { name: /^プロジェクト 登録 \d+件$/u }));
@@ -1850,7 +1853,7 @@ describe("favorites and share links", () => {
     window.history.replaceState({}, "", "/?nav=members&open=saeki");
     render(<App mode="shared" organizationName="Example Inc." identity={{ name: "計画 花子", email: "planner@example.com", role: "planner" }} shared={sharedAdapter()} />);
     expect(await screen.findByRole("heading", { name: "佐伯 優斗" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "このメンバーのリンクをコピー" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "このメンバーのリンクをコピー", hidden: true })).toBeInTheDocument();
   });
 
   it("copies a member share link from the profile drawer", async () => {
@@ -1860,6 +1863,7 @@ describe("favorites and share links", () => {
     render(<App mode="shared" organizationName="Example Inc." identity={{ name: "計画 花子", email: "planner@example.com", role: "planner" }} shared={sharedAdapter()} />);
     await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: "メンバー" }));
     await user.click(screen.getByRole("button", { name: "佐伯 優斗をお気に入りに追加" }).closest("tr")!.querySelector(".member-name-cell")!);
+    await user.click(screen.getByRole("button", { name: "その他" }));
     await user.click(screen.getByRole("button", { name: "このメンバーのリンクをコピー" }));
     await waitFor(() => expect(writeText).toHaveBeenCalled());
     expect(String(writeText.mock.calls[0][0])).toContain("nav=members");
@@ -2326,9 +2330,15 @@ describe("the member screen's scene form", () => {
     await user.click(dialog.getByRole("button", { name: "メンバーを追加" }));
     expect(screen.getByText("時短 花子")).toBeInTheDocument();
     await user.click(screen.getByText("時短 花子").closest("button")!);
-    expect(await screen.findByText("上限 50%")).toBeInTheDocument();
-    expect(screen.getByText("上限 50%").closest("span")).not.toHaveTextContent(/2026/u);
-    expect(screen.getByText(/2026年8月17日/u).tagName).toBe("EM");
+    const opened = screen.getByRole("dialog", { name: "詳細パネル" });
+    expect(within(opened).queryByText("上限 50%")).not.toBeInTheDocument();
+    expect(within(opened).queryByText("期間指定の稼働上限")).not.toBeInTheDocument();
+    await user.click(within(opened).getByRole("button", { name: "その他" }));
+    await user.click(within(opened).getByRole("button", { name: "メンバー情報を編集" }));
+    const editor = within(screen.getByRole("dialog", { name: "詳細パネル" }));
+    expect(editor.getByLabelText("期間1の開始日")).toHaveValue("2026-08-17");
+    expect(editor.getByLabelText("期間1の終了日")).toHaveValue("2026-08-21");
+    expect(editor.getByLabelText("期間1の稼働上限")).toHaveValue(50);
   });
 
   it("refuses a period with only one date instead of dropping it", async () => {
@@ -4919,7 +4929,7 @@ describe("a week-scoped figure names the week it measures", () => {
     const heads = [...document.querySelectorAll(".member-load-sheet thead th")].slice(1);
     expect(heads).toHaveLength(ledger.months.length);
     const august = ledger.months.find((month) => month.from === "2026-08-01")!;
-    const names = [...document.querySelectorAll(".member-load-total .sr-only")].map((node) => node.textContent);
+    const names = [...document.querySelectorAll(".member-month-dot .sr-only")].map((node) => node.textContent);
     expect(names).toContain(memberMonthPointLabel(august));
     expect(heads[0]!.querySelector(".member-month-year")!.textContent).toBe(`${Number(ledger.months[0]!.from.slice(0, 4))}年`);
     for (const [index, month] of ledger.months.entries()) {
@@ -4942,7 +4952,7 @@ describe("a week-scoped figure names the week it measures", () => {
       expect(document.querySelector(".member-detail-load .member-month-chart")).not.toBeNull();
     });
     expect(document.querySelector(".member-month-chart")!.getAttribute("aria-label")).toMatch(/^2026年9月/u);
-    expect([...document.querySelectorAll(".member-load-total .sr-only")].some((node) => node.textContent?.includes("2026年9月"))).toBe(true);
+    expect([...document.querySelectorAll(".member-month-dot .sr-only")].some((node) => node.textContent?.includes("2026年9月"))).toBe(true);
   });
 });
 
@@ -4966,7 +4976,7 @@ describe("detail drawer period horizon (#366)", () => {
       expect(dialog.queryByRole("button", { name: "全て" })).toBeNull();
       const chart = document.querySelector(".member-detail-load .member-month-chart")!;
       expect(chart.getAttribute("aria-label")).toMatch(/^2026年8月から2027年7月まで12か月の稼働$/u);
-      expect([...document.querySelectorAll(".member-load-total .sr-only")].some((node) => node.textContent?.includes("2026年8月"))).toBe(true);
+      expect([...document.querySelectorAll(".member-month-dot .sr-only")].some((node) => node.textContent?.includes("2026年8月"))).toBe(true);
       expect(chart.querySelector("polyline")!.getAttribute("vector-effect")).toBe("non-scaling-stroke");
       expect(document.querySelector(".member-load-scroll")).toHaveAttribute("tabindex", "0");
     } finally {
@@ -4984,7 +4994,7 @@ describe("detail drawer period horizon (#366)", () => {
       await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^メンバー( |$)/u }));
       await user.click(document.querySelector(".member-table tbody tr .member-name-cell") as HTMLElement);
       expect(document.querySelector(".member-month-chart")!.getAttribute("aria-label")).toMatch(/^2026年9月/u);
-      expect([...document.querySelectorAll(".member-load-total .sr-only")].some((node) => node.textContent?.includes("2026年9月"))).toBe(true);
+      expect([...document.querySelectorAll(".member-month-dot .sr-only")].some((node) => node.textContent?.includes("2026年9月"))).toBe(true);
       expect(document.querySelector(".member-month-chart")!.getAttribute("aria-label")).not.toContain("8/31週");
     } finally {
       vi.useRealTimers();
@@ -5673,6 +5683,7 @@ describe("renaming one of two people with one name", () => {
   const rename = async (user: ReturnType<typeof userEvent.setup>, rowLabel: string, to: string) => {
     await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^メンバー( |$)/u }));
     await user.click(memberRowButton(rowLabel));
+    await user.click(screen.getByRole("button", { name: "その他" }));
     await user.click(screen.getByRole("button", { name: "メンバー情報を編集" }));
     const dialog = within(screen.getByRole("dialog", { name: "詳細パネル" }));
     await user.clear(dialog.getByLabelText("氏名"));
@@ -5783,6 +5794,7 @@ describe("renaming one of two people with one name", () => {
     await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^メンバー( |$)/u }));
     // The twin owns nothing by id. 「林 葵」 on two projects could be either of them.
     await user.click(memberRowButton("林 葵（#t-hayashi）"));
+    await user.click(screen.getByRole("button", { name: "その他" }));
     await user.click(screen.getByRole("button", { name: "メンバーをアーカイブ" }));
 
     expect(confirm).not.toHaveBeenCalled();
@@ -7430,6 +7442,7 @@ describe("printing a skill sheet", () => {
     const real = window.print;
     window.print = print;
     try {
+      await user.click(screen.getByRole("button", { name: "その他" }));
       await user.click(screen.getByRole("button", { name: "スキルシートを印刷" }));
       expect(print).toHaveBeenCalledOnce();
       expect(document.documentElement.getAttribute("data-print-document")).toBe("skill-sheet");
@@ -7552,8 +7565,8 @@ describe("member drawer assignments are the whole history (#437)", () => {
       { id: "week-only", personId: member.id, projectId: weekProject.id, startDate: "2026-08-17", endDate: "2026-08-21", allocation: 40, status: "confirmed" },
       { id: "later-august", personId: member.id, projectId: laterProject.id, startDate: "2026-08-24", endDate: "2026-08-31", allocation: 30, status: "confirmed" },
     ]));
-    expect(dialog.getByText("アサイン 2件")).toBeInTheDocument();
-    expect(assignmentHeading(panel)).toBe("アサイン 2件");
+    expect(dialog.queryByText("アサイン 2件")).not.toBeInTheDocument();
+    expect(assignmentHeading(panel)).toBe("");
     expect(assignmentNames(panel)).toEqual(["週内案件", "月末案件"]);
     expect(dialog.queryByText("現在のアサイン")).not.toBeInTheDocument();
     expect(dialog.queryByText("1か月のアサイン")).not.toBeInTheDocument();
@@ -7571,7 +7584,7 @@ describe("member drawer assignments are the whole history (#437)", () => {
       { id: "winter", personId: member.id, projectId: winterProject.id, startDate: "2026-12-01", endDate: "2026-12-15", allocation: 20, status: "confirmed" },
     ]));
     expect(dialog.queryByRole("button", { name: "全て" })).toBeNull();
-    expect(assignmentHeading(panel)).toBe("アサイン 3件");
+    expect(assignmentHeading(panel)).toBe("");
     expect(assignmentNames(panel)).toEqual(["週内案件", "月末案件", winterProject.name]);
   });
 
@@ -7588,13 +7601,21 @@ describe("member drawer assignments are the whole history (#437)", () => {
   it("uses the empty copy when the member has no assignment", async () => {
     const user = userEvent.setup();
     const { panel, dialog } = await openPeriodMember(user, periodState([]));
-    expect(dialog.getByText("アサイン 0件")).toBeInTheDocument();
-    expect(assignmentHeading(panel)).toBe("アサイン 0件");
+    expect(dialog.queryByText("アサイン 0件")).not.toBeInTheDocument();
+    expect(assignmentHeading(panel)).toBe("");
     expect(panel.querySelector(".allocation-list")).toBeNull();
     expect(dialog.queryByText("アサインはありません")).not.toBeInTheDocument();
     expect(dialog.queryByText("この期間のアサインはありません")).not.toBeInTheDocument();
+    expect(dialog.getByText("折れ線は、その月でいちばん忙しい日の稼働です。罫線は10%刻みです。")).toBeInTheDocument();
+    expect(panel.querySelector(".member-detail-who")!.textContent).toContain("業務経歴　なし");
+    expect(panel.textContent).not.toContain("業務経歴はまだありません");
+    expect(panel.querySelector(".member-load-slack th")?.textContent).toBe("空き");
     const rowLabels = [...panel.querySelectorAll(".member-load-sheet tbody th")].map((node) => node.textContent);
-    expect(rowLabels).toEqual(expect.arrayContaining(["稼働上限", "稼働", "空き"]));
+    expect(rowLabels).not.toContain("稼働");
+    expect(rowLabels).not.toContain("稼働上限");
+    expect(panel.querySelectorAll(".member-month-chart line")).toHaveLength(11);
+    expect(panel.querySelector('.member-month-chart line[data-mark="60"]')?.classList.contains("strong")).toBe(false);
+    expect(panel.querySelector('.member-month-chart line[data-mark="50"]')?.classList.contains("strong")).toBe(true);
   });
 
   it("keeps the assignment list when the holiday calendar has already ended", async () => {
@@ -7606,7 +7627,7 @@ describe("member drawer assignments are the whole history (#437)", () => {
         { id: "week-only", personId: member.id, projectId: weekProject.id, startDate: "2026-08-17", endDate: "2026-08-21", allocation: 40, status: "confirmed" },
       ]));
       expect(dialog.getByText(PERIOD_CLIP_NOTE)).toBeInTheDocument();
-      expect(assignmentHeading(panel)).toBe("アサイン 1件");
+      expect(assignmentHeading(panel)).toBe("");
       expect(assignmentNames(panel)).toEqual(["週内案件"]);
       expect(panel.querySelector(".member-load-names small")!.textContent).toBe("2026年8月17日 — 2026年8月21日");
       expect(dialog.queryByText("アサインはありません")).not.toBeInTheDocument();
@@ -7626,12 +7647,12 @@ describe("member drawer assignments are the whole history (#437)", () => {
     const hero = panel.querySelector(".profile-hero > strong");
     const weekStart = getWeekStart(0);
     const load = memberLoad(state, member.id, weekStart);
-    const label = `${weekLabel(weekStart)}の稼働 ${load}%`;
-    expect(hero).toHaveTextContent(label);
+    expect(hero?.querySelector(".member-week-figure")?.textContent).toBe(`${load}%`);
+    expect(hero?.querySelector(".member-week-caption")?.textContent).toBe(`${weekLabel(weekStart)}の稼働`);
     expect(hero).not.toHaveAttribute("title");
     expect(hero).not.toHaveAttribute("aria-label");
     expect(hero?.querySelector("small")).toBeNull();
-    expect(label).not.toContain("今週");
+    expect(hero?.textContent).not.toContain("今週");
     expect(document.body.textContent).not.toContain("今週");
   });
 
@@ -7644,7 +7665,8 @@ describe("member drawer assignments are the whole history (#437)", () => {
     const hero = screen.getByRole("dialog", { name: "詳細パネル" }).querySelector(".profile-hero > strong");
     const pagedWeek = boardBasisWeek(boardRange("month", 1));
     const load = memberLoad(initialWorkspace, "saeki", pagedWeek);
-    expect(hero).toHaveTextContent(`${weekLabel(pagedWeek)}の稼働 ${load}%`);
+    expect(hero?.querySelector(".member-week-figure")?.textContent).toBe(`${load}%`);
+    expect(hero?.querySelector(".member-week-caption")?.textContent).toBe(`${weekLabel(pagedWeek)}の稼働`);
     expect(weekLabel(pagedWeek)).not.toBe(weekLabel(getWeekStart(0)));
   });
 
@@ -7654,8 +7676,8 @@ describe("member drawer assignments are the whole history (#437)", () => {
       { id: "week-only", personId: member.id, projectId: weekProject.id, startDate: "2026-08-17", endDate: "2026-08-21", allocation: 40, status: "confirmed" },
     ]));
     const hero = panel.querySelector(".profile-hero > strong");
-    expect(hero).toHaveTextContent(weekLabel(getWeekStart(0)));
-    expect(hero?.textContent).toContain("%");
+    expect(hero?.querySelector(".member-week-caption")?.textContent).toContain(weekLabel(getWeekStart(0)));
+    expect(hero?.querySelector(".member-week-figure")?.textContent).toMatch(/%$/u);
     expect(hero?.textContent).not.toContain("今週");
     expect(hero?.querySelector("small")).toBeNull();
   });
@@ -7672,11 +7694,15 @@ describe("member drawer assignments are the whole history (#437)", () => {
     expect(who).toBeTruthy();
     expect(load!.compareDocumentPosition(who!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(load!.querySelector(".member-load-sheet")).not.toBeNull();
-    expect(who!.textContent).toContain("業務経歴");
+    expect(who!.textContent).toContain("業務経歴　なし");
     expect(load!.textContent).not.toContain("業務経歴");
-    expect(who!.textContent).toContain("スキルシートを印刷");
+    expect(who!.textContent).not.toContain("スキルシートを印刷");
+    expect(who!.textContent).not.toContain("期間指定の稼働上限");
+    expect(panel.querySelector(".profile-hero .profile-skills")?.textContent).toContain("Figma");
+    expect(panel.querySelector(".member-detail-who .profile-skills")).toBeNull();
     expect(panel.querySelector(".member-detail-actions")!.textContent).toContain("この人へアサインを追加");
-    expect(panel.querySelector(".member-detail-actions")!.textContent).not.toContain("スキルシートを印刷");
+    expect(panel.querySelector(".member-detail-actions")!.textContent).toContain("スキルシートを印刷");
+    expect(panel.querySelector(".member-load-scroll")!.contains(panel.querySelector(".member-detail-actions"))).toBe(false);
   });
 
   it("plots the month peak on the line, and keeps peak and slack on the basis window", async () => {
@@ -7694,7 +7720,7 @@ describe("member drawer assignments are the whole history (#437)", () => {
     const chart = panel.querySelector(".member-month-chart");
     expect(chart).toHaveAttribute("role", "img");
     expect(chart).toHaveAccessibleName(memberMonthChartLabel(ledger.months));
-    const names = [...panel.querySelectorAll(".member-load-total .sr-only")].map((node) => node.textContent);
+    const names = [...panel.querySelectorAll(".member-month-dot .sr-only")].map((node) => node.textContent);
     expect(names).toHaveLength(12);
     expect(names).toContain(memberMonthPointLabel(august));
     expect(names.join("")).not.toContain("2026年4月");
@@ -7702,10 +7728,9 @@ describe("member drawer assignments are the whole history (#437)", () => {
     expect(names.join("")).not.toContain("稼働率");
     expect(chart!.getAttribute("aria-label")).not.toContain("、");
     expect(chart!.querySelectorAll(".member-month-dot")).toHaveLength(12);
-    const totals = [...panel.querySelectorAll(".member-load-total td")].map((node) => node.querySelector(".sr-only")!.textContent);
-    expect(totals).toEqual(ledger.months.map((month) => memberMonthPointLabel(month)));
+    expect(names).toEqual(ledger.months.map((month) => memberMonthPointLabel(month)));
     const summary = panel.querySelector(".member-detail-load-summary")!;
-    expect(summary.textContent).toContain(`次に稼働率60%以下 ${ledger.nextOpen}`);
+    expect(summary.textContent).toContain(`次に稼働率60%以下は ${ledger.nextOpen}`);
     expect(summary.textContent).not.toContain("ピーク");
     expect(summary.textContent).not.toContain("最小空き");
     expect(panel.querySelector(".member-detail-load .profile-capacity")).toBeNull();
@@ -7732,7 +7757,7 @@ describe("member drawer assignments are the whole history (#437)", () => {
     expect(ledger.months.some((month) => month.from === "2027-12-01")).toBe(false);
     const chart = panel.querySelector(".member-month-chart");
     expect(chart).toHaveAccessibleName(memberMonthChartLabel(ledger.months));
-    const names = [...panel.querySelectorAll(".member-load-total .sr-only")].map((node) => node.textContent);
+    const names = [...panel.querySelectorAll(".member-month-dot .sr-only")].map((node) => node.textContent);
     expect(names).toContain(memberMonthPointLabel(august));
     expect(names.join("")).not.toContain("2027年12月");
     expect(names).toHaveLength(ledger.months.length);
@@ -7756,12 +7781,43 @@ describe("member drawer assignments are the whole history (#437)", () => {
     expect(august.peak).toBe(60);
     expect(august.exceeds).toBe(true);
     expect(august.ceiling).toBe(50);
-    expect(panel.querySelector(".member-detail-load")!.textContent).toContain("稼働上限 100%");
-    expect(panel.querySelector(".member-load-total")!.textContent).toContain("2026年8月 60% 上限超過");
+    expect(panel.querySelector(".profile-hero")!.textContent).toContain("稼働上限 100%");
+    expect(panel.querySelector(".member-load-total")).toBeNull();
+    expect([...panel.querySelectorAll(".member-month-dot .sr-only")].some((node) => node.textContent === "2026年8月 60% 上限超過")).toBe(true);
     const ceiling = [...panel.querySelectorAll(".member-load-sheet tbody tr")].find((row) => row.querySelector("th")?.textContent === "稼働上限");
     expect(ceiling?.querySelector("td")?.textContent).toBe("50");
+    expect(panel.querySelector(".member-load-slack td")?.textContent).toBe(String(august.slack));
+    expect(august.slack).not.toBe((august.ceiling ?? 0) - august.peak);
+    expect(panel.querySelector(".member-load-assignments")!.contains(panel.querySelector(".member-load-slack"))).toBe(false);
     expect(panel.querySelector(".member-month-chart")).toHaveAccessibleName(memberMonthChartLabel(memberMonthLedger(state, capped, "2026-08-19").months));
     expect(panel.querySelector(".member-month-chart")!.getAttribute("aria-label")).not.toContain("稼働率");
+  });
+
+  it("keeps a compact history line and folds maintenance into その他", async () => {
+    const user = userEvent.setup();
+    const withHistory = {
+      ...member,
+      workHistory: [{ id: "h1", title: "基盤開発", organization: "自社", startDate: "2022-04-01", endDate: "2025-03-31" }],
+    };
+    const { panel, dialog } = await openPeriodMember(user, periodState([], { members: [withHistory] }));
+    const line = panel.querySelector(".member-work-history p")!;
+    expect(line.textContent).toContain("業務経歴");
+    expect(line.textContent).toContain("基盤開発");
+    expect(line.textContent).toContain("自社");
+    expect(line.textContent).toContain(formatWorkHistoryPeriod(withHistory.workHistory[0]!));
+    expect(panel.querySelector(".candidate-empty")).toBeNull();
+    const more = panel.querySelector(".member-detail-more") as HTMLDetailsElement;
+    expect(more.open).toBe(false);
+    expect(panel.querySelector(".member-detail-who")!.textContent).not.toContain("メンバー情報を編集");
+    expect(within(more).getByRole("button", { name: "メンバー情報を編集" })).toBeInTheDocument();
+    await user.click(dialog.getByRole("button", { name: "その他" }));
+    expect(more.open).toBe(true);
+    expect(dialog.getByRole("button", { name: "このメンバーのリンクをコピー" })).toBeInTheDocument();
+    expect(dialog.getByRole("button", { name: "スキルシートを印刷" })).toBeInTheDocument();
+    expect(dialog.getByRole("button", { name: "メンバー情報を編集" })).toBeInTheDocument();
+    expect(dialog.getByRole("button", { name: "メンバーをアーカイブ" })).toBeInTheDocument();
+    expect(dialog.getByRole("button", { name: "提案ビューに追加" })).toBeInTheDocument();
+    expect(dialog.getByRole("button", { name: "この人へアサインを追加" })).toBeInTheDocument();
   });
 });
 
@@ -8062,6 +8118,7 @@ describe("member edit history and period removal (#438)", () => {
     render(<App />);
     await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^メンバー( |$)/u }));
     await user.click(memberRowButton("佐伯 優斗"));
+    await user.click(screen.getByRole("button", { name: "その他" }));
     await user.click(screen.getByRole("button", { name: "メンバー情報を編集" }));
     return within(screen.getByRole("dialog", { name: "詳細パネル" }));
   };

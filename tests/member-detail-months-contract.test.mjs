@@ -7,29 +7,48 @@ import { fileURLToPath } from "node:url";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 /**
- * #450. The member detail line sits in the month table, so the tall drawer
- * stays one column. Actions stay pinned; the sheet scrolls with the rest.
+ * #454. The member dialog is content height. Only assignment rows scroll, at
+ * every viewport, so the month line and the buttons stay on screen.
  */
 
 const read = (name) => readFile(path.join(root, name), "utf8");
 
-test("the tall member drawer scrolls one column and pins the actions", async () => {
+test("the member drawer sizes to its content and scrolls only assignment rows", async () => {
   const css = await read("src/styles.css");
-  const media = css.slice(css.indexOf("@media (min-width: 1052px) and (min-height: 720px)"));
-  const panes = media.match(/\.member-detail-panes \{([^}]+)\}/u);
-  const actions = media.match(/\.member-detail-actions \{([^}]+)\}/u);
-  assert.ok(panes, "the tall query no longer styles .member-detail-panes");
-  assert.ok(actions, "the tall query no longer styles .member-detail-actions");
-  assert.match(panes[1], /overflow:\s*auto/u);
+  const drawer = css.match(/\.drawer\.member-detail-open \{([^}]+)\}/u);
+  assert.ok(drawer, "the member drawer has no size of its own");
+  assert.match(drawer[1], /overflow:\s*hidden/u);
+  assert.match(drawer[1], /display:\s*flex/u);
+  assert.match(drawer[1], /flex-direction:\s*column/u);
+  assert.match(drawer[1], /height:\s*auto/u);
+  assert.match(drawer[1], /max-height:\s*100%/u);
+  const scroll = css.match(/\.member-load-scroll \{([^}]+)\}/u);
+  assert.ok(scroll, "the month sheet has no sideways port");
+  assert.match(scroll[1], /overflow-x:\s*auto/u);
+  assert.match(scroll[1], /overflow-y:\s*hidden/u);
+  const assignments = css.match(/\.member-load-assignments \{([^}]+)\}/u);
+  assert.ok(assignments, "assignment rows have no scroller");
+  assert.match(assignments[1], /overflow-y:\s*auto/u);
+  assert.match(css, /min-width:\s*32rem/u);
+  assert.doesNotMatch(css, /min-width:\s*44rem/u);
+  const panes = css.match(/\.member-detail-panes \{([^}]+)\}/u);
+  assert.ok(panes);
+  assert.match(panes[1], /overflow:\s*hidden/u);
   assert.match(panes[1], /flex-direction:\s*column/u);
   assert.doesNotMatch(panes[1], /grid-template-columns/u);
+  assert.doesNotMatch(panes[1], /overflow:\s*auto/u);
+  const actions = css.match(/\.member-detail-actions \{([^}]+)\}/u);
+  assert.ok(actions);
   assert.match(actions[1], /flex:\s*0 0 auto/u);
+  const media = css.slice(css.indexOf("@media (min-width: 1052px) and (min-height: 720px)"));
+  assert.doesNotMatch(media, /\.member-detail-panes/u);
+  assert.doesNotMatch(media, /\.drawer\.member-detail-open/u);
 });
 
-test("the hero sentence wraps at the text floor", async () => {
+test("the hero week caption wraps at the text floor", async () => {
   const css = await read("src/styles.css");
-  const rule = css.match(/\.member-detail \.profile-hero > strong \{([^}]+)\}/u);
-  assert.ok(rule, "the member hero sentence has no override");
+  const rule = css.match(/\.member-week-caption \{([^}]+)\}/u);
+  assert.ok(rule, "the week caption has no size of its own");
   assert.match(rule[1], /font-size:\s*var\(--text-min\)/u);
   assert.match(rule[1], /white-space:\s*normal/u);
   assert.doesNotMatch(rule[1], /nowrap/u);
@@ -50,9 +69,14 @@ test("the plot cell is not inset and the date stays at the text floor", async ()
 
 test("the month line shares the table and keeps a non-scaling stroke", async () => {
   const app = await read("src/App.tsx");
+  const css = await read("src/styles.css");
   assert.match(app, /className="member-load-sheet"/u);
   assert.match(app, /colSpan=\{months\.length\}/u);
   assert.match(app, /vectorEffect="non-scaling-stroke"/u);
   assert.match(app, /preserveAspectRatio="none"/u);
+  assert.match(app, /data-mark=\{value\}/u);
   assert.doesNotMatch(app, /memberMonthScrollLeft/u);
+  const sheet = css.match(/\.member-load-sheet \{([^}]+)\}/u);
+  assert.ok(sheet);
+  assert.doesNotMatch(sheet[1], /min-width:\s*44rem/u);
 });
