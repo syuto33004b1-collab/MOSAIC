@@ -1926,6 +1926,25 @@ export function projectPeriodCount(
   return projectMembersLow(state, project.id, start, end);
 }
 
+/**
+ * The figure beside a project name. Each count is already the thinnest week
+ * in that bucket (`projectPeriodCount`); the headline is the thinnest of
+ * those that overlap the project. Progress and an average are not this
+ * number. `spoken` is what to read instead of `1/3`, which a screen reader
+ * treats as a fraction.
+ */
+export function projectPeriodHeadline(demand: number, counts: readonly (number | null)[], periodLabel: string) {
+  if (demand === 0) return { figure: "未設定", caption: "必要人数 未設定", spoken: "必要人数 未設定" };
+  const inProject = counts.filter((count): count is number => count !== null);
+  if (inProject.length === 0) {
+    const caption = `${periodLabel}は案件期間外`;
+    return { figure: "—", caption, spoken: caption };
+  }
+  const thinnest = Math.min(...inProject);
+  const caption = counts.length > 1 ? `${periodLabel}でいちばん薄い` : `${periodLabel}の充足`;
+  return { figure: `${thinnest}/${demand}`, caption, spoken: `必要${demand}名のうち${thinnest}名` };
+}
+
 export function memberById(state: WorkspaceState, id: string) {
   return state.members.find((member) => member.id === id);
 }

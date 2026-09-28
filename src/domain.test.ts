@@ -88,6 +88,7 @@ import {
   projectMembers,
   projectMembersLow,
   projectPeriodCount,
+  projectPeriodHeadline,
   openNeeds,
   parseSkillInput,
   skillInputProblems,
@@ -1823,6 +1824,31 @@ describe("period range (#329 / #364)", () => {
     };
     expect(projectMembersLow(earlyEnd, "p", "2026-08-01", "2026-08-31")).toBe(0);
     expect(projectPeriodCount(earlyEnd, { id: "p", startDate: "2026-08-01", endDate: "2026-08-21" }, "2026-08-01", "2026-08-31")).toBe(2);
+  });
+
+  it("names the thinnest in-project bucket, and does not call an empty span thin", () => {
+    expect(projectPeriodHeadline(3, [1], "1か月")).toEqual({
+      figure: "1/3",
+      caption: "1か月の充足",
+      spoken: "必要3名のうち1名",
+    });
+    expect(projectPeriodHeadline(3, [2, 0, 1], "6か月")).toEqual({
+      figure: "0/3",
+      caption: "6か月でいちばん薄い",
+      spoken: "必要3名のうち0名",
+    });
+    expect(projectPeriodHeadline(3, [null, 1], "全期間").figure).toBe("1/3");
+    expect(projectPeriodHeadline(3, [null, null], "1か月")).toEqual({
+      figure: "—",
+      caption: "1か月は案件期間外",
+      spoken: "1か月は案件期間外",
+    });
+    expect(projectPeriodHeadline(3, [], "全期間").caption).toBe("全期間は案件期間外");
+    expect(projectPeriodHeadline(0, [null], "1か月")).toEqual({
+      figure: "未設定",
+      caption: "必要人数 未設定",
+      spoken: "必要人数 未設定",
+    });
   });
 
   it("keeps week labels relative after the first and months as the calendar month", () => {
