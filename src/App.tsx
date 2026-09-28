@@ -628,6 +628,19 @@ function monthChartYMax(peaks: number[]) {
   return Math.ceil(raw / 10) * 10;
 }
 
+/** Month edges the vertical guides should meet, in order. A miss over 1px drops every guide. */
+export function monthColumnGuidesMisaligned(
+  lines: Array<{ left: number; right: number }>,
+  monthLefts: number[],
+) {
+  if (lines.length === 0) return false;
+  return lines.some((line, index) => {
+    const left = monthLefts[index];
+    if (left == null || !Number.isFinite(left)) return true;
+    return Math.abs((line.left + line.right) / 2 - left) > 1;
+  });
+}
+
 function MemberMonthHeaders({
   months,
   accessibleOnly = false,
@@ -673,6 +686,26 @@ function MemberLoadSheet({
   onOpen: (assignmentId: string) => void;
 }) {
   const { months } = ledger;
+  const monthKey = months.map((month) => month.from).join("\0");
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [droppedColumnsFor, setDroppedColumnsFor] = useState<string | null>(null);
+  const dropColumns = droppedColumnsFor === monthKey;
+  useLayoutEffect(() => {
+    const root = scrollRef.current;
+    if (!root || dropColumns) return;
+    const heads = [...root.querySelectorAll<HTMLElement>(".member-load-head thead th")]
+      .filter((th) => !th.classList.contains("sr-only") && th.getBoundingClientRect().width > 1);
+    const lines = [...root.querySelectorAll<SVGLineElement>(".member-month-column")];
+    if (heads.length < 2 || lines.length === 0) return;
+    const misaligned = monthColumnGuidesMisaligned(
+      lines.map((line) => {
+        const box = line.getBoundingClientRect();
+        return { left: box.left, right: box.right };
+      }),
+      heads.slice(2).map((th) => th.getBoundingClientRect().left),
+    );
+    if (misaligned) setDroppedColumnsFor(monthKey);
+  }, [monthKey, dropColumns]);
   if (months.length === 0) {
     return (
       // No month line to scroll sideways. The names still use the one row scroller.
@@ -702,7 +735,7 @@ function MemberLoadSheet({
     // months (#454). `region` is not an interactive role, but without tabIndex
     // the keyboard cannot move the line (#437, #450).
     // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- scrollport
-    <div className="member-load-scroll" tabIndex={0} role="region" aria-label="月の稼働">
+    <div className="member-load-scroll" tabIndex={0} role="region" aria-label="月の稼働" ref={scrollRef}>
       <div className="member-load-head-wrap">
       <table className="member-load-sheet member-load-head">
         <caption className="sr-only">月の稼働。折れ線はその月でいちばん忙しい日の稼働です。罫線は10%刻みです。</caption>
@@ -734,7 +767,7 @@ function MemberLoadSheet({
                       />
                     );
                   })}
-                  {months.slice(1).map((month, index) => (
+                  {!dropColumns && months.slice(1).map((month, index) => (
                     <line
                       key={month.from}
                       className="member-month-column"

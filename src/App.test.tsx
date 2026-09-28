@@ -2,7 +2,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import userEvent from "@testing-library/user-event";
 import axe from "axe-core";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import App, { type SharedWorkspaceAdapter } from "./App";
+import App, { monthColumnGuidesMisaligned, type SharedWorkspaceAdapter } from "./App";
 import { parseCsv } from "./csv";
 import { MembersView, ProjectsView, ProposalView } from "./expanded-views";
 import { DEMO_FAVORITES_KEY } from "./collaboration";
@@ -7846,6 +7846,37 @@ describe("member drawer assignments are the whole history (#437)", () => {
     expect(panel.querySelector('.member-month-chart line[data-mark="125"]')).toBeNull();
     expect(panel.querySelector('.member-month-chart line[data-mark="130"]')?.classList.contains("strong")).toBe(true);
     expect(panel.querySelector('.member-month-chart line[data-mark="60"]')?.classList.contains("strong")).toBe(false);
+  });
+
+  it("keeps a vertical guide that sits within 1px of the month edge", () => {
+    expect(monthColumnGuidesMisaligned([{ left: 100, right: 100.86 }], [100.43])).toBe(false);
+    expect(monthColumnGuidesMisaligned([{ left: 0, right: 0 }], [1])).toBe(false);
+  });
+
+  it("drops every vertical guide when one misses its month edge", () => {
+    expect(monthColumnGuidesMisaligned([{ left: 10, right: 10 }, { left: 40, right: 40 }], [80, 40])).toBe(true);
+    expect(monthColumnGuidesMisaligned([{ left: 0, right: 0 }], [])).toBe(true);
+    expect(monthColumnGuidesMisaligned([], [10])).toBe(false);
+  });
+
+  it("removes the chart columns after render when they miss the month edges", async () => {
+    const user = userEvent.setup();
+    const original = Element.prototype.getBoundingClientRect;
+    Element.prototype.getBoundingClientRect = function () {
+      if (this.classList.contains("member-month-column")) return new DOMRect(10, 0, 0, 20);
+      if (this.matches(".member-load-head thead th") && !this.classList.contains("sr-only")) {
+        const index = [...(this.parentElement?.children ?? [])].indexOf(this);
+        return new DOMRect(index * 40, 0, 40, 20);
+      }
+      return original.call(this);
+    };
+    try {
+      const { panel } = await openPeriodMember(user, periodState([]));
+      await waitFor(() => expect(panel.querySelectorAll(".member-month-column")).toHaveLength(0));
+      expect(panel.querySelectorAll(".member-month-guide").length).toBeGreaterThan(0);
+    } finally {
+      Element.prototype.getBoundingClientRect = original;
+    }
   });
 
   it("keeps a compact history line and folds maintenance into その他", async () => {

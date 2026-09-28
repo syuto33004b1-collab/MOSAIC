@@ -2924,6 +2924,21 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   flex: 0 0 auto;
   overflow: visible;
 }
+/* A short window cannot honour the 14.5rem / 20rem floors and still show 空き.
+   Release the floors and let the history yield, so the slack row stays in
+   the panes instead of being clipped or covered. */
+@media (max-height: 700px) {
+  .member-detail-load:has(.member-load-scroll),
+  .member-load-scroll {
+    min-height: 0;
+  }
+  .member-load-assignments {
+    flex-basis: 0;
+  }
+  .member-detail-who {
+    display: none;
+  }
+}
 .member-work-history { margin: 12px 0 0; display: flex; flex-direction: column; gap: 2px; }
 .member-work-history p {
   margin: 0;
