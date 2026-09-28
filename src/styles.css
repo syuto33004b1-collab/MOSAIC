@@ -3042,6 +3042,13 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
     overflow: hidden;
     display: flex;
     flex-direction: column;
+    /* Short projects used to stretch to the viewport and leave a blank pane
+       with the buttons pinned at the bottom. Size to the content, and pin the
+       top to the overlay padding so a period tab does not jump when the
+       dialog grows. */
+    height: auto;
+    max-height: 100%;
+    align-self: flex-start;
   }
   .drawer.project-detail-open .drawer-top { flex: 0 0 auto; }
   .project-detail {
@@ -3086,10 +3093,6 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
     border-top: 1px solid var(--line);
     background: var(--paper);
   }
-  .drawer.project-detail-open .profile-capacity {
-    display: flex;
-    flex-direction: column;
-  }
   /* The drawer container query puts these lists in two columns once the
      panel is 650px. Inside a pane that is half of that, the name column
      fell to 18px. Keep one column here. */
@@ -3101,6 +3104,13 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   .drawer.project-detail-open .detail-member-list button:nth-child(odd):not(:last-child) {
     border-right: 0;
   }
+}
+/* The capacity rail is a time series. The container query lays months in two
+   columns once the panel is wide, which puts April beside May. One column at
+   every viewport, including windows shorter than 720px (#210). */
+.drawer.project-detail-open .profile-capacity {
+  display: flex;
+  flex-direction: column;
 }
 .profile-skills { margin-bottom: 22px; display: flex; flex-wrap: wrap; gap: 5px; }
 .profile-capacity { margin-bottom: 22px; display: flex; flex-direction: column; gap: 9px; }
@@ -3125,6 +3135,34 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .profile-capacity b.over { background: #e87970; }
 .profile-capacity b.short { background: #eaa078; }
 .profile-capacity strong { color: #687285; font-family: var(--font-data); font-size: 7px; text-align: right; }
+/* Project detail (#467). The label track is 72px: 「2026年10月–」 measures 66px
+   in this rail's 12px face, so the year-month stays one line and a wider
+   bucket breaks after the dash. The figure track stays 80px (#210). */
+.project-detail .drawer-section-title { margin-bottom: 12px; }
+.project-detail .detail-facts { padding: 16px; gap: 16px; }
+.project-detail .detail-member-list button { padding: 12px 14px; }
+.project-detail .profile-capacity { gap: 12px; }
+.project-detail .profile-capacity > div { grid-template-columns: 72px minmax(0, 1fr) 80px; }
+.project-detail .detail-member-list small,
+.project-detail .detail-need-list small,
+.project-detail .profile-capacity span {
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+.project-need-allocation { white-space: nowrap; }
+.project-detail .detail-need-list { gap: 10px; }
+.project-detail .detail-need-list button { padding: 12px 14px; }
+.project-detail .profile-capacity i { position: relative; height: 10px; }
+.project-capacity-tick {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  transform: translateX(-0.5px);
+  background: color-mix(in srgb, var(--ink) 55%, transparent);
+  pointer-events: none;
+}
+.project-capacity-tick[data-inside="true"] { background: var(--paper); }
 
 @media (max-width: 1120px) {
   .portfolio-ribbon, .member-ribbon { gap: 16px; }

@@ -372,6 +372,20 @@ const MEMBER_PICKER_LIMIT = 12;
 const shortDate = (iso: string) => /^\d{4}-\d{2}-\d{2}$/u.test(iso) ? formatDate(iso).replace(/^\d{4}年/u, "") : "—";
 
 /**
+ * One tick per required person, not counting the ends. Demand outside 2..12,
+ * or a month outside the project (`count === null`), draws nothing: a comb
+ * stops being a count. `inside` is strictly left of the fill, so a tick on
+ * the fill's edge stays on the empty side of the track.
+ */
+export function capacityTickMarks(demand: number, count: number | null) {
+  if (count === null || !Number.isInteger(demand) || demand < 2 || demand > 12) return [];
+  return Array.from({ length: demand - 1 }, (_, index) => {
+    const fraction = (index + 1) / demand;
+    return { fraction, inside: fraction < count / demand };
+  });
+}
+
+/**
  * The project drawer's 「次の節目」 cell. The list already shows the name and a
  * `8/28` date; this uses the same month-day as 「完了予定」 in the same grid.
  * Missing parts drop out. Both missing, or a date that is not `YYYY-MM-DD`,
@@ -4094,7 +4108,8 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                         const unset = selectedProject.demand === 0;
                         const width = outside ? 0 : unset ? 100 : Math.min(100, count / selectedProject.demand * 100);
                         const figure = outside ? "—" : unset ? "未設定" : `${count}/${selectedProject.demand}名`;
-                        return <div key={`${bucket.from}:${bucket.to}`}><span>{periodBucketLabel(drawerPeriod, bucket, index)}</span><i><b className={!outside && !unset && count < selectedProject.demand ? "short" : ""} style={{ width: width + "%" }} /></i><strong>{figure}</strong></div>;
+                        const ticks = capacityTickMarks(outside ? 0 : selectedProject.demand, outside ? null : count);
+                        return <div key={`${bucket.from}:${bucket.to}`}><span>{periodBucketLabel(drawerPeriod, bucket, index)}</span><i><b className={!outside && !unset && count < selectedProject.demand ? "short" : ""} style={{ width: width + "%" }} />{ticks.map((tick, tickIndex) => <span key={tickIndex} className="project-capacity-tick" data-inside={tick.inside ? "true" : "false"} style={{ left: (tick.fraction * 100) + "%" }} aria-hidden="true" />)}</i><strong>{figure}</strong></div>;
                       })}</div>
                       {drawerPeriodHasRange && (
                         <>
@@ -4113,7 +4128,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                       <button className="drawer-secondary" onClick={() => openOpportunity((workspace.opportunities ?? []).find((opportunity) => opportunity.convertedProjectId === selectedProject.id)!.id)}>元の受注前案件を開く</button>
                     )}
                     <div className="drawer-section-title"><span>要員要件</span><small>{selectedProjectNeeds.length}件</small></div>
-                    {selectedProjectNeeds.length > 0 ? <div className="detail-need-list">{selectedProjectNeeds.map((need) => <button onClick={() => openStaffingNeed(need.id)} key={need.id}><span><strong>{need.role}</strong><small>{formatDate(need.startDate)} — {formatDate(need.endDate)} · {`稼働配分 ${need.allocation}%`}</small></span><em>{need.status === "open" ? "候補を見る" : need.status === "planned" ? "解消予定" : "充足済み"}</em><ChevronRight size={14} /></button>)}</div> : <div className="candidate-empty"><UsersRound size={18} /><span><strong>要員要件はありません</strong><small>必要なロールと期間を追加できます。</small></span></div>}
+                    {selectedProjectNeeds.length > 0 ? <div className="detail-need-list">{selectedProjectNeeds.map((need) => <button onClick={() => openStaffingNeed(need.id)} key={need.id}><span><strong>{need.role}</strong><small>{formatDate(need.startDate)} — {formatDate(need.endDate)} · <span className="project-need-allocation">{`稼働配分 ${need.allocation}%`}</span></small></span><em>{need.status === "open" ? "候補を見る" : need.status === "planned" ? "解消予定" : "充足済み"}</em><ChevronRight size={14} /></button>)}</div> : <div className="candidate-empty"><UsersRound size={18} /><span><strong>要員要件はありません</strong><small>必要なロールと期間を追加できます。</small></span></div>}
                     <div className="entity-action-row">
                       <FavoriteStar name={selectedProject.name} pressed={isFavorited(favorites, "project", selectedProject.id)} onToggle={() => void toggleFavoriteTarget("project", selectedProject.id)} />
                       <button className="drawer-secondary" type="button" onClick={() => void copyShareLink({ nav: "projects", open: selectedProject.id }, "案件リンクをコピーしました")}>この案件のリンクをコピー</button>
