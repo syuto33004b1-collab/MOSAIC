@@ -73,6 +73,23 @@ test("the plot cell is not inset and the date stays at the text floor", async ()
   const names = css.match(/\.member-load-names small \{([^}]+)\}/u);
   assert.ok(names, "the dateless-window date has no size of its own");
   assert.match(names[1], /font-size:\s*var\(--text-min\)/u);
+  assert.match(date[1], /word-break:\s*keep-all/u);
+  assert.match(date[1], /overflow-wrap:\s*normal/u);
+  assert.match(names[1], /word-break:\s*keep-all/u);
+  assert.match(names[1], /overflow-wrap:\s*normal/u);
+  assert.match(css, /border-inline-start:\s*1px solid var\(--line\)/u);
+  assert.match(css, /border-inline-end:\s*1px solid var\(--line\)/u);
+  assert.match(css, /\.member-load-assignments \.member-load-sheet th,\s*\.member-load-assignments \.member-load-sheet td \{ padding-block:\s*8px;\s*\}/u);
+  assert.match(css, /\.member-detail \.profile-hero \{[^}]*margin-bottom:\s*16px/u);
+  assert.match(css, /\.member-detail \.drawer-section-title \{ margin-bottom:\s*12px;\s*\}/u);
+  assert.match(css, /\.member-detail-load-summary \{[^}]*margin:\s*0 0 8px/u);
+  assert.match(css, /\.member-load-note \{[^}]*margin:\s*0 0 12px/u);
+  assert.match(css, /\.member-work-history \{[^}]*margin:\s*12px 0 0/u);
+  assert.match(css, /\.member-detail-actions \{[^}]*margin-top:\s*16px/u);
+  const short = css.match(/@media \(max-height:\s*700px\) \{([\s\S]*?)\n\}/u);
+  assert.ok(short, "a short window has no release for the chart floors");
+  assert.match(short[1], /\.member-load-scroll/u);
+  assert.match(short[1], /min-height:\s*0/u);
 });
 
 test("the month line shares the table and keeps a non-scaling stroke", async () => {
@@ -83,6 +100,8 @@ test("the month line shares the table and keeps a non-scaling stroke", async () 
   assert.match(app, /vectorEffect="non-scaling-stroke"/u);
   assert.match(app, /preserveAspectRatio="none"/u);
   assert.match(app, /data-mark=\{value\}/u);
+  assert.match(app, /className="member-month-column"/u);
+  assert.match(app, /monthColumnGuidesMisaligned/u);
   assert.match(app, /className="member-month-points"/u);
   assert.doesNotMatch(app, /memberMonthScrollLeft/u);
   const empty = app.slice(app.indexOf("if (months.length === 0)"), app.indexOf("const yMax"));
