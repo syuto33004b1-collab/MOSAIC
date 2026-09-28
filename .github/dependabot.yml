@@ -60,7 +60,26 @@ updates:
       time: "09:15"
       timezone: Asia/Tokyo
     open-pull-requests-limit: 5
+    # Deploy to Cloudflare stopped before any job existed after main contained
+    # both upload-artifact 7.x and download-artifact 8.x (measured 2026-09-28,
+    # #459). Those majors were not separated, so both are the rollback
+    # boundary, not a claim that each one fails on its own. Remove an entry
+    # only after a main push that uses that major creates Deploy jobs.
+    # The next major of each action is still offered, including the untested
+    # majors between v4 and the ignored one (upload 5/6, download 5/6/7).
+    # This also silences security updates inside the ignored major. The alert
+    # still arrives. Nothing announces that upstream has caught up.
+    ignore:
+      - dependency-name: actions/upload-artifact
+        versions: ["7.x"]
+      - dependency-name: actions/download-artifact
+        versions: ["8.x"]
     groups:
       github-actions:
         patterns:
           - "*"
+        # Keep these two out of the weekly group so the next offer, including
+        # an untested major, arrives as its own pull request and is judged alone.
+        exclude-patterns:
+          - "actions/upload-artifact"
+          - "actions/download-artifact"
