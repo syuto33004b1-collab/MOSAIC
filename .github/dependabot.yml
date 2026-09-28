@@ -60,6 +60,18 @@ updates:
       time: "09:15"
       timezone: Asia/Tokyo
     open-pull-requests-limit: 5
+    # Deploy dies before any job exists when these majors are on main.
+    # Measured 2026-09-28 (#459): upload-artifact 7.x and download-artifact 8.x
+    # left Deploy MOSAIC to Cloudflare as startup_failure with zero jobs.
+    # Only those majors are named, so the next one is offered and judged alone.
+    # Remove an entry when a main push that uses it creates Deploy jobs.
+    # This also silences security updates inside the ignored major. The alert
+    # still arrives. Nothing announces that upstream has caught up.
+    ignore:
+      - dependency-name: actions/upload-artifact
+        versions: ["7.x"]
+      - dependency-name: actions/download-artifact
+        versions: ["8.x"]
     groups:
       github-actions:
         patterns:
