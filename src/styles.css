@@ -2965,8 +2965,10 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   margin-top: 0;
   flex: 1 1 9rem;
 }
-.member-detail-more { position: relative; flex: 0 0 auto; }
-.member-detail-more > summary {
+.member-detail-more,
+.project-detail-more { position: relative; flex: 0 0 auto; }
+.member-detail-more > summary,
+.project-detail-more > summary {
   list-style: none;
   height: 43px;
   padding: 0 14px;
@@ -2980,8 +2982,10 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   font-size: var(--text-min);
   font-weight: 700;
 }
-.member-detail-more > summary::-webkit-details-marker { display: none; }
-.member-detail-more-menu {
+.member-detail-more > summary::-webkit-details-marker,
+.project-detail-more > summary::-webkit-details-marker { display: none; }
+.member-detail-more-menu,
+.project-detail-more-menu {
   position: absolute;
   z-index: 2;
   left: 0;
@@ -2997,7 +3001,9 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   gap: 4px;
 }
 .member-detail-more-menu .drawer-secondary,
-.member-detail-more-menu .drawer-danger {
+.member-detail-more-menu .drawer-danger,
+.project-detail-more-menu .drawer-secondary,
+.project-detail-more-menu .drawer-danger {
   width: 100%;
   height: 36px;
   margin-top: 0;
@@ -3029,13 +3035,16 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   margin-top: 14px;
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 8px;
+  z-index: 1;
 }
-.project-detail-actions .drawer-primary,
-.project-detail-actions .drawer-secondary {
+.project-detail-actions > .drawer-primary,
+.project-detail-actions > .drawer-secondary {
   margin-top: 0;
   width: auto;
-  flex: 1 1 calc(50% - 8px);
+  flex: 1 1 0;
+  min-width: 9rem;
 }
 @media (min-width: 1052px) and (min-height: 720px) {
   .drawer.project-detail-open {
@@ -3091,6 +3100,11 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
     padding-top: 10px;
     border-top: 1px solid var(--line);
     background: var(--paper);
+  }
+  .project-detail-actions > .drawer-primary,
+  .project-detail-actions > .drawer-secondary {
+    flex: 1 1 0;
+    min-width: 9rem;
   }
   /* The drawer container query puts these lists in two columns once the
      panel is 650px. Inside a pane that is half of that, the name column
@@ -3162,6 +3176,46 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   pointer-events: none;
 }
 .project-capacity-tick[data-inside="true"] { background: var(--paper); }
+.project-detail > .drawer-heading { flex-wrap: wrap; align-items: center; }
+.project-detail > .drawer-heading > .project-detail-title { min-width: 0; flex: 1 1 12rem; }
+.project-detail > .drawer-heading h2 { overflow-wrap: anywhere; }
+.project-detail > .drawer-heading > .project-period-aside {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+  margin-left: auto;
+  flex: 0 1 auto;
+  min-width: 0;
+}
+.project-detail .project-period-headline { margin: 0; min-width: 0; text-align: right; }
+.project-period-figure {
+  display: block;
+  color: var(--ink);
+  font-family: var(--font-data);
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -.04em;
+  text-align: right;
+}
+.project-period-caption {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-family: var(--font-ui);
+  font-size: var(--text-min);
+  font-weight: 700;
+  line-height: var(--leading);
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+.project-detail > .drawer-heading .favorite-star { flex: 0 0 auto; }
+.project-need-empty {
+  margin: 0;
+  color: var(--ink);
+  font-size: var(--text-min);
+  line-height: var(--leading);
+}
 
 @media (max-width: 1120px) {
   .portfolio-ribbon, .member-ribbon { gap: 16px; }

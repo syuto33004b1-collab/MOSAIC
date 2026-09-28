@@ -1034,7 +1034,10 @@ describe("role-aware workspace", () => {
 
     await user.click(navigation.getByRole("button", { name: /^プロジェクト 登録 \d+件$/u }));
     await user.click(screen.getByText("Atlas リニューアル").closest("button")!);
-    await user.click(screen.getByRole("button", { name: "案件情報を編集" }));
+    await user.click(screen.getByRole("button", { name: "その他" }));
+    const projectEdit = screen.getByRole("button", { name: "案件情報を編集" });
+    expect(projectEdit.closest(".project-detail-more")).not.toBeNull();
+    await user.click(projectEdit);
     const dialog = within(screen.getByRole("dialog", { name: "詳細パネル" }));
     // This fixture keeps two members and a project whose 「林 葵」 is neither of them, so
     // the form cannot say who the owner is and asks. #123 made that refusal explicit.
@@ -1061,7 +1064,10 @@ describe("role-aware workspace", () => {
     navigation = within(screen.getByRole("navigation", { name: "メインナビゲーション" }));
     await user.click(navigation.getByRole("button", { name: /^プロジェクト 登録 \d+件$/u }));
     await user.click(screen.getByText("Atlas リニューアル").closest("button")!);
-    await user.click(screen.getByRole("button", { name: "案件をアーカイブ" }));
+    await user.click(screen.getByRole("button", { name: "その他" }));
+    const archiveProject = screen.getByRole("button", { name: "案件をアーカイブ" });
+    expect(archiveProject.closest(".project-detail-more")).not.toBeNull();
+    await user.click(archiveProject);
     await user.click(screen.getByRole("button", { name: "チームへ保存" }));
     await waitFor(() => expect(archiveSave).toHaveBeenCalledOnce());
     expect(archiveSave.mock.calls[0][0]).toMatchObject({ projects: [], assignments: [], needs: [] });
@@ -1145,8 +1151,10 @@ describe("role-aware workspace", () => {
 
     await user.click(navigation.getByRole("button", { name: /^プロジェクト 登録 \d+件$/u }));
     await user.click(screen.getByText("Atlas リニューアル").closest("button")!);
-    expect(screen.getByRole("button", { name: "案件情報を編集" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "要員要件を追加" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "その他" }));
+    const projectEdit = screen.getByRole("button", { name: "案件情報を編集" });
+    expect(projectEdit.closest(".project-detail-more")).not.toBeNull();
+    expect(screen.getByRole("button", { name: "要員要件を追加" }).closest(".project-detail-more")).toBeNull();
   });
 
   it("rejects assignment edits outside the selected project period", async () => {
@@ -1237,7 +1245,10 @@ describe("role-aware workspace", () => {
 
     await user.click(navigation.getByRole("button", { name: /^プロジェクト 登録 \d+件$/u }));
     await user.click(screen.getByText("Atlas リニューアル").closest("button")!);
-    await user.click(screen.getByRole("button", { name: "案件情報を編集" }));
+    await user.click(screen.getByRole("button", { name: "その他" }));
+    const projectEdit = screen.getByRole("button", { name: "案件情報を編集" });
+    expect(projectEdit.closest(".project-detail-more")).not.toBeNull();
+    await user.click(projectEdit);
     const dialog = within(screen.getByRole("dialog", { name: "詳細パネル" }));
     await user.clear(dialog.getByLabelText("概要"));
     await user.type(dialog.getByLabelText("概要"), "入力途中の概要");
@@ -1254,6 +1265,8 @@ describe("role-aware workspace", () => {
     expect(await screen.findByText("リモートで更新された概要")).toBeInTheDocument();
 
     await user.click(screen.getByText("Atlas リニューアル").closest("button")!);
+    await user.click(screen.getByRole("button", { name: "その他" }));
+    expect(screen.getByRole("button", { name: "案件情報を編集" }).closest(".project-detail-more")).not.toBeNull();
     await user.click(screen.getByRole("button", { name: "案件情報を編集" }));
     expect(screen.getByRole("dialog", { name: "詳細パネル" })).toBeInTheDocument();
     act(() => notifyRevision(9));
@@ -5027,9 +5040,9 @@ describe("detail drawer period horizon (#366)", () => {
     await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^プロジェクト 登録 \d+件$/u }));
     await user.click([...document.querySelectorAll(".project-name-cell")].find((node) => node.textContent?.includes("短い案件")) as HTMLElement);
     const dialog = within(screen.getByRole("dialog", { name: "詳細パネル" }));
-    expect(dialog.getByText("1か月の充足")).toBeInTheDocument();
+    expect(document.querySelector(".project-detail-period > .drawer-section-title span")?.textContent).toBe("1か月の充足");
     await user.click(dialog.getByRole("button", { name: "6か月" }));
-    expect(dialog.getByText("6か月の充足")).toBeInTheDocument();
+    expect(document.querySelector(".project-detail-period > .drawer-section-title span")?.textContent).toBe("6か月の充足");
     const rows = [...document.querySelectorAll(".drawer .profile-capacity > div")];
     expect(rows).toHaveLength(6);
     expect(rows[0].querySelector("span")!.textContent).toBe("8月");
@@ -5729,7 +5742,10 @@ describe("renaming one of two people with one name", () => {
 
     await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^プロジェクト( |$)/u }));
     await user.click(screen.getByText("Atlas リニューアル").closest("button")!);
-    await user.click(screen.getByRole("button", { name: "案件情報を編集" }));
+    await user.click(screen.getByRole("button", { name: "その他" }));
+    const projectEdit = screen.getByRole("button", { name: "案件情報を編集" });
+    expect(projectEdit.closest(".project-detail-more")).not.toBeNull();
+    await user.click(projectEdit);
 
     const select = screen.getByLabelText("責任者") as HTMLSelectElement;
     // Nobody, not the first of the two and not the head of the member list — which is
@@ -5756,7 +5772,10 @@ describe("renaming one of two people with one name", () => {
 
     await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^プロジェクト( |$)/u }));
     await user.click(screen.getByText("Atlas リニューアル").closest("button")!);
-    await user.click(screen.getByRole("button", { name: "案件情報を編集" }));
+    await user.click(screen.getByRole("button", { name: "その他" }));
+    const projectEdit = screen.getByRole("button", { name: "案件情報を編集" });
+    expect(projectEdit.closest(".project-detail-more")).not.toBeNull();
+    await user.click(projectEdit);
     const dialog = within(screen.getByRole("dialog", { name: "詳細パネル" }));
     await user.clear(dialog.getByLabelText("次のマイルストーン"));
     await user.type(dialog.getByLabelText("次のマイルストーン"), "受入テスト");
@@ -5991,7 +6010,10 @@ describe("custom fields in a drawer form", () => {
     render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
     await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^プロジェクト( |$)/u }));
     await user.click(screen.getByText("Atlas リニューアル").closest("button")!);
-    await user.click(screen.getByRole("button", { name: "案件情報を編集" }));
+    await user.click(screen.getByRole("button", { name: "その他" }));
+    const projectEdit = screen.getByRole("button", { name: "案件情報を編集" });
+    expect(projectEdit.closest(".project-detail-more")).not.toBeNull();
+    await user.click(projectEdit);
 
     const labels = formLabels();
     for (const name of ["プロジェクト名", "顧客名", "契約形態"]) {
@@ -7365,12 +7387,17 @@ describe("the project drawer's next milestone", () => {
     return cell.querySelector("strong")?.textContent ?? "";
   }
 
-  it("shows the seeded name and the same month-day as 完了予定", async () => {
+  it("shows the seeded name and the year, the same way as 完了予定", async () => {
     const user = userEvent.setup();
     render(<App mode="shared" organizationName="Example Inc." identity={owner} shared={sharedAdapter()} />);
     const dialog = await openProject(user, "Atlas リニューアル");
-    expect(factValue(dialog, "次の節目")).toBe("β版レビュー · 8月28日");
+    expect(factValue(dialog, "次の節目")).toBe("β版レビュー · 2026年8月28日");
+    expect(factValue(dialog, "完了予定")).toBe("2026年10月31日");
     expect(dialog.queryByText("8/28")).not.toBeInTheDocument();
+    const facts = dialog.getByRole("region", { name: "案件の事実と要員要件" });
+    expect(facts.querySelector(".project-need-empty")?.textContent).toBe("要員要件\u3000なし");
+    expect(facts.querySelector(".candidate-empty")).toBeNull();
+    expect(facts.querySelector(".drawer-section-title small")?.textContent).toBe("0件");
   });
 
   it("keeps the row when the milestone is empty, and says 未設定", async () => {
@@ -7400,7 +7427,7 @@ describe("the project drawer's next milestone", () => {
     expect(factValue(nameOnly, "次の節目")).toBe("キックオフ");
     await user.click(nameOnly.getByRole("button", { name: "詳細パネルを閉じる" }));
     const dateOnly = await openProject(user, "日付だけの案件");
-    expect(factValue(dateOnly, "次の節目")).toBe("8月21日");
+    expect(factValue(dateOnly, "次の節目")).toBe("2026年8月21日");
   });
 
   it("treats a date that is not YYYY-MM-DD as missing", async () => {
@@ -8009,7 +8036,7 @@ describe("project drawer assignees follow the selected period (#423)", () => {
   it("lists every assignment that overlaps the month, including drafts and dates before the project starts", async () => {
     const user = onAugust();
     const { panel, dialog } = await openPeriodProject(user, periodState(rows));
-    expect(dialog.getByText("1か月の充足")).toBeInTheDocument();
+    expect(panel.querySelector(".project-detail-period > .drawer-section-title span")?.textContent).toBe("1か月の充足");
     expect(dialog.getByText("1か月の担当")).toBeInTheDocument();
     expect(assigneeTitle(panel)?.querySelector("small")?.textContent).toBe("3件");
     expect(dialog.queryByText("担当メンバー")).not.toBeInTheDocument();
@@ -8021,6 +8048,10 @@ describe("project drawer assignees follow the selected period (#423)", () => {
     expect(dates).toContain(`${formatDate("2026-08-26")} — ${formatDate("2026-08-27")}`);
     // The rail is the thinnest week, which is empty before anyone starts.
     expect(panel.querySelector(".profile-capacity")?.textContent).toContain("0/5名");
+    const headline = panel.querySelector(".project-period-headline");
+    expect(headline?.querySelector(".project-period-figure")?.textContent).toBe("0/5");
+    expect(headline?.querySelector(".project-period-caption")?.textContent).toBe("1か月の充足");
+    expect(headline?.querySelector(".sr-only")?.textContent).toBe("必要5名のうち0名");
     expect(panel.querySelector(".project-detail")).toBeTruthy();
     expect(dialog.getByRole("region", { name: "1か月の充足と担当" })).toBeInTheDocument();
     expect(panel.querySelector(".detail-member-list b")?.textContent).toMatch(/^稼働配分 \d+%$/u);
@@ -8045,6 +8076,7 @@ describe("project drawer assignees follow the selected period (#423)", () => {
     const { panel, dialog } = await openPeriodProject(user, periodState(rows));
     await user.click(dialog.getByRole("button", { name: "全て" }));
     expect(dialog.getByText("全期間の担当")).toBeInTheDocument();
+    expect(panel.querySelector(".project-period-caption")?.textContent).toBe("全期間でいちばん薄い");
     expect(assigneeTitle(panel)?.querySelector("small")?.textContent).toBe("4件");
     expect(assigneeNames(panel)).toEqual(["期間 太郎", "期間 太郎", "期間 太郎", "冬季 花子"]);
     await user.click(dialog.getByRole("button", { name: /冬季 花子/ }));
@@ -8104,11 +8136,16 @@ describe("project drawer assignees follow the selected period (#423)", () => {
     const panel = screen.getByRole("dialog", { name: "詳細パネル" });
     expect(within(panel).getByText("1か月の担当")).toBeInTheDocument();
     expect(assigneeTitle(panel)?.querySelector("small")?.textContent).toBe("3件");
+    expect(panel.querySelector(".project-detail-actions")).not.toBeNull();
+    expect(within(panel).getByRole("button", { name: "その他" })).toBeInTheDocument();
+    const more = panel.querySelector(".project-detail-more") as HTMLDetailsElement;
+    expect(within(more).getByRole("button", { name: "この案件のリンクをコピー" })).toBeInTheDocument();
+    expect(within(more).queryByRole("button", { name: "案件情報を編集" })).not.toBeInTheDocument();
+    expect(within(more).queryByRole("button", { name: "案件をアーカイブ" })).not.toBeInTheDocument();
     expect(within(panel).queryByRole("button", { name: "案件情報を編集" })).not.toBeInTheDocument();
     expect(within(panel).queryByRole("button", { name: "案件をアーカイブ" })).not.toBeInTheDocument();
     expect(within(panel).queryByRole("button", { name: "要員要件を追加" })).not.toBeInTheDocument();
     expect(within(panel).queryByRole("button", { name: "この案件へアサインを追加" })).not.toBeInTheDocument();
-    expect(panel.querySelector(".project-detail-actions")).toBeNull();
   });
 
   it("hides the list when the holiday calendar has already ended", async () => {
@@ -8121,6 +8158,9 @@ describe("project drawer assignees follow the selected period (#423)", () => {
       expect(dialog.queryByText("1か月の担当")).not.toBeInTheDocument();
       expect(panel.querySelector(".detail-member-list")).toBeNull();
       expect(dialog.queryByText("この期間の担当はありません")).not.toBeInTheDocument();
+      expect(panel.querySelector(".project-period-figure")?.textContent).toBe("—");
+      expect(panel.querySelector(".project-period-caption")?.textContent).toBe("1か月は案件期間外");
+      expect(panel.querySelector(".project-period-headline .sr-only")).toBeNull();
     } finally {
       vi.useRealTimers();
     }

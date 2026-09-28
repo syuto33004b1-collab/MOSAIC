@@ -103,4 +103,19 @@ test("the project drawer panes scroll the assignee list and the facts, not the m
   const projectCss = css.slice(projectCssStart, css.indexOf(".profile-skills", projectCssStart));
   assert.ok(projectCss.length > 0, "expected the project detail rules before .profile-skills");
   assert.equal(projectCss.includes("member-detail"), false);
+  assert.match(app, /projectPeriodHeadline/);
+  assert.match(app, /className="project-detail-more"/);
+  assert.match(app, /要員要件\\u3000なし/);
+  assert.equal(projectBlock.includes('.replace(/^\\d{4}年/'), false);
+  assert.equal(projectBlock.includes("entity-action-row"), false);
+  const moreAt = projectBlock.indexOf('className="project-detail-more"');
+  const editAt = projectBlock.indexOf("案件情報を編集");
+  assert.ok(moreAt >= 0 && editAt > moreAt, "編集は「その他」の中");
+  const actionFlex = [...css.matchAll(/\.project-detail-actions > \.drawer-primary,\s*\.project-detail-actions > \.drawer-secondary \{([^}]+)\}/gu)];
+  assert.equal(actionFlex.length, 2);
+  for (const rule of actionFlex) {
+    assert.match(rule[1], /flex:\s*1 1 0/);
+    assert.match(rule[1], /min-width:\s*9rem/);
+    assert.doesNotMatch(rule[1], /50%/);
+  }
 });
