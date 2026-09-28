@@ -2599,11 +2599,109 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   font-weight: 700;
   letter-spacing: 0;
 }
-/* Member detail (#450): one column so the line and the month table share a
-   width. The tall breakpoint only pins the actions; below it the drawer scrolls. */
-.member-detail-panes { display: flex; flex-direction: column; }
+/* Member detail (#454): the dialog is as tall as its content, up to the
+   viewport. Only the assignment rows scroll. Month headers, the line, the
+   ceiling, 空き, and the buttons stay. */
+.member-detail .profile-hero {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1.15fr) minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 10px 12px;
+  margin-bottom: 12px;
+}
+.member-detail .profile-hero:not(:has(.profile-skills span)) {
+  grid-template-columns: 48px minmax(0, 1fr) auto auto;
+}
+.member-detail .profile-hero .profile-skills { margin: 0; align-content: center; }
+.member-detail .profile-hero .profile-skills:empty { display: none; }
+.member-detail .profile-hero .profile-skills span { font-size: var(--text-min); }
+.member-detail .profile-hero > strong {
+  min-width: 0;
+  color: var(--ink);
+  font-weight: 700;
+  display: block;
+  text-align: right;
+}
+.member-week-figure {
+  display: block;
+  font-family: var(--font-data);
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -.04em;
+  text-align: right;
+}
+.member-week-caption {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-family: var(--font-ui);
+  font-size: var(--text-min);
+  font-weight: 700;
+  line-height: var(--leading);
+  text-align: right;
+  white-space: normal;
+}
+.member-detail-panes {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+.member-detail-load {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+/* The chart, one assignment row, and 空き stay inside this block. History
+   stays in normal flow underneath, so it cannot paint over 空き. */
+.member-detail-load:has(.member-load-scroll) {
+  min-height: 20rem;
+}
+/* No assignment rows: don't reserve a blank band between the line and 空き.
+   The sheet still refuses to shrink, so a long history cannot cover 空き. */
+.member-detail-load:has(.member-load-scroll):not(:has(.member-load-assignments tbody tr)) {
+  min-height: 0;
+  flex: 0 0 auto;
+}
+.member-load-scroll:not(:has(.member-load-assignments tbody tr)) {
+  min-height: auto;
+  flex: 0 0 auto;
+}
+.member-load-scroll .member-load-assignments:not(:has(tbody tr)) {
+  display: none;
+}
+.member-detail-facts {
+  grid-column: 1 / -1;
+  min-width: 0;
+}
+.member-detail-facts:not(:has(.detail-facts)) { display: none; }
+.member-detail-facts .detail-facts {
+  margin: 4px 0 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 14px;
+}
+.member-detail-facts .detail-facts > div {
+  display: flex;
+  gap: 0.4em;
+  align-items: baseline;
+  min-width: 0;
+}
+.member-detail-facts .detail-facts span,
+.member-detail-facts .detail-facts strong {
+  display: inline;
+  margin: 0;
+  font-size: var(--text-min);
+}
 .member-detail-load-summary {
-  margin: 0 0 8px;
+  margin: 0 0 4px;
   display: flex;
   flex-wrap: wrap;
   gap: 6px 16px;
@@ -2613,36 +2711,50 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   font-weight: 700;
 }
 .member-detail-load-summary strong { color: var(--ink); }
-/* The hero figure used to be a 20px percent stacked on a week name. The
-   sentence is the whole label now (#437), so it wraps at 12px instead of
-   staying one nowrap column. */
-.member-detail .profile-hero > strong {
-  flex: 0 1 9.5rem;
-  min-width: 0;
-  max-width: 9.5rem;
-  color: var(--ink);
-  font-family: var(--font-ui);
+.member-load-note {
+  margin: 0 0 8px;
+  color: var(--muted);
   font-size: var(--text-min);
-  font-weight: 700;
-  display: block;
   line-height: var(--leading);
-  text-align: right;
-  white-space: normal;
 }
+/* The outer port scrolls sideways only, so the three bands stay in register.
+   32rem fits a 12px "100" in each month. 44rem scrolled the desktop dialog. */
 .member-load-scroll {
   overflow-x: auto;
   overflow-y: hidden;
-  margin: 0 0 12px;
+  margin: 0;
+  flex: 1 1 auto;
+  min-height: 14.5rem;
+  display: flex;
+  flex-direction: column;
+}
+.member-load-assignments {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 32rem;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+.member-load-assignments:has(.member-load-names) { min-width: 0; }
+.member-load-head-wrap,
+.member-load-slack-wrap {
+  flex: 0 0 auto;
+  min-width: 32rem;
+  overflow-x: hidden;
+  overflow-y: hidden;
+  scrollbar-gutter: stable;
+  background: var(--paper);
 }
 .member-load-sheet {
   width: 100%;
-  min-width: 44rem;
   border-collapse: collapse;
   table-layout: fixed;
   font-size: var(--text-min);
   line-height: var(--leading);
 }
-.member-load-sheet col.member-load-label { width: 9.5rem; }
+.member-load-sheet col.member-load-label { width: 9.25rem; }
 .member-load-sheet th,
 .member-load-sheet td {
   padding: 4px 3px;
@@ -2660,7 +2772,33 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   text-align: left;
   overflow-wrap: anywhere;
 }
-.member-load-sheet thead th { color: var(--muted); font-weight: 600; }
+.member-load-sheet thead th {
+  color: var(--muted);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+/* Beats the sticky first-cell rule so a repeated month head stays in the
+   accessibility tree without painting a second header row. */
+.member-load-sheet thead th.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+.member-load-sheet tr.member-month-points th,
+.member-load-sheet tr.member-month-points td {
+  height: 0;
+  padding: 0;
+  border: 0;
+  line-height: 0;
+}
+.member-load-sheet th:not(:first-child),
+.member-load-sheet td:not(:first-child) { padding-inline: 1px; }
 .member-load-sheet th:first-child { color: var(--ink); }
 .member-load-sheet button {
   display: block;
@@ -2685,11 +2823,26 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .member-load-sheet th small { font-size: var(--text-min); }
 .member-load-sheet td.over { color: var(--coral-deep); }
 .member-load-sheet td.open { color: var(--sage); }
-.member-load-sheet tr.member-load-total th,
-.member-load-sheet tr.member-load-total td { border-top: 2px solid var(--ink); }
+.member-load-slack th,
+.member-load-slack td { border-top: 2px solid var(--ink); }
 /* (0, 2, 1) against the cell rule's (0, 1, 1), so the 3px horizontal
    padding does not inset the line from the month centers. */
 .member-load-sheet td.member-load-plot-cell { padding: 0; }
+.member-load-sheet th.member-load-axis {
+  height: 112px;
+  padding: 0;
+}
+.member-month-tick-label {
+  position: absolute;
+  right: 4px;
+  font-family: var(--font-data);
+  font-size: var(--text-min);
+  font-weight: 600;
+  line-height: 1;
+  color: var(--muted);
+  transform: translateY(50%);
+  white-space: nowrap;
+}
 .member-month-year,
 .member-month-tick { display: block; }
 .member-load-names { display: flex; flex-direction: column; gap: 6px; }
@@ -2708,8 +2861,16 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 }
 .member-month-chart {
   position: relative;
-  height: 96px;
+  height: 112px;
   color: var(--sage);
+}
+.member-month-guide {
+  stroke: var(--line);
+  stroke-width: 1;
+}
+.member-month-guide.strong {
+  stroke: var(--line-strong);
+  stroke-width: 1.5;
 }
 .member-month-chart svg {
   position: absolute;
@@ -2732,55 +2893,91 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   background: var(--coral);
   border-color: var(--coral-deep);
 }
-.member-detail-who-actions,
+.member-detail-who {
+  flex: 0 0 auto;
+  overflow: visible;
+}
+.member-work-history { margin: 8px 0 0; display: flex; flex-direction: column; gap: 2px; }
+.member-work-history p {
+  margin: 0;
+  color: var(--ink);
+  font-size: var(--text-min);
+  line-height: var(--leading);
+}
+.member-work-history p span + span { margin-left: 0.65em; }
 .member-detail-actions {
-  margin-top: 14px;
+  flex: 0 0 auto;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+  background: var(--paper);
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 8px;
+  z-index: 1;
 }
-.member-detail-who-actions .drawer-primary,
-.member-detail-who-actions .drawer-secondary,
-.member-detail-who-actions .drawer-danger,
-.member-detail-actions .drawer-primary,
-.member-detail-actions .drawer-secondary,
-.member-detail-actions .drawer-danger {
+.member-detail-actions > .drawer-primary,
+.member-detail-actions > .drawer-secondary {
+  width: auto;
   margin-top: 0;
-  flex: 1 1 calc(50% - 8px);
+  flex: 1 1 9rem;
 }
-.member-detail-actions > :only-child {
-  flex-basis: 100%;
+.member-detail-more { position: relative; flex: 0 0 auto; }
+.member-detail-more > summary {
+  list-style: none;
+  height: 43px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--paper);
+  color: var(--ink);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  font-size: var(--text-min);
+  font-weight: 700;
 }
-@media (min-width: 1052px) and (min-height: 720px) {
-  .drawer.member-detail-open {
-    overflow: hidden;
-    display: flex;
-    flex-direction: column;
-  }
-  .drawer.member-detail-open .drawer-top { flex: 0 0 auto; }
-  .member-detail {
-    flex: 1 1 auto;
-    min-height: 0;
-    display: flex;
-    flex-direction: column;
-  }
-  .member-detail .profile-hero { flex: 0 0 auto; }
-  .member-detail-panes {
-    flex: 1 1 auto;
-    min-height: 0;
-    overflow: auto;
-    display: flex;
-    flex-direction: column;
-  }
-  .member-detail-actions {
-    flex: 0 0 auto;
-    margin-top: 0;
-    padding-top: 10px;
-    border-top: 1px solid var(--line);
-    background: var(--paper);
-    z-index: 1;
-  }
+.member-detail-more > summary::-webkit-details-marker { display: none; }
+.member-detail-more-menu {
+  position: absolute;
+  z-index: 2;
+  left: 0;
+  bottom: calc(100% + 6px);
+  min-width: 16rem;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--paper);
+  box-shadow: 0 12px 32px rgba(52, 17, 3, .16);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
+.member-detail-more-menu .drawer-secondary,
+.member-detail-more-menu .drawer-danger {
+  width: 100%;
+  height: 36px;
+  margin-top: 0;
+  flex: none;
+  justify-content: flex-start;
+  padding: 0 10px;
+}
+.drawer.member-detail-open {
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  height: auto;
+  max-height: 100%;
+}
+.drawer.member-detail-open .drawer-top { flex: 0 0 auto; }
+.member-detail {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.member-detail .profile-hero { flex: 0 0 auto; }
 /* Project detail (#439). Own classes, same breakpoint as the member panes.
    Below either threshold the drawer itself scrolls and these rules do not apply. */
 .project-detail-panes { display: flex; flex-direction: column; min-width: 0; }
