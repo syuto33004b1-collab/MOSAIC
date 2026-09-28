@@ -74,6 +74,13 @@ updates:
         versions: ["7.x"]
       - dependency-name: actions/download-artifact
         versions: ["8.x"]
+      # No Deploy job has ever been created on a pin other than the last green
+      # one (measured 2026-09-28, #461). The version is not separated, so the
+      # whole action is held, not a claim that 4.1.x is the broken release.
+      # Remove when a main push on a newer pin creates Deploy jobs and the
+      # entry-point check is green. This also silences security updates. The
+      # alert still arrives. Nothing announces that upstream has caught up.
+      - dependency-name: cloudflare/wrangler-action
     groups:
       github-actions:
         patterns:
