@@ -41,7 +41,9 @@ test("the project drawer panes scroll the assignee list and the facts, not the m
   assert.ok(shell);
   assert.match(shell[1], /height:\s*auto/);
   assert.match(shell[1], /max-height:\s*100%/);
-  assert.match(shell[1], /align-self:\s*flex-start/);
+  // Vertical position stays on `.overlay` (`align-items: center`, #407).
+  // `align-self: flex-start` pinned a short project to the top (#469).
+  assert.doesNotMatch(shell[1], /align-self/);
   // `media` runs to EOF, so a match there does not prove the rail rule sits
   // outside the query. A rule parked at the end of the query would still pass
   // that, and April would sit beside May again below 720px.

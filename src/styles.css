@@ -3043,12 +3043,11 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
     display: flex;
     flex-direction: column;
     /* Short projects used to stretch to the viewport and leave a blank pane
-       with the buttons pinned at the bottom. Size to the content, and pin the
-       top to the overlay padding so a period tab does not jump when the
-       dialog grows. */
+       with the buttons pinned at the bottom. Size to the content. Vertical
+       position stays with the overlay's align-items: center (#407). Pinning
+       the top left the short dialog high on the screen (#469). */
     height: auto;
     max-height: 100%;
-    align-self: flex-start;
   }
   .drawer.project-detail-open .drawer-top { flex: 0 0 auto; }
   .project-detail {
