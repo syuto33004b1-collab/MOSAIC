@@ -2,7 +2,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import userEvent from "@testing-library/user-event";
 import axe from "axe-core";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import App, { monthColumnGuidesMisaligned, type SharedWorkspaceAdapter } from "./App";
+import App, { capacityTickMarks, monthColumnGuidesMisaligned, type SharedWorkspaceAdapter } from "./App";
 import { parseCsv } from "./csv";
 import { MembersView, ProjectsView, ProposalView } from "./expanded-views";
 import { DEMO_FAVORITES_KEY } from "./collaboration";
@@ -7914,6 +7914,30 @@ describe("member drawer assignments are the whole history (#437)", () => {
  * to the project's own dates. The heading names the period so the two figures
  * can disagree without being read as the same count.
  */
+describe("capacityTickMarks", () => {
+  it("draws one tick per person between the ends and marks those under the fill", () => {
+    expect(capacityTickMarks(3, 1)).toEqual([
+      { fraction: 1 / 3, inside: false },
+      { fraction: 2 / 3, inside: false },
+    ]);
+    expect(capacityTickMarks(3, 2)).toEqual([
+      { fraction: 1 / 3, inside: true },
+      { fraction: 2 / 3, inside: false },
+    ]);
+    expect(capacityTickMarks(5, 0)).toHaveLength(4);
+    expect(capacityTickMarks(5, 0).every((tick) => tick.inside === false)).toBe(true);
+    expect(capacityTickMarks(3, 3).every((tick) => tick.inside)).toBe(true);
+  });
+
+  it("draws nothing outside 2..12 or when the month is outside the project", () => {
+    expect(capacityTickMarks(0, 0)).toEqual([]);
+    expect(capacityTickMarks(1, 1)).toEqual([]);
+    expect(capacityTickMarks(13, 4)).toEqual([]);
+    expect(capacityTickMarks(3, null)).toEqual([]);
+    expect(capacityTickMarks(2.5, 1)).toEqual([]);
+  });
+});
+
 describe("project drawer assignees follow the selected period (#423)", () => {
   const owner = { name: "管理 花子", email: "owner@example.com", role: "owner" as const };
   const person = { ...initialWorkspace.members[0], id: "period-person", name: "期間 太郎", role: "Engineer" };
@@ -8004,6 +8028,16 @@ describe("project drawer assignees follow the selected period (#423)", () => {
     expect(panel.querySelector(".project-detail-actions")?.textContent).toContain("この案件へアサインを追加");
     // Needs stay the project's own list, not the selected period.
     expect(dialog.getByText("QA")).toBeInTheDocument();
+  });
+
+  it("marks each required person on a short month and keeps the allocation phrase together", async () => {
+    const user = onAugust();
+    const { panel } = await openPeriodProject(user, periodState(rows));
+    const ticks = [...panel.querySelectorAll(".profile-capacity .project-capacity-tick")];
+    expect(ticks).toHaveLength(4);
+    expect(ticks.map((tick) => tick.getAttribute("data-inside"))).toEqual(["false", "false", "false", "false"]);
+    expect(ticks.every((tick) => tick.getAttribute("aria-hidden") === "true")).toBe(true);
+    expect(panel.querySelector(".project-need-allocation")?.textContent).toBe("稼働配分 50%");
   });
 
   it("adds the winter row under 全て and opens the member from a row", async () => {

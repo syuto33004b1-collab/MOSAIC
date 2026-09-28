@@ -133,27 +133,32 @@ test("the two columns key off the panel, and the mobile sheet opts out", async (
  */
 test("the capacity rail's figure has room for its widest reading", async () => {
   const css = withoutComments(await read());
-  const rule = css.match(/\.profile-capacity > div \{([^}]*)\}/u);
-  assert.ok(rule, "expected the .profile-capacity row rule");
-  const columns = rule[1].match(/grid-template-columns:\s*([^;]+)/u);
-  assert.ok(columns, ".profile-capacity > div declares no grid-template-columns");
-  // Split on top-level whitespace, so `minmax(0, 1fr)` stays one track.
-  const parts = [];
-  let depth = 0;
-  let current = "";
-  for (const character of columns[1].trim()) {
-    if (character === "(") depth += 1;
-    if (character === ")") depth -= 1;
-    if (depth === 0 && /\s/u.test(character)) { if (current) parts.push(current); current = ""; continue; }
-    current += character;
+  // Every row rule, not the first one. A later override also matches
+  // `.profile-capacity > div`, and checking only the first would let that
+  // override silently replace the rule this test is about (#467).
+  const rules = [...css.matchAll(/\.profile-capacity > div \{([^}]*)\}/gu)];
+  assert.ok(rules.length > 0, "expected the .profile-capacity row rule");
+  for (const rule of rules) {
+    const columns = rule[1].match(/grid-template-columns:\s*([^;]+)/u);
+    assert.ok(columns, ".profile-capacity > div declares no grid-template-columns");
+    // Split on top-level whitespace, so `minmax(0, 1fr)` stays one track.
+    const parts = [];
+    let depth = 0;
+    let current = "";
+    for (const character of columns[1].trim()) {
+      if (character === "(") depth += 1;
+      if (character === ")") depth -= 1;
+      if (depth === 0 && /\s/u.test(character)) { if (current) parts.push(current); current = ""; continue; }
+      current += character;
+    }
+    if (current) parts.push(current);
+    const track = parts.at(-1);
+    const px = /^(\d+(?:\.\d+)?)px$/u.exec(track ?? "");
+    assert.ok(px, `the figure's track is 「${track}」; it has to be a fixed px width, or the four `
+      + "bars in a rail get four different lengths and stop being comparable (#210)");
+    assert.ok(Number(px[1]) >= 76, `the figure's track is ${px[1]}px. 「100% / 100%」 measures 74px in `
+      + "bold 12px Manrope and a three-digit ceiling 75px, so under 76 it wraps (#210)");
   }
-  if (current) parts.push(current);
-  const track = parts.at(-1);
-  const px = /^(\d+(?:\.\d+)?)px$/u.exec(track ?? "");
-  assert.ok(px, `the figure's track is 「${track}」; it has to be a fixed px width, or the four `
-    + "bars in a rail get four different lengths and stop being comparable (#210)");
-  assert.ok(Number(px[1]) >= 76, `the figure's track is ${px[1]}px. 「100% / 100%」 measures 74px in `
-    + "bold 12px Manrope and a three-digit ceiling 75px, so under 76 it wraps (#210)");
 });
 
 test("the threshold is pinned, and every rule in the block is .drawer-prefixed", async () => {
