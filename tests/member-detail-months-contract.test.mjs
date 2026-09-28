@@ -83,6 +83,7 @@ test("the month line shares the table and keeps a non-scaling stroke", async () 
   assert.match(app, /vectorEffect="non-scaling-stroke"/u);
   assert.match(app, /preserveAspectRatio="none"/u);
   assert.match(app, /data-mark=\{value\}/u);
+  assert.match(app, /className="member-month-column"/u);
   assert.match(app, /className="member-month-points"/u);
   assert.doesNotMatch(app, /memberMonthScrollLeft/u);
   const empty = app.slice(app.indexOf("if (months.length === 0)"), app.indexOf("const yMax"));

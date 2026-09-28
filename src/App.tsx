@@ -734,6 +734,17 @@ function MemberLoadSheet({
                       />
                     );
                   })}
+                  {months.slice(1).map((month, index) => (
+                    <line
+                      key={month.from}
+                      className="member-month-column"
+                      x1={index + 1}
+                      x2={index + 1}
+                      y1="0"
+                      y2="100"
+                      vectorEffect="non-scaling-stroke"
+                    />
+                  ))}
                   <polyline
                     fill="none"
                     stroke="currentColor"

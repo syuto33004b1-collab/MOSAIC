@@ -7613,7 +7613,20 @@ describe("member drawer assignments are the whole history (#437)", () => {
     const rowLabels = [...panel.querySelectorAll(".member-load-sheet tbody th")].map((node) => node.textContent);
     expect(rowLabels).not.toContain("稼働");
     expect(rowLabels).not.toContain("稼働上限");
-    expect(panel.querySelectorAll(".member-month-chart line")).toHaveLength(11);
+    const monthCount = panel.querySelectorAll(".member-load-head thead th:not(.sr-only)").length - 1;
+    const guides = [...panel.querySelectorAll(".member-month-chart .member-month-guide")];
+    const columns = [...panel.querySelectorAll(".member-month-chart .member-month-column")];
+    expect(guides.map((line) => Number(line.getAttribute("data-mark")))).toEqual([0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100]);
+    expect(columns).toHaveLength(monthCount - 1);
+    expect(panel.querySelectorAll(".member-month-chart line")).toHaveLength(guides.length + columns.length);
+    for (const line of columns) {
+      expect(line.getAttribute("data-mark")).toBeNull();
+      expect(line.classList.contains("strong")).toBe(false);
+      expect(line.getAttribute("x1")).toBe(line.getAttribute("x2"));
+      expect(line.getAttribute("y1")).toBe("0");
+      expect(line.getAttribute("y2")).toBe("100");
+      expect(line.getAttribute("vector-effect")).toBe("non-scaling-stroke");
+    }
     expect(panel.querySelector('.member-month-chart line[data-mark="60"]')?.classList.contains("strong")).toBe(false);
     expect(panel.querySelector('.member-month-chart line[data-mark="50"]')?.classList.contains("strong")).toBe(true);
   });
@@ -7631,6 +7644,7 @@ describe("member drawer assignments are the whole history (#437)", () => {
       expect(assignmentNames(panel)).toEqual(["週内案件"]);
       expect(panel.querySelector(".member-load-assignments")!.contains(panel.querySelector(".member-load-names"))).toBe(true);
       expect(panel.querySelector(".member-load-names small")!.textContent).toBe("2026年8月17日 — 2026年8月21日");
+      expect(panel.querySelector(".member-month-chart")).toBeNull();
       expect(dialog.queryByText("アサインはありません")).not.toBeInTheDocument();
       expect(dialog.queryByText("2036年2月からの12か月")).not.toBeInTheDocument();
       expect(panel.querySelector(".member-detail-load-summary")!.textContent).toContain("この期間は表示できません");
@@ -7816,8 +7830,19 @@ describe("member drawer assignments are the whole history (#437)", () => {
     const { panel } = await openPeriodMember(user, state);
     const august = memberMonthLedger(state, member, "2026-08-19").months[0]!;
     expect(august.peak).toBe(125);
-    const marks = [...panel.querySelectorAll(".member-month-chart line")].map((line) => Number(line.getAttribute("data-mark")));
-    expect(marks).toEqual([0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 130]);
+    const guides = [...panel.querySelectorAll(".member-month-chart .member-month-guide")];
+    const columns = [...panel.querySelectorAll(".member-month-chart .member-month-column")];
+    expect(guides.map((line) => Number(line.getAttribute("data-mark")))).toEqual([0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 130]);
+    expect(columns).toHaveLength(memberMonthLedger(state, member, "2026-08-19").months.length - 1);
+    expect(panel.querySelectorAll(".member-month-chart line")).toHaveLength(guides.length + columns.length);
+    columns.forEach((line, index) => {
+      expect(line.getAttribute("data-mark")).toBeNull();
+      expect(line.classList.contains("strong")).toBe(false);
+      expect(line.getAttribute("x1")).toBe(String(index + 1));
+      expect(line.getAttribute("x2")).toBe(String(index + 1));
+      expect(line.getAttribute("y1")).toBe("0");
+      expect(line.getAttribute("y2")).toBe("100");
+    });
     expect(panel.querySelector('.member-month-chart line[data-mark="125"]')).toBeNull();
     expect(panel.querySelector('.member-month-chart line[data-mark="130"]')?.classList.contains("strong")).toBe(true);
     expect(panel.querySelector('.member-month-chart line[data-mark="60"]')?.classList.contains("strong")).toBe(false);
