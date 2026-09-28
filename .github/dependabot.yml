@@ -74,9 +74,10 @@ updates:
         versions: ["7.x"]
       - dependency-name: actions/download-artifact
         versions: ["8.x"]
-      # No Deploy job has ever been created on a pin other than the last green
-      # one (measured 2026-09-28, #461). The version is not separated, so the
-      # whole action is held, not a claim that 4.1.x is the broken release.
+      # Neither tested newer pin (v4.1.1 or v4.1.3) created Deploy jobs;
+      # v4.0.0 is the last pin observed green (measured 2026-09-28, #461).
+      # Other pins were not tested, so the whole action is held rather than
+      # claiming that 4.1.x is the broken release.
       # Remove when a main push on a newer pin creates Deploy jobs and the
       # entry-point check is green. This also silences security updates. The
       # alert still arrives. Nothing announces that upstream has caught up.
