@@ -7492,6 +7492,34 @@ describe("the project drawer's next milestone", () => {
     expect(facts.querySelector(".drawer-section-title small")?.textContent).toBe("0件");
   });
 
+  it("says how many days past its date a milestone is, in the list and the detail (#493)", async () => {
+    const user = userEvent.setup();
+    const adapter = sharedAdapter();
+    // A copy: `sharedAdapter` hands out `initialWorkspace` itself. The clock is 2026-08-19.
+    const [atlas, payment, recruit, ...rest] = initialWorkspace.projects;
+    adapter.initialState = {
+      ...initialWorkspace,
+      projects: [
+        { ...atlas, nextMilestoneDate: "2026-08-10" },
+        { ...payment, nextMilestoneDate: "2026-08-19" },
+        { ...recruit, nextMilestoneDate: null },
+        ...rest,
+      ],
+    };
+    render(<App mode="shared" organizationName="Example Inc." identity={owner} shared={adapter} />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^プロジェクト( |$)/u }));
+    const cell = (name: string) => [...document.querySelectorAll("tr")].find((row) => row.textContent?.includes(name))?.querySelector(".milestone-cell small")?.textContent;
+    expect(cell("Atlas リニューアル")).toBe("8/10 9日超過");
+    expect(cell("決済基盤アップデート")).toBe("8/19");
+    expect(cell("採用サイト")).toBe("未設定");
+    expect(cell("モバイル会員証")).toBe("8/24");
+    expect(document.querySelectorAll(".milestone-cell .milestone-overdue")).toHaveLength(1);
+
+    await user.click(screen.getByText("Atlas リニューアル").closest("button")!);
+    const dialog = within(screen.getByRole("dialog", { name: "詳細パネル" }));
+    expect(factValue(dialog, "次の節目")).toBe("β版レビュー · 2026年8月10日 9日超過");
+  });
+
   it("keeps the row when the milestone is empty, and says 未設定", async () => {
     const user = userEvent.setup();
     const adapter = sharedAdapter();

@@ -2558,6 +2558,10 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
    stays one token so 「9月2日」 is not split. */
 .detail-facts > .fact-wide { grid-column: 1 / -1; }
 .detail-facts > .fact-wide .milestone-date { display: inline; white-space: nowrap; }
+/* Said in words as well as colour; the text shade of coral, which holds 4.5:1 at 12px.
+   Two classes, so the grey of `.detail-facts span` does not win. */
+.milestone-cell .milestone-overdue,
+.detail-facts .milestone-overdue { display: block; color: var(--coral-deep); font-weight: 700; white-space: nowrap; }
 .drawer .range-tabs { margin-bottom: 12px; flex-wrap: wrap; width: 100%; }
 .drawer .horizon-clip-note { margin: 0 0 12px; }
 .detail-member-list { margin-bottom: 18px; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
