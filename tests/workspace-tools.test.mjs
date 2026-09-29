@@ -660,6 +660,45 @@ test("reads saved reports and grouped member counts", () => {
   assert.equal(ranked.items[0].rows.find((row) => row.label === "開発")?.count, 1);
 });
 
+test("saved report averages clip the period to the holiday calendar and stay fast (#495)", () => {
+  const base = snapshot();
+  const state = {
+    ...base,
+    assignments: [...base.assignments, {
+      id: "64000000-0000-4000-8000-000000000009",
+      personId: ids.carol,
+      projectId: ids.project,
+      staffingNeedId: null,
+      startDate: "2016-01-01",
+      endDate: "9999-12-31",
+      allocation: 30,
+      status: "confirmed",
+      label: null,
+    }],
+    savedReports: [{ id: ids.report, name: "部署別稼働", source: "members", groupBy: "department", metric: "avgLoad" }],
+  };
+  const read = (startDate, endDate) => readWorkspaceTool(state, "read_workspace", {
+    resource: "saved_reports",
+    reportId: ids.report,
+    startDate,
+    endDate,
+  }).items[0].rows;
+  const calendar = read("2016-01-01", "2035-12-31");
+  assert.equal(calendar.find((row) => row.label === "事業推進")?.value, 30);
+  // A bounded span first, so a missing clip fails on the value and not by walking to 9999.
+  assert.deepEqual(read("2010-01-01", "2040-12-31"), calendar);
+  const started = performance.now();
+  const wide = read("2000-01-01", "9999-12-31");
+  const elapsed = performance.now() - started;
+  assert.deepEqual(wide, calendar);
+  assert.ok(elapsed < 1000, `${Math.round(elapsed)}ms`);
+  const outside = read("2036-01-01", "2036-12-31");
+  assert.deepEqual(
+    new Map(outside.map((row) => [row.label, [row.count, row.value]])),
+    new Map(wide.map((row) => [row.label, [row.count, 0]])),
+  );
+});
+
 test("plans saved report create and delete for owners and admins", async () => {
   const created = await planWorkspaceAction(plannerOptions("create_saved_report", {
     name: "勤務地別",
