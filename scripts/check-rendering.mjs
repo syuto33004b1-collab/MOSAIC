@@ -6,8 +6,9 @@
  * measure contrast at all, which #305 is about. A real browser computes it.
  *
  * What it covers is one pass over the nine navigation screens and four panel states,
- * in one browser. #305 weighed that against the run time AGENTS.md warns about: a browser
- * per screen would pay the launch cost nine times.
+ * in one browser, and the three table screens again at 390px (#497). #305 weighed that
+ * against the run time AGENTS.md warns about: a browser per screen would pay the launch
+ * cost nine times.
  *
  * Every impact fails, not only serious and critical. Measured before writing this: there
  * are no violations on any of the states, so the strictest setting costs nothing today and
@@ -62,6 +63,21 @@ const SCREENS = [
   ["スキルマップ", "スキルマップ"],
   ["項目定義", "項目と経歴"],
   ["レポート", "キャパシティ予測"],
+];
+
+/**
+ * The screens scanned again at 390px, where their tables scroll sideways inside
+ * `.skill-map-wrap`. At 1440 all three fit, so `scrollable-region-focusable` never fired
+ * and the field table — which holds no control — sat outside the sweep (#497).
+ *
+ * The demo has management rights and open needs, so the org table and the skill map carry
+ * focusable rows here and pass with or without the box's own `tabIndex`. That half is
+ * pinned by the unit test, not by this pass.
+ */
+const NARROW_SCREENS = [
+  ["組織", "組織階層"],
+  ["スキルマップ", "スキルマップ"],
+  ["項目定義", "項目と経歴"],
 ];
 
 /**
@@ -280,7 +296,7 @@ async function main() {
       return rect.width >= 1 && rect.height >= 1;
     }, selector);
 
-    for (const [entry, heading] of SCREENS) {
+    const visit = async (entry, heading) => {
       await page.evaluate((label) => {
         const nav = document.querySelector('nav[aria-label="メインナビゲーション"]');
         const button = [...nav.querySelectorAll("button")].find((item) => item.textContent.trim().startsWith(label));
@@ -290,6 +306,10 @@ async function main() {
       // The screen's own heading, not a delay: a slow render would otherwise be recorded
       // under the next screen's name.
       await until(page, `the ${entry} screen`, (want) => document.querySelector("h1")?.textContent?.trim() === want, heading);
+    };
+
+    for (const [entry, heading] of SCREENS) {
+      await visit(entry, heading);
       results.push(await scan(page, entry));
     }
 
@@ -378,6 +398,14 @@ async function main() {
     await page.evaluate(await readFile(axeSource, "utf8"));
     await until(page, "the legal notice", (want) => document.querySelector("h1")?.textContent?.trim() === want, "プライバシーと利用規約");
     results.push(await scan(page, "プライバシーと利用規約"));
+
+    await page.setViewport({ width: 390, height: 844 });
+    await page.goto(`${origin}${BASE}`, { waitUntil: "networkidle0" });
+    await page.evaluate(await readFile(axeSource, "utf8"));
+    for (const [entry, heading] of NARROW_SCREENS) {
+      await visit(entry, heading);
+      results.push(await scan(page, `${entry}（390px）`));
+    }
   } finally {
     if (!KEEP_OPEN) await browser.close();
     server.close();
@@ -386,7 +414,7 @@ async function main() {
   const violations = results.flatMap((result) => result.violations.map((item) => ({ ...item, state: result.state })));
   const incomplete = results.flatMap((result) => result.incomplete.map((item) => ({ ...item, state: result.state })));
 
-  console.log(`\naxe over ${results.length} states at 1440x900`);
+  console.log(`\naxe over ${results.length} states at 1440x900, the last ${NARROW_SCREENS.length} at 390x844`);
   for (const result of results) {
     console.log(`  ${result.violations.length === 0 ? "ok" : "FAIL"}  ${result.state}`
       + `  violations=${result.violations.length} incomplete=${result.incomplete.length}`

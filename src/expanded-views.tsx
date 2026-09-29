@@ -1875,7 +1875,10 @@ export function SkillsView({ state, onAddCatalogEntry, onOpenMember, onResolveNe
           cell counts (#85). */}
       <p className="viz-caption" id="skill-rail-key">習熟度は、左から <b>初級</b>・<b>基礎</b>・<b>実務</b>・<b>応用</b>・<b>指導</b> の5段階です。マスの数字は、その習熟度の保有者数です。</p>
 
-      <div className="skill-map-wrap">
+      {/* Focusable itself: at 390px it scrolls sideways, and with no open need the rows
+          hold no button to reach it by (#497). */}
+      {/* eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- scrollport */}
+      <div className="skill-map-wrap" tabIndex={0} role="region" aria-label="スキルの一覧">
         <table className="skill-map-table" aria-describedby="skill-rail-key">
           <thead>
             <tr>
@@ -2504,7 +2507,10 @@ export function FieldsView({ state, onAddField, canManage = false, canManageRequ
         </form>
       )}
 
-      <div className="skill-map-wrap">
+      {/* No control in this table, so at 390px the sideways scroll is only reachable
+          through the box (#497). */}
+      {/* eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- scrollport */}
+      <div className="skill-map-wrap" tabIndex={0} role="region" aria-label="独自項目の一覧">
         <table className="skill-map-table">
           <thead>
             <tr>
@@ -2681,7 +2687,10 @@ export function OrgView({ state, onAddUnit, onMoveUnit, onArchiveUnit, canManage
         </form>
       )}
 
-      <div className="skill-map-wrap">
+      {/* Without management rights the rows hold no select or button, and at 390px the
+          table scrolls sideways (#497). */}
+      {/* eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- scrollport */}
+      <div className="skill-map-wrap" tabIndex={0} role="region" aria-label="部門の一覧">
         <table className="skill-map-table">
           <thead>
             <tr>

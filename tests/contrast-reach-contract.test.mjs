@@ -110,6 +110,18 @@ test("body holiday columns share the weekend fill, and a worked weekend still wi
     "`.day-grid i.weekend.worked` must follow `.holiday` so a recorded Saturday keeps its fill");
 });
 
+test("the login screen's 「または」 reads its colour from the theme (#497)", () => {
+  // The sweep never reaches the login screen: the demo build has none, and the separator
+  // only renders with VITE_ENABLE_GOOGLE_AUTH=true. So the last rule that sets its colour is
+  // pinned here. #68758e was a pre-theme blue at 4.28 on the --canvas the card sits on.
+  const colours = [...css.matchAll(/\.production-auth-separator\s*\{([^}]*)\}/gu)]
+    .map((rule) => /(?:^|;|\s)color:\s*([^;]+);/u.exec(rule[1])?.[1].trim())
+    .filter(Boolean);
+  assert.ok(colours.length > 0, "`.production-auth-separator` lost its colour");
+  assert.equal(colours.at(-1), "var(--muted-readable)",
+    "the separator is not `var(--muted-readable)` (#6f625d, 5.41 on --canvas #f8f5f4) (#497)");
+});
+
 test("the sweep waits for the board heading pageMeta actually renders (#403)", () => {
   const title = /board:\s*\{[^}]*title:\s*"([^"]+)"/u.exec(app)?.[1];
   assert.equal(title, "アサインボード");
