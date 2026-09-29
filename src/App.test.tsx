@@ -715,7 +715,10 @@ describe("role-aware workspace", () => {
     expect(warning()).toBeNull();
 
     // The swap form measures with the moved assignment in place: 佐伯's 50% onto 中村.
+    // The picks above were input, so Escape asks before closing (#492).
+    vi.spyOn(window, "confirm").mockReturnValue(true);
     await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog", { name: "詳細パネル" })).not.toBeInTheDocument();
     await user.click(screen.getAllByRole("button", { name: /^Atlas リニューアルのアサイン詳細（佐伯 優斗/u })[0]);
     const edit = within(screen.getByRole("dialog", { name: "詳細パネル" }));
     expect(warning()).toBeNull();
@@ -1258,7 +1261,10 @@ describe("role-aware workspace", () => {
     expect(adapter.reload).not.toHaveBeenCalled();
     expect(dialog.getByRole("button", { name: "変更を仮置き" })).toBeDisabled();
 
+    // The summary was typed, so closing asks first (#492).
+    const confirmClose = vi.spyOn(window, "confirm").mockReturnValue(true);
     await user.click(dialog.getByRole("button", { name: "詳細パネルを閉じる" }));
+    expect(confirmClose).toHaveBeenCalledWith("この入力はまだ反映されていません。閉じると破棄される場合があります。閉じますか？");
     await user.click(screen.getByRole("button", { name: "下書きを破棄して再読み込み" }));
     await waitFor(() => expect(adapter.reload).toHaveBeenCalledOnce());
     expect(screen.queryByRole("dialog", { name: "詳細パネル" })).not.toBeInTheDocument();
@@ -1858,6 +1864,89 @@ describe("role-aware workspace", () => {
     expect(screen.queryByText("休暇")).not.toBeInTheDocument();
     expect(screen.queryByText("未充足ロール")).not.toBeInTheDocument();
     window.localStorage.removeItem("mosaic-local-workspace-v3");
+  });
+});
+
+describe("closing a dialog with input in it asks first (#492)", () => {
+  const message = "この入力はまだ反映されていません。閉じると破棄される場合があります。閉じますか？";
+  async function openNewMember(user: ReturnType<typeof userEvent.setup>) {
+    const navigation = within(screen.getByRole("navigation", { name: "メインナビゲーション" }));
+    await user.click(navigation.getByRole("button", { name: "メンバー" }));
+    const add = screen.getAllByRole("button", { name: "メンバーを追加" }).find((button) => !button.hasAttribute("disabled"));
+    await user.click(add!);
+    return within(screen.getByRole("dialog", { name: "詳細パネル" }));
+  }
+  const open = () => screen.queryByRole("dialog", { name: "詳細パネル" });
+
+  it("keeps the dialog and the input when the question is refused, on Escape, × and the backdrop", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    const dialog = await openNewMember(user);
+    await user.type(dialog.getByLabelText("氏名"), "入力途中");
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+
+    await user.keyboard("{Escape}");
+    await user.click(dialog.getByRole("button", { name: "詳細パネルを閉じる" }));
+    await user.click(document.querySelector(".overlay-backdrop")!);
+
+    expect(confirm).toHaveBeenCalledTimes(3);
+    expect(confirm).toHaveBeenCalledWith(message);
+    expect(open()).toBeInTheDocument();
+    expect(dialog.getByLabelText("氏名")).toHaveValue("入力途中");
+  });
+
+  it("closes when the question is accepted, on each of the three", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    for (const close of [
+      () => user.keyboard("{Escape}"),
+      () => user.click(screen.getByRole("button", { name: "詳細パネルを閉じる" })),
+      () => user.click(document.querySelector(".overlay-backdrop")!),
+    ]) {
+      const dialog = await openNewMember(user);
+      await user.clear(dialog.getByLabelText("氏名"));
+      await user.type(dialog.getByLabelText("氏名"), "入力途中");
+      await close();
+      expect(open()).not.toBeInTheDocument();
+    }
+    expect(confirm).toHaveBeenCalledTimes(3);
+  });
+
+  it("does not ask after a pre-award case's edit was staged and its detail came back", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    const navigation = within(screen.getByRole("navigation", { name: "メインナビゲーション" }));
+    await user.click(navigation.getByRole("button", { name: /^受注前( |$)/u }));
+    await user.click(document.querySelector(".pipeline-card") as HTMLElement);
+    await user.click(within(screen.getByRole("dialog", { name: "詳細パネル" })).getByRole("button", { name: "案件情報を編集" }));
+    const edit = within(screen.getByRole("dialog", { name: "詳細パネル" }));
+    await user.type(edit.getByLabelText("概要"), "追記");
+    await user.click(edit.getByRole("button", { name: "変更を仮置き" }));
+    expect(within(screen.getByRole("dialog", { name: "詳細パネル" })).getByRole("button", { name: "案件情報を編集" })).toBeInTheDocument();
+
+    await user.keyboard("{Escape}");
+    expect(open()).not.toBeInTheDocument();
+    expect(confirm).not.toHaveBeenCalled();
+  });
+
+  it("does not ask when nothing was typed, or after the input was staged", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    await openNewMember(user);
+    await user.keyboard("{Escape}");
+    expect(open()).not.toBeInTheDocument();
+
+    const dialog = await openNewMember(user);
+    await user.type(dialog.getByLabelText("氏名"), "新規 次郎");
+    await user.click(dialog.getByRole("button", { name: "メンバーを追加" }));
+    expect(open()).not.toBeInTheDocument();
+    await openNewMember(user);
+    await user.keyboard("{Escape}");
+    expect(open()).not.toBeInTheDocument();
+    expect(confirm).not.toHaveBeenCalled();
   });
 });
 
@@ -5581,7 +5670,10 @@ describe("two members with one name", () => {
       .map((el) => el.textContent ?? "").filter((text) => text.startsWith(sharedName));
     expect(options).toHaveLength(2);
     expect(new Set(options).size).toBe(2);
+    // Typing in the picker's search counts as input, so × asks first (#492).
+    vi.spyOn(window, "confirm").mockReturnValue(true);
     await user.click(document.querySelector(".drawer .close-button") as HTMLElement);
+    expect(screen.queryByRole("dialog", { name: "詳細パネル" })).not.toBeInTheDocument();
 
     // The proposal picker.
     await user.click(navigation.getByRole("button", { name: /^提案( |$)/u }));
