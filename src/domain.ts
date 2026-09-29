@@ -1692,12 +1692,32 @@ export function memberDailyLoads(state: WorkspaceState, memberId: string, startD
   return days;
 }
 
-function intervalContainsBusinessDay(startDay: number, endDay: number) {
-  if (endDay < startDay) return false;
-  if (endDay - startDay >= 6) return true;
-  for (let day = startDay; day <= endDay; day += 1) {
+/**
+ * Does this member have a day in the interval that can carry load? The rule the
+ * daily walk uses (`assignmentPutsLoadOnDate`): a weekday whose ceiling is above 0,
+ * so national holidays and 0% leave count as no. A 0% leave is jumped over whole,
+ * so an interval that runs to 9999-12-31 is never walked one day at a time (#494).
+ */
+function intervalHasLoadDay(state: WorkspaceState, member: Member | undefined, startDay: number, endDay: number) {
+  if (!member || !(member.capacity > 0)) return false;
+  const zeroLeaves = (member.unavailability ?? [])
+    .filter((leave) => !(leave.capacityPercent > 0))
+    .map((leave) => ({ start: isoDayNumber(leave.startDate), end: isoDayNumber(leave.endDate) }))
+    .filter((leave): leave is { start: number; end: number } => leave.start !== null && leave.end !== null);
+  let day = startDay;
+  while (day <= endDay) {
     const weekday = new Date(day * millisecondsPerDay).getUTCDay();
-    if (weekday !== 0 && weekday !== 6) return true;
+    if (weekday === 0 || weekday === 6) {
+      day += 1;
+      continue;
+    }
+    const covering = zeroLeaves.filter((leave) => leave.start <= day && leave.end >= day);
+    if (covering.length > 0) {
+      day = Math.max(...covering.map((leave) => leave.end)) + 1;
+      continue;
+    }
+    if (memberCapacityOnDate(state, member, new Date(day * millisecondsPerDay).toISOString().slice(0, 10)) > 0) return true;
+    day += 1;
   }
   return false;
 }
@@ -1729,6 +1749,7 @@ export function memberPeakLoad(state: WorkspaceState, memberId: string, startDat
     return memberDailyLoads(state, memberId, startDate, endDate).reduce((peak, day) => Math.max(peak, day.load), 0);
   }
   const mine = state.assignments.filter((assignment) => assignment.personId === memberId);
+  const member = memberById(state, memberId);
 
   const events = new Map<number, number>();
   mine.forEach((assignment) => {
@@ -1749,7 +1770,7 @@ export function memberPeakLoad(state: WorkspaceState, memberId: string, startDat
     load += events.get(eventDay) ?? 0;
     if (eventDay > rangeEnd) return;
     const nextEventDay = eventDays[index + 1] ?? rangeEnd + 1;
-    if (intervalContainsBusinessDay(eventDay, Math.min(rangeEnd, nextEventDay - 1))) {
+    if (intervalHasLoadDay(state, member, eventDay, Math.min(rangeEnd, nextEventDay - 1))) {
       peak = Math.max(peak, load);
     }
   });

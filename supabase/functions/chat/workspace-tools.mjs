@@ -1051,12 +1051,28 @@ function dayNumber(value) {
   return Math.floor(Date.parse(`${value}T00:00:00Z`) / DAY_MS);
 }
 
-function containsBusinessDay(start, end) {
-  if (end < start) return false;
-  if (end - start >= 6) return true;
-  for (let day = start; day <= end; day += 1) {
+// The same rule as the app's `intervalHasLoadDay` (src/domain.ts, #494): a weekday whose
+// ceiling is above 0, with 0% leave jumped over whole.
+function containsLoadDay(state, member, start, end) {
+  if (!member || !(Number(member.capacity) > 0)) return false;
+  const zeroLeaves = (member.unavailability ?? [])
+    .filter((leave) => !(Number(leave.capacityPercent) > 0))
+    .map((leave) => ({ start: dayNumber(leave.startDate), end: dayNumber(leave.endDate) }))
+    .filter((leave) => Number.isFinite(leave.start) && Number.isFinite(leave.end));
+  let day = start;
+  while (day <= end) {
     const weekday = new Date(day * DAY_MS).getUTCDay();
-    if (weekday !== 0 && weekday !== 6) return true;
+    if (weekday === 0 || weekday === 6) {
+      day += 1;
+      continue;
+    }
+    const covering = zeroLeaves.filter((leave) => leave.start <= day && leave.end >= day);
+    if (covering.length > 0) {
+      day = Math.max(...covering.map((leave) => leave.end)) + 1;
+      continue;
+    }
+    if (memberCapacityOnDate(state, member, new Date(day * DAY_MS).toISOString().slice(0, 10)) > 0) return true;
+    day += 1;
   }
   return false;
 }
@@ -1121,6 +1137,7 @@ function memberPeakLoad(state, personId, startDate, endDate, excludedAssignmentI
     return memberDailyLoads(state, personId, startDate, endDate, excludedAssignmentId)
       .reduce((peak, day) => Math.max(peak, day.load), 0);
   }
+  const member = state.members.find((candidate) => candidate.id === personId);
   const events = new Map();
   for (const assignment of state.assignments) {
     if (assignment.id === excludedAssignmentId || assignment.personId !== personId || assignment.status === "cancelled") continue;
@@ -1137,7 +1154,7 @@ function memberPeakLoad(state, personId, startDate, endDate, excludedAssignmentI
     load += events.get(day) ?? 0;
     if (day > rangeEnd) return;
     const next = days[index + 1] ?? rangeEnd + 1;
-    if (containsBusinessDay(day, Math.min(rangeEnd, next - 1))) peak = Math.max(peak, load);
+    if (containsLoadDay(state, member, day, Math.min(rangeEnd, next - 1))) peak = Math.max(peak, load);
   });
 
   const mine = state.assignments.filter((assignment) =>

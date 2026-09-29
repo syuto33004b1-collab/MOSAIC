@@ -2388,3 +2388,50 @@ describe("plan cost", () => {
     expect(workspaceHasPricedMonthlyCost({ members: [member] })).toBe(true);
   });
 });
+
+describe("the long-span peak skips days that cannot carry load (#494)", () => {
+  const person = (capacity = 100, unavailability?: Member["unavailability"]): Member => ({
+    id: "m", initials: "M", name: "Member", role: "QA", department: "QA", avatarTone: "mint", skills: [], location: "Tokyo", capacity,
+    ...(unavailability ? { unavailability } : {}),
+  });
+  const two = (first: [string, string], second: [string, string], member = person()): WorkspaceState => ({
+    members: [member],
+    projects: [],
+    needs: [],
+    assignments: [
+      { id: "a", personId: "m", projectId: "p", startDate: first[0], endDate: first[1], allocation: 60, status: "confirmed" },
+      { id: "b", personId: "m", projectId: "p", startDate: second[0], endDate: second[1], allocation: 60, status: "confirmed" },
+    ],
+  });
+
+  it("does not add up two assignments that only meet on holidays", () => {
+    // 2026-09-21, 22 and 23 are 敬老の日, 国民の休日 and 秋分の日.
+    const state = two(["2026-09-01", "2026-09-23"], ["2026-09-21", "2026-10-30"]);
+    expect(memberPeakLoad(state, "m", "2026-09-01", "2026-10-31")).toBe(60);
+  });
+
+  it("gives the same answer on either side of the 22-day switch", () => {
+    const state = two(["2026-09-01", "2026-09-23"], ["2026-09-21", "2026-10-30"]);
+    expect(memberPeakLoad(state, "m", "2026-09-10", "2026-10-01")).toBe(60);
+    expect(memberPeakLoad(state, "m", "2026-09-10", "2026-10-02")).toBe(60);
+  });
+
+  it("does not add them up across a 0% leave, and still does across a 50% one", () => {
+    const leave = (capacityPercent: number) => person(100, [{ id: "l", startDate: "2026-10-05", endDate: "2026-10-16", capacityPercent }]);
+    expect(memberPeakLoad(two(["2026-09-01", "2026-10-16"], ["2026-10-05", "2026-12-31"], leave(0)), "m", "2026-09-01", "2026-12-31")).toBe(60);
+    expect(memberPeakLoad(two(["2026-09-01", "2026-10-16"], ["2026-10-05", "2026-12-31"], leave(50)), "m", "2026-09-01", "2026-12-31")).toBe(120);
+  });
+
+  it("does not count an unrecorded weekend that is the only overlap", () => {
+    // 9/5 and 9/6 are a Saturday and a Sunday.
+    expect(memberPeakLoad(two(["2026-09-01", "2026-09-06"], ["2026-09-05", "2026-10-30"]), "m", "2026-09-01", "2026-10-31")).toBe(60);
+  });
+
+  it("stays quick when the span and a 0% leave run to 9999-12-31, and a 0% ceiling carries nothing", () => {
+    const openEnded = person(100, [{ id: "l", startDate: "2026-10-05", endDate: "9999-12-31", capacityPercent: 0 }]);
+    const started = performance.now();
+    expect(memberPeakLoad(two(["2026-09-01", "9999-12-31"], ["2026-10-05", "9999-12-31"], openEnded), "m", "2026-09-01", "9999-12-31")).toBe(60);
+    expect(memberPeakLoad(two(["2026-09-01", "9999-12-31"], ["2026-10-05", "9999-12-31"], person(0)), "m", "2026-09-01", "9999-12-31")).toBe(0);
+    expect(performance.now() - started).toBeLessThan(200);
+  });
+});

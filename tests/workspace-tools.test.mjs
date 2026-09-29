@@ -1103,6 +1103,22 @@ test("drops holiday load and compares 時短 against the absolute ceiling, same 
   assert.equal(holidayOnly.items[0].peakAllocation, 0);
   assert.equal(holidayOnly.items[0].availablePercent, 0);
 
+  // Over 22 days the peak is swept, not walked. Two assignments that only meet on
+  // 9/21-9/23 (all holidays) must not add up there either (#494).
+  const longSpan = snapshot();
+  longSpan.members = state.members;
+  longSpan.assignments = [
+    { ...state.assignments[0], id: ids.assignment, startDate: "2026-09-01", endDate: "2026-09-23" },
+    { ...state.assignments[0], id: "00000000-0000-4000-8000-0000000000f4", startDate: "2026-09-21", endDate: "2026-10-30" },
+  ];
+  const swept = readWorkspaceTool(longSpan, "read_workspace", {
+    resource: "members",
+    query: "Bob",
+    startDate: "2026-09-01",
+    endDate: "2026-10-31",
+  });
+  assert.equal(swept.items[0].peakAllocation, 60);
+
   const shortHours = snapshot();
   shortHours.members = state.members;
   shortHours.assignments = [{
