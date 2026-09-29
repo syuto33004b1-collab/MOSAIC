@@ -683,11 +683,14 @@ test("saved report averages clip the period to the holiday calendar and stay fas
     startDate,
     endDate,
   }).items[0].rows;
+  const calendar = read("2016-01-01", "2035-12-31");
+  assert.equal(calendar.find((row) => row.label === "事業推進")?.value, 30);
+  // A bounded span first, so a missing clip fails on the value and not by walking to 9999.
+  assert.deepEqual(read("2010-01-01", "2040-12-31"), calendar);
   const started = performance.now();
   const wide = read("2000-01-01", "9999-12-31");
   const elapsed = performance.now() - started;
-  assert.deepEqual(wide, read("2016-01-01", "2035-12-31"));
-  assert.equal(wide.find((row) => row.label === "事業推進")?.value, 30);
+  assert.deepEqual(wide, calendar);
   assert.ok(elapsed < 1000, `${Math.round(elapsed)}ms`);
   const outside = read("2036-01-01", "2036-12-31");
   assert.deepEqual(

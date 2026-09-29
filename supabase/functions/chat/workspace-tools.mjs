@@ -290,7 +290,7 @@ function updateParameters(idName, fields) {
 export const WORKSPACE_TOOL_DECLARATIONS = Object.freeze([
   declaration(
     READ_TOOL,
-    `MOSAICの現在の組織にあるメンバー、プロジェクト、アサイン、要員要件、受注前案件を参照する。変更前のID確認にも必ず使う。保存レポートの平均稼働率は画面と同じく、期間内の日ごとの稼働（記録した休日出勤を含む）の合計を平日の稼働上限の合計で割った値で、期間は${HOLIDAY_CALENDAR_START}〜${HOLIDAY_CALENDAR_END}に切り詰めて集計する。依頼された期間と違うときは切り詰めた期間を伝える。この範囲の外だけを指定したときの0は稼働0%ではない。`,
+    `MOSAICの現在の組織にあるメンバー、プロジェクト、アサイン、要員要件、受注前案件を参照する。変更前のID確認にも必ず使う。保存レポートの平均稼働率は画面と同じく、期間内の日ごとの稼働（記録した休日出勤を含む）の合計を平日の稼働上限の合計で割って100を掛け、グループごとに1回だけ四捨五入した百分率。祝日と稼働上限0%の平日は分子にも分母にも入らないが、週末に記録した休日出勤は分子に入る。期間は${HOLIDAY_CALENDAR_START}〜${HOLIDAY_CALENDAR_END}に切り詰めて集計する。依頼された期間と違うときは切り詰めた期間を伝える。この範囲の外だけを指定したときの0は稼働0%ではない。`,
     readParameters,
   ),
   declaration("create_member", "業務上のアサイン対象メンバーを登録する。ログインユーザーや権限は作成しない。", createParameters(memberFields, ["name", "role", "department", "location", "capacity", "skills"])),
