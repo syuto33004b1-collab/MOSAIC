@@ -345,12 +345,22 @@ async function main() {
     results.push(await scan(page, "アサイン追加ドロワー（送信を拒否された状態）"));
     // The end date was typed, so closing asks first (#492). A native confirm blocks the
     // page until it is answered; without this the next key press times out.
-    const asked = new Promise((resolve) => page.once("dialog", async (dialog) => {
-      await dialog.accept();
-      resolve(dialog.type());
-    }));
+    // Same 8s as `until`, so a missing confirm fails with a reason instead of waiting forever.
+    let onDialog;
+    const asked = new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        page.off("dialog", onDialog);
+        reject(new Error("closing the typed-in drawer did not ask first"));
+      }, 8000);
+      onDialog = (dialog) => {
+        page.off("dialog", onDialog);
+        clearTimeout(timer);
+        dialog.accept().then(() => resolve(dialog.type()), reject);
+      };
+      page.on("dialog", onDialog);
+    });
     await page.keyboard.press("Escape");
-    if (await asked !== "confirm") throw new Error("closing the typed-in drawer did not ask first");
+    if (await asked !== "confirm") throw new Error("closing the typed-in drawer asked with something other than a confirm");
     await until(page, "the drawer to close", () => !document.querySelector("[role=dialog]"));
 
     // Two labels: the launcher says something else when the assistant has no server to
