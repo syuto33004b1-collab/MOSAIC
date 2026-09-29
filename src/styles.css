@@ -3426,7 +3426,7 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   align-items: center;
   gap: 12px;
   margin: 8px 0 0;
-  color: #68758e;
+  color: var(--muted-readable);
   font-size: var(--text-min);
   font-weight: 700;
   line-height: var(--leading);

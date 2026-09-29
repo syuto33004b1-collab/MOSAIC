@@ -3242,6 +3242,22 @@ describe("a key for what colour and position encode", () => {
     expect([...document.querySelectorAll(".skill-ok")].map((el) => el.textContent)).not.toContain("充足");
   });
 
+  it("lets the keyboard reach the three tables that scroll sideways on a phone (#497)", async () => {
+    // jsdom has no layout, so axe cannot see these scroll. The field table never holds a
+    // control; the skill map loses its buttons with no open need, and the org table its
+    // selects without management rights — so the box itself has to take focus.
+    const user = userEvent.setup();
+    render(<App />);
+    const screens: [RegExp, string][] = [[/^組織$/u, "部門の一覧"], [/^スキルマップ$/u, "スキルの一覧"], [/^項目定義$/u, "独自項目の一覧"]];
+    for (const [nav, name] of screens) {
+      await goTo(user, nav);
+      const region = screen.getByRole("region", { name });
+      expect(region, name).toHaveClass("skill-map-wrap");
+      expect(region, name).toHaveAttribute("tabindex", "0");
+      expect(region.querySelector(":scope > table"), name).not.toBeNull();
+    }
+  });
+
   it("tells the 未充足 links apart, and the count badges apart", async () => {
     const user = userEvent.setup();
     render(<App />);
