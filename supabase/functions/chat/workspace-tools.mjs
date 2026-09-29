@@ -22,8 +22,10 @@
  */
 
 import { describeOperationDenial, INTEGRATION_LIMITS, normalizeCaller, OPERATION_CATALOG } from "./integration-core.mjs";
-import { isJapanHoliday } from "./japan-holidays.mjs";
+import { isJapanHoliday, JAPAN_HOLIDAY_YEAR_MAX, JAPAN_HOLIDAY_YEAR_MIN } from "./japan-holidays.mjs";
 
+const HOLIDAY_CALENDAR_START = `${JAPAN_HOLIDAY_YEAR_MIN}-01-01`;
+const HOLIDAY_CALENDAR_END = `${JAPAN_HOLIDAY_YEAR_MAX}-12-31`;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/u;
 const AVATAR_TONES = ["lavender", "peach", "sky", "mint", "sand", "rose"];
@@ -288,7 +290,7 @@ function updateParameters(idName, fields) {
 export const WORKSPACE_TOOL_DECLARATIONS = Object.freeze([
   declaration(
     READ_TOOL,
-    "MOSAICの現在の組織にあるメンバー、プロジェクト、アサイン、要員要件、受注前案件を参照する。変更前のID確認にも必ず使う。",
+    `MOSAICの現在の組織にあるメンバー、プロジェクト、アサイン、要員要件、受注前案件を参照する。変更前のID確認にも必ず使う。保存レポートの平均稼働率は画面と同じく、期間内の日ごとの稼働（記録した休日出勤を含む）の合計を平日の稼働上限の合計で割った値で、期間は${HOLIDAY_CALENDAR_START}〜${HOLIDAY_CALENDAR_END}に切り詰めて集計する。依頼された期間と違うときは切り詰めた期間を伝える。この範囲の外だけを指定したときの0は稼働0%ではない。`,
     readParameters,
   ),
   declaration("create_member", "業務上のアサイン対象メンバーを登録する。ログインユーザーや権限は作成しない。", createParameters(memberFields, ["name", "role", "department", "location", "capacity", "skills"])),
@@ -1221,7 +1223,88 @@ function memberAvailablePercent(state, member, startDate, endDate) {
   return bearing.reduce((lowest, day) => Math.min(lowest, Math.max(0, day.capacity - day.load)), Number.POSITIVE_INFINITY);
 }
 
-function buildSavedReportRows(state, report, startDate, endDate) {
+// The span the app's `periodRange` reports on: clipped to the holiday calendar, because a
+// year it cannot classify would count every weekday as supply (#323, #495).
+function reportCalendar(startDate, endDate) {
+  const from = startDate < HOLIDAY_CALENDAR_START ? HOLIDAY_CALENDAR_START : startDate;
+  const to = endDate > HOLIDAY_CALENDAR_END ? HOLIDAY_CALENDAR_END : endDate;
+  const days = [];
+  const weekdaysBefore = [0];
+  for (let date = from; date <= to; date = addDaysIso(date, 1)) {
+    days.push(date);
+    weekdaysBefore.push(weekdaysBefore[weekdaysBefore.length - 1] + (isWeekendDate(date) || isJapanHoliday(date) ? 0 : 1));
+  }
+  return { days, weekdaysBefore };
+}
+
+function firstDayIndex(days, iso, inclusive) {
+  let low = 0;
+  let high = days.length;
+  while (low < high) {
+    const middle = (low + high) >> 1;
+    if (inclusive ? days[middle] < iso : days[middle] <= iso) low = middle + 1;
+    else high = middle;
+  }
+  return low;
+}
+
+// Bounds are found by string comparison, as `memberCapacityOnDate` and
+// `assignmentPutsLoadOnDate` compare them, so an end date such as 2026-02-30 stops where
+// the daily walk stops rather than where `Date.parse` rolls it to.
+function daySpan(days, item) {
+  if (typeof item?.startDate !== "string" || typeof item?.endDate !== "string") return null;
+  const start = firstDayIndex(days, item.startDate, true);
+  const end = firstDayIndex(days, item.endDate, false);
+  return start < end ? { start, end } : null;
+}
+
+// The app's 平均稼働 for one member (src/domain.ts `periodStatsFromDays`): every day's load,
+// recorded weekend work included, and the ceilings of weekdays only. A holiday or a 0%
+// leave carries neither. Summed per span between assignment and leave edges, because the
+// query span has no upper bound and a day-by-day walk is members × days × assignments.
+function memberPeriodLoad(state, member, calendar) {
+  const { days, weekdaysBefore } = calendar;
+  const booked = state.assignments
+    .filter((assignment) => assignment.personId === member.id && assignment.status !== "cancelled")
+    .map((assignment) => ({ assignment, span: daySpan(days, assignment) }))
+    .filter(({ span }) => span);
+  const leaves = (member.unavailability ?? [])
+    .map((leave) => ({ leave, span: daySpan(days, leave) }))
+    .filter(({ span }) => span);
+  const edges = new Set([0, days.length]);
+  for (const { span } of [...booked, ...leaves]) {
+    edges.add(span.start);
+    edges.add(span.end);
+  }
+  const sorted = [...edges].sort((left, right) => left - right);
+  let load = 0;
+  let capacity = 0;
+  for (let index = 0; index < sorted.length - 1; index += 1) {
+    const from = sorted[index];
+    const to = sorted[index + 1];
+    const weekdays = weekdaysBefore[to] - weekdaysBefore[from];
+    if (weekdays === 0) continue;
+    let ceiling = Number(member.capacity);
+    for (const { leave, span } of leaves) {
+      if (span.start <= from && span.end >= to) ceiling = Math.min(ceiling, Number(leave.capacityPercent));
+    }
+    capacity += ceiling * weekdays;
+    if (!(ceiling > 0)) continue;
+    const allocation = booked
+      .filter(({ span }) => span.start <= from && span.end >= to)
+      .reduce((sum, { assignment }) => sum + Number(assignment.allocation), 0);
+    load += allocation * weekdays;
+  }
+  for (const { assignment, span } of booked) {
+    for (const date of new Set(assignment.weekendWorkDates ?? [])) {
+      const at = firstDayIndex(days, date, true);
+      if (at >= span.start && at < span.end && days[at] === date && isWeekendDate(date)) load += Number(assignment.allocation);
+    }
+  }
+  return { load, capacity };
+}
+
+function buildSavedReportRows(state, report, calendar) {
   const groups = new Map();
   if (report.source === "projects") {
     for (const project of state.projects) {
@@ -1231,13 +1314,15 @@ function buildSavedReportRows(state, report, startDate, endDate) {
     }
   } else {
     const groupBy = ["department", "role", "location"].includes(report.groupBy) ? report.groupBy : "department";
+    const measureLoad = report.metric === "avgLoad";
     for (const member of state.members) {
       const label = (groupBy === "role" ? member.role : groupBy === "location" ? member.location : member.department)?.trim() || "未設定";
       const current = groups.get(label) ?? { count: 0, load: 0, capacity: 0 };
+      const period = measureLoad ? memberPeriodLoad(state, member, calendar()) : { load: 0, capacity: 0 };
       groups.set(label, {
         count: current.count + 1,
-        load: current.load + memberPeakLoad(state, member.id, startDate, endDate),
-        capacity: current.capacity + Number(member.capacity),
+        load: current.load + period.load,
+        capacity: current.capacity + period.capacity,
       });
     }
   }
@@ -1441,14 +1526,15 @@ export function readWorkspaceTool(snapshot, name, args, caller) {
 
   if (filters.resource === "saved_reports") {
     const reports = state.savedReports.filter((report) => containsQuery([report.name, report.source, report.groupBy, report.metric], filters.query));
-    const weekStart = filters.startDate;
+    let calendar;
+    const calendarOnce = () => (calendar ??= reportCalendar(filters.startDate, filters.endDate));
     const values = (filters.reportId ? reports.filter((report) => report.id === filters.reportId) : reports).map((report) => ({
       id: report.id,
       name: report.name,
       source: report.source,
       groupBy: report.groupBy,
       metric: report.metric,
-      ...(weekStart && filters.endDate ? { rows: buildSavedReportRows(state, report, weekStart, filters.endDate) } : {}),
+      ...(filters.startDate && filters.endDate ? { rows: buildSavedReportRows(state, report, calendarOnce) } : {}),
     }));
     if (filters.reportId && values.length === 0) byId(state.savedReports, filters.reportId, "保存レポート");
     return { resource: filters.resource, revision: state.revision, ...bounded(values, filters.limit) };
