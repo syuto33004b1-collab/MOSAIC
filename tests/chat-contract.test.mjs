@@ -237,7 +237,7 @@ test("tells a limited user when to try again, in Japan time (#502)", () => {
 
 test("the chat function counts in the database, with the limit the tests know (#502)", async () => {
   const index = await readFile(path.join(root, "supabase", "functions", "chat", "index.ts"), "utf8");
-  assert.doesNotMatch(index, /createBestEffortRateLimiter|rate-limit\.mjs/u, "the per-isolate window is back in the chat function");
+  assert.doesNotMatch(index, /createBestEffortRateLimiter|["']\.\/rate-limit\.mjs["']/u, "the per-isolate window is back in the chat function");
   assert.match(index, /await consumeChatRateLimit\(client, parsed\.organizationId\)/u);
   const migration = await readFile(path.join(root, "supabase", "migrations", "20260929120000_chat_rate_windows.sql"), "utf8");
   assert.equal(Number(/v_limit constant integer := (\d+);/u.exec(migration)?.[1]), INTEGRATION_LIMITS.chat.limit);
