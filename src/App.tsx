@@ -2556,6 +2556,11 @@ export default function Home({ mode = "demo", organizationId, organizationName =
   const handleCreateProject = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!canEdit) return;
+    const name = projectForm.name.trim();
+    if (!name) {
+      setToast("プロジェクト名を入力してください");
+      return;
+    }
     const owner = memberById(workspace, projectForm.ownerId) || workspace.members[0];
     if (!owner) {
       setToast("先に責任者となるメンバーを登録してください");
@@ -2564,8 +2569,8 @@ export default function Home({ mode = "demo", organizationId, organizationName =
     const id = newId();
     const project: Project = {
       id,
-      code: createProjectCode(projectForm.name, id),
-      name: projectForm.name,
+      code: createProjectCode(name, id),
+      name,
       summary: "新しく追加したプロジェクト",
       status: projectForm.status,
       tone: "blue",
