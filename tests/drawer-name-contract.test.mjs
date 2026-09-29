@@ -32,10 +32,16 @@ test("the drawer is named by its heading and by nothing else", () => {
 test("every kind of drawer has a heading with the shared id", () => {
   assert.equal(kinds.length, 16, `DRAWER_KICKER lists ${kinds.length} kinds`);
   for (const kind of kinds) {
-    const start = app.indexOf(`{drawer === "${kind}" && `);
-    assert.ok(start >= 0, `no branch renders the ${kind} drawer`);
-    const heading = /<h2[^>]*>/u.exec(app.slice(start))?.[0];
-    assert.equal(heading, "<h2 id={DRAWER_TITLE_ID}>", `the ${kind} drawer's first heading is ${heading}`);
+    // The branch that renders the drawer, `{drawer === "x" && selected && (`, not the kicker's
+    // `{drawer === "needForm" && editingNeedId ? …`, and only up to the next branch: from the
+    // kicker, the first <h2> after it was the chooser's, so needForm and opportunityNeedForm
+    // passed without looking at their own.
+    const branch = new RegExp(`\\{drawer === "${kind}" && (?:[\\w.]+ && )*\\(`, "u").exec(app);
+    assert.ok(branch, `no branch renders the ${kind} drawer`);
+    const rest = app.slice(branch.index + branch[0].length);
+    const next = rest.indexOf("{drawer === ");
+    const heading = /<h2[^>]*>/u.exec(next >= 0 ? rest.slice(0, next) : rest)?.[0];
+    assert.equal(heading, "<h2 id={DRAWER_TITLE_ID}>", `the ${kind} drawer's heading is ${heading ?? "missing"}`);
   }
 });
 
