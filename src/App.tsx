@@ -3107,6 +3107,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
       opportunityNeeds: (current.opportunityNeeds ?? []).filter((need) => !removedNeedIds.has(need.id)),
     }));
     markUnsaved();
+    clearFormDraft();
     setDrawer("opportunity");
     setToast(removedNeedIds.size > 0 ? "案件情報を更新し、期間外の要員計画を取消予定にしました" : "受注前案件を更新しました");
   };
@@ -3149,6 +3150,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
       setWorkspace(converted);
       if (project) setSelectedProjectId(project.id);
       markUnsaved();
+      clearFormDraft();
       setDrawer("project");
       setToast("プロジェクトへ引き継ぎました");
     } catch (caught) {
@@ -3218,6 +3220,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
     setSelectedOpportunityId(opportunity.id);
     setSelectedOpportunityNeedId(nextNeed.id);
     markUnsaved();
+    clearFormDraft();
     setDrawer("opportunity");
     setToast(existing ? "要員計画を更新しました" : "要員計画を追加しました");
   };

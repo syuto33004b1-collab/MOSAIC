@@ -1913,6 +1913,24 @@ describe("closing a dialog with input in it asks first (#492)", () => {
     expect(confirm).toHaveBeenCalledTimes(3);
   });
 
+  it("does not ask after a pre-award case's edit was staged and its detail came back", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    const navigation = within(screen.getByRole("navigation", { name: "メインナビゲーション" }));
+    await user.click(navigation.getByRole("button", { name: /^受注前( |$)/u }));
+    await user.click(document.querySelector(".pipeline-card") as HTMLElement);
+    await user.click(within(screen.getByRole("dialog", { name: "詳細パネル" })).getByRole("button", { name: "案件情報を編集" }));
+    const edit = within(screen.getByRole("dialog", { name: "詳細パネル" }));
+    await user.type(edit.getByLabelText("概要"), "追記");
+    await user.click(edit.getByRole("button", { name: "変更を仮置き" }));
+    expect(within(screen.getByRole("dialog", { name: "詳細パネル" })).getByRole("button", { name: "案件情報を編集" })).toBeInTheDocument();
+
+    await user.keyboard("{Escape}");
+    expect(open()).not.toBeInTheDocument();
+    expect(confirm).not.toHaveBeenCalled();
+  });
+
   it("does not ask when nothing was typed, or after the input was staged", async () => {
     const user = userEvent.setup();
     render(<App />);
