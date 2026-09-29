@@ -1616,6 +1616,17 @@ function isoDayNumber(value: string) {
   return Number.isFinite(milliseconds) ? Math.floor(milliseconds / millisecondsPerDay) : null;
 }
 
+/** Whole days a milestone date lies before `todayIso`. Today, later, missing, or not a real calendar date: 0. */
+export function milestoneOverdueDays(dateIso: string | null | undefined, todayIso: string) {
+  const date = dateIso?.trim() ?? "";
+  if (!/^\d{4}-\d{2}-\d{2}$/u.test(date)) return 0;
+  const day = isoDayNumber(date);
+  const today = isoDayNumber(todayIso);
+  if (day === null || today === null) return 0;
+  if (new Date(day * millisecondsPerDay).toISOString().slice(0, 10) !== date) return 0;
+  return Math.max(0, today - day);
+}
+
 /**
  * Does this assignment put load on this date?
  *

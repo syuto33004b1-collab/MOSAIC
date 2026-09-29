@@ -89,6 +89,7 @@ import {
   projectMembersLow,
   projectPeriodCount,
   projectPeriodHeadline,
+  milestoneOverdueDays,
   openNeeds,
   parseSkillInput,
   skillInputProblems,
@@ -2439,5 +2440,21 @@ describe("the long-span peak skips days that cannot carry load (#494)", () => {
     expect(memberPeakLoad(two(["2026-09-01", "9999-12-31"], ["2026-10-05", "9999-12-31"], openEnded), "m", "2026-09-01", "9999-12-31")).toBe(60);
     expect(memberPeakLoad(two(["2026-09-01", "9999-12-31"], ["2026-10-05", "9999-12-31"], person(0)), "m", "2026-09-01", "9999-12-31")).toBe(0);
     expect(performance.now() - started).toBeLessThan(200);
+describe("milestoneOverdueDays (#493)", () => {
+  it("counts whole days before today, across a month end", () => {
+    expect(milestoneOverdueDays("2026-08-10", "2026-08-19")).toBe(9);
+    expect(milestoneOverdueDays("2026-07-31", "2026-08-19")).toBe(19);
+    expect(milestoneOverdueDays("2025-12-31", "2026-01-01")).toBe(1);
+  });
+
+  it("is zero for today, a later date, no date, and a date that is not a real day", () => {
+    expect(milestoneOverdueDays("2026-08-19", "2026-08-19")).toBe(0);
+    expect(milestoneOverdueDays("2026-08-20", "2026-08-19")).toBe(0);
+    expect(milestoneOverdueDays(null, "2026-08-19")).toBe(0);
+    expect(milestoneOverdueDays(undefined, "2026-08-19")).toBe(0);
+    expect(milestoneOverdueDays("", "2026-08-19")).toBe(0);
+    expect(milestoneOverdueDays("2026-02-31", "2026-08-19")).toBe(0);
+    expect(milestoneOverdueDays("2026-13-01", "2026-08-19")).toBe(0);
+    expect(milestoneOverdueDays("2026/08/10", "2026-08-19")).toBe(0);
   });
 });

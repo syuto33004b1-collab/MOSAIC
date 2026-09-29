@@ -72,6 +72,7 @@ import {
   MONTHLY_COST_FIELD_KEY,
   MONTHLY_COST_FIELD_LABEL,
   memberHasMonthlyCostField,
+  milestoneOverdueDays,
   periodIdleCostYen,
   buildPlanCostRows,
   workspaceHasPricedMonthlyCost,
@@ -165,6 +166,8 @@ type ProjectsViewProps = {
   weekOffset: number;
   /** Civil day the period helpers start from (`boardBasisDay`). */
   origin: string;
+  /** Today, for how far past its date a milestone is. Not `origin`, which follows the board. */
+  today?: string;
   onOpen: (projectId: string) => void;
   query?: string;
   onQueryChange?: (query: string) => void;
@@ -301,6 +304,12 @@ const statusClass: Record<Project["status"], string> = {
   "完了間近": "closing",
   "完了": "closing",
 };
+
+/** How many days a milestone is past, on a line of its own so 「32日超過」 never breaks inside the word. Nothing when it is not past. */
+export function MilestoneOverdue({ date, today }: { date?: string | null; today: string }) {
+  const days = milestoneOverdueDays(date, today);
+  return days > 0 ? <span className="milestone-overdue">{` ${days}日超過`}</span> : null;
+}
 
 function formatMonthDay(iso?: string | null) {
   if (!iso) return "未設定";
@@ -666,6 +675,7 @@ export function ProjectsView({
   state,
   weekOffset,
   origin,
+  today = currentLocalDate(),
   onOpen,
   query,
   onQueryChange,
@@ -804,7 +814,7 @@ export function ProjectsView({
                     <span className="staffed-label">{project.demand === 0 ? "必要人数未設定" : `${weekName} ${currentMembers}/${project.demand}名`}</span>
                   </td>
                   <td><div className="progress-cell"><span><b style={{ width: project.progress + "%" }} /></span><strong>{project.progress}%</strong></div></td>
-                  <td><span className="milestone-cell"><strong>{project.nextMilestone}</strong><small>{formatMonthDay(project.nextMilestoneDate)}</small></span></td>
+                  <td><span className="milestone-cell"><strong>{project.nextMilestone}</strong><small>{formatMonthDay(project.nextMilestoneDate)}<MilestoneOverdue date={project.nextMilestoneDate} today={today} /></small></span></td>
                   <td><span className="owner-cell"><i>{project.ownerInitials}</i><span>{ownerLabel(state, project)}</span></span></td>
                   <td><button className="row-open" aria-label={project.name + "の詳細を見る"} onClick={() => onOpen(project.id)}><ChevronRight size={16} /></button></td>
                 </tr>

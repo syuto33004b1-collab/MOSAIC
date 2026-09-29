@@ -31,7 +31,7 @@ import {
   X,
   type LucideIcon,
 } from "lucide-react";
-import { ActiveFilters, CustomFieldFacts, CustomFieldInputs, MemberPicker, WeekendWorkPicker, type MemberCandidate, CsvTransferPanel, FavoriteStar, FieldsView, MemberOrgFields, MembersView, OpportunitiesView, OrgFacts, OrgView, PeriodRangeTabs, ProjectsView, ProposalView, ReportsView, SkillsView, UnavailabilityEditor, WorkHistoryEditor } from "./expanded-views";
+import { ActiveFilters, CustomFieldFacts, CustomFieldInputs, MemberPicker, WeekendWorkPicker, type MemberCandidate, CsvTransferPanel, FavoriteStar, FieldsView, MemberOrgFields, MembersView, MilestoneOverdue, OpportunitiesView, OrgFacts, OrgView, PeriodRangeTabs, ProjectsView, ProposalView, ReportsView, SkillsView, UnavailabilityEditor, WorkHistoryEditor } from "./expanded-views";
 import { SkillSheet, printSkillSheet } from "./skill-sheet";
 import { AiChat } from "./components/ai-chat/AiChat";
 import type { ChatTransport } from "./lib/ai/chatClient";
@@ -400,11 +400,11 @@ function projectMilestoneParts(project: Pick<Project, "nextMilestone" | "nextMil
   return { name, date };
 }
 
-function ProjectMilestoneValue({ project }: { project: Pick<Project, "nextMilestone" | "nextMilestoneDate"> }) {
+function ProjectMilestoneValue({ project, today }: { project: Pick<Project, "nextMilestone" | "nextMilestoneDate">; today: string }) {
   const { name, date } = projectMilestoneParts(project);
   if (!name && !date) return "未設定";
   if (!date) return name;
-  return <>{name ? `${name} ` : null}<span className="milestone-date">{name ? "· " : ""}{date}</span></>;
+  return <>{name ? `${name} ` : null}<span className="milestone-date">{name ? "· " : ""}{date}</span><MilestoneOverdue date={project.nextMilestoneDate} today={today} /></>;
 }
 
 const navItems = [
@@ -3849,7 +3849,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
           </>
         )}
 
-        {activeNav === "projects" && <ProjectsView state={workspace} weekOffset={viewWeekOffset} origin={drawerOrigin} onOpen={openProject} query={projectQuery} onQueryChange={setProjectQuery} favorites={favorites} favoritesOnly={favoritesOnly} onFavoritesOnlyChange={setFavoritesOnly} onToggleFavorite={(projectId) => void toggleFavoriteTarget("project", projectId)} onCopyQuery={() => void copyShareLink({ nav: "projects", q: projectQuery }, "検索リンクをコピーしました")} />}
+        {activeNav === "projects" && <ProjectsView state={workspace} weekOffset={viewWeekOffset} origin={drawerOrigin} today={todayIso} onOpen={openProject} query={projectQuery} onQueryChange={setProjectQuery} favorites={favorites} favoritesOnly={favoritesOnly} onFavoritesOnlyChange={setFavoritesOnly} onToggleFavorite={(projectId) => void toggleFavoriteTarget("project", projectId)} onCopyQuery={() => void copyShareLink({ nav: "projects", q: projectQuery }, "検索リンクをコピーしました")} />}
         {activeNav === "opportunities" && <OpportunitiesView state={workspace} onOpen={openOpportunity} />}
         {activeNav === "members" && <MembersView state={workspace} weekOffset={viewWeekOffset} origin={drawerOrigin} onOpen={openMember} onAssign={openAssignmentFor} onAddScene={handleAddSearchScene} onDeleteScene={handleDeleteSearchScene} canEdit={canEdit} canManageScenes={canManageMembers && featureEnabled("searchScenes")} query={memberQuery} onQueryChange={setMemberQuery} favorites={favorites} favoritesOnly={favoritesOnly} onFavoritesOnlyChange={setFavoritesOnly} onToggleFavorite={(memberId) => void toggleFavoriteTarget("member", memberId)} onAddToProposal={addMemberToProposal} onCopyQuery={() => void copyShareLink({ nav: "members", q: memberQuery }, "検索リンクをコピーしました")} />}
         {activeNav === "proposal" && <ProposalView state={workspace} origin={drawerOrigin} selectedIds={visibleProposalIds} favorites={favorites} needId={proposalNeedId || undefined} onNeedIdChange={setProposalNeedId} onSelectedIdsChange={setProposalMemberIds} onOpenMember={openMember} onToggleFavorite={(memberId) => void toggleFavoriteTarget("member", memberId)} canEdit={canEdit} onToggleNeedCandidate={toggleNeedCandidate} />}
@@ -4168,7 +4168,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                     </div>
                   </div>
                   <div className="project-detail-facts" role="region" aria-label="案件の事実と要員要件">
-                    <div className="detail-facts"><div><span>状態</span><strong>{selectedProject.status}</strong></div><div><span>進捗</span><strong>{selectedProject.progress}%</strong></div><div><span>責任者</span><strong>{ownerLabel(workspace, selectedProject) ?? "未設定"}</strong></div><div><span>完了予定</span><strong>{formatDate(selectedProject.endDate)}</strong></div><div className="fact-wide"><span>次の節目</span><strong><ProjectMilestoneValue project={selectedProject} /></strong></div></div>
+                    <div className="detail-facts"><div><span>状態</span><strong>{selectedProject.status}</strong></div><div><span>進捗</span><strong>{selectedProject.progress}%</strong></div><div><span>責任者</span><strong>{ownerLabel(workspace, selectedProject) ?? "未設定"}</strong></div><div><span>完了予定</span><strong>{formatDate(selectedProject.endDate)}</strong></div><div className="fact-wide"><span>次の節目</span><strong><ProjectMilestoneValue project={selectedProject} today={todayIso} /></strong></div></div>
                     <CustomFieldFacts fields={visibleCustomFields(workspace.customFields, "project", "detail")} values={selectedProject.customValues} />
                     {(workspace.opportunities ?? []).some((opportunity) => opportunity.convertedProjectId === selectedProject.id) && (
                       <button className="drawer-secondary" onClick={() => openOpportunity((workspace.opportunities ?? []).find((opportunity) => opportunity.convertedProjectId === selectedProject.id)!.id)}>元の受注前案件を開く</button>
