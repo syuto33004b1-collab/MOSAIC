@@ -2422,6 +2422,12 @@ describe("the long-span peak skips days that cannot carry load (#494)", () => {
     expect(memberPeakLoad(two(["2026-09-01", "2026-10-16"], ["2026-10-05", "2026-12-31"], leave(50)), "m", "2026-09-01", "2026-12-31")).toBe(120);
   });
 
+  it("does not skip past a leave whose end is not a real calendar day", () => {
+    // 2026-02-30 is not a day. The daily walk compares strings, so 3/2 (a Monday) is outside it.
+    const odd = person(100, [{ id: "l", startDate: "2026-02-23", endDate: "2026-02-30", capacityPercent: 0 }]);
+    expect(memberPeakLoad(two(["2026-02-02", "2026-03-02"], ["2026-03-02", "2026-04-30"], odd), "m", "2026-02-02", "2026-04-30")).toBe(120);
+  });
+
   it("does not count an unrecorded weekend that is the only overlap", () => {
     // 9/5 and 9/6 are a Saturday and a Sunday.
     expect(memberPeakLoad(two(["2026-09-01", "2026-09-06"], ["2026-09-05", "2026-10-30"]), "m", "2026-09-01", "2026-10-31")).toBe(60);

@@ -1055,9 +1055,13 @@ function dayNumber(value) {
 // ceiling is above 0, with 0% leave jumped over whole.
 function containsLoadDay(state, member, start, end) {
   if (!member || !(Number(member.capacity) > 0)) return false;
+  const realDay = (iso) => {
+    const day = dayNumber(iso);
+    return Number.isFinite(day) && new Date(day * DAY_MS).toISOString().slice(0, 10) === iso ? day : Number.NaN;
+  };
   const zeroLeaves = (member.unavailability ?? [])
     .filter((leave) => !(Number(leave.capacityPercent) > 0))
-    .map((leave) => ({ start: dayNumber(leave.startDate), end: dayNumber(leave.endDate) }))
+    .map((leave) => ({ start: realDay(leave.startDate), end: realDay(leave.endDate) }))
     .filter((leave) => Number.isFinite(leave.start) && Number.isFinite(leave.end));
   let day = start;
   while (day <= end) {

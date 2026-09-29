@@ -1119,6 +1119,30 @@ test("drops holiday load and compares 時短 against the absolute ceiling, same 
   });
   assert.equal(swept.items[0].peakAllocation, 60);
 
+  // The rest of the domain's cases for #494, so the jump over a 0% leave runs here too.
+  const bob = state.members.find((member) => member.id === ids.bob);
+  const peakWith = (member, first, second, startDate, endDate) => {
+    const copy = snapshot();
+    copy.members = state.members.map((item) => item.id === ids.bob ? member : item);
+    copy.assignments = [
+      { ...state.assignments[0], id: ids.assignment, startDate: first[0], endDate: first[1] },
+      { ...state.assignments[0], id: "00000000-0000-4000-8000-0000000000f4", startDate: second[0], endDate: second[1] },
+    ];
+    return readWorkspaceTool(copy, "read_workspace", { resource: "members", query: "Bob", startDate, endDate }).items[0].peakAllocation;
+  };
+  const leave = (capacityPercent, endDate = "2026-10-16") => ({ ...bob, unavailability: [{ id: "00000000-0000-4000-8000-0000000000f5", startDate: "2026-10-05", endDate, capacityPercent }] });
+  assert.equal(peakWith(leave(0), ["2026-09-01", "2026-10-16"], ["2026-10-05", "2026-12-31"], "2026-09-01", "2026-12-31"), 60);
+  assert.equal(peakWith(leave(50), ["2026-09-01", "2026-10-16"], ["2026-10-05", "2026-12-31"], "2026-09-01", "2026-12-31"), 120);
+  assert.equal(peakWith(bob, ["2026-09-01", "2026-09-23"], ["2026-09-21", "2026-10-30"], "2026-09-10", "2026-10-01"), 60);
+  assert.equal(peakWith(bob, ["2026-09-01", "2026-09-23"], ["2026-09-21", "2026-10-30"], "2026-09-10", "2026-10-02"), 60);
+  assert.equal(peakWith(bob, ["2026-09-01", "2026-09-06"], ["2026-09-05", "2026-10-30"], "2026-09-01", "2026-10-31"), 60);
+  const started = performance.now();
+  assert.equal(peakWith(leave(0, "9999-12-31"), ["2026-09-01", "9999-12-31"], ["2026-10-05", "9999-12-31"], "2026-09-01", "9999-12-31"), 60);
+  assert.equal(peakWith({ ...bob, capacity: 0 }, ["2026-09-01", "9999-12-31"], ["2026-10-05", "9999-12-31"], "2026-09-01", "9999-12-31"), 0);
+  assert.ok(performance.now() - started < 500, "a span to 9999-12-31 is jumped, not walked");
+  const odd = { ...bob, unavailability: [{ id: "00000000-0000-4000-8000-0000000000f5", startDate: "2026-02-23", endDate: "2026-02-30", capacityPercent: 0 }] };
+  assert.equal(peakWith(odd, ["2026-02-02", "2026-03-02"], ["2026-03-02", "2026-04-30"], "2026-02-02", "2026-04-30"), 120);
+
   const shortHours = snapshot();
   shortHours.members = state.members;
   shortHours.assignments = [{

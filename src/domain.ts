@@ -1700,9 +1700,15 @@ export function memberDailyLoads(state: WorkspaceState, memberId: string, startD
  */
 function intervalHasLoadDay(state: WorkspaceState, member: Member | undefined, startDay: number, endDay: number) {
   if (!member || !(member.capacity > 0)) return false;
+  // Only dates that are real calendar days: `Date.parse` rolls 2026-02-30 into March,
+  // and a jump to that would skip days the string comparison in `memberCapacityOnDate` keeps.
+  const realDay = (iso: string) => {
+    const day = isoDayNumber(iso);
+    return day !== null && new Date(day * millisecondsPerDay).toISOString().slice(0, 10) === iso ? day : null;
+  };
   const zeroLeaves = (member.unavailability ?? [])
     .filter((leave) => !(leave.capacityPercent > 0))
-    .map((leave) => ({ start: isoDayNumber(leave.startDate), end: isoDayNumber(leave.endDate) }))
+    .map((leave) => ({ start: realDay(leave.startDate), end: realDay(leave.endDate) }))
     .filter((leave): leave is { start: number; end: number } => leave.start !== null && leave.end !== null);
   let day = startDay;
   while (day <= endDay) {
