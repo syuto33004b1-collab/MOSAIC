@@ -257,6 +257,14 @@ const DRAWER_KICKER = {
   opportunityNeedForm: "NEW STAFFING PLAN",
 } as const satisfies Record<Exclude<Drawer, null>, string>;
 
+/**
+ * Every drawer's `<h2>` carries this id and the dialog is named by it, so a screen reader
+ * hears what opened rather than 「詳細パネル」 for all sixteen (#501). One drawer is open
+ * at a time, so one id is enough. No `aria-label` beside it: that would quietly name a
+ * drawer whose heading lost the id.
+ */
+const DRAWER_TITLE_ID = "drawer-title";
+
 type AssignmentEditForm = {
   personId: string;
   projectId: string;
@@ -3965,13 +3973,13 @@ export default function Home({ mode = "demo", organizationId, organizationName =
               `no-static-element-interactions` both skip an `aria-hidden` element, and
               a directive here reports as unused. */}
           <div className="overlay-backdrop" aria-hidden="true" onClick={requestCloseDrawer} />
-          <section className={"drawer " + DRAWER_DIALOG_SIZE[drawer] + (drawer === "member" ? " member-detail-open" : "") + (drawer === "project" ? " project-detail-open" : "")} ref={drawerRef} role="dialog" aria-modal="true" aria-label="詳細パネル" tabIndex={-1}>
+          <section className={"drawer " + DRAWER_DIALOG_SIZE[drawer] + (drawer === "member" ? " member-detail-open" : "") + (drawer === "project" ? " project-detail-open" : "")} ref={drawerRef} role="dialog" aria-modal="true" aria-labelledby={DRAWER_TITLE_ID} tabIndex={-1}>
             <div className="drawer-handle" />
             <div className="drawer-top"><span className="drawer-kicker">{drawer === "needForm" && editingNeedId ? "EDIT STAFFING NEED" : drawer === "opportunityNeedForm" && editingOpportunityNeedId ? "EDIT STAFFING PLAN" : DRAWER_KICKER[drawer]}</span><button className="close-button" aria-label="詳細パネルを閉じる" onClick={requestCloseDrawer}><X size={18} /></button></div>
 
             {drawer === "addChooser" && (
               <div className="assignment-form">
-                <div className="drawer-heading"><span className="drawer-icon cobalt"><Plus size={19} /></span><div><h2>新規追加</h2><p>何を追加しますか</p></div></div>
+                <div className="drawer-heading"><span className="drawer-icon cobalt"><Plus size={19} /></span><div><h2 id={DRAWER_TITLE_ID}>新規追加</h2><p>何を追加しますか</p></div></div>
                 <ul className="add-chooser">
                   {addChooserItems.map((item) => (
                     <li key={item.key}>
@@ -3987,7 +3995,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
 
             {drawer === "add" && (
               <form className="assignment-form" onChange={markFormDraftDirty} onSubmit={handleAddAssignment}>
-                <div className="drawer-heading"><span className="drawer-icon cobalt"><Plus size={19} /></span><div><h2>アサインを追加</h2><p>日付と稼働配分を仮置きします。</p></div></div>
+                <div className="drawer-heading"><span className="drawer-icon cobalt"><Plus size={19} /></span><div><h2 id={DRAWER_TITLE_ID}>アサインを追加</h2><p>日付と稼働配分を仮置きします。</p></div></div>
                 <MemberPicker
                   legend="メンバー"
                   hint={formRangeHint(form.startDate, form.endDate, `${shortDate(form.startDate)} — ${shortDate(form.endDate)} の稼働 · 空きが多い順`)}
@@ -4024,7 +4032,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
 
             {drawer === "assignment" && selectedAssignment && (
               <form className="assignment-form assignment-edit-form" onChange={markFormDraftDirty} onSubmit={handleEditAssignment}>
-                <div className="drawer-heading"><span className="drawer-icon cobalt"><CalendarDays size={19} /></span><div><h2>アサインの詳細</h2><p>{selectedAssignmentProjectName} · {selectedAssignmentPersonName}</p></div></div>
+                <div className="drawer-heading"><span className="drawer-icon cobalt"><CalendarDays size={19} /></span><div><h2 id={DRAWER_TITLE_ID}>アサインの詳細</h2><p>{selectedAssignmentProjectName} · {selectedAssignmentPersonName}</p></div></div>
                 {(selectedAssignmentPerson || selectedAssignmentProject) && (
                   <div className="entity-action-row">
                     {selectedAssignmentPerson && <button className="drawer-secondary" type="button" onClick={() => { clearFormDraft(); openMember(selectedAssignmentPerson.id); }}>{selectedAssignmentPersonName}の詳細を開く</button>}
@@ -4077,7 +4085,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
 
             {drawer === "overload" && drawerOverloadMember && (
               <div className="drawer-content">
-                <div className="drawer-heading"><span className={"drawer-icon " + (drawerOverloadPlanned ? "mint" : "coral")}>{drawerOverloadPlanned ? <CheckCircle2 size={19} /> : <AlertTriangle size={19} />}</span><div><h2>{drawerOverloadPlanned ? "解消予定を確認" : "上限超過を調整"}</h2><p>{drawerOverloadMember.name}さん · {drawerOverloadMember.role}</p></div></div>
+                <div className="drawer-heading"><span className={"drawer-icon " + (drawerOverloadPlanned ? "mint" : "coral")}>{drawerOverloadPlanned ? <CheckCircle2 size={19} /> : <AlertTriangle size={19} />}</span><div><h2 id={DRAWER_TITLE_ID}>{drawerOverloadPlanned ? "解消予定を確認" : "上限超過を調整"}</h2><p>{drawerOverloadMember.name}さん · {drawerOverloadMember.role}</p></div></div>
                 {overloadWorst ? (
                   <div className={"capacity-card " + (drawerOverloadPlanned ? "resolved" : "")}><div><span>{(overloadWindow?.label ?? measuredWeekLabel)}の稼働</span><strong>{Math.round(overloadPeak)}% / 稼働上限{overloadCeiling}%</strong></div><div className="capacity-meter"><span style={{ width: Math.min(100, overloadPeak) + "%" }} /><i>{overloadCeiling}%</i></div><p>{drawerOverloadPlanned ? "保存すると超過警告が解消されます。" : `稼働上限を${Math.max(0, Math.round(overloadOverage))}%超えています。`}</p></div>
                 ) : (
@@ -4091,7 +4099,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
 
             {drawer === "openRole" && selectedNeed && (
               <div className="drawer-content">
-                <div className="drawer-heading"><span className={"drawer-icon " + (selectedNeed.status === "open" ? "mint" : "cobalt")}><UserRoundPlus size={19} /></span><div><h2>{selectedNeed.status === "open" ? `${selectedNeed.role}の候補` : selectedNeed.status === "planned" ? "解消予定の担当者" : "充足済みの担当者"}</h2><p>{projectById(workspace, selectedNeed.projectId)?.name} · {formatDate(selectedNeed.startDate)}開始</p></div></div>
+                <div className="drawer-heading"><span className={"drawer-icon " + (selectedNeed.status === "open" ? "mint" : "cobalt")}><UserRoundPlus size={19} /></span><div><h2 id={DRAWER_TITLE_ID}>{selectedNeed.status === "open" ? `${selectedNeed.role}の候補` : selectedNeed.status === "planned" ? "解消予定の担当者" : "充足済みの担当者"}</h2><p>{projectById(workspace, selectedNeed.projectId)?.name} · {formatDate(selectedNeed.startDate)}開始</p></div></div>
                 <div className="role-brief"><span>必要な条件</span><div>{selectedNeed.skills.map((skill) => <b key={skill}>{skill}</b>)}<b>{selectedNeed.role}</b><b>稼働配分 {selectedNeed.allocation}%</b></div></div>
                 {selectedNeed.status !== "open" ? (
                   <div className="planned-candidate"><CheckCircle2 size={20} /><span><strong>{memberById(workspace, selectedNeed.draftPersonId || "")?.name ?? "担当者"}{selectedNeed.status === "planned" ? "さんを仮置き済み" : "さんで充足済み"}</strong><small>稼働配分 {selectedNeed.allocation}% · {formatDate(selectedNeed.startDate)} — {formatDate(selectedNeed.endDate)}</small></span></div>
@@ -4127,7 +4135,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
               <div className="project-detail">
                 <div className="drawer-heading">
                   <span className={"project-code drawer-code " + selectedProject.tone}><span>{selectedProject.code}</span></span>
-                  <div className="project-detail-title"><h2>{selectedProject.name}</h2><p>{selectedProject.summary}</p></div>
+                  <div className="project-detail-title"><h2 id={DRAWER_TITLE_ID}>{selectedProject.name}</h2><p>{selectedProject.summary}</p></div>
                   {projectHeadline && (
                     <div className="project-period-aside">
                       <p className="project-period-headline">
@@ -4179,7 +4187,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                 </div>
                 <div className="project-detail-actions">
                   <details className="project-detail-more">
-                    <summary role="button">その他</summary>
+                    <summary>その他</summary>
                     <div className="project-detail-more-menu">
                       <button className="drawer-secondary" type="button" onClick={() => void copyShareLink({ nav: "projects", open: selectedProject.id }, "案件リンクをコピーしました")}>この案件のリンクをコピー</button>
                       {canEdit && <button className="drawer-secondary" type="button" onClick={() => openProjectEditor(selectedProject)}>案件情報を編集</button>}
@@ -4197,7 +4205,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                 <div className="profile-hero">
                   <span className={"avatar profile-avatar " + selectedMember.avatarTone}>{selectedMember.initials}</span>
                   <div>
-                    <h2>{memberLabel(workspace, selectedMember)}</h2>
+                    <h2 id={DRAWER_TITLE_ID}>{memberLabel(workspace, selectedMember)}</h2>
                     <p>{selectedMember.role} · {selectedMember.department}</p>
                     <small>{selectedMember.location} · 稼働上限 {selectedMember.capacity}%</small>
                   </div>
@@ -4242,7 +4250,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                 </div>
                 <div className="member-detail-actions">
                   <details className="member-detail-more">
-                    <summary role="button">その他</summary>
+                    <summary>その他</summary>
                     <div className="member-detail-more-menu">
                       <button className="drawer-secondary" type="button" onClick={() => void copyShareLink({ nav: "members", open: selectedMember.id }, "メンバーリンクをコピーしました")}>このメンバーのリンクをコピー</button>
                       <button className="drawer-secondary" type="button" onClick={printSkillSheet}><Printer size={15} />スキルシートを印刷</button>
@@ -4258,7 +4266,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
 
             {drawer === "editMember" && selectedMember && (
               <form className="assignment-form member-edit-form" onChange={markFormDraftDirty} onSubmit={handleEditMember}>
-                <div className="drawer-heading"><span className="drawer-icon mint"><UsersRound size={19} /></span><div><h2>メンバー情報を編集</h2><p>スキルと稼働上限は候補判定にも反映されます。</p></div></div>
+                <div className="drawer-heading"><span className="drawer-icon mint"><UsersRound size={19} /></span><div><h2 id={DRAWER_TITLE_ID}>メンバー情報を編集</h2><p>スキルと稼働上限は候補判定にも反映されます。</p></div></div>
                 <label>氏名<input required value={memberEditForm.name} onChange={(event) => setMemberEditForm({ ...memberEditForm, name: event.target.value })} /></label>
                 <label>職種<input required value={memberEditForm.role} onChange={(event) => setMemberEditForm({ ...memberEditForm, role: event.target.value })} /></label>
                 <label>スキル（カンマ区切り）<input value={memberEditForm.skills} onChange={(event) => setMemberEditForm({ ...memberEditForm, skills: event.target.value })} placeholder="React:4, TypeScript:3, A11y" /></label>
@@ -4284,7 +4292,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
 
             {drawer === "editProject" && selectedProject && (
               <form className="assignment-form" onChange={markFormDraftDirty} onSubmit={handleEditProject}>
-                <div className="drawer-heading"><span className="drawer-icon cobalt"><BriefcaseBusiness size={19} /></span><div><h2>プロジェクトを編集</h2><p>{selectedProject.code} · 期間変更時は範囲外の配員も整合します。</p></div></div>
+                <div className="drawer-heading"><span className="drawer-icon cobalt"><BriefcaseBusiness size={19} /></span><div><h2 id={DRAWER_TITLE_ID}>プロジェクトを編集</h2><p>{selectedProject.code} · 期間変更時は範囲外の配員も整合します。</p></div></div>
                 <label>プロジェクト名<input required value={projectEditForm.name} onChange={(event) => setProjectEditForm({ ...projectEditForm, name: event.target.value })} /></label>
                 <label>概要<textarea value={projectEditForm.summary} onChange={(event) => setProjectEditForm({ ...projectEditForm, summary: event.target.value })} rows={3} /></label>
                 <div className="form-grid"><label htmlFor="project-edit-status">状態<select id="project-edit-status" aria-label="状態" value={projectEditForm.status} onChange={(event) => setProjectEditForm({ ...projectEditForm, status: event.target.value as ProjectStatus })}>{["準備中", "進行中", "要注意", "完了間近", "完了"].map((status) => <option key={status}>{status}</option>)}</select></label><label htmlFor="project-edit-owner">責任者<select id="project-edit-owner" aria-label="責任者" required value={projectEditForm.ownerId} onChange={(event) => setProjectEditForm({ ...projectEditForm, ownerId: event.target.value })}>{!projectEditForm.ownerId && <option value="">責任者を選ぶ</option>}{workspace.members.map((member) => <option value={member.id} key={member.id}>{memberLabel(workspace, member)}</option>)}</select></label></div>
@@ -4299,7 +4307,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
 
             {drawer === "needForm" && (
               <form className="assignment-form" onChange={markFormDraftDirty} onSubmit={handleSaveNeed}>
-                <div className="drawer-heading"><span className="drawer-icon mint"><UserRoundPlus size={19} /></span><div><h2>{editingNeedId ? "要員要件を編集" : "要員要件を追加"}</h2><p>必要ロール・期間・稼働配分から候補を照合します。</p></div></div>
+                <div className="drawer-heading"><span className="drawer-icon mint"><UserRoundPlus size={19} /></span><div><h2 id={DRAWER_TITLE_ID}>{editingNeedId ? "要員要件を編集" : "要員要件を追加"}</h2><p>必要ロール・期間・稼働配分から候補を照合します。</p></div></div>
                 <label htmlFor="staffing-need-project">プロジェクト<select id="staffing-need-project" aria-label="プロジェクト" required value={needForm.projectId} onChange={(event) => setNeedForm({ ...needForm, projectId: event.target.value })}>{workspace.projects.map((project) => <option value={project.id} key={project.id}>{project.name}</option>)}</select></label>
                 <label>必要ロール<input required value={needForm.role} onChange={(event) => setNeedForm({ ...needForm, role: event.target.value })} placeholder="Frontend Engineer" /></label>
                 <label>必要スキル（カンマ区切り）<input value={needForm.skills} onChange={(event) => setNeedForm({ ...needForm, skills: event.target.value })} placeholder="React:3, TypeScript:2" /></label>
@@ -4312,7 +4320,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
 
             {drawer === "opportunity" && selectedOpportunity && (
               <div className="drawer-content">
-                <div className="drawer-heading"><span className={"project-code drawer-code " + selectedOpportunity.tone}><span>{selectedOpportunity.code}</span></span><div><h2>{selectedOpportunity.name}</h2><p>{selectedOpportunity.summary}</p></div></div>
+                <div className="drawer-heading"><span className={"project-code drawer-code " + selectedOpportunity.tone}><span>{selectedOpportunity.code}</span></span><div><h2 id={DRAWER_TITLE_ID}>{selectedOpportunity.name}</h2><p>{selectedOpportunity.summary}</p></div></div>
                 <div className="detail-facts">
                   <div><span>段階</span><strong>{OPPORTUNITY_STAGE_LABELS[selectedOpportunity.stage]}</strong></div>
                   <div><span>想定人数</span><strong>{selectedOpportunity.demand}名</strong></div>
@@ -4374,7 +4382,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
 
             {drawer === "newOpportunity" && (
               <form className="assignment-form" onChange={markFormDraftDirty} onSubmit={handleCreateOpportunity}>
-                <div className="drawer-heading"><span className="drawer-icon cobalt"><Inbox size={19} /></span><div><h2>受注前案件を追加</h2><p>想定期間と必要人数を先に置き、候補を検討します。</p></div></div>
+                <div className="drawer-heading"><span className="drawer-icon cobalt"><Inbox size={19} /></span><div><h2 id={DRAWER_TITLE_ID}>受注前案件を追加</h2><p>想定期間と必要人数を先に置き、候補を検討します。</p></div></div>
                 <label>案件名<input required value={opportunityForm.name} onChange={(event) => setOpportunityForm({ ...opportunityForm, name: event.target.value })} placeholder="例：北風商事 基盤刷新" /></label>
                 <label>概要<textarea value={opportunityForm.summary} onChange={(event) => setOpportunityForm({ ...opportunityForm, summary: event.target.value })} rows={3} /></label>
                 <div className="form-grid">
@@ -4389,7 +4397,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
 
             {drawer === "editOpportunity" && selectedOpportunity && (
               <form className="assignment-form" onChange={markFormDraftDirty} onSubmit={handleEditOpportunity}>
-                <div className="drawer-heading"><span className="drawer-icon cobalt"><Inbox size={19} /></span><div><h2>受注前案件を編集</h2><p>{selectedOpportunity.code} · 期間外の要員計画は取消予定になります。</p></div></div>
+                <div className="drawer-heading"><span className="drawer-icon cobalt"><Inbox size={19} /></span><div><h2 id={DRAWER_TITLE_ID}>受注前案件を編集</h2><p>{selectedOpportunity.code} · 期間外の要員計画は取消予定になります。</p></div></div>
                 <label>案件名<input required value={opportunityEditForm.name} onChange={(event) => setOpportunityEditForm({ ...opportunityEditForm, name: event.target.value })} /></label>
                 <label>概要<textarea value={opportunityEditForm.summary} onChange={(event) => setOpportunityEditForm({ ...opportunityEditForm, summary: event.target.value })} rows={3} /></label>
                 <div className="form-grid">
@@ -4404,7 +4412,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
 
             {drawer === "opportunityNeedForm" && (
               <form className="assignment-form" onChange={markFormDraftDirty} onSubmit={handleSaveOpportunityNeed}>
-                <div className="drawer-heading"><span className="drawer-icon mint"><UserRoundPlus size={19} /></span><div><h2>{editingOpportunityNeedId ? "要員計画を編集" : "要員計画を追加"}</h2><p>受注前の必要ロールと期間から候補を照合します。</p></div></div>
+                <div className="drawer-heading"><span className="drawer-icon mint"><UserRoundPlus size={19} /></span><div><h2 id={DRAWER_TITLE_ID}>{editingOpportunityNeedId ? "要員計画を編集" : "要員計画を追加"}</h2><p>受注前の必要ロールと期間から候補を照合します。</p></div></div>
                 <label htmlFor="opportunity-need-parent">案件<select id="opportunity-need-parent" aria-label="案件" required value={opportunityNeedForm.opportunityId} onChange={(event) => setOpportunityNeedForm({ ...opportunityNeedForm, opportunityId: event.target.value })}>{(workspace.opportunities ?? []).filter(isActiveOpportunity).map((opportunity) => <option value={opportunity.id} key={opportunity.id}>{opportunity.name}</option>)}</select></label>
                 <label>必要ロール<input required value={opportunityNeedForm.role} onChange={(event) => setOpportunityNeedForm({ ...opportunityNeedForm, role: event.target.value })} placeholder="Frontend Engineer" /></label>
                 <label>必要スキル（カンマ区切り）<input value={opportunityNeedForm.skills} onChange={(event) => setOpportunityNeedForm({ ...opportunityNeedForm, skills: event.target.value })} placeholder="React:3, TypeScript:2" /></label>
@@ -4416,7 +4424,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
 
             {drawer === "newProject" && (
               <form className="assignment-form" onChange={markFormDraftDirty} onSubmit={handleCreateProject}>
-                <div className="drawer-heading"><span className="drawer-icon cobalt"><BriefcaseBusiness size={19} /></span><div><h2>プロジェクトを追加</h2><p>一覧へ追加し、後から配員を設定します。</p></div></div>
+                <div className="drawer-heading"><span className="drawer-icon cobalt"><BriefcaseBusiness size={19} /></span><div><h2 id={DRAWER_TITLE_ID}>プロジェクトを追加</h2><p>一覧へ追加し、後から配員を設定します。</p></div></div>
                 <label>プロジェクト名<input required value={projectForm.name} onChange={(event) => setProjectForm({ ...projectForm, name: event.target.value })} placeholder="例：顧客ポータル刷新" /></label>
                 <label htmlFor="project-new-status">状態<select id="project-new-status" aria-label="状態" value={projectForm.status} onChange={(event) => setProjectForm({ ...projectForm, status: event.target.value as ProjectStatus })}>{["準備中", "進行中", "要注意", "完了間近"].map((status) => <option key={status}>{status}</option>)}</select></label>
                 <label htmlFor="project-new-owner">責任者<select id="project-new-owner" aria-label="責任者" value={projectForm.ownerId} onChange={(event) => setProjectForm({ ...projectForm, ownerId: event.target.value })}>{workspace.members.map((member) => <option value={member.id} key={member.id}>{memberLabel(workspace, member)}</option>)}</select></label>
@@ -4429,7 +4437,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
 
             {drawer === "newMember" && (
               <form className="assignment-form" onChange={markFormDraftDirty} onSubmit={handleCreateMember}>
-                <div className="drawer-heading"><span className="drawer-icon mint"><UserRoundPlus size={19} /></span><div><h2>メンバーを追加</h2><p>職種と所属を登録します。</p></div></div>
+                <div className="drawer-heading"><span className="drawer-icon mint"><UserRoundPlus size={19} /></span><div><h2 id={DRAWER_TITLE_ID}>メンバーを追加</h2><p>職種と所属を登録します。</p></div></div>
                 <label>氏名<input required value={memberForm.name} onChange={(event) => setMemberForm({ ...memberForm, name: event.target.value })} placeholder="例：山田 花子" /></label>
                 <label htmlFor="member-new-role">職種<select id="member-new-role" aria-label="職種" value={memberForm.role} onChange={(event) => setMemberForm({ ...memberForm, role: event.target.value })}>{["Frontend Engineer", "Backend Engineer", "QA Engineer", "Product Designer", "Project Manager", "Data Analyst"].map((role) => <option key={role}>{role}</option>)}</select></label>
                 {(workspace.orgUnits ?? []).length === 0 && (
