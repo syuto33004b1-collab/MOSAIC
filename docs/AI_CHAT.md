@@ -176,7 +176,7 @@ npm exec supabase -- functions list --project-ref PROJECT_REF
 
 `secrets list`は名前の存在確認にだけ使い、値をlogへ出しません。secret更新はFunctionの再デプロイなしで反映されますが、Functionのcode変更には`functions deploy chat`が必要です。`--no-verify-jwt`は付けません。
 
-DB変更を伴う版は、migrationを先に適用してから`functions deploy chat`します。回数の制限（`public.consume_chat_rate_limit`）が無いDBへ新しいFunctionを載せると、AI秘書は回数を確かめられず503で止まります。
+DB変更を伴う版は、migrationを先に適用してから`functions deploy chat`します。回数の制限（`public.consume_chat_rate_limit`）が無いDBへ新しいFunctionを載せると、AI秘書は回数を確かめられず503で止まります。migrationを適用しただけでは切り替わらず、Functionを載せ替えるまでは、旧Functionがisolateごとのメモリで数えたままです。
 
 デプロイ後は次を確認します。
 

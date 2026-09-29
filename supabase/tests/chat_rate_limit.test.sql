@@ -92,9 +92,10 @@ select is(
   'the 13th request in the minute is refused'
 );
 
-select ok(
-  (public.consume_chat_rate_limit('21000000-0000-4000-8000-000000000521') ->> 'retryAfterSeconds')::integer between 1 and 60,
-  'a refusal says how many seconds until the next window'
+select is(
+  (public.consume_chat_rate_limit('21000000-0000-4000-8000-000000000521') ->> 'retryAfterSeconds')::integer,
+  greatest(1, ceil(extract(epoch from (date_trunc('minute', now()) + interval '1 minute' - now()))))::integer,
+  'a refusal says how many seconds are left until the next window'
 );
 
 select is(

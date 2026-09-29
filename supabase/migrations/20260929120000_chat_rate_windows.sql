@@ -58,6 +58,12 @@ begin
     and rate_window.window_started_at = v_window_start
   for update;
 
+  -- Only if another transaction removed the row between the insert and the lock.
+  -- Refused rather than counted as allowed, so the caller retries.
+  if v_count is null then
+    raise exception using errcode = '40001', message = 'the rate window changed; try again';
+  end if;
+
   if v_count >= v_limit then
     return jsonb_build_object(
       'allowed', false,
