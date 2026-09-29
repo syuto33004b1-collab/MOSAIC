@@ -8315,3 +8315,42 @@ describe("member edit history and period removal (#438)", () => {
     expect(dialog.queryByRole("button", { name: "期間1を削除" })).not.toBeInTheDocument();
   });
 });
+
+describe("a new project's name (#491)", () => {
+  async function openNewProject(user: ReturnType<typeof userEvent.setup>) {
+    const navigation = within(screen.getByRole("navigation", { name: "メインナビゲーション" }));
+    await user.click(navigation.getByRole("button", { name: /^プロジェクト 登録 \d+件$/u }));
+    const add = screen.getAllByRole("button", { name: "プロジェクトを追加" }).find((button) => !button.hasAttribute("disabled"));
+    await user.click(add!);
+    return within(screen.getByRole("dialog", { name: "詳細パネル" }));
+  }
+  const registered = () => screen.getByRole("button", { name: /^プロジェクト 登録 \d+件$/u }).textContent;
+
+  it("refuses a name that is only spaces, and keeps the dialog and what was typed", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    const before = registered();
+    const dialog = await openNewProject(user);
+    await user.type(dialog.getByLabelText("プロジェクト名"), "   ");
+    await user.click(dialog.getByRole("button", { name: "プロジェクトを追加" }));
+
+    expect(screen.getByRole("dialog", { name: "詳細パネル" })).toBeInTheDocument();
+    expect(dialog.getByLabelText("プロジェクト名")).toHaveValue("   ");
+    expect(document.querySelector(".toast")?.textContent).toBe("プロジェクト名を入力してください");
+    expect(registered()).toBe(before);
+  });
+
+  it("stores the name without the spaces around it", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    const dialog = await openNewProject(user);
+    await user.type(dialog.getByLabelText("プロジェクト名"), "  新しい 案件  ");
+    await user.click(dialog.getByRole("button", { name: "プロジェクトを追加" }));
+
+    expect(screen.queryByRole("dialog", { name: "詳細パネル" })).not.toBeInTheDocument();
+    expect(document.querySelector(".toast")?.textContent).toBe("新しい 案件を追加しました");
+    const names = [...document.querySelectorAll(".project-name-cell strong")].map((node) => node.textContent);
+    expect(names).toContain("新しい 案件");
+    expect(names).not.toContain("  新しい 案件  ");
+  });
+});
