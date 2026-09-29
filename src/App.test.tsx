@@ -6,7 +6,7 @@ import App, { capacityTickMarks, monthColumnGuidesMisaligned, type SharedWorkspa
 import { parseCsv } from "./csv";
 import { MembersView, ProjectsView, ProposalView } from "./expanded-views";
 import { DEMO_FAVORITES_KEY } from "./collaboration";
-import { addDays, boardBasisWeek, boardRange, formatDate, formatWorkHistoryPeriod, getWeekDays, getWeekStart, initialWorkspace, memberDailyLoads, memberLoad, memberMonthChartLabel, memberMonthLedger, memberMonthPointLabel, memberPeakLoad, PERIOD_CLIP_NOTE, weekLabel, type StaffingNeed, type WorkspaceState } from "./domain";
+import { addDays, currentLocalDate, boardBasisWeek, boardRange, formatDate, formatWorkHistoryPeriod, getWeekDays, getWeekStart, initialWorkspace, memberDailyLoads, memberLoad, memberMonthChartLabel, memberMonthLedger, memberMonthPointLabel, memberPeakLoad, PERIOD_CLIP_NOTE, weekLabel, type StaffingNeed, type WorkspaceState } from "./domain";
 import type { ChatTransport } from "./lib/ai/chatClient";
 
 function sharedAdapter(): SharedWorkspaceAdapter {
@@ -8444,5 +8444,87 @@ describe("a new project's name (#491)", () => {
     const names = [...document.querySelectorAll(".project-name-cell strong")].map((node) => node.textContent);
     expect(names).toContain("新しい 案件");
     expect(names).not.toContain("  新しい 案件  ");
+  });
+});
+
+describe("a new project stores only what was entered (#490)", () => {
+  const owner = { name: "管理 花子", email: "owner@example.com", role: "owner" as const };
+  function renderShared() {
+    const adapter = sharedAdapter();
+    const save = vi.fn().mockResolvedValue({ revision: 8, savedAt: "2026-08-17T10:00:00Z" });
+    adapter.save = save;
+    render(<App mode="shared" organizationName="Example Inc." identity={owner} shared={adapter} />);
+    return save;
+  }
+  async function openNewProject(user: ReturnType<typeof userEvent.setup>) {
+    const navigation = within(screen.getByRole("navigation", { name: "メインナビゲーション" }));
+    await user.click(navigation.getByRole("button", { name: /^プロジェクト( |$)/u }));
+    const add = screen.getAllByRole("button", { name: "プロジェクトを追加" }).find((button) => !button.hasAttribute("disabled"));
+    await user.click(add!);
+    return within(screen.getByRole("dialog", { name: "詳細パネル" }));
+  }
+  async function saveAndFind(user: ReturnType<typeof userEvent.setup>, save: ReturnType<typeof vi.fn>, name: string) {
+    await user.click(screen.getByRole("button", { name: "チームへ保存" }));
+    await waitFor(() => expect(save).toHaveBeenCalledOnce());
+    return (save.mock.calls[0][0].projects as Array<Record<string, unknown>>).find((project) => project.name === name);
+  }
+
+  it("leaves the summary, milestone and headcount empty, and starts today even when the board shows another month", async () => {
+    const user = userEvent.setup();
+    const save = renderShared();
+    // The old start date was the first day of whatever month the board showed.
+    // A month ahead, that is never today.
+    await user.click(screen.getByRole("button", { name: "次の月" }));
+    const dialog = await openNewProject(user);
+    expect(dialog.getByLabelText("開始日")).toHaveValue(currentLocalDate());
+    expect(dialog.getByLabelText("必要人数")).toHaveValue(null);
+    await user.type(dialog.getByLabelText("プロジェクト名"), "名前だけの案件");
+    await user.click(dialog.getByRole("button", { name: "プロジェクトを追加" }));
+
+    const project = await saveAndFind(user, save, "名前だけの案件");
+    expect(project).toMatchObject({ summary: "", nextMilestone: "", nextMilestoneDate: null, demand: 0, startDate: currentLocalDate() });
+  });
+
+  it("stores the headcount that was typed", async () => {
+    const user = userEvent.setup();
+    const save = renderShared();
+    const dialog = await openNewProject(user);
+    await user.type(dialog.getByLabelText("プロジェクト名"), "四人の案件");
+    await user.type(dialog.getByLabelText("必要人数"), "4");
+    await user.click(dialog.getByRole("button", { name: "プロジェクトを追加" }));
+
+    expect((await saveAndFind(user, save, "四人の案件"))?.demand).toBe(4);
+  });
+
+  it("refuses an end date before the start date, even past the input's own limit", async () => {
+    const user = userEvent.setup();
+    const save = renderShared();
+    const dialog = await openNewProject(user);
+    await user.type(dialog.getByLabelText("プロジェクト名"), "逆さの案件");
+    fireEvent.change(dialog.getByLabelText("開始日"), { target: { value: "2026-12-01" } });
+    fireEvent.change(dialog.getByLabelText("完了予定"), { target: { value: "2026-11-01" } });
+    // Straight to submit: the browser's `min` would stop a click, and this is about the check behind it.
+    fireEvent.submit(dialog.getByRole("button", { name: "プロジェクトを追加" }).closest("form")!);
+
+    expect(screen.getByRole("dialog", { name: "詳細パネル" })).toBeInTheDocument();
+    expect(document.querySelector(".toast")?.textContent).toBe("プロジェクトの終了日は開始日以降に設定してください");
+    expect(screen.queryByRole("button", { name: "チームへ保存" })).not.toBeInTheDocument();
+    expect(save).not.toHaveBeenCalled();
+  });
+
+  it("leaves a pre-award case's summary empty when none was typed", async () => {
+    const user = userEvent.setup();
+    const save = renderShared();
+    const navigation = within(screen.getByRole("navigation", { name: "メインナビゲーション" }));
+    await user.click(navigation.getByRole("button", { name: /^受注前( |$)/u }));
+    const add = screen.getAllByRole("button", { name: "受注前案件を追加" }).find((button) => !button.hasAttribute("disabled"));
+    await user.click(add!);
+    const dialog = within(screen.getByRole("dialog", { name: "詳細パネル" }));
+    await user.type(dialog.getByLabelText("案件名"), "概要なしの引き合い");
+    await user.click(dialog.getByRole("button", { name: "受注前案件を追加" }));
+    await user.click(screen.getByRole("button", { name: "チームへ保存" }));
+    await waitFor(() => expect(save).toHaveBeenCalledOnce());
+    const opportunity = (save.mock.calls[0][0].opportunities as Array<Record<string, unknown>>).find((item) => item.name === "概要なしの引き合い");
+    expect(opportunity?.summary).toBe("");
   });
 });

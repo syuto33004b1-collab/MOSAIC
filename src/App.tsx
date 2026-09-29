@@ -973,7 +973,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
   const [syncError, setSyncError] = useState("");
   const [syncRetryable, setSyncRetryable] = useState(true);
   const [form, setForm] = useState({ personId: startingWorkspace.members[0]?.id ?? "", projectId: startingWorkspace.projects[0]?.id ?? "", startDate: getWeekStart(0), endDate: addDays(getWeekStart(0), 4), allocation: "40", weekendWorkDates: [] as string[] });
-  const [projectForm, setProjectForm] = useState({ name: "", status: "準備中" as ProjectStatus, endDate: addDays(getWeekStart(0), 90), ownerId: startingWorkspace.members[0]?.id ?? "" });
+  const [projectForm, setProjectForm] = useState({ name: "", status: "準備中" as ProjectStatus, startDate: currentLocalDate(), endDate: addDays(getWeekStart(0), 90), demand: "", ownerId: startingWorkspace.members[0]?.id ?? "" });
   const [memberForm, setMemberForm] = useState<MemberForm>(() => emptyMemberForm(startingWorkspace));
   const [memberEditForm, setMemberEditForm] = useState<MemberForm>(() => emptyMemberForm(startingWorkspace));
   const [projectEditForm, setProjectEditForm] = useState<ProjectEditForm>({ name: "", summary: "", status: "準備中", ownerId: "", startDate: "", endDate: "", nextMilestone: "", nextMilestoneDate: "", progress: "0", demand: "1", customValues: {} });
@@ -2572,28 +2572,38 @@ export default function Home({ mode = "demo", organizationId, organizationName =
       setToast("先に責任者となるメンバーを登録してください");
       return;
     }
+    if (!projectForm.startDate || !projectForm.endDate || projectForm.endDate < projectForm.startDate) {
+      setToast("プロジェクトの終了日は開始日以降に設定してください");
+      return;
+    }
+    const demandInput = projectForm.demand.trim();
+    const demand = demandInput === "" ? 0 : Number(demandInput);
+    if (!Number.isInteger(demand) || demand < 0 || demand > 10000) {
+      setToast("必要人数は0〜10000名で設定してください");
+      return;
+    }
     const id = newId();
     const project: Project = {
       id,
       code: createProjectCode(name, id),
       name,
-      summary: "新しく追加したプロジェクト",
+      summary: "",
       status: projectForm.status,
       tone: "blue",
       ownerPersonId: owner.id,
       ownerName: owner.name,
       ownerInitials: owner.initials,
-      startDate: days[0].iso,
+      startDate: projectForm.startDate,
       endDate: projectForm.endDate,
-      nextMilestone: "キックオフ",
-      nextMilestoneDate: days[0].iso,
+      nextMilestone: "",
+      nextMilestoneDate: null,
       progress: 0,
-      demand: 3,
+      demand,
     };
     setWorkspace((current) => ({ ...current, projects: [...current.projects, project] }));
     setForm((current) => ({ ...current, projectId: projectById(workspace, current.projectId)?.id ?? id }));
     markUnsaved();
-    setProjectForm({ name: "", status: "準備中", endDate: addDays(getWeekStart(0), 90), ownerId: owner.id });
+    setProjectForm({ name: "", status: "準備中", startDate: currentLocalDate(), endDate: addDays(getWeekStart(0), 90), demand: "", ownerId: owner.id });
     closeDrawer();
     setToast(project.name + "を追加しました");
   };
@@ -3032,7 +3042,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
       id,
       code: createProjectCode(name, id),
       name,
-      summary: opportunityForm.summary.trim() || "新しく追加した受注前案件",
+      summary: opportunityForm.summary.trim(),
       stage: opportunityForm.stage,
       tone: "sky",
       ownerPersonId: owner.id,
@@ -4410,7 +4420,9 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                 <label>プロジェクト名<input required value={projectForm.name} onChange={(event) => setProjectForm({ ...projectForm, name: event.target.value })} placeholder="例：顧客ポータル刷新" /></label>
                 <label htmlFor="project-new-status">状態<select id="project-new-status" aria-label="状態" value={projectForm.status} onChange={(event) => setProjectForm({ ...projectForm, status: event.target.value as ProjectStatus })}>{["準備中", "進行中", "要注意", "完了間近"].map((status) => <option key={status}>{status}</option>)}</select></label>
                 <label htmlFor="project-new-owner">責任者<select id="project-new-owner" aria-label="責任者" value={projectForm.ownerId} onChange={(event) => setProjectForm({ ...projectForm, ownerId: event.target.value })}>{workspace.members.map((member) => <option value={member.id} key={member.id}>{memberLabel(workspace, member)}</option>)}</select></label>
-                <label>完了予定<input required type="date" min={days[0].iso} value={projectForm.endDate} onChange={(event) => setProjectForm({ ...projectForm, endDate: event.target.value })} /></label>
+                <label>開始日<input required type="date" value={projectForm.startDate} onChange={(event) => setProjectForm({ ...projectForm, startDate: event.target.value })} /></label>
+                <label>完了予定<input required type="date" min={projectForm.startDate || undefined} value={projectForm.endDate} onChange={(event) => setProjectForm({ ...projectForm, endDate: event.target.value })} /></label>
+                <label>必要人数<input type="number" min="0" max="10000" step="1" inputMode="numeric" value={projectForm.demand} onChange={(event) => setProjectForm({ ...projectForm, demand: event.target.value })} placeholder="空欄なら未設定" /></label>
                 <button className="drawer-primary" type="submit" disabled={!canEdit}><Check size={16} />プロジェクトを追加</button>
               </form>
             )}
