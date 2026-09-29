@@ -343,7 +343,14 @@ async function main() {
     await until(page, "the refusal", () => document.querySelector(".toast.show")?.textContent?.includes("プロジェクト期間内") === true
       && Boolean(document.querySelector("[role=dialog]")));
     results.push(await scan(page, "アサイン追加ドロワー（送信を拒否された状態）"));
+    // The end date was typed, so closing asks first (#492). A native confirm blocks the
+    // page until it is answered; without this the next key press times out.
+    const asked = new Promise((resolve) => page.once("dialog", async (dialog) => {
+      await dialog.accept();
+      resolve(dialog.type());
+    }));
     await page.keyboard.press("Escape");
+    if (await asked !== "confirm") throw new Error("closing the typed-in drawer did not ask first");
     await until(page, "the drawer to close", () => !document.querySelector("[role=dialog]"));
 
     // Two labels: the launcher says something else when the assistant has no server to
