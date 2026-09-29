@@ -89,6 +89,7 @@ import {
   projectMembersLow,
   projectPeriodCount,
   projectPeriodHeadline,
+  milestoneOverdueDays,
   openNeeds,
   parseSkillInput,
   skillInputProblems,
@@ -2386,5 +2387,24 @@ describe("plan cost", () => {
     expect(workspaceShowsMonthlyCost({ members: [{ ...member, monthlyCost: null }] })).toBe(true);
     expect(workspaceHasPricedMonthlyCost({ members: [{ ...member, monthlyCost: null }] })).toBe(false);
     expect(workspaceHasPricedMonthlyCost({ members: [member] })).toBe(true);
+  });
+});
+
+describe("milestoneOverdueDays (#493)", () => {
+  it("counts whole days before today, across a month end", () => {
+    expect(milestoneOverdueDays("2026-08-10", "2026-08-19")).toBe(9);
+    expect(milestoneOverdueDays("2026-07-31", "2026-08-19")).toBe(19);
+    expect(milestoneOverdueDays("2025-12-31", "2026-01-01")).toBe(1);
+  });
+
+  it("is zero for today, a later date, no date, and a date that is not a real day", () => {
+    expect(milestoneOverdueDays("2026-08-19", "2026-08-19")).toBe(0);
+    expect(milestoneOverdueDays("2026-08-20", "2026-08-19")).toBe(0);
+    expect(milestoneOverdueDays(null, "2026-08-19")).toBe(0);
+    expect(milestoneOverdueDays(undefined, "2026-08-19")).toBe(0);
+    expect(milestoneOverdueDays("", "2026-08-19")).toBe(0);
+    expect(milestoneOverdueDays("2026-02-31", "2026-08-19")).toBe(0);
+    expect(milestoneOverdueDays("2026-13-01", "2026-08-19")).toBe(0);
+    expect(milestoneOverdueDays("2026/08/10", "2026-08-19")).toBe(0);
   });
 });
