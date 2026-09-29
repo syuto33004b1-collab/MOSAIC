@@ -710,6 +710,7 @@ export function ProjectsView({
   }).sort(PROJECT_ORDERS[order].compare);
   const listFields = visibleCustomFields(state.customFields, "project", "list");
 
+  const registered = state.projects.length;
   const portfolioRisks = state.projects.filter((project) => project.status === "要注意").length;
   const openNeeds = state.needs.filter((need) => need.status !== "filled").length;
 
@@ -719,9 +720,9 @@ export function ProjectsView({
       <div className="portfolio-ribbon">
         <div className="ribbon-lead">
           <span className="ribbon-icon"><Layers3 size={18} /></span>
-          <div><small>PORTFOLIO PULSE</small><strong>8つの案件を横断して配員を確認</strong></div>
+          <div><small>PORTFOLIO PULSE</small><strong>{registered > 0 ? `登録${registered}件を横断して配員を確認` : "登録済みの案件はまだありません"}</strong></div>
         </div>
-        <div className="ribbon-stat"><strong>{state.projects.length}</strong><span>登録案件</span></div>
+        <div className="ribbon-stat"><strong>{registered}</strong><span>登録案件</span></div>
         <div className="ribbon-divider" />
         <div className="ribbon-stat risk"><strong>{portfolioRisks}</strong><span>要注意</span></div>
         <div className="ribbon-divider" />

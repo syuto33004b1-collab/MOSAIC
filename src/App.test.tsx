@@ -3193,6 +3193,34 @@ describe("a key for what colour and position encode", () => {
     expect(document.querySelectorAll(".staffed-label").length).toBeGreaterThan(0);
   });
 
+  it("counts the ribbon's projects from the same number as 登録案件 (#496)", () => {
+    const extra = (index: number) => ({ ...initialWorkspace.projects[0], id: `extra-${index}`, code: `EX${index}`, name: `追加案件${index}` });
+    const ribbon = () => ({
+      lead: document.querySelector(".portfolio-ribbon .ribbon-lead strong")!.textContent,
+      registered: document.querySelector(".portfolio-ribbon .ribbon-stat strong")!.textContent,
+      shown: document.querySelector(".toolbar-result")!.textContent,
+    });
+    const cases: [number, string][] = [
+      [9, "登録9件を横断して配員を確認"],
+      [12, "登録12件を横断して配員を確認"],
+      [0, "登録済みの案件はまだありません"],
+    ];
+    for (const [count, lead] of cases) {
+      const projects = [...initialWorkspace.projects, ...Array.from({ length: 4 }, (_, index) => extra(index))].slice(0, count);
+      expect(projects).toHaveLength(count);
+      const { unmount } = render(
+        <ProjectsView state={{ ...initialWorkspace, projects }} weekOffset={0} origin="2026-08-19" onOpen={() => undefined} />,
+      );
+      expect(ribbon(), `${count}件`).toEqual({ lead, registered: String(count), shown: `${count}件を表示` });
+      unmount();
+    }
+
+    render(
+      <ProjectsView state={initialWorkspace} weekOffset={0} origin="2026-08-19" onOpen={() => undefined} query="該当しない検索語" />,
+    );
+    expect(ribbon()).toEqual({ lead: "登録8件を横断して配員を確認", registered: "8", shown: "0件を表示" });
+  });
+
   it("uses one unit down the 未充足 and 不足 columns", async () => {
     const user = userEvent.setup();
     render(<App />);
