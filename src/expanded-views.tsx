@@ -305,6 +305,12 @@ const statusClass: Record<Project["status"], string> = {
   "完了": "closing",
 };
 
+/** How many days a milestone is past, on a line of its own so 「32日超過」 never breaks inside the word. Nothing when it is not past. */
+export function MilestoneOverdue({ date, today }: { date?: string | null; today: string }) {
+  const days = milestoneOverdueDays(date, today);
+  return days > 0 ? <span className="milestone-overdue">{` ${days}日超過`}</span> : null;
+}
+
 function formatMonthDay(iso?: string | null) {
   if (!iso) return "未設定";
   const [, month, day] = iso.split("-").map(Number);
@@ -808,7 +814,7 @@ export function ProjectsView({
                     <span className="staffed-label">{project.demand === 0 ? "必要人数未設定" : `${weekName} ${currentMembers}/${project.demand}名`}</span>
                   </td>
                   <td><div className="progress-cell"><span><b style={{ width: project.progress + "%" }} /></span><strong>{project.progress}%</strong></div></td>
-                  <td><span className="milestone-cell"><strong>{project.nextMilestone}</strong><small>{formatMonthDay(project.nextMilestoneDate)}{milestoneOverdueDays(project.nextMilestoneDate, today) > 0 && <span className="milestone-overdue">{` · ${milestoneOverdueDays(project.nextMilestoneDate, today)}日超過`}</span>}</small></span></td>
+                  <td><span className="milestone-cell"><strong>{project.nextMilestone}</strong><small>{formatMonthDay(project.nextMilestoneDate)}<MilestoneOverdue date={project.nextMilestoneDate} today={today} /></small></span></td>
                   <td><span className="owner-cell"><i>{project.ownerInitials}</i><span>{ownerLabel(state, project)}</span></span></td>
                   <td><button className="row-open" aria-label={project.name + "の詳細を見る"} onClick={() => onOpen(project.id)}><ChevronRight size={16} /></button></td>
                 </tr>

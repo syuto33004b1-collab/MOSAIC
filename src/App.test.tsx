@@ -7417,7 +7417,7 @@ describe("the project drawer's next milestone", () => {
     render(<App mode="shared" organizationName="Example Inc." identity={owner} shared={adapter} />);
     await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^プロジェクト( |$)/u }));
     const cell = (name: string) => [...document.querySelectorAll("tr")].find((row) => row.textContent?.includes(name))?.querySelector(".milestone-cell small")?.textContent;
-    expect(cell("Atlas リニューアル")).toBe("8/10 · 9日超過");
+    expect(cell("Atlas リニューアル")).toBe("8/10 9日超過");
     expect(cell("決済基盤アップデート")).toBe("8/19");
     expect(cell("採用サイト")).toBe("未設定");
     expect(cell("モバイル会員証")).toBe("8/24");
@@ -7425,7 +7425,7 @@ describe("the project drawer's next milestone", () => {
 
     await user.click(screen.getByText("Atlas リニューアル").closest("button")!);
     const dialog = within(screen.getByRole("dialog", { name: "詳細パネル" }));
-    expect(factValue(dialog, "次の節目")).toBe("β版レビュー · 2026年8月10日 · 9日超過");
+    expect(factValue(dialog, "次の節目")).toBe("β版レビュー · 2026年8月10日 9日超過");
   });
 
   it("keeps the row when the milestone is empty, and says 未設定", async () => {

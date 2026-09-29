@@ -31,7 +31,7 @@ import {
   X,
   type LucideIcon,
 } from "lucide-react";
-import { ActiveFilters, CustomFieldFacts, CustomFieldInputs, MemberPicker, WeekendWorkPicker, type MemberCandidate, CsvTransferPanel, FavoriteStar, FieldsView, MemberOrgFields, MembersView, OpportunitiesView, OrgFacts, OrgView, PeriodRangeTabs, ProjectsView, ProposalView, ReportsView, SkillsView, UnavailabilityEditor, WorkHistoryEditor } from "./expanded-views";
+import { ActiveFilters, CustomFieldFacts, CustomFieldInputs, MemberPicker, WeekendWorkPicker, type MemberCandidate, CsvTransferPanel, FavoriteStar, FieldsView, MemberOrgFields, MembersView, MilestoneOverdue, OpportunitiesView, OrgFacts, OrgView, PeriodRangeTabs, ProjectsView, ProposalView, ReportsView, SkillsView, UnavailabilityEditor, WorkHistoryEditor } from "./expanded-views";
 import { SkillSheet, printSkillSheet } from "./skill-sheet";
 import { AiChat } from "./components/ai-chat/AiChat";
 import type { ChatTransport } from "./lib/ai/chatClient";
@@ -86,7 +86,6 @@ import {
   memberOrgMemberships,
   membersInOrgSubtree,
   memberPeakLoad,
-  milestoneOverdueDays,
   matchMembers,
   memberSearchText,
   memberSkillLevels,
@@ -405,8 +404,7 @@ function ProjectMilestoneValue({ project, today }: { project: Pick<Project, "nex
   const { name, date } = projectMilestoneParts(project);
   if (!name && !date) return "未設定";
   if (!date) return name;
-  const overdue = milestoneOverdueDays(project.nextMilestoneDate, today);
-  return <>{name ? `${name} ` : null}<span className="milestone-date">{name ? "· " : ""}{date}</span>{overdue > 0 && <span className="milestone-overdue">{` · ${overdue}日超過`}</span>}</>;
+  return <>{name ? `${name} ` : null}<span className="milestone-date">{name ? "· " : ""}{date}</span><MilestoneOverdue date={project.nextMilestoneDate} today={today} /></>;
 }
 
 const navItems = [
