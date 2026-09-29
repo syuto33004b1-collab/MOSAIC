@@ -125,4 +125,4 @@ npm exec supabase -- functions deploy chat --project-ref PROJECT_REF
 - RAG / File Search: `gemini.mjs`のInteraction requestへ`tools`を追加する。
 - Additional Function Calling: `workspace-tools.mjs`へ許可済みtool、検証、preview、保存計画、testを追加する。
 - REST API / MCP: このFunctionとは別アダプタから`authorize_integration_request`と同一カタログを使う。
-- 永続的なrate limit: チャットのメモリ内制限はisolate単位のbest effortです。連携資格はDBウィンドウを使います。
+- rate limit: チャットは利用者×組織ごとに1分12回までを`public.consume_chat_rate_limit`（`app.chat_rate_windows`）で数え、全isolateで同じ窓を共有します（#502）。連携資格もDBウィンドウを使います。招待Functionはまだisolate単位のメモリ内制限（`rate-limit.mjs`）です。

@@ -21,7 +21,7 @@ import {
   proposeExternalWrite,
   runConfirmedExternalWrite,
 } from "./mcp-client.mjs";
-import { createBestEffortRateLimiter } from "./rate-limit.mjs";
+import { consumeChatRateLimit, rateLimitedMessage } from "./chat-rate-limit.mjs";
 import {
   buildWorkspaceSaveRequest,
   detectWorkspaceFunctionCalls,
@@ -31,10 +31,6 @@ import {
   WORKSPACE_TOOL_DECLARATIONS,
 } from "./workspace-tools.mjs";
 
-const rateLimiter = createBestEffortRateLimiter({
-  limit: INTEGRATION_LIMITS.chat.limit,
-  windowMs: INTEGRATION_LIMITS.chat.windowMs,
-});
 const MAX_TOOL_CALLS_PER_ROUND = INTEGRATION_LIMITS.maxToolCallsPerRound;
 const MAX_TOOL_ROUNDS = INTEGRATION_LIMITS.maxToolRounds;
 const ORGANIZATION_ROLES = new Set(["owner", "admin", "planner", "viewer"]);
@@ -718,14 +714,18 @@ export default {
 
     try {
       const parsed = parseChatRequest(await readJson(request));
-      const rateLimit = rateLimiter.consume(`${userId}:${parsed.organizationId}`);
+      const client = context.supabase as unknown as RpcClient;
+      const rateLimit = await consumeChatRateLimit(client, parsed.organizationId);
       if (!rateLimit.allowed) {
-        return jsonResponse(errorBody("RATE_LIMITED", "短時間に多くの操作が送信されました。少し待ってからお試しください。", true), 429, { "Retry-After": String(rateLimit.retryAfterSeconds) });
+        return jsonResponse(
+          errorBody("RATE_LIMITED", rateLimitedMessage(rateLimit.retryAt), true),
+          429,
+          rateLimit.retryAfterSeconds ? { "Retry-After": String(rateLimit.retryAfterSeconds) } : {},
+        );
       }
       const apiKey = globalThis.Deno.env.get("GEMINI_API_KEY") ?? "";
       if (!apiKey.trim()) throw new GeminiServiceError("NOT_CONFIGURED", "GEMINI_API_KEY is not configured.", { status: 503 });
       const model = normalizeModel(globalThis.Deno.env.get("GEMINI_MODEL"));
-      const client = context.supabase as unknown as RpcClient;
       const body = parsed.kind === "action"
         ? await handleAction({ apiKey, client, model, request: parsed, userId })
         : await handleMessage({ apiKey, chat: parsed, client, model, userId });

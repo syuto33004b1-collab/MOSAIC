@@ -29,6 +29,8 @@ export const INTEGRATION_LIMITS = Object.freeze({
   maxActiveClientsPerOrg: 20,
   secretPrefix: "mosaic_sk_",
   secretHexLength: 48,
+  // The chat limit is enforced by public.consume_chat_rate_limit (#502). This copy
+  // only lets tests catch the two drifting apart; changing it changes nothing at runtime.
   chat: Object.freeze({ limit: 12, windowMs: 60_000 }),
   integration: Object.freeze({ limit: 60, windowMs: 60_000 }),
   // Outbound calls from the AI secretary to administrator-approved external MCP
