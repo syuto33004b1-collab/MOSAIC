@@ -1023,6 +1023,12 @@ export default function Home({ mode = "demo", organizationId, organizationName =
     setDrawer(null);
   }, [clearFormDraft]);
 
+  /** Closing by hand (×, Escape, the backdrop, 閉じる). Closes after a save or a staged change call `closeDrawer` directly. */
+  const requestCloseDrawer = useCallback(() => {
+    if (formDirtyRef.current && !window.confirm("この入力はまだ反映されていません。閉じると破棄される場合があります。閉じますか？")) return;
+    closeDrawer();
+  }, [closeDrawer]);
+
   /** The pulse count that opens the attention dialog — focus returns here (#395). */
   const attentionPanelRef = useRef<HTMLElement | null>(null);
   const attentionTriggerRef = useRef<HTMLButtonElement | null>(null);
@@ -1296,7 +1302,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
       if (event.key === "Escape") {
         // One layer at a time: drawer, then attention, then notifications (#395).
         if (drawer) {
-          closeDrawer();
+          requestCloseDrawer();
           return;
         }
         if (attentionOpen) {
@@ -1320,7 +1326,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [activeNav, attentionOpen, closeAttentionPanel, closeDrawer, drawer, notificationsOpen]);
+  }, [activeNav, attentionOpen, closeAttentionPanel, drawer, notificationsOpen, requestCloseDrawer]);
 
   useEffect(() => {
     if (mode !== "shared" || !shared) return;
@@ -3111,6 +3117,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
       opportunityNeeds: (current.opportunityNeeds ?? []).filter((need) => !removedNeedIds.has(need.id)),
     }));
     markUnsaved();
+    clearFormDraft();
     setDrawer("opportunity");
     setToast(removedNeedIds.size > 0 ? "案件情報を更新し、期間外の要員計画を取消予定にしました" : "受注前案件を更新しました");
   };
@@ -3153,6 +3160,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
       setWorkspace(converted);
       if (project) setSelectedProjectId(project.id);
       markUnsaved();
+      clearFormDraft();
       setDrawer("project");
       setToast("プロジェクトへ引き継ぎました");
     } catch (caught) {
@@ -3222,6 +3230,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
     setSelectedOpportunityId(opportunity.id);
     setSelectedOpportunityNeedId(nextNeed.id);
     markUnsaved();
+    clearFormDraft();
     setDrawer("opportunity");
     setToast(existing ? "要員計画を更新しました" : "要員計画を追加しました");
   };
@@ -3955,10 +3964,10 @@ export default function Home({ mode = "demo", organizationId, organizationName =
               No eslint-disable needed: `click-events-have-key-events` and
               `no-static-element-interactions` both skip an `aria-hidden` element, and
               a directive here reports as unused. */}
-          <div className="overlay-backdrop" aria-hidden="true" onClick={closeDrawer} />
+          <div className="overlay-backdrop" aria-hidden="true" onClick={requestCloseDrawer} />
           <section className={"drawer " + DRAWER_DIALOG_SIZE[drawer] + (drawer === "member" ? " member-detail-open" : "") + (drawer === "project" ? " project-detail-open" : "")} ref={drawerRef} role="dialog" aria-modal="true" aria-label="詳細パネル" tabIndex={-1}>
             <div className="drawer-handle" />
-            <div className="drawer-top"><span className="drawer-kicker">{drawer === "needForm" && editingNeedId ? "EDIT STAFFING NEED" : drawer === "opportunityNeedForm" && editingOpportunityNeedId ? "EDIT STAFFING PLAN" : DRAWER_KICKER[drawer]}</span><button className="close-button" aria-label="詳細パネルを閉じる" onClick={closeDrawer}><X size={18} /></button></div>
+            <div className="drawer-top"><span className="drawer-kicker">{drawer === "needForm" && editingNeedId ? "EDIT STAFFING NEED" : drawer === "opportunityNeedForm" && editingOpportunityNeedId ? "EDIT STAFFING PLAN" : DRAWER_KICKER[drawer]}</span><button className="close-button" aria-label="詳細パネルを閉じる" onClick={requestCloseDrawer}><X size={18} /></button></div>
 
             {drawer === "addChooser" && (
               <div className="assignment-form">
@@ -4062,7 +4071,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                     <button className="drawer-primary" type="submit"><Check size={16} />変更を仮置き</button>
                     <button className="drawer-danger" type="button" onClick={removeAssignment}><Trash2 size={15} />{selectedAssignmentIsPersisted ? "アサインを取消" : "仮置きを削除"}</button>
                   </div>
-                ) : <button className="drawer-secondary" type="button" onClick={closeDrawer}>閉じる</button>}
+                ) : <button className="drawer-secondary" type="button" onClick={requestCloseDrawer}>閉じる</button>}
               </form>
             )}
 
@@ -4076,7 +4085,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                 )}
                 <div className="drawer-section-title"><span>現在の配分</span><small>合計 {overloadWorst ? `${Math.round(overloadPeak)}%` : "—"}</small></div>
                 <div className="allocation-list">{overloadAssignments.map((assignment) => <div key={assignment.id}><span className={"project-dot " + (projectById(workspace, assignment.projectId)?.tone || "blue")} /><span><strong>{projectById(workspace, assignment.projectId)?.name}</strong><small>{formatDate(assignment.startDate)} — {formatDate(assignment.endDate)}</small></span><b>{assignment.allocation}%</b></div>)}</div>
-                {!drawerOverloadPlanned && canEdit && resolveAssignments.length > 0 ? <><div className="suggestion-card"><span><Sparkles size={15} /></span><div><strong>おすすめの調整</strong><p>超過している各営業日の案件配分を順に減らし、すべての日を稼働上限内へ収めます。</p></div></div><button className="drawer-primary" onClick={resolveOverload}><CheckCircle2 size={16} />推奨配分へ調整</button></> : <button className="drawer-primary" onClick={closeDrawer}><Check size={16} />閉じる</button>}
+                {!drawerOverloadPlanned && canEdit && resolveAssignments.length > 0 ? <><div className="suggestion-card"><span><Sparkles size={15} /></span><div><strong>おすすめの調整</strong><p>超過している各営業日の案件配分を順に減らし、すべての日を稼働上限内へ収めます。</p></div></div><button className="drawer-primary" onClick={resolveOverload}><CheckCircle2 size={16} />推奨配分へ調整</button></> : <button className="drawer-primary" onClick={requestCloseDrawer}><Check size={16} />閉じる</button>}
               </div>
             )}
 
