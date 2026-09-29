@@ -5652,7 +5652,10 @@ describe("two members with one name", () => {
       .map((el) => el.textContent ?? "").filter((text) => text.startsWith(sharedName));
     expect(options).toHaveLength(2);
     expect(new Set(options).size).toBe(2);
+    // Typing in the picker's search counts as input, so × asks first (#492).
+    vi.spyOn(window, "confirm").mockReturnValue(true);
     await user.click(document.querySelector(".drawer .close-button") as HTMLElement);
+    expect(screen.queryByRole("dialog", { name: "詳細パネル" })).not.toBeInTheDocument();
 
     // The proposal picker.
     await user.click(navigation.getByRole("button", { name: /^提案( |$)/u }));
