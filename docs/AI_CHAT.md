@@ -29,7 +29,7 @@ Geminiとの通信には、新規開発向けにGoogleが推奨している[Inte
 | `supabase/functions/chat/action-token.mjs` | 確認内容、有効期限、利用者、組織を結び付ける署名・検証 |
 | `supabase/functions/chat/gemini.mjs` | Gemini Interactions APIとの通信 |
 | `supabase/functions/chat/prompt.mjs` | MOSAIC専用System Instruction |
-| `supabase/functions/chat/rate-limit.mjs` | 利用者単位の送信制限 |
+| `supabase/functions/chat/chat-rate-limit.mjs` | 利用者×組織ごとの送信回数をDB（`public.consume_chat_rate_limit`）で数え、上限時の案内文を作る |
 | `supabase/functions/chat/workspace-tools.mjs` | Geminiの許可済みtool、参照、変更計画、保存payloadの生成 |
 
 通常メッセージは`kind: "message"`（省略可）、`organizationId`、`message`、画面上の最低限の`history`、任意の`previousInteractionId`と`hasLocalChanges`を受け取ります。確認操作は`kind: "action"`、`organizationId`、`actionToken`、`decision: "confirm" | "cancel"`を受け取ります。
@@ -176,6 +176,8 @@ npm exec supabase -- functions list --project-ref PROJECT_REF
 
 `secrets list`は名前の存在確認にだけ使い、値をlogへ出しません。secret更新はFunctionの再デプロイなしで反映されますが、Functionのcode変更には`functions deploy chat`が必要です。`--no-verify-jwt`は付けません。
 
+DB変更を伴う版は、migrationを先に適用してから`functions deploy chat`します。回数の制限（`public.consume_chat_rate_limit`）が無いDBへ新しいFunctionを載せると、AI秘書は回数を確かめられず503で止まります。
+
 デプロイ後は次を確認します。
 
 1. 未ログインまたは無効なJWTの呼び出しが拒否される。
@@ -205,7 +207,7 @@ Google側の`store`は既定で`true`です。[Interactions APIのデータ保�
 - clientとFunctionの両方で空文字、型、本文長、履歴件数を検証する。client側の検証だけを認可・利用制限として扱わない。
 - Geminiのrate limitはproject単位でRPM、TPM、RPD、利用額に適用される。実値は[Google AI StudioのRate limits](https://ai.google.dev/gemini-api/docs/rate-limits)で確認する。
 - 408、429、一時的な5xx（500 / 502 / 503 / 504）を、上限付きの指数バックオフとjitterで再試行する。400、401、403を自動再送しない。
-- 利用者または送信元単位のrate limitをGemini呼出し前に適用する。複数Edge workerで正確な制限が必要な場合は、[SupabaseのRedis rate limiting例](https://supabase.com/docs/guides/functions/examples/rate-limiting)のような共有storeを使う。
+- 利用者×組織ごとに1分12回までを、Gemini呼出し前にDB（`public.consume_chat_rate_limit`、`app.chat_rate_windows`）で数える。Edge workerが複数でも同じ窓を共有する。上限を超えたら429で、次に使える時刻（日本時間）を案内する。DBに届かない、関数が無いなど回数を確かめられないときは503で止める（メモリ内の制限へは戻さない）。確認cardの実行も1回に数える（#502）。
 - Supabase hosted Edge Functionsはmemory 256MB、request idle timeout 150秒です。Free planのworker最大時間は150秒、Paid planは400秒です。最新値は[Edge Function limits](https://supabase.com/docs/guides/functions/limits)で確認する。
 - timeout、認証失敗、Googleのエラー本文、stack traceをそのままブラウザへ返さない。
 

@@ -15,6 +15,8 @@ import {
   MAX_OUTPUT_TOKENS,
 } from "../supabase/functions/chat/gemini.mjs";
 import { createBestEffortRateLimiter } from "../supabase/functions/chat/rate-limit.mjs";
+import { consumeChatRateLimit, rateLimitedMessage } from "../supabase/functions/chat/chat-rate-limit.mjs";
+import { INTEGRATION_LIMITS } from "../supabase/functions/chat/integration-core.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -155,7 +157,8 @@ test("retries one transient Gemini response without putting the key in the body"
   assert.doesNotMatch(requests[0].body, /server-secret-key/);
 });
 
-test("applies a per-user best-effort request window", () => {
+// The chat function counts in the database now (#502); the invite function still uses this.
+test("keeps the invite function's per-isolate request window", () => {
   let timestamp = 1_000;
   const limiter = createBestEffortRateLimiter({ limit: 2, now: () => timestamp, windowMs: 10_000 });
   assert.deepEqual(limiter.consume("user-1"), { allowed: true, remaining: 1, retryAfterSeconds: 0 });
@@ -164,6 +167,84 @@ test("applies a per-user best-effort request window", () => {
   assert.equal(limiter.consume("user-2").allowed, true);
   timestamp += 10_000;
   assert.equal(limiter.consume("user-1").allowed, true);
+});
+
+/** A client whose `rpc` answers with `reply` and remembers what it was asked. */
+function rateClient(reply) {
+  const calls = [];
+  return {
+    calls,
+    rpc: async (name, args) => {
+      calls.push([name, args]);
+      if (reply instanceof Error) throw reply;
+      return reply;
+    },
+  };
+}
+
+test("asks the database for the chat limit, per user and organization (#502)", async () => {
+  const client = rateClient({ data: { allowed: true, remaining: 7 }, error: null });
+  assert.deepEqual(await consumeChatRateLimit(client, "org-1"), { allowed: true, remaining: 7 });
+  assert.deepEqual(client.calls, [["consume_chat_rate_limit", { p_organization_id: "org-1" }]]);
+
+  const refused = await consumeChatRateLimit(rateClient({
+    data: { allowed: false, remaining: 0, retryAfterSeconds: 23, retryAt: "2026-09-29T00:05:00+00:00" },
+    error: null,
+  }), "org-1");
+  assert.deepEqual(refused, { allowed: false, retryAfterSeconds: 23, retryAt: "2026-09-29T00:05:00+00:00" });
+  for (const seconds of [0, 61, 2.5, "5"]) {
+    const { retryAfterSeconds } = await consumeChatRateLimit(rateClient({ data: { allowed: false, retryAfterSeconds: seconds }, error: null }), "org-1");
+    assert.equal(retryAfterSeconds, undefined, `Retry-After from ${JSON.stringify(seconds)}`);
+  }
+});
+
+test("lets a chat request through only on an explicit allowed: true (#502)", async () => {
+  const replies = [
+    { data: null, error: null },
+    { data: {}, error: null },
+    { data: { allowed: "true", remaining: 3 }, error: null },
+    { data: [], error: null },
+    { data: { allowed: true }, error: { code: "PGRST202", message: "Could not find the function public.consume_chat_rate_limit" } },
+    { data: null, error: { code: "42883", message: "function public.consume_chat_rate_limit(uuid) does not exist" } },
+    { data: null, error: { code: "08006", message: "connection failure" } },
+    new Error("fetch failed"),
+  ];
+  for (const reply of replies) {
+    await assert.rejects(consumeChatRateLimit(rateClient(reply), "org-1"), (error) => {
+      assert.ok(error instanceof ChatContractError);
+      assert.equal(error.code, "RATE_LIMIT_UNAVAILABLE");
+      assert.equal(error.status, 503);
+      assert.equal(error.retryable, true);
+      // The database's own words never reach the browser.
+      assert.doesNotMatch(error.message, /consume_chat_rate_limit|function|connection/u);
+      return true;
+    }, JSON.stringify(reply instanceof Error ? reply.message : reply));
+  }
+  await assert.rejects(consumeChatRateLimit(rateClient({ data: null, error: { code: "42501" } }), "org-1"),
+    (error) => error.code === "FORBIDDEN" && error.status === 403);
+  await assert.rejects(consumeChatRateLimit(rateClient({ data: null, error: { code: "PGRST301" } }), "org-1"),
+    (error) => error.code === "UNAUTHORIZED" && error.status === 401);
+});
+
+test("tells a limited user when to try again, in Japan time (#502)", () => {
+  assert.equal(rateLimitedMessage("2026-09-29T15:00:00+00:00"), "短時間に多くの操作が送信されました。00:00（日本時間）以降にもう一度お試しください。");
+  assert.equal(rateLimitedMessage("2026-09-29T14:59:00Z"), "短時間に多くの操作が送信されました。23:59（日本時間）以降にもう一度お試しください。");
+  assert.equal(rateLimitedMessage("2026-09-29T01:05:00.000Z"), "短時間に多くの操作が送信されました。10:05（日本時間）以降にもう一度お試しください。");
+  for (const retryAt of [undefined, "", "not a time", 42]) {
+    assert.equal(rateLimitedMessage(retryAt), "短時間に多くの操作が送信されました。少し待ってからお試しください。");
+  }
+});
+
+test("the chat function counts in the database, with the limit the tests know (#502)", async () => {
+  const index = await readFile(path.join(root, "supabase", "functions", "chat", "index.ts"), "utf8");
+  assert.doesNotMatch(index, /createBestEffortRateLimiter|rate-limit\.mjs/u, "the per-isolate window is back in the chat function");
+  assert.match(index, /await consumeChatRateLimit\(client, parsed\.organizationId\)/u);
+  const migration = await readFile(path.join(root, "supabase", "migrations", "20260929120000_chat_rate_windows.sql"), "utf8");
+  assert.equal(Number(/v_limit constant integer := (\d+);/u.exec(migration)?.[1]), INTEGRATION_LIMITS.chat.limit);
+  assert.match(migration, /check \(request_count between 0 and (\d+)\)/u);
+  assert.equal(Number(/check \(request_count between 0 and (\d+)\)/u.exec(migration)?.[1]), INTEGRATION_LIMITS.chat.limit);
+  assert.match(migration, /date_trunc\('minute', v_now\)/u);
+  assert.equal(INTEGRATION_LIMITS.chat.windowMs, 60_000);
 });
 
 test("binds opaque continuation tokens to the authenticated user and organization", async () => {
