@@ -140,3 +140,33 @@ test("the sweep fails when it cannot reach most of one state's text", () => {
   assert.ok(/total === 0 \? 0 :/u.test(sweep),
     "a state with no color-contrast nodes reads as full coverage again (#312)");
 });
+
+test("the overload panel and a search scene's score read their colours from the theme (#575)", () => {
+  // Measured in Chrome at 12px before this, from 2.50 to 4.43 against 4.5: pale colours
+  // chosen for 7-9px text, kept when the bulk rule raised the size to --text-min. The sweep
+  // reaches the score now, but not the overload panel (the demo has no overload) or the
+  // resolved card, so the last rule that sets each colour is pinned here. A shared rule is
+  // matched as its whole selector list: only the last selector sits next to the brace.
+  const expected = [
+    [".capacity-card > div:first-child span", "var(--muted-readable)"],
+    [".capacity-meter i", "var(--muted-readable)"],
+    [".capacity-card.resolved p", "var(--sage)"],
+    [".drawer-section-title small, .candidate-label small, .saved-candidate-label small", "var(--muted-readable)"],
+    [".allocation-list small", "var(--muted-readable)"],
+    [".match-score", "var(--sage)"],
+    [".match-score small", "var(--muted-readable)"],
+  ];
+  const pattern = (selector) => selector
+    .replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")
+    .replace(/,\s*/gu, ",\\s*")
+    .replace(/ (?!\\s)/gu, "\\s+");
+  for (const [selector, token] of expected) {
+    const colours = [...css.matchAll(new RegExp(`(?:^|[}/])\\s*${pattern(selector)}\\s*\\{([^}]*)\\}`, "gmu"))]
+      .map((rule) => /(?:^|;|\s)color:\s*([^;]+);/u.exec(rule[1])?.[1].trim())
+      .filter(Boolean);
+    assert.ok(colours.length > 0, `\`${selector}\` lost its colour`);
+    assert.equal(colours.at(-1), token, `\`${selector}\` is not \`${token}\` (#575)`);
+  }
+  assert.match(sweep, /results\.push\(await scan\(page, "メンバー（検索シーン）"\)\)/u,
+    "the sweep no longer scans the members screen with a search scene (#575)");
+});

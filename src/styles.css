@@ -1032,11 +1032,11 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   background: #fff9f8;
 }
 .capacity-card > div:first-child { display: flex; align-items: baseline; justify-content: space-between; }
-.capacity-card > div:first-child span { color: #747e90; font-size: 9px; }
+.capacity-card > div:first-child span { color: var(--muted-readable); font-size: 9px; }
 .capacity-card > div:first-child strong { color: #d35e55; font-family: var(--font-data); font-size: 25px; }
 .capacity-meter { position: relative; height: 8px; margin: 10px 0 15px; border-radius: 999px; background: #f0dedc; }
 .capacity-meter span { display: block; width: 100%; height: 100%; border-radius: inherit; background: #e87369; }
-.capacity-meter i { position: absolute; right: 0; top: 12px; color: #a87773; font-family: var(--font-data); font-size: 7px; font-style: normal; }
+.capacity-meter i { position: absolute; right: 0; top: 12px; color: var(--muted-readable); font-family: var(--font-data); font-size: 7px; font-style: normal; }
 .capacity-card p { margin: 0; color: #9a6d69; font-size: 8px; line-height: 1.6; }
 .drawer-section-title, .candidate-label, .saved-candidate-label {
   margin-bottom: 9px;
@@ -1045,7 +1045,7 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   justify-content: space-between;
 }
 .drawer-section-title span, .candidate-label span, .saved-candidate-label span { color: #596377; font-size: 9px; font-weight: 700; }
-.drawer-section-title small, .candidate-label small, .saved-candidate-label small { color: #9ba3b2; font-size: 7px; }
+.drawer-section-title small, .candidate-label small, .saved-candidate-label small { color: var(--muted-readable); font-size: 7px; }
 .allocation-list {
   margin-bottom: 16px;
   border: 1px solid var(--line);
@@ -1064,7 +1064,7 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .allocation-list strong, .allocation-list small { display: block; }
 .allocation-list strong { font-size: 9px; }
 .drawer .allocation-list strong { overflow-wrap: anywhere; }
-.allocation-list small { margin-top: 3px; color: #939baa; font-size: 7px; }
+.allocation-list small { margin-top: 3px; color: var(--muted-readable); font-size: 7px; }
 .allocation-list b { font-family: var(--font-data); font-size: var(--text-min); }
 .project-dot { width: 8px; height: 8px; border-radius: 3px; }
 .project-dot.orange { background: #eea17d; }
@@ -1452,7 +1452,7 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .capacity-card.resolved > div:first-child strong { color: #3f886f; }
 .capacity-card.resolved .capacity-meter { background: #dceee8; }
 .capacity-card.resolved .capacity-meter span { background: #68b49c; }
-.capacity-card.resolved p { color: #568a78; }
+.capacity-card.resolved p { color: var(--sage); }
 .planned-candidate {
   padding: 15px;
   border: 1px solid #ccd4f5;
@@ -6192,12 +6192,12 @@ h1 {
 .match-score {
   display: inline-flex;
   flex-direction: column;
-  color: #3e846f;
+  color: var(--sage);
   font-family: var(--font-data);
   font-size: 12px;
   font-weight: 700;
 }
-.match-score small { color: #8c95a6; font-size: var(--text-min); font-weight: 700; }
+.match-score small { color: var(--muted-readable); font-size: var(--text-min); font-weight: 700; }
 .saved-report-card { margin: 0 0 18px; }
 
 .pipeline-board {
