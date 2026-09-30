@@ -4,7 +4,7 @@ export const DEMO_FAVORITES_KEY = "mosaic-favorites-v1";
 export const MAX_PROPOSAL_MEMBERS = 12;
 export const MAX_FAVORITES = 100;
 
-export const SHARE_NAV_IDS = ["board", "projects", "opportunities", "members", "org", "skills", "fields", "reports", "proposal"] as const;
+export const SHARE_NAV_IDS = ["board", "projects", "opportunities", "members", "org", "skills", "fields", "reports", "proposal", "catalog"] as const;
 export type ShareNavId = typeof SHARE_NAV_IDS[number];
 export type FavoriteKind = "member" | "project";
 

@@ -56,6 +56,13 @@ const BUILT_AT_RUNTIME = {
   "is-superseded": "`is-${",
 };
 
+/**
+ * The UI catalog copies the screens' markup (#574). Counted as a component, it would keep
+ * wearing a class the screens had dropped, which is the state this test is for; it only
+ * wears its own `ui-catalog-*` frame.
+ */
+const CATALOG = path.join(root, "src", "ui-catalog.tsx");
+
 /** Everything a component could write a class name in. Tests are not components. */
 async function componentText() {
   const files = [];
@@ -63,13 +70,14 @@ async function componentText() {
     for (const entry of await readdir(dir, { withFileTypes: true })) {
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) await walk(full);
-      else if (/\.tsx?$/u.test(entry.name) && !/\.test\.tsx?$/u.test(entry.name)) files.push(full);
+      else if (/\.tsx?$/u.test(entry.name) && !/\.test\.tsx?$/u.test(entry.name) && full !== CATALOG) files.push(full);
     }
   };
   await walk(path.join(root, "src"));
   files.push(path.join(root, "index.html"));
   const parts = await Promise.all(files.map((file) => readFile(file, "utf8")));
-  return parts.join("\n");
+  const catalogFrame = [...(await readFile(CATALOG, "utf8")).matchAll(/ui-catalog(?:-[a-z0-9-]+)?/gu)].map((match) => match[0]);
+  return [...parts, ...catalogFrame].join("\n");
 }
 
 /** `name` as a whole token rather than a substring of a longer one. */
