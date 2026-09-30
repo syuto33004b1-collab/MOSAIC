@@ -555,8 +555,9 @@ export function specimenClassText(specimen: Pick<CatalogSpecimen, "classes" | "m
 function SpecimenFigure({ specimen }: { specimen: CatalogSpecimen }) {
   const stageRef = useRef<HTMLDivElement>(null);
   const measureRef = useRef<HTMLElement>(null);
-  // Measured again when a tab, toggle or input changes the specimen, and once its
-  // transition has finished: mid-transition the computed value is still the old one.
+  // Measured again when a tab, toggle or input changes the specimen, once its transition
+  // has finished (mid-transition the computed value is still the old one), and when the
+  // pointer leaves, so a click does not leave the hover colour standing as the reading.
   useLayoutEffect(() => {
     const stage = stageRef.current;
     if (!stage) return;
@@ -568,9 +569,11 @@ function SpecimenFigure({ specimen }: { specimen: CatalogSpecimen }) {
     const observer = new MutationObserver(measure);
     observer.observe(stage, { attributes: true, childList: true, subtree: true });
     stage.addEventListener("transitionend", measure);
+    stage.addEventListener("pointerout", measure);
     return () => {
       observer.disconnect();
       stage.removeEventListener("transitionend", measure);
+      stage.removeEventListener("pointerout", measure);
     };
   }, [specimen.probe]);
   const { Render } = specimen;
