@@ -313,6 +313,22 @@ async function main() {
       results.push(await scan(page, entry));
     }
 
+    // A search scene adds a score column the plain members screen does not draw, and the
+    // score measured 4.43 against the 4.5 its 12px owes (#575). Picked by name: the first
+    // option is 「なし」, and 「モバイルQA候補」 can match nobody and draw no score at all.
+    await visit("メンバー", "メンバーと空き状況");
+    await page.evaluate((name) => {
+      const select = document.querySelector('select[aria-label="シーンを選ぶ"]');
+      if (!select) throw new Error("the members screen has no scene select");
+      const option = [...select.options].find((item) => item.textContent.trim() === name);
+      if (!option) throw new Error(`no search scene named ${name}`);
+      const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value").set;
+      setter.call(select, option.value);
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    }, "フロントエンド候補");
+    await seeing(page, ".match-score");
+    results.push(await scan(page, "メンバー（検索シーン）"));
+
     await page.evaluate(() => {
       const nav = document.querySelector('nav[aria-label="メインナビゲーション"]');
       [...nav.querySelectorAll("button")].find((item) => item.textContent.trim().startsWith("アサインボード")).click();
