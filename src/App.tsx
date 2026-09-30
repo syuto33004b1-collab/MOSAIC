@@ -31,7 +31,7 @@ import {
   X,
   type LucideIcon,
 } from "lucide-react";
-import { ActiveFilters, CustomFieldFacts, CustomFieldInputs, MemberPicker, WeekendWorkPicker, type MemberCandidate, CsvTransferPanel, FavoriteStar, FieldsView, MemberOrgFields, MembersView, MilestoneOverdue, OpportunitiesView, OrgFacts, OrgView, PeriodRangeTabs, ProjectsView, ProposalView, ReportsView, SkillsView, UnavailabilityEditor, WorkHistoryEditor } from "./expanded-views";
+import { ActiveFilters, CustomFieldFacts, CustomFieldInputs, MemberPicker, WeekendWorkPicker, type MemberCandidate, CsvTransferPanel, FavoriteStar, FieldsView, MemberOrgFields, MembersView, MilestoneOverdue, OpportunitiesView, OrgFacts, OrgView, ProjectsView, ProposalView, ReportsView, SkillsView, UnavailabilityEditor, WorkHistoryEditor } from "./expanded-views";
 import { SkillSheet, printSkillSheet } from "./skill-sheet";
 import { AiChat } from "./components/ai-chat/AiChat";
 import type { ChatTransport } from "./lib/ai/chatClient";
@@ -101,7 +101,7 @@ import {
   openNeeds,
   orgUnitTree,
   overlaps,
-  PERIOD_CHOICES,
+  DISPLAY_PERIOD,
   PERIOD_CLIP_NOTE,
   periodBucketLabel,
   periodChoiceProseLabel,
@@ -891,13 +891,6 @@ export default function Home({ mode = "demo", organizationId, organizationName =
   const [activeNav, setActiveNav] = useState<keyof typeof pageMeta>(startingShare?.nav ?? "board");
   const [viewMode, setViewMode] = useState<"members" | "projects">("members");
   const [weekOffset, setWeekOffset] = useState(0);
-  /**
-   * The board pages by month only (#391). Pulse average/slack and the bell stay
-   * week-scoped via `boardBasisWeek` (#119 / #187). Domain still accepts "week"
-   * for PeriodChoice / PERIOD_CHOICES.
-   */
-  const [drawerPeriod, setDrawerPeriod] = useState<PeriodChoice>(PERIOD_CHOICES[0]);
-  const [attentionPeriod, setAttentionPeriod] = useState<PeriodChoice>(PERIOD_CHOICES[0]);
   const [overloadDrawerId, setOverloadDrawerId] = useState("");
   const [overloadDrawerFromWeek, setOverloadDrawerFromWeek] = useState(false);
   const [filter, setFilter] = useState("すべて");
@@ -1493,8 +1486,8 @@ export default function Home({ mode = "demo", organizationId, organizationName =
   const weekStart = boardBasisWeek(range);
   const drawerOrigin = boardBasisDay(range);
   const dataSpan = planningSpan(workspace);
-  const drawerRange = periodRange(drawerPeriod, drawerOrigin, dataSpan);
-  const attentionRange = periodRange(attentionPeriod, drawerOrigin, dataSpan);
+  const drawerRange = periodRange(DISPLAY_PERIOD, drawerOrigin, dataSpan);
+  const attentionRange = drawerRange;
   const visibleProposalIds = retainedMemberIds(proposalMemberIds, workspace.members.map((member) => member.id));
   /** The same week, as a count of weeks from this one, for the screens that take one. */
   const viewWeekOffset = Math.round((Date.parse(weekStart + "T00:00:00Z") - Date.parse(getWeekStart(0) + "T00:00:00Z")) / 604_800_000);
@@ -1547,7 +1540,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
   const candidateMatches = selectedNeed ? matchMembers(workspace, searchSceneFromNeed(selectedNeed)).slice(0, 5) : [];
   const adjustmentCount = attentionOverloads.length + attentionPlannedCount + activeNeeds.length;
   const attentionBreakdown = attentionBreakdownText(
-    periodChoiceProseLabel(attentionPeriod),
+    periodChoiceProseLabel(DISPLAY_PERIOD),
     attentionOverloads.length,
     activeNeeds.length,
     attentionPlannedCount,
@@ -1558,7 +1551,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
    * Derived once because the dot and the panel used to be written apart: the dot was a
    * string literal and was always on, so it promised something the panel often did not
    * have (#291). Still the week set, not `adjustmentCount` — that now counts every
-   * member who exceeds in the selected period, and the panel still shows one (#367).
+   * member who exceeds in the twelve months shown, and the panel still shows one (#367).
    */
   const overloadNotice = (currentOverloads.length > 0 || overloadPlanned) && overloadMember ? overloadMember : null;
   const notificationCount = (overloadNotice ? 1 : 0) + activeNeeds.length;
@@ -1574,7 +1567,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
       .sort((left, right) => left.startDate.localeCompare(right.startDate) || left.endDate.localeCompare(right.endDate))
     : [];
   /*
-   * The project list follows the selected period (#423). An empty span (clipped
+   * The project list follows the twelve months shown (#423, #569). An empty span (clipped
    * past the holiday calendar) is not "zero rows" — the clip note already said
    * the outlook stopped, so that list stays out. The member list does not use
    * this flag: it shows every assignment of that person (#437).
@@ -1597,7 +1590,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
     ? projectPeriodHeadline(
       selectedProject.demand,
       drawerRange.buckets.map((bucket) => projectPeriodCount(workspace, selectedProject, bucket.from, bucket.to)),
-      periodChoiceProseLabel(drawerPeriod),
+      periodChoiceProseLabel(DISPLAY_PERIOD),
     )
     : null;
   const selectedMemberWeekLoad = selectedMember ? memberLoad(workspace, selectedMember.id, weekStart) : 0;
@@ -1892,8 +1885,8 @@ export default function Home({ mode = "demo", organizationId, organizationName =
     : [];
   const drawerWeekExceeds = drawerWeekDays.some((day) => day.load > day.capacity);
   const useWeekOverloadWindow = overloadDrawerFromWeek || drawerWeekExceeds;
-  const periodOverloadWindow = firstExceedWindow(drawerOverloadDraftStats, attentionPeriod)
-    ?? firstExceedWindow(drawerOverloadCommittedStats, attentionPeriod);
+  const periodOverloadWindow = firstExceedWindow(drawerOverloadDraftStats, DISPLAY_PERIOD)
+    ?? firstExceedWindow(drawerOverloadCommittedStats, DISPLAY_PERIOD);
   const overloadWindow = useWeekOverloadWindow
     ? { from: weekStart, to: weekEnd(weekStart), label: measuredWeekLabel }
     : periodOverloadWindow;
@@ -1934,8 +1927,8 @@ export default function Home({ mode = "demo", organizationId, organizationName =
   const attentionCardWindow = attentionCardUsesWeek && attentionOverloadMember
     ? { label: measuredWeekLabel, peak: memberLoad(workspace, attentionOverloadMember.id, weekStart) }
     : (() => {
-        const window = firstExceedWindow(attentionOverloadEntry?.stats, attentionPeriod);
-        if (!window || !attentionOverloadMember) return { label: periodChoiceProseLabel(attentionPeriod), peak: null as number | null };
+        const window = firstExceedWindow(attentionOverloadEntry?.stats, DISPLAY_PERIOD);
+        if (!window || !attentionOverloadMember) return { label: periodChoiceProseLabel(DISPLAY_PERIOD), peak: null as number | null };
         const days = memberDailyLoads(
           attentionOverloadPlanned ? committedWorkspace : workspace,
           attentionOverloadMember.id,
@@ -3674,7 +3667,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
               {/* To the list, not into one of its items: a count is a summary, and 「3件」 that
                   opens one thing is one label over two operations (#88, #124, #197). The
                   panel’s own cards are the way into each. */}
-              <button ref={attentionTriggerRef} className="pulse-metric warning" onClick={showAttentionPanel} aria-haspopup="dialog"><strong>{adjustmentCount}<small>件</small></strong><span>{periodChoiceProseLabel(attentionPeriod)}の要調整</span><ArrowRight size={14} /></button>
+              <button ref={attentionTriggerRef} className="pulse-metric warning" onClick={showAttentionPanel} aria-haspopup="dialog"><strong>{adjustmentCount}<small>件</small></strong><span>{periodChoiceProseLabel(DISPLAY_PERIOD)}の要調整</span><ArrowRight size={14} /></button>
             </section>
 
             <div className="board-layout">
@@ -3911,7 +3904,6 @@ export default function Home({ mode = "demo", organizationId, organizationName =
               <div className="attention-title">
                 <div>
                   <h2 id="attention-heading">要調整</h2>
-                  <PeriodRangeTabs choice={attentionPeriod} onChange={setAttentionPeriod} namePrefix="要調整" />
                   <p className="attention-breakdown">{attentionBreakdown}</p>
                   {attentionRange.clipped && <p className="horizon-clip-note" role="note">{PERIOD_CLIP_NOTE}</p>}
                 </div>
@@ -4089,7 +4081,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                 {overloadWorst ? (
                   <div className={"capacity-card " + (drawerOverloadPlanned ? "resolved" : "")}><div><span>{(overloadWindow?.label ?? measuredWeekLabel)}の稼働</span><strong>{Math.round(overloadPeak)}% / 稼働上限{overloadCeiling}%</strong></div><div className="capacity-meter"><span style={{ width: Math.min(100, overloadPeak) + "%" }} /><i>{overloadCeiling}%</i></div><p>{drawerOverloadPlanned ? "保存すると超過警告が解消されます。" : `稼働上限を${Math.max(0, Math.round(overloadOverage))}%超えています。`}</p></div>
                 ) : (
-                  <div className="capacity-card"><div><span>{(overloadWindow?.label ?? periodChoiceProseLabel(attentionPeriod))}の稼働</span><strong>超過日はありません</strong></div><p>この期間に上限を超えた日はありません。</p></div>
+                  <div className="capacity-card"><div><span>{(overloadWindow?.label ?? periodChoiceProseLabel(DISPLAY_PERIOD))}の稼働</span><strong>超過日はありません</strong></div><p>この期間に上限を超えた日はありません。</p></div>
                 )}
                 <div className="drawer-section-title"><span>現在の配分</span><small>合計 {overloadWorst ? `${Math.round(overloadPeak)}%` : "—"}</small></div>
                 <div className="allocation-list">{overloadAssignments.map((assignment) => <div key={assignment.id}><span className={"project-dot " + (projectById(workspace, assignment.projectId)?.tone || "blue")} /><span><strong>{projectById(workspace, assignment.projectId)?.name}</strong><small>{formatDate(assignment.startDate)} — {formatDate(assignment.endDate)}</small></span><b>{assignment.allocation}%</b></div>)}</div>
@@ -4149,12 +4141,11 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                 </div>
                 <div className="project-detail-panes">
                   <div className="project-detail-period">
-                    <PeriodRangeTabs choice={drawerPeriod} onChange={setDrawerPeriod} />
-                    <div className="drawer-section-title"><span>{periodChoiceProseLabel(drawerPeriod)}の充足</span><small>{selectedProject.demand === 0 ? "必要人数 未設定" : `必要 ${selectedProject.demand}名`}</small></div>
+                    <div className="drawer-section-title"><span>{periodChoiceProseLabel(DISPLAY_PERIOD)}の充足</span><small>{selectedProject.demand === 0 ? "必要人数 未設定" : `必要 ${selectedProject.demand}名`}</small></div>
                     {/* 12 bars leave the assignee list at 34px on 1052×720, so the
-                        bars scroll with the list. Tabs and this heading stay put. */}
+                        bars scroll with the list. This heading stays put. */}
                     {/* eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- scrollport */}
-                    <div className="project-detail-assignees" tabIndex={0} role="region" aria-label={`${periodChoiceProseLabel(drawerPeriod)}の充足${drawerPeriodHasRange ? "と担当" : ""}`}>
+                    <div className="project-detail-assignees" tabIndex={0} role="region" aria-label={`${periodChoiceProseLabel(DISPLAY_PERIOD)}の充足${drawerPeriodHasRange ? "と担当" : ""}`}>
                       {drawerRange.clipped && <p className="horizon-clip-note" role="note">{PERIOD_CLIP_NOTE}</p>}
                       <div className="profile-capacity">{drawerRange.buckets.map((bucket, index) => {
                         const count = projectPeriodCount(workspace, selectedProject, bucket.from, bucket.to);
@@ -4163,11 +4154,11 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                         const width = outside ? 0 : unset ? 100 : Math.min(100, count / selectedProject.demand * 100);
                         const figure = outside ? "—" : unset ? "未設定" : `${count}/${selectedProject.demand}名`;
                         const ticks = capacityTickMarks(outside ? 0 : selectedProject.demand, outside ? null : count);
-                        return <div key={`${bucket.from}:${bucket.to}`}><span>{periodBucketLabel(drawerPeriod, bucket, index)}</span><i><b className={!outside && !unset && count < selectedProject.demand ? "short" : ""} style={{ width: width + "%" }} />{ticks.map((tick, tickIndex) => <span key={tickIndex} className="project-capacity-tick" data-inside={tick.inside ? "true" : "false"} style={{ left: (tick.fraction * 100) + "%" }} aria-hidden="true" />)}</i><strong>{figure}</strong></div>;
+                        return <div key={`${bucket.from}:${bucket.to}`}><span>{periodBucketLabel(DISPLAY_PERIOD, bucket, index)}</span><i><b className={!outside && !unset && count < selectedProject.demand ? "short" : ""} style={{ width: width + "%" }} />{ticks.map((tick, tickIndex) => <span key={tickIndex} className="project-capacity-tick" data-inside={tick.inside ? "true" : "false"} style={{ left: (tick.fraction * 100) + "%" }} aria-hidden="true" />)}</i><strong>{figure}</strong></div>;
                       })}</div>
                       {drawerPeriodHasRange && (
                         <>
-                          <div className="drawer-section-title"><span>{periodChoiceProseLabel(drawerPeriod)}の担当</span><small>{projectPeriodAssignments.length}件</small></div>
+                          <div className="drawer-section-title"><span>{periodChoiceProseLabel(DISPLAY_PERIOD)}の担当</span><small>{projectPeriodAssignments.length}件</small></div>
                           {projectPeriodAssignments.length === 0
                             ? <div className="candidate-empty"><UsersRound size={18} /><span><strong>この期間の担当はありません</strong></span></div>
                             : <div className="detail-member-list">{projectPeriodAssignments.map((assignment) => { const member = memberById(workspace, assignment.personId); return <button onClick={() => member && openMember(member.id)} key={assignment.id}><span className={"avatar " + member?.avatarTone}>{member?.initials}</span><span><strong>{member?.name}</strong><small>{member?.role}</small><small>{formatDate(assignment.startDate)} — {formatDate(assignment.endDate)}</small></span><b>{`稼働配分 ${assignment.allocation}%`}</b></button>; })}</div>}

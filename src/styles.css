@@ -279,7 +279,6 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .attention-title > div { min-width: 0; flex: 1; }
 .attention-title small { color: #9aa2b2; font-family: var(--font-data); font-size: 7px; font-weight: 800; letter-spacing: .16em; }
 .attention-title h2 { margin: 3px 0 0; font-size: 17px; letter-spacing: -.04em; }
-.attention-title .range-tabs { width: 100%; margin: 8px 0 0; flex-wrap: wrap; }
 .attention-breakdown { margin: 6px 0 0; color: #858e9f; font-size: 8px; line-height: 1.5; }
 .attention-title .horizon-clip-note { grid-column: auto; margin: 6px 0 0; }
 .attention-title > span { width: 26px; height: 26px; flex: 0 0 26px; border-radius: 9px; background: #ffebe9; color: #d95f55; display: grid; place-items: center; font-family: var(--font-data); font-size: var(--text-min); font-weight: 800; }
@@ -2562,7 +2561,6 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
    Two classes, so the grey of `.detail-facts span` does not win. */
 .milestone-cell .milestone-overdue,
 .detail-facts .milestone-overdue { display: block; color: var(--coral-deep); font-weight: 700; white-space: nowrap; }
-.drawer .range-tabs { margin-bottom: 12px; flex-wrap: wrap; width: 100%; }
 .drawer .horizon-clip-note { margin: 0 0 12px; }
 .detail-member-list { margin-bottom: 18px; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
 .detail-member-list button {
@@ -3085,7 +3083,6 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
     display: flex;
     flex-direction: column;
   }
-  .project-detail-period > .range-tabs,
   .project-detail-period > .drawer-section-title { flex: 0 0 auto; }
   .project-detail-assignees {
     flex: 1 1 auto;

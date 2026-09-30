@@ -814,10 +814,21 @@ export type PeriodChoice = CountedPeriodChoice | AllPeriodChoice;
 
 export const PERIOD_ALL: AllPeriodChoice = { unit: "all" };
 
+/**
+ * The one period every screen shows: the next 12 months. The screens used to let
+ * people pick 1 / 6 / 12 months or 「全て」, each screen on its own; that choice is
+ * gone (#569).
+ */
+export const DISPLAY_PERIOD: CountedPeriodChoice = { unit: "month", count: 12 };
+
+/**
+ * Periods `periodRange` accepts, not a menu: no screen offers these any more (#569).
+ * The domain tests and the screen/assistant parity test still walk them.
+ */
 export const PERIOD_CHOICES: readonly PeriodChoice[] = [
   { unit: "month", count: 1 },
   { unit: "month", count: 6 },
-  { unit: "month", count: 12 },
+  DISPLAY_PERIOD,
   PERIOD_ALL,
 ];
 
@@ -1246,7 +1257,7 @@ export function memberMonthOutlook(state: WorkspaceState, member: Member, basisI
 }
 
 /** The member detail sheet is this window, not the variable-length outlook line. */
-export const MEMBER_DETAIL_MONTH_CHOICE: CountedPeriodChoice = { unit: "month", count: 12 };
+export const MEMBER_DETAIL_MONTH_CHOICE: CountedPeriodChoice = DISPLAY_PERIOD;
 
 export type MemberMonthLedgerMonth = {
   from: string;
