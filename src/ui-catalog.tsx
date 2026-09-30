@@ -157,7 +157,9 @@ function PickerRailSpecimen() {
 const MONTH_PEAKS = [80, 110, 40, 60, 90, 100, 30, 70, 85, 95, 50, 65];
 function MonthRailSpecimen() {
   return (
-    <div className="ui-catalog-cell ui-catalog-natural">
+    // Twelve labels need about 350px; below that the cell scrolls rather than spill (#574).
+    // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- scrollport
+    <div className="ui-catalog-cell ui-catalog-natural" tabIndex={0} role="region" aria-label="見本の月ごとの稼働">
       <div className="member-week-rail">
         {MONTH_PEAKS.map((peak, index) => (
           <Fragment key={MONTHS[index]}>
@@ -565,7 +567,7 @@ function SpecimenFigure({ specimen }: { specimen: CatalogSpecimen }) {
 export function UiCatalogView() {
   return (
     <section className="section-view ui-catalog" aria-label="部品の一覧">
-      <p className="ui-catalog-lead">画面ごとに作られた部品を、種類ごとに並べています。数値と名前はすべて見本で、業務データではありません。タブ・開閉・入力は動きますが、ボタンは押しても何も起きません。「実測」は描画後の文字の大きさ・文字色・背景・角丸です。</p>
+      <p className="ui-catalog-lead">数値と名前はすべて見本で、業務データではありません。タブ・開閉・入力は動きますが、ボタンは押しても何も起きません。「実測」は描画後の文字の大きさ・文字色・背景・角丸です。</p>
       {UI_CATALOG.map((section) => (
         <section className="ui-catalog-section" aria-labelledby={`ui-catalog-${section.id}`} key={section.id}>
           <h2 id={`ui-catalog-${section.id}`}>{section.title}</h2>

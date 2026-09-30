@@ -4170,6 +4170,21 @@ body {
   background: var(--canvas);
   color: var(--ink);
 }
+/* The column is sticky at 100vh, so what does not fit never comes back with the page's
+   scroll. A tenth nav item (#574) put the account row — 設定を開く in production — under
+   a 720px-tall window. The column scrolls itself instead. `overflow-x` is spelled out:
+   left `visible`, it computes to `auto`, and the 84px icon rail would grow a sideways bar.
+   A thin bar, because a classic 15px one left the rail's items 42px wide. Only above
+   620px, where the top bar and its sideways nav take over. */
+@media (min-width: 621px) {
+  .sidebar {
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+    scroll-padding-block: 8px;
+    scrollbar-width: thin;
+  }
+}
 
 .brand {
   gap: 13px;
@@ -6519,7 +6534,7 @@ h1 {
 .ui-catalog-stage > * { min-width: 0; max-width: 100%; }
 .ui-catalog-specimen.ui-catalog-wide .ui-catalog-stage { display: block; }
 .ui-catalog-cell { width: 100%; }
-.ui-catalog-cell.ui-catalog-natural { width: max-content; }
+.ui-catalog-cell.ui-catalog-natural { width: max-content; overflow-x: auto; }
 .ui-catalog-pair { display: inline-flex; align-items: center; gap: 8px; }
 .ui-catalog-specimen figcaption { display: grid; gap: 2px; color: var(--muted-readable); font-size: var(--text-min); line-height: 1.5; }
 .ui-catalog-specimen figcaption strong { color: var(--ink); font-size: var(--text-sm); }
