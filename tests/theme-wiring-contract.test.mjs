@@ -76,7 +76,7 @@ async function componentText() {
   await walk(path.join(root, "src"));
   files.push(path.join(root, "index.html"));
   const parts = await Promise.all(files.map((file) => readFile(file, "utf8")));
-  const catalogFrame = [...(await readFile(CATALOG, "utf8")).matchAll(/ui-catalog(?:-[a-z0-9-]+)?/gu)].map((match) => match[0]);
+  const catalogFrame = [...(await readFile(CATALOG, "utf8")).matchAll(/(?<![\w-])ui-catalog(?:-[a-z0-9-]+)?/gu)].map((match) => match[0]);
   return [...parts, ...catalogFrame].join("\n");
 }
 

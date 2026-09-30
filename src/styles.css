@@ -6509,12 +6509,17 @@ h1 {
 .ui-catalog-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 440px), 1fr)); gap: 14px; }
 .ui-catalog-card { min-width: 0; }
 .ui-catalog-card.ui-catalog-wide { grid-column: 1 / -1; }
-.ui-catalog-sample {
+/* Beats `.card-heading > span`, the report cards' count chip, which would otherwise
+   dress this mark as a coral count. */
+.card-heading > .ui-catalog-sample {
   flex: 0 0 auto;
+  min-height: 0;
   padding: 2px 10px;
   border: 1px solid var(--line-strong);
   border-radius: 999px;
+  background: transparent;
   color: var(--muted-readable-dark);
+  font-family: inherit;
   font-size: var(--text-min);
   font-weight: 700;
 }

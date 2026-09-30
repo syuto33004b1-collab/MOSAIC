@@ -34,6 +34,8 @@ import { ActiveFilters, FavoriteStar, MilestoneOverdue, PlanCostAxisTabs } from 
 export type CatalogSpecimen = {
   label: string;
   classes: readonly string[];
+  /** The classes that tell this specimen from its neighbour (`.status-pill.risk`), shown with the first class. */
+  modifiers?: readonly string[];
   probe: string;
   context?: readonly string[];
   screens: string;
@@ -330,7 +332,8 @@ function FavoriteSpecimen() {
 const status = (className: string, text: string): CatalogSpecimen => ({
   label: `状態: ${text}`,
   classes: ["status-pill"],
-  probe: ".status-pill",
+  modifiers: [className],
+  probe: `.status-pill.${className}`,
   screens: "プロジェクト一覧",
   Render: () => <span className={"status-pill " + className}><i />{text}</span>,
 });
@@ -409,7 +412,7 @@ export const UI_CATALOG: readonly CatalogSection[] = [
       {
         title: "フォーム",
         specimens: [
-          { label: "文字・選択・複数行", classes: ["assignment-form"], probe: "input", screens: "追加と編集のパネル", wide: true, Render: FormFieldsSpecimen },
+          { label: "文字・選択・複数行", classes: ["assignment-form"], probe: ".assignment-form > label > input", screens: "追加と編集のパネル", wide: true, Render: FormFieldsSpecimen },
           { label: "日付", classes: ["form-grid"], probe: ".form-grid input", context: ["assignment-form"], screens: "アサインの追加と編集", wide: true, Render: DateFieldsSpecimen },
           { label: "稼働配分", classes: ["allocation-input"], probe: ".allocation-input input", context: ["assignment-form"], screens: "アサインの追加と編集", Render: AllocationSpecimen },
           { label: "項目の設定", classes: ["field-flag"], probe: ".field-flag", context: ["field-catalog-form"], screens: "項目定義", wide: true, Render: FieldFlagSpecimen },
@@ -434,14 +437,14 @@ export const UI_CATALOG: readonly CatalogSection[] = [
           { label: "パネルの副ボタン", classes: ["drawer-secondary"], probe: ".drawer-secondary", screens: "詳細と編集のパネル", Render: () => <button type="button" className="drawer-secondary">詳細を開く</button> },
           { label: "パネルの危険な操作", classes: ["drawer-danger"], probe: ".drawer-danger", screens: "詳細と編集のパネル", Render: () => <button type="button" className="drawer-danger"><Trash2 size={15} />アーカイブ</button> },
           { label: "画面の追加", classes: ["view-add-button"], probe: ".view-add-button", screens: "メンバー、スキルマップ、組織、項目定義ほか", Render: () => <button type="button" className="view-add-button"><Plus size={15} />追加する</button> },
-          { label: "画面の控えめな操作", classes: ["view-add-button"], probe: ".view-add-button.ghost", screens: "絞り込み中の表示ほか", Render: () => <button type="button" className="view-add-button ghost">条件をクリア</button> },
+          { label: "画面の控えめな操作", classes: ["view-add-button"], modifiers: ["ghost"], probe: ".view-add-button.ghost", screens: "絞り込み中の表示ほか", Render: () => <button type="button" className="view-add-button ghost">条件をクリア</button> },
         ],
       },
       {
         title: "行とツールバーの操作",
         specimens: [
           { label: "行の操作", classes: ["quick-assign"], probe: ".quick-assign", screens: "メンバー一覧", Render: () => <button type="button" className="quick-assign"><UserRoundPlus size={14} />アサイン</button> },
-          { label: "行の控えめな操作", classes: ["quick-assign"], probe: ".quick-assign.quiet", screens: "メンバー一覧", Render: () => <button type="button" className="quick-assign quiet"><Sparkles size={14} />提案へ</button> },
+          { label: "行の控えめな操作", classes: ["quick-assign"], modifiers: ["quiet"], probe: ".quick-assign.quiet", screens: "メンバー一覧", Render: () => <button type="button" className="quick-assign quiet"><Sparkles size={14} />提案へ</button> },
           { label: "行を開く", classes: ["row-open"], probe: ".row-open", screens: "プロジェクト一覧", Render: () => <button type="button" className="row-open" aria-label="見本の詳細を見る"><ChevronRight size={16} /></button> },
           { label: "お気に入り", classes: ["favorite-star"], probe: ".favorite-star", screens: "一覧と詳細", Render: FavoriteSpecimen },
           { label: "ツールバー", classes: ["toolbar-actions", "board-month-pager"], probe: ".board-month-pager button", screens: "アサインボード（今月）", Render: () => <div className="toolbar-actions"><div className="board-month-pager"><button type="button"><CalendarDays size={13} />今月</button></div></div> },
@@ -451,7 +454,7 @@ export const UI_CATALOG: readonly CatalogSection[] = [
         title: "アイコンだけのボタン",
         specimens: [
           { label: "上部バー", classes: ["icon-button"], probe: ".icon-button", screens: "通知", Render: () => <button type="button" className="icon-button" aria-label="見本の通知"><Bell size={18} /></button> },
-          { label: "上部バー（印あり）", classes: ["icon-button"], probe: ".icon-button.has-dot", screens: "通知があるとき", Render: () => <button type="button" className="icon-button has-dot" aria-label="見本の通知 未読あり"><Bell size={18} /></button> },
+          { label: "上部バー（印あり）", classes: ["icon-button"], modifiers: ["has-dot"], probe: ".icon-button.has-dot", screens: "通知があるとき", Render: () => <button type="button" className="icon-button has-dot" aria-label="見本の通知 未読あり"><Bell size={18} /></button> },
           { label: "送り", classes: ["arrow-button"], probe: ".arrow-button", context: ["toolbar-actions"], screens: "アサインボード", Render: () => <button type="button" className="arrow-button" aria-label="見本 前の月"><ChevronLeft size={16} /></button> },
           { label: "閉じる", classes: ["close-button"], probe: ".close-button", screens: "パネルとダイアログ", Render: () => <button type="button" className="close-button" aria-label="見本を閉じる"><X size={18} /></button> },
         ],
@@ -477,9 +480,9 @@ export const UI_CATALOG: readonly CatalogSection[] = [
           status("ready", "準備中"),
           status("closing", "完了間近"),
           { label: "稼働", classes: ["load"], probe: ".load", screens: "アサインボード", Render: () => <span className="load">72%</span> },
-          { label: "稼働（上限超過）", classes: ["load"], probe: ".load.over", screens: "アサインボード", Render: () => <span className="load over">115%</span> },
+          { label: "稼働（上限超過）", classes: ["load"], modifiers: ["over"], probe: ".load.over", screens: "アサインボード", Render: () => <span className="load over">115%</span> },
           { label: "不足", classes: ["need-note"], probe: ".need-note", screens: "プロジェクト一覧", Render: () => <small className="need-note">デザイナー 不足</small> },
-          { label: "不足（解消予定）", classes: ["need-note"], probe: ".need-note.planned", screens: "プロジェクト一覧", Render: () => <small className="need-note planned">解消予定</small> },
+          { label: "不足（解消予定）", classes: ["need-note"], modifiers: ["planned"], probe: ".need-note.planned", screens: "プロジェクト一覧", Render: () => <small className="need-note planned">解消予定</small> },
           { label: "期限超過", classes: ["milestone-overdue"], probe: ".milestone-overdue", context: ["milestone-cell"], screens: "プロジェクト一覧と詳細", Render: () => <><strong>リリース判定</strong><small>8/1<MilestoneOverdue date="2026-08-01" today="2026-09-01" /></small></> },
         ],
       },
@@ -494,9 +497,9 @@ export const UI_CATALOG: readonly CatalogSection[] = [
       {
         title: "ラベル",
         specimens: [
-          { label: "スキル", classes: ["skill-chips"], probe: ".skill-chips span", screens: "要調整", Render: () => <div className="skill-chips"><span>React</span><span>TypeScript</span></div> },
+          { label: "スキル", classes: ["skill-chips"], probe: ".skill-chips span", screens: "要調整", Render: () => <div className="skill-chips"><span>React</span><span>TypeScript</span><ArrowRight size={13} /></div> },
           { label: "スキルと習熟度", classes: ["member-skills"], probe: ".member-skills span", screens: "メンバー一覧、提案", Render: () => <div className="member-skills"><span>React<small>4</small></span><span>設計<small>3</small></span></div> },
-          { label: "同名の区別", classes: ["row-name-tag"], probe: ".row-name-tag", context: ["member-name-cell"], screens: "メンバー一覧", Render: () => <strong><span className="row-name-main">見本 一郎</span><span className="row-name-tag">営業部</span></strong> },
+          { label: "同名の区別", classes: ["row-name-tag"], probe: ".row-name-tag", context: ["member-name-cell"], screens: "メンバー一覧", Render: () => <strong><span className="row-name-main">見本 一郎</span><span className="row-name-tag">（大阪）</span></strong> },
           { label: "閲覧のみ", classes: ["read-only-label"], probe: ".read-only-label", screens: "メンバー一覧、組織", Render: () => <span className="read-only-label">閲覧のみ</span> },
         ],
       },
@@ -542,12 +545,33 @@ export function measuredStyle(style: Pick<CSSStyleDeclaration, "fontSize" | "col
   return `実測: 文字 ${style.fontSize || "—"} · 文字色 ${colorName(style.color)} · 背景 ${colorName(style.backgroundColor)} · 角丸 ${style.borderRadius || "—"}`;
 }
 
+/** `.status-pill.risk .other`: the modifiers ride on the first class, which is the one they modify. */
+export function specimenClassText(specimen: Pick<CatalogSpecimen, "classes" | "modifiers">) {
+  return specimen.classes
+    .map((name, index) => "." + name + (index === 0 ? (specimen.modifiers ?? []).map((modifier) => "." + modifier).join("") : ""))
+    .join(" ");
+}
+
 function SpecimenFigure({ specimen }: { specimen: CatalogSpecimen }) {
   const stageRef = useRef<HTMLDivElement>(null);
   const measureRef = useRef<HTMLElement>(null);
+  // Measured again when a tab, toggle or input changes the specimen, and once its
+  // transition has finished: mid-transition the computed value is still the old one.
   useLayoutEffect(() => {
-    const target = stageRef.current?.querySelector(specimen.probe);
-    if (measureRef.current) measureRef.current.textContent = target ? measuredStyle(getComputedStyle(target)) : "実測: 対象が見つかりません";
+    const stage = stageRef.current;
+    if (!stage) return;
+    const measure = () => {
+      const target = stage.querySelector(specimen.probe);
+      if (measureRef.current) measureRef.current.textContent = target ? measuredStyle(getComputedStyle(target)) : "実測: 対象が見つかりません";
+    };
+    measure();
+    const observer = new MutationObserver(measure);
+    observer.observe(stage, { attributes: true, childList: true, subtree: true });
+    stage.addEventListener("transitionend", measure);
+    return () => {
+      observer.disconnect();
+      stage.removeEventListener("transitionend", measure);
+    };
   }, [specimen.probe]);
   const { Render } = specimen;
   const body = (specimen.context ?? []).reduceRight<ReactNode>((child, name) => <div className={name}>{child}</div>, <Render />);
@@ -556,7 +580,7 @@ function SpecimenFigure({ specimen }: { specimen: CatalogSpecimen }) {
       <div className="ui-catalog-stage" ref={stageRef} style={specimen.width ? { maxWidth: specimen.width } : undefined}>{body}</div>
       <figcaption>
         <strong>{specimen.label}</strong>
-        <code>{specimen.classes.map((name) => "." + name).join(" ")}</code>
+        <code>{specimenClassText(specimen)}</code>
         <span>{specimen.screens}</span>
         <small className="ui-catalog-measure" ref={measureRef} />
       </figcaption>

@@ -1,10 +1,10 @@
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
-import { measuredStyle, UI_CATALOG, UI_CATALOG_GAPS, UiCatalogView, type CatalogSpecimen } from "./ui-catalog";
+import { measuredStyle, specimenClassText, UI_CATALOG, UI_CATALOG_GAPS, UiCatalogView, type CatalogSpecimen } from "./ui-catalog";
 
 const srcDir = path.dirname(fileURLToPath(import.meta.url));
 const stylesheet = readFileSync(path.join(srcDir, "styles.css"), "utf8").replace(/\/\*[\s\S]*?\*\//gu, "");
@@ -36,8 +36,20 @@ describe("UI catalog (#574)", () => {
         if (!token(`\\.${name}`).test(stylesheet)) missing.push(`${specimen.label}: .${name} is not in styles.css`);
         if (!token(name).test(sources)) missing.push(`${specimen.label}: ${name} is not worn by any screen`);
       }
+      for (const modifier of specimen.modifiers ?? []) {
+        if (!token(`\\.${specimen.classes[0]}\\.${modifier}`).test(stylesheet)) missing.push(`${specimen.label}: .${specimen.classes[0]}.${modifier} is not in styles.css`);
+      }
     }
     expect(missing).toEqual([]);
+  });
+
+  it("probes through the classes it names, not whatever element comes first", () => {
+    for (const specimen of specimens) {
+      expect(specimen.classes.some((name) => token(`\\.${name}`).test(specimen.probe)), `${specimen.label}: ${specimen.probe} names none of ${specimen.classes.join(", ")}`).toBe(true);
+      for (const modifier of specimen.modifiers ?? []) {
+        expect(new RegExp(`\\.${modifier}(?![\\w-])`, "u").test(specimen.probe), `${specimen.label}: ${specimen.probe} does not probe .${modifier}`).toBe(true);
+      }
+    }
   });
 
   it("draws every specimen's probe, inside the ancestors its screen's selectors need", () => {
@@ -51,11 +63,34 @@ describe("UI catalog (#574)", () => {
       const probe = stage.querySelector(specimen.probe);
       expect(probe, `${specimen.label}: nothing matches ${specimen.probe}`).not.toBeNull();
       expect(probe!.matches(specimen.classes.map((name) => `.${name}, .${name} *`).join(", ")), `${specimen.label}: the probe is outside ${specimen.classes.join(", ")}`).toBe(true);
+      for (const name of specimen.classes) {
+        expect(stage.querySelector(`.${name}`), `${specimen.label}: .${name} is named but not drawn`).not.toBeNull();
+      }
       for (const name of specimen.context ?? []) {
         expect(probe!.closest(`.${name}`), `${specimen.label}: .${name} is not an ancestor of the probe`).not.toBeNull();
       }
-      expect(figure.querySelector("code")?.textContent).toBe(specimen.classes.map((name) => "." + name).join(" "));
+      expect(figure.querySelector("code")?.textContent).toBe(specimenClassText(specimen));
     });
+  });
+
+  it("shows the class that tells two neighbours apart", () => {
+    expect(specimenClassText({ classes: ["status-pill"], modifiers: ["risk"] })).toBe(".status-pill.risk");
+    expect(specimenClassText({ classes: ["four-week-rail", "staffed-label"] })).toBe(".four-week-rail .staffed-label");
+    render(<UiCatalogView />);
+    const captions = [...document.querySelectorAll(".ui-catalog-specimen code")].map((code) => code.textContent);
+    for (const text of [".status-pill.active", ".status-pill.risk", ".view-add-button.ghost", ".quick-assign.quiet", ".icon-button.has-dot", ".load.over", ".need-note.planned"]) {
+      expect(captions).toContain(text);
+    }
+  });
+
+  it("measures again when a specimen changes, not only when it mounts", async () => {
+    render(<UiCatalogView />);
+    const figure = [...document.querySelectorAll(".ui-catalog-specimen")].find((item) => item.querySelector("figcaption strong")?.textContent === "詳細な条件")!;
+    const measure = figure.querySelector(".ui-catalog-measure")!;
+    expect(measure.textContent).toMatch(/^実測: /u);
+    expect(measure.textContent).not.toContain("#010203");
+    (figure.querySelector(".board-filter-details-toggle") as HTMLElement).style.backgroundColor = "rgb(1, 2, 3)";
+    await waitFor(() => expect(measure.textContent).toContain("背景 #010203"));
   });
 
   it("marks every chart as a sample, where it is seen and where it is heard (#125)", () => {
