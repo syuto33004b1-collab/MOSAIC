@@ -18,6 +18,7 @@ import {
   Inbox,
   Layers3,
   LayoutDashboard,
+  Palette,
   Plus,
   Printer,
   Save,
@@ -33,6 +34,7 @@ import {
 } from "lucide-react";
 import { ActiveFilters, CustomFieldFacts, CustomFieldInputs, MemberPicker, WeekendWorkPicker, type MemberCandidate, CsvTransferPanel, FavoriteStar, FieldsView, MemberOrgFields, MembersView, MilestoneOverdue, OpportunitiesView, OrgFacts, OrgView, ProjectsView, ProposalView, ReportsView, SkillsView, UnavailabilityEditor, WorkHistoryEditor } from "./expanded-views";
 import { SkillSheet, printSkillSheet } from "./skill-sheet";
+import { UiCatalogView } from "./ui-catalog";
 import { AiChat } from "./components/ai-chat/AiChat";
 import type { ChatTransport } from "./lib/ai/chatClient";
 import {
@@ -425,6 +427,8 @@ const navItems = [
   { id: "skills", label: "スキルマップ", icon: Layers3 },
   { id: "fields", label: "項目定義", icon: SlidersHorizontal },
   { id: "reports", label: "レポート", icon: ChartNoAxesCombined },
+  // A developer screen, shown to everyone while the parts are being unified (#574).
+  { id: "catalog", label: "UIカタログ", icon: Palette },
 ];
 
 const pageMeta = {
@@ -440,6 +444,7 @@ const pageMeta = {
   skills: { eyebrow: "SKILL TAXONOMY", title: "スキルマップ", description: "分類、習熟度、不足領域を組織全体で確認します。" },
   fields: { eyebrow: "FIELD DEFINITIONS", title: "項目と経歴", description: "独自項目の配置と、メンバーの業務経歴を管理します。" },
   reports: { eyebrow: "CAPACITY FORECAST", title: "キャパシティ予測", description: "需給の変化と、判断が必要な例外を見通します。" },
+  catalog: { eyebrow: "DEVELOPER", title: "UIカタログ", description: "画面ごとに作られた部品を種類別に並べます。揃える候補を見比べるための開発用の画面です。" },
 } as const;
 
 const storageKey = "mosaic-local-workspace-v3";
@@ -3520,6 +3525,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
     org: null,
     fields: null,
     reports: null,
+    catalog: null,
   };
   const primary = primaryActions[activeNav];
   const addChooserItems = [
@@ -3873,6 +3879,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
           </>
         )}
         {activeNav === "reports" && <ReportsView state={workspace} onOpenWeek={openWeekFromReport} onResolveNeed={openStaffingNeed} onOpenOpportunity={openOpportunity} onAddReport={handleAddSavedReport} onDeleteReport={handleDeleteSavedReport} canEdit={canEdit} canManageReports={canManageMembers && featureEnabled("savedReports")} />}
+        {activeNav === "catalog" && <UiCatalogView />}
       </section>
 
       {unsavedChanges > 0 && (

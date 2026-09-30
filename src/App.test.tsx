@@ -2185,6 +2185,7 @@ describe("the header's primary slot", () => {
     スキルマップ: "不足ロールを確認",
     項目定義: null,
     レポート: null,
+    UIカタログ: null,
   };
 
   it("holds at most one primary action per screen, and it is the expected one", async () => {
@@ -8637,5 +8638,41 @@ describe("one period everywhere: the next twelve months (#569)", () => {
     await user.click(document.querySelector(".project-name-cell") as HTMLElement);
     expect(drawerDialog().querySelector(".range-tabs")).toBeNull();
     expect(drawerDialog().querySelector(".project-detail-period > .drawer-section-title span")?.textContent).toBe("12か月の充足");
+  });
+});
+
+describe("the developer UI catalog (#574)", () => {
+  const catalogNavButton = () => within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: "UIカタログ" });
+
+  it("is in the sidebar in the demo and opens a page of parts, drawn from no workspace data", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(catalogNavButton());
+
+    expect(screen.getByRole("heading", { level: 1, name: "UIカタログ" })).toBeInTheDocument();
+    expect(catalogNavButton()).toHaveAttribute("aria-current", "page");
+    for (const section of ["グラフ", "タブと切り替え", "入力", "ボタン", "バッジとチップ", "まだ並べていない部品"]) {
+      expect(screen.getByRole("heading", { level: 2, name: section })).toBeInTheDocument();
+    }
+    const page = screen.getByRole("region", { name: "部品の一覧" });
+    const text = page.textContent ?? "";
+    for (const name of [...initialWorkspace.members.map((member) => member.name), ...initialWorkspace.projects.map((project) => project.name)]) {
+      expect(text, `the catalog shows 「${name}」 from the workspace`).not.toContain(name);
+    }
+    expect(window.location.search).toBe("?nav=catalog");
+  });
+
+  it("is in the sidebar in shared mode too, for every role", async () => {
+    const user = userEvent.setup();
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "閲覧 太郎", email: "viewer@example.com", role: "viewer" }} shared={sharedAdapter()} />);
+    await user.click(catalogNavButton());
+    expect(screen.getByRole("heading", { level: 1, name: "UIカタログ" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 2, name: "グラフ" })).toBeInTheDocument();
+  });
+
+  it("opens from a link", () => {
+    window.history.replaceState({}, "", "/?nav=catalog");
+    render(<App />);
+    expect(screen.getByRole("heading", { level: 1, name: "UIカタログ" })).toBeInTheDocument();
   });
 });

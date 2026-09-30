@@ -5,8 +5,9 @@
  * every one of them disables `color-contrast`. That left the repository with no way to
  * measure contrast at all, which #305 is about. A real browser computes it.
  *
- * What it covers is one pass over the nine navigation screens and four panel states,
- * in one browser, and the three table screens again at 390px (#497). #305 weighed that
+ * What it covers is one pass over the navigation screens (ten since the UI catalog, #574)
+ * and four panel states, in one browser, and the three table screens again at 390px (#497).
+ * #305 weighed that
  * against the run time AGENTS.md warns about: a browser per screen would pay the launch
  * cost nine times.
  *
@@ -52,7 +53,7 @@ const axeSource = path.join(root, "node_modules", "axe-core", "axe.min.js");
 const BASE = "/";
 const KEEP_OPEN = process.argv.includes("--keep-open");
 
-/** The nine sidebar entries, and the `<h1>` each screen puts up (from `pageMeta`). */
+/** The sidebar entries, and the `<h1>` each screen puts up (from `pageMeta`). */
 const SCREENS = [
   ["アサインボード", "アサインボード"],
   ["プロジェクト", "プロジェクト・ポートフォリオ"],
@@ -63,6 +64,7 @@ const SCREENS = [
   ["スキルマップ", "スキルマップ"],
   ["項目定義", "項目と経歴"],
   ["レポート", "キャパシティ予測"],
+  ["UIカタログ", "UIカタログ"],
 ];
 
 /**

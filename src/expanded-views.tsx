@@ -1542,7 +1542,7 @@ const PLAN_COST_AXES: { axis: PlanCostAxis; label: string }[] = [
   { axis: "month", label: "月" },
 ];
 
-function PlanCostAxisTabs({ axis, onChange }: { axis: PlanCostAxis; onChange: (axis: PlanCostAxis) => void }) {
+export function PlanCostAxisTabs({ axis, onChange }: { axis: PlanCostAxis; onChange: (axis: PlanCostAxis) => void }) {
   return (
     <div className="range-tabs" aria-label="計画コストの集計軸">{PLAN_COST_AXES.map((option) => {
       const selected = axis === option.axis;

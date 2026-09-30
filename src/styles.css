@@ -4170,6 +4170,21 @@ body {
   background: var(--canvas);
   color: var(--ink);
 }
+/* The column is sticky at 100vh, so what does not fit never comes back with the page's
+   scroll. A tenth nav item (#574) put the account row — 設定を開く in production — under
+   a 720px-tall window. The column scrolls itself instead. `overflow-x` is spelled out:
+   left `visible`, it computes to `auto`, and the 84px icon rail would grow a sideways bar.
+   A thin bar, because a classic 15px one left the rail's items 42px wide. Only above
+   620px, where the top bar and its sideways nav take over. */
+@media (min-width: 621px) {
+  .sidebar {
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+    scroll-padding-block: 8px;
+    scrollbar-width: thin;
+  }
+}
 
 .brand {
   gap: 13px;
@@ -6485,3 +6500,49 @@ h1 {
   .skill-sheet-skills small { color: #4a5468; }
   .skill-sheet-history article { break-inside: avoid; }
 }
+
+/* UIカタログ (#574). Only the page's own frame: each specimen keeps the screen's
+   classes, so what it looks like comes from the rules above, not from here. */
+.ui-catalog { display: grid; gap: 28px; }
+.ui-catalog-lead { max-width: 72ch; margin: 0; color: var(--muted-readable); font-size: var(--text-sm); line-height: 1.7; }
+.ui-catalog-section > h2 { margin: 0 0 12px; color: var(--ink); font-size: var(--text-lg); }
+.ui-catalog-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 440px), 1fr)); gap: 14px; }
+.ui-catalog-card { min-width: 0; }
+.ui-catalog-card.ui-catalog-wide { grid-column: 1 / -1; }
+/* Beats `.card-heading > span`, the report cards' count chip, which would otherwise
+   dress this mark as a coral count. */
+.card-heading > .ui-catalog-sample {
+  flex: 0 0 auto;
+  min-height: 0;
+  padding: 2px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted-readable-dark);
+  font-family: inherit;
+  font-size: var(--text-min);
+  font-weight: 700;
+}
+.ui-catalog-specimens { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 190px), 1fr)); gap: 12px; }
+.ui-catalog-specimen {
+  min-width: 0;
+  margin: 0;
+  padding: 12px;
+  border: 1px dashed var(--line-strong);
+  border-radius: 4px;
+  display: grid;
+  align-content: start;
+  gap: 12px;
+}
+.ui-catalog-specimen.ui-catalog-wide { grid-column: 1 / -1; }
+.ui-catalog-stage { min-width: 0; min-height: 44px; display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.ui-catalog-stage > * { min-width: 0; max-width: 100%; }
+.ui-catalog-specimen.ui-catalog-wide .ui-catalog-stage { display: block; }
+.ui-catalog-cell { width: 100%; }
+.ui-catalog-cell.ui-catalog-natural { width: max-content; overflow-x: auto; }
+.ui-catalog-pair { display: inline-flex; align-items: center; gap: 8px; }
+.ui-catalog-specimen figcaption { display: grid; gap: 2px; color: var(--muted-readable); font-size: var(--text-min); line-height: 1.5; }
+.ui-catalog-specimen figcaption strong { color: var(--ink); font-size: var(--text-sm); }
+.ui-catalog-specimen code { color: var(--muted-readable-dark); font-family: ui-monospace, "SFMono-Regular", Menlo, monospace; font-size: var(--text-min); overflow-wrap: anywhere; }
+.ui-catalog-measure { color: var(--muted-readable-dark); font-size: var(--text-min); overflow-wrap: anywhere; }
+.ui-catalog-gaps { margin: 0; padding-left: 1.4em; color: var(--muted-readable); font-size: var(--text-sm); line-height: 1.8; }
