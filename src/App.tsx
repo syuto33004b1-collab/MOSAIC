@@ -1551,7 +1551,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
    * Derived once because the dot and the panel used to be written apart: the dot was a
    * string literal and was always on, so it promised something the panel often did not
    * have (#291). Still the week set, not `adjustmentCount` — that now counts every
-   * member who exceeds in the selected period, and the panel still shows one (#367).
+   * member who exceeds in the twelve months shown, and the panel still shows one (#367).
    */
   const overloadNotice = (currentOverloads.length > 0 || overloadPlanned) && overloadMember ? overloadMember : null;
   const notificationCount = (overloadNotice ? 1 : 0) + activeNeeds.length;
@@ -1567,7 +1567,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
       .sort((left, right) => left.startDate.localeCompare(right.startDate) || left.endDate.localeCompare(right.endDate))
     : [];
   /*
-   * The project list follows the selected period (#423). An empty span (clipped
+   * The project list follows the twelve months shown (#423, #569). An empty span (clipped
    * past the holiday calendar) is not "zero rows" — the clip note already said
    * the outlook stopped, so that list stays out. The member list does not use
    * this flag: it shows every assignment of that person (#437).
@@ -4143,7 +4143,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                   <div className="project-detail-period">
                     <div className="drawer-section-title"><span>{periodChoiceProseLabel(DISPLAY_PERIOD)}の充足</span><small>{selectedProject.demand === 0 ? "必要人数 未設定" : `必要 ${selectedProject.demand}名`}</small></div>
                     {/* 12 bars leave the assignee list at 34px on 1052×720, so the
-                        bars scroll with the list. Tabs and this heading stay put. */}
+                        bars scroll with the list. This heading stays put. */}
                     {/* eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- scrollport */}
                     <div className="project-detail-assignees" tabIndex={0} role="region" aria-label={`${periodChoiceProseLabel(DISPLAY_PERIOD)}の充足${drawerPeriodHasRange ? "と担当" : ""}`}>
                       {drawerRange.clipped && <p className="horizon-clip-note" role="note">{PERIOD_CLIP_NOTE}</p>}

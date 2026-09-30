@@ -76,7 +76,7 @@ function workspace(members: Member[], assignments: Assignment[]): WorkspaceState
 }
 
 describe("a saved report's average reads the same on the screen and in the AI assistant (#495)", () => {
-  it("matches on the demo workspace for every period the reports screen offers", () => {
+  it("matches on the demo workspace for every period periodRange accepts", () => {
     const origin = "2026-08-19";
     let loaded = 0;
     for (const choice of PERIOD_CHOICES) {

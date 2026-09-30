@@ -6,7 +6,7 @@ import App, { capacityTickMarks, monthColumnGuidesMisaligned, type SharedWorkspa
 import { parseCsv } from "./csv";
 import { MembersView, ProjectsView, ProposalView } from "./expanded-views";
 import { DEMO_FAVORITES_KEY } from "./collaboration";
-import { addDays, buildSavedReport, currentLocalDate, boardBasisWeek, boardRange, DISPLAY_PERIOD, formatDate, periodRange, formatWorkHistoryPeriod, getWeekDays, getWeekStart, initialWorkspace, memberDailyLoads, memberLoad, memberMonthChartLabel, memberMonthLedger, memberMonthPointLabel, memberPeakLoad, PERIOD_CLIP_NOTE, weekLabel, type StaffingNeed, type WorkspaceState } from "./domain";
+import { addDays, buildPlanCostRows, buildSavedReport, currentLocalDate, boardBasisWeek, boardRange, DISPLAY_PERIOD, formatDate, formatYen, periodRange, formatWorkHistoryPeriod, getWeekDays, getWeekStart, initialWorkspace, memberDailyLoads, memberLoad, memberMonthChartLabel, memberMonthLedger, memberMonthPointLabel, memberPeakLoad, PERIOD_CLIP_NOTE, weekLabel, type StaffingNeed, type WorkspaceState } from "./domain";
 import type { ChatTransport } from "./lib/ai/chatClient";
 
 function sharedAdapter(): SharedWorkspaceAdapter {
@@ -81,7 +81,7 @@ function linkedStaffingWorkspace(): WorkspaceState {
 /** Cards live in the 要調整 dialog; open it from the pulse count first (#395). */
 async function openAttentionDialog(user: ReturnType<typeof userEvent.setup>) {
   if (!document.querySelector(".attention-dialog")) {
-    await user.click(screen.getByRole("button", { name: /^\d+件(1か月|6か月|12か月|全期間)の要調整$/u }));
+    await user.click(screen.getByRole("button", { name: /^\d+件12か月の要調整$/u }));
   }
   return within(screen.getByRole("dialog", { name: "要調整" }));
 }
@@ -681,7 +681,7 @@ describe("role-aware workspace", () => {
 
     // #255: 「status !== filled」 kept the finished one on the board, asking for a
     // person 「by the start date」 after the end had passed.
-    await userEvent.setup().click(screen.getByRole("button", { name: /^\d+件(1か月|6か月|12か月|全期間)の要調整$/u }));
+    await userEvent.setup().click(screen.getByRole("button", { name: /^\d+件12か月の要調整$/u }));
     const panel = within(screen.getByRole("dialog", { name: "要調整" }));
     expect(panel.queryByText(/QA Engineerが未定/u)).toBeNull();
     expect(panel.getByText(/Backend Engineerが未定/u)).toBeInTheDocument();
@@ -1667,6 +1667,9 @@ describe("role-aware workspace", () => {
       expect(screen.getByRole("heading", { name: "計画コスト" })).toBeInTheDocument();
       expect(screen.getByRole("button", { name: "計画コストのプロジェクト", pressed: true })).toBeInTheDocument();
       expect(card).toHaveTextContent("Atlas リニューアル");
+      // The total is the twelve months the screen shows (#569).
+      const twelveMonths = buildPlanCostRows(initialWorkspace, periodRange(DISPLAY_PERIOD, "2026-08-19"), "project");
+      expect(card.querySelector(".plan-cost-total")!.textContent).toContain(`合計 ${formatYen(twelveMonths.totalYen)}`);
       await user.click(screen.getByRole("button", { name: "計画コストの部門" }));
       expect(screen.getByRole("button", { name: "計画コストの部門", pressed: true })).toBeInTheDocument();
       expect(document.querySelectorAll(".plan-cost-list")).toHaveLength(1);
@@ -6928,7 +6931,7 @@ describe("the board narrows by more than one thing", () => {
     expect(search).not.toHaveFocus();
     await user.keyboard("{Escape}");
 
-    await user.click(screen.getByRole("button", { name: /^\d+件(1か月|6か月|12か月|全期間)の要調整$/u }));
+    await user.click(screen.getByRole("button", { name: /^\d+件12か月の要調整$/u }));
     expect(screen.getByRole("dialog", { name: "要調整" })).toBeInTheDocument();
     fireEvent.keyDown(window, { key: "/" });
     expect(search).not.toHaveFocus();
@@ -8152,7 +8155,9 @@ describe("project drawer assignees follow the twelve months shown (#423, #569)",
 
   it("lists every assignment that overlaps the twelve months, including drafts and dates before the project starts", async () => {
     const user = onAugust();
-    const { panel, dialog } = await openPeriodProject(user, periodState(rows));
+    // Thirteen months out: the twelve months from August end in July 2027.
+    const beyond = { id: "beyond", personId: other.id, projectId: project.id, startDate: "2027-09-06", endDate: "2027-09-10", allocation: 30, status: "confirmed" as const };
+    const { panel, dialog } = await openPeriodProject(user, periodState([...rows, beyond]));
     expect(panel.querySelector(".project-detail-period > .drawer-section-title span")?.textContent).toBe("12か月の充足");
     expect(dialog.getByText("12か月の担当")).toBeInTheDocument();
     expect(assigneeTitle(panel)?.querySelector("small")?.textContent).toBe("4件");
@@ -8164,6 +8169,7 @@ describe("project drawer assignees follow the twelve months shown (#423, #569)",
     expect(dates).toContain(`${formatDate("2026-08-24")} — ${formatDate("2026-08-28")}`);
     expect(dates).toContain(`${formatDate("2026-08-26")} — ${formatDate("2026-08-27")}`);
     expect(dates).toContain(`${formatDate("2026-12-01")} — ${formatDate("2026-12-15")}`);
+    expect(dates).not.toContain(`${formatDate("2027-09-06")} — ${formatDate("2027-09-10")}`);
     // The rail is the thinnest week, which is empty before anyone starts.
     expect(panel.querySelector(".profile-capacity")?.textContent).toContain("0/5名");
     const headline = panel.querySelector(".project-period-headline");
