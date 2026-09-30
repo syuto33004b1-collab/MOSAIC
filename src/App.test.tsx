@@ -6,7 +6,7 @@ import App, { capacityTickMarks, monthColumnGuidesMisaligned, type SharedWorkspa
 import { parseCsv } from "./csv";
 import { MembersView, ProjectsView, ProposalView } from "./expanded-views";
 import { DEMO_FAVORITES_KEY } from "./collaboration";
-import { addDays, currentLocalDate, boardBasisWeek, boardRange, formatDate, formatWorkHistoryPeriod, getWeekDays, getWeekStart, initialWorkspace, memberDailyLoads, memberLoad, memberMonthChartLabel, memberMonthLedger, memberMonthPointLabel, memberPeakLoad, PERIOD_CLIP_NOTE, weekLabel, type StaffingNeed, type WorkspaceState } from "./domain";
+import { addDays, buildSavedReport, currentLocalDate, boardBasisWeek, boardRange, DISPLAY_PERIOD, formatDate, periodRange, formatWorkHistoryPeriod, getWeekDays, getWeekStart, initialWorkspace, memberDailyLoads, memberLoad, memberMonthChartLabel, memberMonthLedger, memberMonthPointLabel, memberPeakLoad, PERIOD_CLIP_NOTE, weekLabel, type StaffingNeed, type WorkspaceState } from "./domain";
 import type { ChatTransport } from "./lib/ai/chatClient";
 
 function sharedAdapter(): SharedWorkspaceAdapter {
@@ -1446,7 +1446,7 @@ describe("role-aware workspace", () => {
   describe("report period horizon", () => {
     afterEach(() => { vi.useRealTimers(); });
 
-    it("drives .horizon-grid column count from --horizon-cols (#393)", async () => {
+    it("draws twelve monthly columns in the report horizon (#393, #569)", async () => {
       vi.useFakeTimers({ shouldAdvanceTime: true });
       vi.setSystemTime(new Date("2026-08-19T09:00:00+09:00"));
       const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
@@ -1454,23 +1454,11 @@ describe("role-aware workspace", () => {
       await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: "レポート" }));
 
       const cols = () => (document.querySelector(".horizon-grid") as HTMLElement).style.getPropertyValue("--horizon-cols");
-      expect(cols()).toBe("6");
-      expect(document.querySelectorAll(".horizon-week")).toHaveLength(6);
-
-      await user.click(screen.getByRole("button", { name: "1か月" }));
-      expect(cols()).toBe("1");
-      expect(document.querySelectorAll(".horizon-week")).toHaveLength(1);
-
-      await user.click(screen.getByRole("button", { name: "12か月" }));
       expect(cols()).toBe("12");
       expect(document.querySelectorAll(".horizon-week")).toHaveLength(12);
-
-      await user.click(screen.getByRole("button", { name: "全て" }));
-      expect(cols()).toBe("12");
-      expect(document.querySelector(".horizon-week small")!.textContent).toBe("2026年4月");
     });
 
-    it("extends the report horizon across the shared period choices", async () => {
+    it("opens the board from a month of the report horizon", async () => {
       vi.useFakeTimers({ shouldAdvanceTime: true });
       vi.setSystemTime(new Date("2026-08-19T09:00:00+09:00"));
       const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
@@ -1478,20 +1466,7 @@ describe("role-aware workspace", () => {
       const navigation = within(screen.getByRole("navigation", { name: "メインナビゲーション" }));
       await user.click(navigation.getByRole("button", { name: "レポート" }));
 
-      expect(screen.getByRole("button", { name: "6か月", pressed: true })).toBeInTheDocument();
-      expect(screen.queryByRole("button", { name: "4週間" })).not.toBeInTheDocument();
-      expect(screen.queryByRole("button", { name: "12週間" })).not.toBeInTheDocument();
-      expect(screen.getByRole("button", { name: "1か月" })).toBeInTheDocument();
-      expect(screen.getByRole("button", { name: "12か月" })).toBeInTheDocument();
-      expect(screen.getByRole("button", { name: "全て" })).toBeInTheDocument();
-      expect(document.querySelectorAll(".horizon-week")).toHaveLength(6);
-      expect(screen.getByRole("button", { name: /8月/ })).toBeInTheDocument();
-      const sixMonthOrg = screen.getByText("開発本部").closest("div")!.textContent;
-      await user.click(screen.getByRole("button", { name: "12か月" }));
-      expect(screen.getByText("開発本部").closest("div")!.textContent).not.toEqual(sixMonthOrg);
-
-      await user.click(screen.getByRole("button", { name: "6か月" }));
-      expect(document.querySelectorAll(".horizon-week")).toHaveLength(6);
+      expect(document.querySelectorAll(".horizon-week")).toHaveLength(12);
       expect(screen.getByRole("button", { name: /8月/ })).toBeInTheDocument();
       await user.click(screen.getByRole("button", { name: /9月/ }));
 
@@ -1524,7 +1499,9 @@ describe("role-aware workspace", () => {
       expect(screen.queryByRole("note")).not.toBeInTheDocument();
 
       vi.setSystemTime(new Date("2035-11-15T09:00:00+09:00"));
-      await user.click(screen.getByRole("button", { name: "12か月" }));
+      // The report reads today's date when it draws, so leave and come back.
+      await user.click(navigation.getByRole("button", { name: /^アサインボード/u }));
+      await user.click(navigation.getByRole("button", { name: "レポート" }));
       expect(screen.getByRole("note")).toHaveTextContent("2016年から2035年");
       expect(document.querySelectorAll(".horizon-week").length).toBe(2);
     });
@@ -1550,7 +1527,7 @@ describe("role-aware workspace", () => {
       expect(screen.getByText("未設定 花子さんが期間中ずっと空き").closest("button")).toHaveTextContent("原価未設定");
     });
 
-    it("moves saved-report avgLoad with the shared period tabs", async () => {
+    it("measures a saved report's avgLoad over the twelve months the screen shows (#569)", async () => {
       vi.useFakeTimers({ shouldAdvanceTime: true });
       vi.setSystemTime(new Date("2026-08-19T09:00:00+09:00"));
       const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
@@ -1559,13 +1536,12 @@ describe("role-aware workspace", () => {
       const reportSelect = screen.getByLabelText("レポートを選ぶ");
       await user.selectOptions(reportSelect, within(reportSelect).getByRole("option", { name: "職種別稼働" }));
       const card = document.querySelector(".saved-report-card") as HTMLElement;
-      expect(card).toHaveTextContent("6か月の平均稼働率");
-      const list = () => card.querySelector(".department-list") as HTMLElement;
-      const sixMonthRows = list().textContent;
-      expect(sixMonthRows).toMatch(/Frontend Engineer/u);
-      await user.click(screen.getByRole("button", { name: "1か月" }));
-      expect(card).toHaveTextContent("1か月の平均稼働率");
-      expect(list().textContent).not.toEqual(sixMonthRows);
+      expect(card).toHaveTextContent("12か月の平均稼働率");
+      const report = initialWorkspace.savedReports!.find((item) => item.name === "職種別稼働")!;
+      const expected = buildSavedReport(initialWorkspace, report, periodRange(DISPLAY_PERIOD, "2026-08-19"));
+      const frontend = [...card.querySelectorAll(".department-list > div")]
+        .find((row) => row.querySelector("strong")?.textContent === "Frontend Engineer");
+      expect(frontend?.querySelector("em")?.textContent).toBe(`${expected.find((row) => row.label === "Frontend Engineer")!.value}%`);
       await user.selectOptions(reportSelect, within(reportSelect).getByRole("option", { name: "部署別人数" }));
       expect(card.querySelector(".viz-caption")).toBeNull();
     });
@@ -1579,12 +1555,13 @@ describe("role-aware workspace", () => {
       adapter.initialState = {
         ...initialWorkspace,
         members: [overloaded],
+        // The whole twelve months, so the average over them is 120 / 40.
         assignments: [{
           id: "over-now",
           personId: "over-avg",
           projectId: initialWorkspace.projects[0].id,
-          startDate: "2026-08-17",
-          endDate: "2026-09-11",
+          startDate: "2026-08-01",
+          endDate: "2027-07-31",
           allocation: 120,
           status: "confirmed",
         }],
@@ -1592,14 +1569,13 @@ describe("role-aware workspace", () => {
       };
       render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "admin@example.com", role: "admin" }} shared={adapter} />);
       await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: "レポート" }));
-      await user.click(screen.getByRole("button", { name: "1か月" }));
       const card = document.querySelector(".saved-report-card") as HTMLElement;
       const percent = card.querySelector(".department-list em")?.textContent;
       expect(Number(percent?.replace("%", ""))).toBeGreaterThan(100);
       expect(card.querySelector("b.over")).not.toBeNull();
     });
 
-    it("changes organization load with the selected span and opens the first overloaded bucket", async () => {
+    it("counts an overload two months out and opens its month from the report", async () => {
       vi.useFakeTimers({ shouldAdvanceTime: true });
       vi.setSystemTime(new Date("2026-08-19T09:00:00+09:00"));
       const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
@@ -1624,7 +1600,6 @@ describe("role-aware workspace", () => {
       render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "admin@example.com", role: "admin" }} shared={adapter} />);
       const navigation = within(screen.getByRole("navigation", { name: "メインナビゲーション" }));
       await user.click(navigation.getByRole("button", { name: "レポート" }));
-      await user.click(screen.getByRole("button", { name: "12か月" }));
       expect(screen.getByText("超過 花子さんが期間中に超過")).toBeInTheDocument();
       await user.click(screen.getByRole("button", { name: /超過 花子さんが期間中に超過/ }));
       expect(screen.queryByRole("group", { name: "表示する期間" })).not.toBeInTheDocument();
@@ -1659,8 +1634,7 @@ describe("role-aware workspace", () => {
       render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "admin@example.com", role: "admin" }} shared={adapter} />);
       const navigation = within(screen.getByRole("navigation", { name: "メインナビゲーション" }));
       await user.click(navigation.getByRole("button", { name: "レポート" }));
-      // Default 6か月 covers September. Landing must use firstExceedDate, not bucket.from (#391).
-      expect(screen.getByRole("button", { name: "6か月", pressed: true })).toBeInTheDocument();
+      // Landing must use firstExceedDate, not bucket.from (#391).
       expect(screen.getByText("境界 花子さんが期間中に超過")).toBeInTheDocument();
       await user.click(screen.getByRole("button", { name: /境界 花子さんが期間中に超過/ }));
       expect(document.querySelector(".board-month-label")!.textContent).toBe("2026年 9月");
@@ -1693,9 +1667,6 @@ describe("role-aware workspace", () => {
       expect(screen.getByRole("heading", { name: "計画コスト" })).toBeInTheDocument();
       expect(screen.getByRole("button", { name: "計画コストのプロジェクト", pressed: true })).toBeInTheDocument();
       expect(card).toHaveTextContent("Atlas リニューアル");
-      const sixMonthTotal = card.querySelector(".plan-cost-total")!.textContent;
-      await user.click(screen.getByRole("button", { name: "1か月" }));
-      expect(card.querySelector(".plan-cost-total")!.textContent).not.toEqual(sixMonthTotal);
       await user.click(screen.getByRole("button", { name: "計画コストの部門" }));
       expect(screen.getByRole("button", { name: "計画コストの部門", pressed: true })).toBeInTheDocument();
       expect(document.querySelectorAll(".plan-cost-list")).toHaveLength(1);
@@ -2160,7 +2131,7 @@ describe("four-week capacity rail", () => {
       const tags = [...rail.children].map((child) => child.tagName.toLowerCase());
       expect(tags.length % 2).toBe(0);
       expect(tags).toEqual(Array.from({ length: tags.length / 2 }, () => ["i", "small"]).flat());
-      expect(tags).toHaveLength(2);
+      expect(tags).toHaveLength(24);
       // A label nested in its bar is out of the grid entirely — the original bug.
       expect(rail.querySelectorAll("i small")).toHaveLength(0);
       // Every label reads as a percentage, so a swapped or empty cell shows up.
@@ -2171,11 +2142,10 @@ describe("four-week capacity rail", () => {
     }
   });
 
-  it("grows the rail to twelve paired bars when the 12-month tab is selected", async () => {
+  it("draws the rail as twelve paired bars, one per month (#569)", async () => {
     const user = userEvent.setup();
     render(<App />);
     await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: "メンバー" }));
-    await user.click(screen.getByRole("button", { name: "メンバー一覧の12か月" }));
     const rails = document.querySelectorAll(".member-week-rail");
     expect(rails.length).toBeGreaterThan(0);
     for (const rail of rails) {
@@ -2669,12 +2639,13 @@ describe("one word per quantity", () => {
   });
 
   it("does not call a 稼働率 above the band 満員", async () => {
-    await openMembers(halfCeilingWorkspace(35, 4));
-    // 35 of 50 is 70%: above the 60% band for all four weeks, but nowhere near
+    // Longer than the twelve months shown, so no month falls into the band (#569).
+    await openMembers(halfCeilingWorkspace(35, 60));
+    // 35 of 50 is 70%: above the 60% band all the way through, but nowhere near
     // full. 「満員」 implied 100%, and 「4週先まで」 implied a range one week wider
     // than the four the code reads.
     const cell = document.querySelector(".next-open")!;
-    expect(cell.textContent).toContain("1か月で該当なし");
+    expect(cell.textContent).toContain("12か月で該当なし");
     expect(cell.textContent).not.toContain("4週先");
     expect(document.body.textContent).not.toContain("満員");
   });
@@ -2688,9 +2659,9 @@ describe("one word per quantity", () => {
     // the board's paging, so 「今週」 was wrong as soon as the board moved.
     const weekHeader = headers.find((text) => /^\d+\/\d+週の稼働$/u.test(text));
     expect(weekHeader, `no week-scoped header among ${headers.join(" | ")}`).toBeDefined();
-    expect(headers).toContain("1か月の稼働");
+    expect(headers).toContain("12か月の稼働");
     expect(headers.filter((text) => text.includes("今週"))).toEqual([]);
-    expect(headers).not.toContain("1か月のキャパシティ");
+    expect(headers).not.toContain("12か月のキャパシティ");
 
     // And the cell under that header really is the load, not the 空き.
     const cell = table.querySelectorAll("tbody tr")[0].children[headers.indexOf(weekHeader!)];
@@ -2745,7 +2716,6 @@ describe("one word per quantity", () => {
       } as unknown as WorkspaceState;
       render(<App mode="shared" organizationName="Example Inc." identity={owner} shared={adapter} />);
       await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: "メンバー" }));
-      await user.click(screen.getByRole("button", { name: "メンバー一覧の6か月" }));
 
       const cell = document.querySelector(".next-open")!.textContent ?? "";
       expect(cell).toContain("9月");
@@ -2781,7 +2751,6 @@ describe("one word per quantity", () => {
       } as unknown as WorkspaceState;
       render(<App mode="shared" organizationName="Example Inc." identity={owner} shared={adapter} />);
       await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: "メンバー" }));
-      await user.click(screen.getByRole("button", { name: "メンバー一覧の6か月" }));
 
       const cell = document.querySelector(".next-open")!.textContent ?? "";
       expect(cell).not.toContain("稼働できる日がありません");
@@ -3082,15 +3051,14 @@ describe("a key for what colour and position encode", () => {
     const user = userEvent.setup();
     render(<App />);
     await goTo(user, /^プロジェクト 登録 \d+件$/u);
-    await user.click(screen.getByRole("button", { name: "プロジェクト一覧の6か月" }));
 
     // Found by role and name, not by reading the attribute: a name on a bare
     // div is a name on a generic node, which need not be exposed at all.
-    const rail = screen.getAllByRole("img", { name: /の6か月の充足人数：/u })[0];
+    const rail = screen.getAllByRole("img", { name: /の12か月の充足人数：/u })[0];
     const label = rail.getAttribute("aria-label") ?? "";
     expect(label).toMatch(/\d+月: ([0-9]+\/[0-9]+名|必要人数未設定|—)/u);
     expect(label).not.toContain("週目:");
-    expect(rail.querySelectorAll("i")).toHaveLength(6);
+    expect(rail.querySelectorAll("i")).toHaveLength(12);
 
     // And the one number under the rail says which week it is.
     expect(document.querySelector(".staffed-label")!.textContent).toMatch(/^(\d+\/\d+週 \d+\/\d+名|必要人数未設定)$/u);
@@ -3115,7 +3083,7 @@ describe("a key for what colour and position encode", () => {
     await goTo(user, /^プロジェクト 登録 \d+件$/u);
 
     const projectCaption = document.querySelector(".viz-caption")!;
-    expect(projectCaption.textContent).toMatch(/\d+月から1か月の充足率/u);
+    expect(projectCaption.textContent).toMatch(/\d+月から12か月の充足率/u);
     // Adjacency is for the eye; the table points at it for everyone else.
     expect(document.querySelector(".portfolio-table")).toHaveAttribute("aria-describedby", projectCaption.id);
     expect(projectCaption.id).not.toBe("");
@@ -3142,17 +3110,16 @@ describe("a key for what colour and position encode", () => {
 
     // A full bar would read as 100% staffed under 「バーの長さが充足率」, which is
     // not something the app knows here.
-    const rail = screen.getByRole("img", { name: /人数未定 案件の1か月の充足人数：/u });
+    const rail = screen.getByRole("img", { name: /人数未定 案件の12か月の充足人数：/u });
     expect(rail.getAttribute("aria-label")).toMatch(/\d+月: 必要人数未設定/u);
     for (const fill of rail.querySelectorAll("b")) expect((fill as HTMLElement).style.width).toBe("0%");
     expect(document.querySelector(".staffed-label")!.textContent).toBe("必要人数未設定");
   });
 
-  it("grows the staffing rail to twelve bars when the 12-month tab is selected", async () => {
+  it("draws the staffing rail as twelve monthly bars under a 12か月 header (#569)", async () => {
     const user = userEvent.setup();
     render(<App />);
     await goTo(user, /^プロジェクト 登録 \d+件$/u);
-    await user.click(screen.getByRole("button", { name: "プロジェクト一覧の12か月" }));
 
     const rail = screen.getAllByRole("img", { name: /の12か月の充足人数：/u })[0];
     expect(rail.querySelectorAll("i")).toHaveLength(12);
@@ -3160,7 +3127,7 @@ describe("a key for what colour and position encode", () => {
     expect(headers).toContain("12か月の充足");
   });
 
-  it("names a bucket outside the project as —", async () => {
+  it("names a bucket outside the project as —", () => {
     const project = {
       ...initialWorkspace.projects[0],
       id: "short",
@@ -3169,7 +3136,6 @@ describe("a key for what colour and position encode", () => {
       endDate: "2026-09-18",
       demand: 2,
     };
-    const user = userEvent.setup();
     render(
       <ProjectsView
         state={{ ...initialWorkspace, members: [], projects: [project], assignments: [], needs: [] } as unknown as WorkspaceState}
@@ -3178,13 +3144,12 @@ describe("a key for what colour and position encode", () => {
         onOpen={() => undefined}
       />,
     );
-    await user.click(screen.getByRole("button", { name: "プロジェクト一覧の6か月" }));
-    const rail = screen.getByRole("img", { name: /短い案件の6か月の充足人数：/u });
+    const rail = screen.getByRole("img", { name: /短い案件の12か月の充足人数：/u });
     const label = rail.getAttribute("aria-label") ?? "";
     expect(label).toContain("9月: 0/2名");
     expect(label).toContain("10月: —");
     expect(label).toContain("11月: —");
-    expect(rail.querySelectorAll("i")).toHaveLength(6);
+    expect(rail.querySelectorAll("i")).toHaveLength(12);
   });
 
   it("names an empty holiday-calendar span instead of drawing a rail", () => {
@@ -3197,7 +3162,7 @@ describe("a key for what colour and position encode", () => {
       />,
     );
     expect(document.querySelector(".four-week-rail")).toBeNull();
-    expect(document.querySelector(".viz-caption")!.textContent).toBe("「1か月の充足」はこの期間では表示できません。");
+    expect(document.querySelector(".viz-caption")!.textContent).toBe("「12か月の充足」はこの期間では表示できません。");
     expect(screen.getByRole("note")).toHaveTextContent("祝日カレンダーは2016年から2035年までです");
     expect(document.querySelectorAll(".staffed-label").length).toBeGreaterThan(0);
   });
@@ -3740,7 +3705,7 @@ describe("the board's row header opens the row", () => {
 describe("the 要調整 count opens the list dialog (#395)", () => {
   // The summary button, by its own shape: 「3件1か月の要調整」. The overload card in the
   // dialog also has 要調整 in its long accessible name, so the anchor matters.
-  const countButton = () => screen.getByRole("button", { name: /^\d+件(1か月|6か月|12か月|全期間)の要調整$/u });
+  const countButton = () => screen.getByRole("button", { name: /^\d+件12か月の要調整$/u });
   const openAttention = async (user: ReturnType<typeof userEvent.setup>) => {
     await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^アサインボード( |$)/u }));
     await user.click(countButton());
@@ -3756,7 +3721,7 @@ describe("the 要調整 count opens the list dialog (#395)", () => {
     const dialog = await openAttention(user);
     expect(document.querySelector(".drawer")).toBeNull();
     expect(document.querySelector(".attention-dialog")).toHaveClass("dialog-md");
-    expect(dialog.getByText("1か月 · 過負荷1人 · 未充足ニーズ2件")).toBeInTheDocument();
+    expect(dialog.getByText("12か月 · 過負荷1人 · 未充足ニーズ2件")).toBeInTheDocument();
     expect(dialog.getAllByRole("button").filter((el) => el.classList.contains("alert-card")).length).toBeGreaterThan(1);
     expect(document.querySelector(".attention-dialog")).toHaveFocus();
   });
@@ -3842,7 +3807,7 @@ describe("the 要調整 count opens the list dialog (#395)", () => {
 
 describe("the 要調整 panel names the period it counts (#367)", () => {
   const owner = { name: "管理 花子", email: "owner@example.com", role: "owner" as const };
-  const countButton = () => screen.getByRole("button", { name: /^\d+件(1か月|6か月|12か月|全期間)の要調整$/u });
+  const countButton = () => screen.getByRole("button", { name: /^\d+件12か月の要調整$/u });
   const attentionRoot = () => document.querySelector(".attention-panel") as HTMLElement;
   /** Panel mounts only while the dialog is open (#395). */
   const ensureAttentionOpen = async (user: ReturnType<typeof userEvent.setup>) => {
@@ -3878,18 +3843,19 @@ describe("the 要調整 panel names the period it counts (#367)", () => {
     render(<App mode="shared" organizationName="Example Inc." identity={owner} shared={adapter} />);
 
     const panel = await ensureAttentionOpen(user);
-    expect(panel.querySelector(".attention-breakdown")!.textContent).toBe("1か月 · 過負荷2人 · 未充足ニーズ1件");
+    expect(panel.querySelector(".attention-breakdown")!.textContent).toBe("12か月 · 過負荷2人 · 未充足ニーズ1件");
     expect(countButton().textContent).toContain("3件");
     expect(panel.querySelectorAll(".alert-card")).toHaveLength(2);
   });
 
-  it("counts a later overload only after the period covers it, and does not tell the bell", async () => {
+  it("counts an overload later in the twelve months but not one past them, and does not tell the bell", async () => {
     const user = userEvent.setup();
     const later = { ...initialWorkspace.members[0], id: "later", name: "後週 花子", capacity: 50 };
+    const beyond = { ...initialWorkspace.members[1], id: "beyond", name: "来年 次郎", capacity: 50 };
     const project = { ...initialWorkspace.projects[0], id: "project", ownerPersonId: later.id };
     const adapter = sharedAdapter();
     adapter.initialState = {
-      members: [later],
+      members: [later, beyond],
       projects: [project],
       assignments: [{
         id: "oct",
@@ -3899,25 +3865,29 @@ describe("the 要調整 panel names the period it counts (#367)", () => {
         endDate: "2026-10-09",
         allocation: 100,
         status: "confirmed",
+      }, {
+        // Thirteen months out: the twelve months from August end in July 2027.
+        id: "next-sep",
+        personId: beyond.id,
+        projectId: project.id,
+        startDate: "2027-09-06",
+        endDate: "2027-09-10",
+        allocation: 100,
+        status: "confirmed",
       }],
       needs: [],
     } as unknown as WorkspaceState;
     render(<App mode="shared" organizationName="Example Inc." identity={owner} shared={adapter} />);
 
-    expect(countButton()).toHaveAccessibleName("0件1か月の要調整");
-    const panel = await ensureAttentionOpen(user);
-    expect(panel.querySelector(".attention-breakdown")!.textContent).toBe("1か月 · 過負荷0人 · 未充足ニーズ0件");
-    expect(panel.querySelector(".alert-card")).toBeNull();
+    expect(countButton()).toHaveAccessibleName("1件12か月の要調整");
 
-    await user.keyboard("{Escape}");
     await user.click(screen.getByRole("button", { name: "通知" }));
     expect(screen.queryByText("上限超過を検知")).toBeNull();
     await user.keyboard("{Escape}");
 
-    await ensureAttentionOpen(user);
-    await user.click(screen.getByRole("button", { name: "要調整の6か月" }));
-    expect(countButton()).toHaveAccessibleName("1件6か月の要調整");
-    expect(document.querySelector(".attention-breakdown")!.textContent).toBe("6か月 · 過負荷1人 · 未充足ニーズ0件");
+    const panel = await ensureAttentionOpen(user);
+    expect(panel.querySelector(".attention-breakdown")!.textContent).toBe("12か月 · 過負荷1人 · 未充足ニーズ0件");
+    expect(panel.textContent).not.toContain("来年 次郎");
     expect(screen.getByText("10月の稼働配分が稼働上限を超えています。")).toBeInTheDocument();
 
     await user.click(screen.getByText("上限超過").closest("button")!);
@@ -3947,13 +3917,13 @@ describe("the 要調整 panel names the period it counts (#367)", () => {
     render(<App mode="shared" organizationName="Example Inc." identity={owner} shared={adapter} />);
 
     await ensureAttentionOpen(user);
-    expect(document.querySelector(".attention-breakdown")!.textContent).toBe("1か月 · 過負荷2人 · 未充足ニーズ0件");
+    expect(document.querySelector(".attention-breakdown")!.textContent).toBe("12か月 · 過負荷2人 · 未充足ニーズ0件");
     expect(countButton().textContent).toContain("2件");
 
     await user.click(screen.getByText("上限超過").closest("button")!);
     await user.click(screen.getByRole("button", { name: "推奨配分へ調整" }));
     // Drawer closes on resolve; attentionOpen stayed true so the list returns (#395).
-    expect(document.querySelector(".attention-breakdown")!.textContent).toBe("1か月 · 過負荷1人 · 未充足ニーズ0件 · 予定超過1人");
+    expect(document.querySelector(".attention-breakdown")!.textContent).toBe("12か月 · 過負荷1人 · 未充足ニーズ0件 · 予定超過1人");
     expect(countButton().textContent).toContain("2件");
     expect(document.querySelector(".attention-panel")!.textContent).toMatch(/超過 二郎|超過 一郎/u);
   });
@@ -3976,14 +3946,13 @@ describe("the 要調整 panel names the period it counts (#367)", () => {
     render(<App mode="shared" organizationName="Example Inc." identity={owner} shared={adapter} />);
 
     await ensureAttentionOpen(user);
-    await user.click(screen.getByRole("button", { name: "要調整の6か月" }));
     const card = document.querySelector(".attention-panel .alert-card.urgent") as HTMLElement;
     expect(card.textContent).toContain("今週 太郎");
     expect(card.textContent).not.toContain("後週 花子");
-    expect(document.querySelector(".attention-breakdown")!.textContent).toBe("6か月 · 過負荷2人 · 未充足ニーズ0件");
+    expect(document.querySelector(".attention-breakdown")!.textContent).toBe("12か月 · 過負荷2人 · 未充足ニーズ0件");
   });
 
-  it("does not count a pre-origin overload under 12 months labelled as 全て (#396)", async () => {
+  it("does not count an overload from before the twelve months start (#396)", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     vi.setSystemTime(new Date("2026-09-18T09:00:00+09:00"));
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
@@ -4012,28 +3981,18 @@ describe("the 要調整 panel names the period it counts (#367)", () => {
     } as unknown as WorkspaceState;
     try {
       render(<App mode="shared" organizationName="Example Inc." identity={owner} shared={adapter} />);
-      expect(countButton()).toHaveAccessibleName("0件1か月の要調整");
-      const panel = await ensureAttentionOpen(user);
-      await user.click(screen.getByRole("button", { name: "要調整の12か月" }));
       expect(countButton()).toHaveAccessibleName("0件12か月の要調整");
+      const panel = await ensureAttentionOpen(user);
       expect(panel.querySelector(".attention-breakdown")!.textContent).toBe("12か月 · 過負荷0人 · 未充足ニーズ0件");
-      await user.click(screen.getByRole("button", { name: "要調整の全て" }));
-      expect(countButton()).toHaveAccessibleName("1件全期間の要調整");
-      expect(document.querySelector(".attention-breakdown")!.textContent).toBe("全期間 · 過負荷1人 · 未充足ニーズ0件");
-      expect(screen.getByText("2026年4月の稼働配分が稼働上限を超えています。")).toBeInTheDocument();
+      expect(panel.querySelector(".alert-card")).toBeNull();
     } finally {
       vi.useRealTimers();
     }
   });
 
-  it("does not move the member drawer horizon when the attention period changes", async () => {
+  it("keeps the member drawer's own month line, with no period tabs", async () => {
     const user = userEvent.setup();
     render(<App />);
-    // Period tabs live inside the dialog; change them before opening the member drawer.
-    await ensureAttentionOpen(user);
-    await user.click(screen.getByRole("button", { name: "要調整の12か月" }));
-    expect(countButton()).toHaveAccessibleName(/12か月の要調整$/u);
-    await user.keyboard("{Escape}");
 
     await user.click(document.querySelector(".schedule-row .person-open") as HTMLElement);
     const dialog = within(drawerDialog());
@@ -4051,7 +4010,6 @@ describe("the 要調整 panel names the period it counts (#367)", () => {
     try {
       render(<App />);
       await ensureAttentionOpen(user);
-      await user.click(screen.getByRole("button", { name: "要調整の12か月" }));
       const note = document.querySelector(".attention-title .horizon-clip-note");
       expect(note).not.toBeNull();
       expect(note).toHaveTextContent("2016年から2035年");
@@ -5181,12 +5139,9 @@ describe("detail drawer period horizon (#366)", () => {
     render(<App mode="shared" organizationName="Example Inc." identity={owner} shared={adapter} />);
     await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^プロジェクト 登録 \d+件$/u }));
     await user.click([...document.querySelectorAll(".project-name-cell")].find((node) => node.textContent?.includes("短い案件")) as HTMLElement);
-    const dialog = within(drawerDialog());
-    expect(document.querySelector(".project-detail-period > .drawer-section-title span")?.textContent).toBe("1か月の充足");
-    await user.click(dialog.getByRole("button", { name: "6か月" }));
-    expect(document.querySelector(".project-detail-period > .drawer-section-title span")?.textContent).toBe("6か月の充足");
+    expect(document.querySelector(".project-detail-period > .drawer-section-title span")?.textContent).toBe("12か月の充足");
     const rows = [...document.querySelectorAll(".drawer .profile-capacity > div")];
-    expect(rows).toHaveLength(6);
+    expect(rows).toHaveLength(12);
     expect(rows[0].querySelector("span")!.textContent).toBe("8月");
     expect(rows[0].querySelector("strong")!.textContent).toBe("1/2名");
     expect(rows[0].querySelector("b")!.classList.contains("short")).toBe(true);
@@ -5218,8 +5173,6 @@ describe("detail drawer period horizon (#366)", () => {
     render(<App mode="shared" organizationName="Example Inc." identity={owner} shared={adapter} />);
     await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^プロジェクト 登録 \d+件$/u }));
     await user.click([...document.querySelectorAll(".project-name-cell")].find((node) => node.textContent?.includes("月中開始")) as HTMLElement);
-    const dialog = within(drawerDialog());
-    await user.click(dialog.getByRole("button", { name: "6か月" }));
     const august = [...document.querySelectorAll(".drawer .profile-capacity > div")].find((row) => row.querySelector("span")?.textContent === "8月");
     expect(august).toBeDefined();
     expect(august!.querySelector("strong")!.textContent).toBe("2/2名");
@@ -6380,27 +6333,23 @@ describe("printing the proposal", () => {
 /**
  * #381. The cards used to draw `[0,1,2,3]` from `weekStart`. They now share
  * `periodRange` / `periodMemberStats` with the member list, and the file writes
- * the same buckets. Tabs live in the toolbar so they print-hide with it.
+ * the same buckets. Since #569 that is always the next twelve months.
  */
-describe("the proposal rail follows the selected period", () => {
-  it("defaults to one month and can show twelve", async () => {
+describe("the proposal rail shows twelve months", () => {
+  it("draws twelve months and offers no period tabs (#569)", async () => {
     const user = userEvent.setup();
     render(<App />);
     await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^提案( |$)/u }));
     await user.click(document.querySelectorAll(".proposal-picker-item")[0]);
 
     const rail = document.querySelector(".proposal-weeks")!;
-    expect(rail.querySelectorAll(":scope > div")).toHaveLength(1);
-    expect(rail.getAttribute("aria-label")).toMatch(/の1か月の稼働$/u);
-    expect(document.querySelector(".proposal-view .view-toolbar .range-tabs")).not.toBeNull();
+    expect(rail.querySelectorAll(":scope > div")).toHaveLength(12);
+    expect(rail.getAttribute("aria-label")).toMatch(/の12か月の稼働$/u);
+    expect(document.querySelector(".proposal-view .range-tabs")).toBeNull();
     expect(document.querySelector(".proposal-view > .horizon-clip-note")).toBeNull();
-
-    await user.click(screen.getByRole("button", { name: "候補者提案の12か月" }));
-    expect(document.querySelector(".proposal-weeks")!.querySelectorAll(":scope > div")).toHaveLength(12);
-    expect(document.querySelector(".proposal-weeks")!.getAttribute("aria-label")).toMatch(/の12か月の稼働$/u);
   });
 
-  it("lets 全て show the data span rather than twelve months from the origin (#396)", async () => {
+  it("starts the twelve months at the current month", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     vi.setSystemTime(new Date("2026-09-18T09:00:00+09:00"));
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
@@ -6408,25 +6357,19 @@ describe("the proposal rail follows the selected period", () => {
       render(<App />);
       await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^提案( |$)/u }));
       await user.click(document.querySelectorAll(".proposal-picker-item")[0]);
-      await user.click(screen.getByRole("button", { name: "候補者提案の12か月" }));
-      const twelveFirst = document.querySelector(".proposal-weeks")!.querySelector(":scope > div > span")!.textContent;
-      expect(twelveFirst).toBe("9月");
-      await user.click(screen.getByRole("button", { name: "候補者提案の全て" }));
-      const rail = document.querySelector(".proposal-weeks")!;
-      expect(rail.getAttribute("aria-label")).toMatch(/の全期間の稼働$/u);
-      expect(rail.querySelector(":scope > div > span")!.textContent).toBe("2026年4月");
-      expect(rail.querySelector(":scope > div > span")!.textContent).not.toBe(twelveFirst);
+      const labels = [...document.querySelector(".proposal-weeks")!.querySelectorAll(":scope > div > span")].map((node) => node.textContent);
+      expect(labels[0]).toBe("9月");
+      expect(labels).toHaveLength(12);
     } finally {
       vi.useRealTimers();
     }
   });
 
-  it("writes the same peaks the cards show after the period changes", async () => {
+  it("writes the same peaks the cards show", async () => {
     const user = userEvent.setup();
     render(<App />);
     await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^提案( |$)/u }));
     await user.click(document.querySelectorAll(".proposal-picker-item")[0]);
-    await user.click(screen.getByRole("button", { name: "候補者提案の12か月" }));
 
     const rail = document.querySelector(".proposal-weeks")!;
     const labels = [...rail.querySelectorAll(":scope > div > span")].map((el) => el.textContent);
@@ -7616,7 +7559,8 @@ describe("the project drawer's next milestone", () => {
     render(<App mode="shared" organizationName="Example Inc." identity={owner} shared={adapter} />);
     const named = await openProject(user, "Atlas リニューアル");
     expect(factValue(named, "次の節目")).toBe("β版レビュー");
-    expect(named.queryByText("—")).not.toBeInTheDocument();
+    // The facts only: the twelve-month rail marks months outside the project with — (#569).
+    expect(named.getByText("次の節目").closest("div")!.textContent).not.toContain("—");
     await user.click(named.getByRole("button", { name: "詳細パネルを閉じる" }));
     const blank = await openProject(user, "日付だけ不正");
     expect(factValue(blank, "次の節目")).toBe("未設定");
@@ -8138,7 +8082,7 @@ describe("capacityTickMarks", () => {
   });
 });
 
-describe("project drawer assignees follow the selected period (#423)", () => {
+describe("project drawer assignees follow the twelve months shown (#423, #569)", () => {
   const owner = { name: "管理 花子", email: "owner@example.com", role: "owner" as const };
   const person = { ...initialWorkspace.members[0], id: "period-person", name: "期間 太郎", role: "Engineer" };
   const other = { ...initialWorkspace.members[1], id: "winter-person", name: "冬季 花子", role: "Designer" };
@@ -8206,27 +8150,28 @@ describe("project drawer assignees follow the selected period (#423)", () => {
     return [...panel.querySelectorAll(".detail-member-list strong")].map((node) => node.textContent);
   }
 
-  it("lists every assignment that overlaps the month, including drafts and dates before the project starts", async () => {
+  it("lists every assignment that overlaps the twelve months, including drafts and dates before the project starts", async () => {
     const user = onAugust();
     const { panel, dialog } = await openPeriodProject(user, periodState(rows));
-    expect(panel.querySelector(".project-detail-period > .drawer-section-title span")?.textContent).toBe("1か月の充足");
-    expect(dialog.getByText("1か月の担当")).toBeInTheDocument();
-    expect(assigneeTitle(panel)?.querySelector("small")?.textContent).toBe("3件");
+    expect(panel.querySelector(".project-detail-period > .drawer-section-title span")?.textContent).toBe("12か月の充足");
+    expect(dialog.getByText("12か月の担当")).toBeInTheDocument();
+    expect(assigneeTitle(panel)?.querySelector("small")?.textContent).toBe("4件");
     expect(dialog.queryByText("担当メンバー")).not.toBeInTheDocument();
-    expect(assigneeNames(panel)).toEqual(["期間 太郎", "期間 太郎", "期間 太郎"]);
-    expect(dialog.queryByText("冬季 花子")).not.toBeInTheDocument();
+    // December is inside the twelve months from August (#569).
+    expect(assigneeNames(panel)).toEqual(["期間 太郎", "期間 太郎", "期間 太郎", "冬季 花子"]);
     const dates = [...panel.querySelectorAll(".detail-member-list small")].map((node) => node.textContent);
     expect(dates).toContain(`${formatDate("2026-08-10")} — ${formatDate("2026-08-12")}`);
     expect(dates).toContain(`${formatDate("2026-08-24")} — ${formatDate("2026-08-28")}`);
     expect(dates).toContain(`${formatDate("2026-08-26")} — ${formatDate("2026-08-27")}`);
+    expect(dates).toContain(`${formatDate("2026-12-01")} — ${formatDate("2026-12-15")}`);
     // The rail is the thinnest week, which is empty before anyone starts.
     expect(panel.querySelector(".profile-capacity")?.textContent).toContain("0/5名");
     const headline = panel.querySelector(".project-period-headline");
     expect(headline?.querySelector(".project-period-figure")?.textContent).toBe("0/5");
-    expect(headline?.querySelector(".project-period-caption")?.textContent).toBe("1か月の充足");
+    expect(headline?.querySelector(".project-period-caption")?.textContent).toBe("12か月でいちばん薄い");
     expect(headline?.querySelector(".sr-only")?.textContent).toBe("必要5名のうち0名");
     expect(panel.querySelector(".project-detail")).toBeTruthy();
-    expect(dialog.getByRole("region", { name: "1か月の充足と担当" })).toBeInTheDocument();
+    expect(dialog.getByRole("region", { name: "12か月の充足と担当" })).toBeInTheDocument();
     expect(panel.querySelector(".detail-member-list b")?.textContent).toMatch(/^稼働配分 \d+%$/u);
     expect(panel.querySelector(".project-detail-actions")?.textContent).toContain("要員要件を追加");
     expect(panel.querySelector(".project-detail-actions")?.textContent).toContain("この案件へアサインを追加");
@@ -8237,21 +8182,20 @@ describe("project drawer assignees follow the selected period (#423)", () => {
   it("marks each required person on a short month and keeps the allocation phrase together", async () => {
     const user = onAugust();
     const { panel } = await openPeriodProject(user, periodState(rows));
-    const ticks = [...panel.querySelectorAll(".profile-capacity .project-capacity-tick")];
+    const months = [...panel.querySelectorAll(".profile-capacity > div")];
+    expect(months).toHaveLength(12);
+    const ticks = [...months[0].querySelectorAll(".project-capacity-tick")];
     expect(ticks).toHaveLength(4);
     expect(ticks.map((tick) => tick.getAttribute("data-inside"))).toEqual(["false", "false", "false", "false"]);
     expect(ticks.every((tick) => tick.getAttribute("aria-hidden") === "true")).toBe(true);
+    // January to July are past the project's end, so they carry no marks.
+    expect(months.slice(5).every((month) => month.querySelectorAll(".project-capacity-tick").length === 0)).toBe(true);
     expect(panel.querySelector(".project-need-allocation")?.textContent).toBe("稼働配分 50%");
   });
 
-  it("adds the winter row under 全て and opens the member from a row", async () => {
+  it("opens the member from a row", async () => {
     const user = onAugust();
-    const { panel, dialog } = await openPeriodProject(user, periodState(rows));
-    await user.click(dialog.getByRole("button", { name: "全て" }));
-    expect(dialog.getByText("全期間の担当")).toBeInTheDocument();
-    expect(panel.querySelector(".project-period-caption")?.textContent).toBe("全期間でいちばん薄い");
-    expect(assigneeTitle(panel)?.querySelector("small")?.textContent).toBe("4件");
-    expect(assigneeNames(panel)).toEqual(["期間 太郎", "期間 太郎", "期間 太郎", "冬季 花子"]);
+    const { dialog } = await openPeriodProject(user, periodState(rows));
     await user.click(dialog.getByRole("button", { name: /冬季 花子/ }));
     expect(document.querySelector(".drawer-kicker")!.textContent).toBe("MEMBER PROFILE");
     expect(document.querySelector(".drawer")!.textContent).toContain("冬季 花子");
@@ -8260,7 +8204,7 @@ describe("project drawer assignees follow the selected period (#423)", () => {
   it("uses the empty copy outside the list when the span has days but no row", async () => {
     const user = onAugust();
     const { panel, dialog } = await openPeriodProject(user, periodState([]));
-    expect(dialog.getByText("1か月の担当")).toBeInTheDocument();
+    expect(dialog.getByText("12か月の担当")).toBeInTheDocument();
     expect(assigneeTitle(panel)?.querySelector("small")?.textContent).toBe("0件");
     expect(panel.querySelector(".detail-member-list")).toBeNull();
     const empty = dialog.getByText("この期間の担当はありません");
@@ -8275,7 +8219,6 @@ describe("project drawer assignees follow the selected period (#423)", () => {
       const inside = { id: "inside-calendar", personId: person.id, projectId: project.id, startDate: "2035-06-02", endDate: "2035-06-06", allocation: 25, status: "confirmed" as const };
       const past = { id: "past-calendar", personId: other.id, projectId: project.id, startDate: "2036-03-02", endDate: "2036-03-06", allocation: 25, status: "confirmed" as const };
       const { panel, dialog } = await openPeriodProject(user, periodState([inside, past]));
-      await user.click(dialog.getByRole("button", { name: "12か月" }));
       expect(dialog.getByText(PERIOD_CLIP_NOTE)).toBeInTheDocument();
       expect(dialog.getByText("12か月の担当")).toBeInTheDocument();
       expect(assigneeTitle(panel)?.querySelector("small")?.textContent).toBe("1件");
@@ -8307,8 +8250,8 @@ describe("project drawer assignees follow the selected period (#423)", () => {
     await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^プロジェクト( |$)/u }));
     await user.click(screen.getByText(project.name).closest("button")!);
     const panel = drawerDialog();
-    expect(within(panel).getByText("1か月の担当")).toBeInTheDocument();
-    expect(assigneeTitle(panel)?.querySelector("small")?.textContent).toBe("3件");
+    expect(within(panel).getByText("12か月の担当")).toBeInTheDocument();
+    expect(assigneeTitle(panel)?.querySelector("small")?.textContent).toBe("4件");
     expect(panel.querySelector(".project-detail-actions")).not.toBeNull();
     expect(within(panel).getByText("その他", { selector: "summary" })).toBeInTheDocument();
     const more = panel.querySelector(".project-detail-more") as HTMLDetailsElement;
@@ -8328,11 +8271,11 @@ describe("project drawer assignees follow the selected period (#423)", () => {
       const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
       const { panel, dialog } = await openPeriodProject(user, periodState(rows));
       expect(dialog.getByText(PERIOD_CLIP_NOTE)).toBeInTheDocument();
-      expect(dialog.queryByText("1か月の担当")).not.toBeInTheDocument();
+      expect(dialog.queryByText("12か月の担当")).not.toBeInTheDocument();
       expect(panel.querySelector(".detail-member-list")).toBeNull();
       expect(dialog.queryByText("この期間の担当はありません")).not.toBeInTheDocument();
       expect(panel.querySelector(".project-period-figure")?.textContent).toBe("—");
-      expect(panel.querySelector(".project-period-caption")?.textContent).toBe("1か月は案件期間外");
+      expect(panel.querySelector(".project-period-caption")?.textContent).toBe("12か月は案件期間外");
       expect(panel.querySelector(".project-period-headline .sr-only")).toBeNull();
     } finally {
       vi.useRealTimers();
@@ -8657,5 +8600,36 @@ describe("each drawer is read out by its own heading (#501)", () => {
     expect(expectNamedByHeading()).toBe(member.name);
     expect(drawerDialog().querySelector("summary")?.hasAttribute("role")).toBe(false);
     expect(await seriousIn(drawerDialog())).toEqual([]);
+  });
+});
+
+describe("one period everywhere: the next twelve months (#569)", () => {
+  const periodTabs = () => document.querySelectorAll('[aria-label$="の表示期間"], [aria-label="表示期間"]');
+  const periodButtons = () => ["1か月", "6か月", "12か月", "全て"].flatMap((label) => screen.queryAllByRole("button", { name: new RegExp(`(^|の)${label}$`, "u") }));
+
+  it("offers no period tabs on any screen or panel that used to have them", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    const navigation = within(screen.getByRole("navigation", { name: "メインナビゲーション" }));
+
+    await user.click(screen.getByRole("button", { name: /^\d+件12か月の要調整$/u }));
+    expect(screen.getByRole("dialog", { name: "要調整" })).toBeInTheDocument();
+    expect(periodTabs()).toHaveLength(0);
+    expect(periodButtons()).toEqual([]);
+    await user.keyboard("{Escape}");
+
+    for (const [nav, screenName] of [[/^プロジェクト 登録 \d+件$/u, "プロジェクト一覧"], [/^メンバー/u, "メンバー一覧"], [/^提案( |$)/u, "候補者提案"], [/^レポート$/u, "レポート"]] as const) {
+      await user.click(navigation.getByRole("button", { name: nav }));
+      expect(periodTabs(), screenName).toHaveLength(0);
+      expect(periodButtons(), screenName).toEqual([]);
+    }
+    // The plan-cost axis looks like the old tabs but is not a period, and stays.
+    expect(screen.getByLabelText("計画コストの集計軸")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "計画コストの部門" })).toBeInTheDocument();
+
+    await user.click(navigation.getByRole("button", { name: /^プロジェクト 登録 \d+件$/u }));
+    await user.click(document.querySelector(".project-name-cell") as HTMLElement);
+    expect(drawerDialog().querySelector(".range-tabs")).toBeNull();
+    expect(drawerDialog().querySelector(".project-detail-period > .drawer-section-title span")?.textContent).toBe("12か月の充足");
   });
 });

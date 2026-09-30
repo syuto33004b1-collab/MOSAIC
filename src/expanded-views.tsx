@@ -80,11 +80,9 @@ import {
   formatWorkHistoryPeriod,
   getWeekStart,
   isActiveOpportunity,
-  PERIOD_CHOICES,
+  DISPLAY_PERIOD,
   PERIOD_CLIP_NOTE,
   periodBucketLabel,
-  periodChoiceEquals,
-  periodChoiceLabel,
   periodChoiceProseLabel,
   periodMemberStats,
   periodRange,
@@ -688,7 +686,7 @@ export function ProjectsView({
   const [localQuery, setLocalQuery] = useState("");
   const [status, setStatus] = useState("すべて");
   const [order, setOrder] = useState<ProjectOrder>("registered");
-  const [choice, setChoice] = useState<PeriodChoice>(PERIOD_CHOICES[0]);
+  const choice = DISPLAY_PERIOD;
   const weekStart = getWeekStart(weekOffset);
   // Named, not 「今週」: these screens follow the board's paging (#146).
   const weekName = weekLabel(weekStart);
@@ -757,10 +755,7 @@ export function ProjectsView({
         />
       </div>
 
-      <div className="projects-period-bar">
-        <PeriodRangeTabs choice={choice} onChange={setChoice} namePrefix="プロジェクト一覧" />
-        {range.clipped && <p className="horizon-clip-note" role="note">{PERIOD_CLIP_NOTE}</p>}
-      </div>
+      {range.clipped && <div className="projects-period-bar"><p className="horizon-clip-note" role="note">{PERIOD_CLIP_NOTE}</p></div>}
 
       {/* The rail is bars with no week labels and no key. `title` puts the
           numbers within reach of a mouse only, so the values go in each rail's
@@ -985,7 +980,7 @@ export function MembersView({
   const [sceneMinAvailable, setSceneMinAvailable] = useState("");
   const [order, setOrder] = useState<MemberOrder>("score");
   const [error, setError] = useState("");
-  const [choice, setChoice] = useState<PeriodChoice>(PERIOD_CHOICES[0]);
+  const choice = DISPLAY_PERIOD;
   const weekStart = getWeekStart(weekOffset);
   // Named, not 「今週」: these screens follow the board's paging (#146).
   const weekName = weekLabel(weekStart);
@@ -1100,10 +1095,7 @@ export function MembersView({
         <div className="capacity-legend"><span>稼働率</span><span><i className="open" />60%以下</span><span><i className="steady" />適正</span><span><i className="hot" />上限超過</span></div>
       </div>
 
-      <div className="member-period-bar">
-        <PeriodRangeTabs choice={choice} onChange={setChoice} namePrefix="メンバー一覧" />
-        {range.clipped && <p className="horizon-clip-note" role="note">{PERIOD_CLIP_NOTE}</p>}
-      </div>
+      {range.clipped && <div className="member-period-bar"><p className="horizon-clip-note" role="note">{PERIOD_CLIP_NOTE}</p></div>}
 
       <div className="view-toolbar">
         <label className="inline-search"><Search size={15} /><input value={searchValue} onChange={(event) => setSearchValue(event.target.value)} placeholder="名前・スキル・経歴を検索" aria-label="メンバーを検索" /></label>
@@ -1245,7 +1237,7 @@ export function ProposalView({
   const [pickerQuery, setPickerQuery] = useState("");
   /** Which columns the file carries. Minimal until the sender adds to it (#148). */
   const [exportColumns, setExportColumns] = useState<string[]>([...DEFAULT_PROPOSAL_CSV_COLUMNS]);
-  const [choice, setChoice] = useState<PeriodChoice>(PERIOD_CHOICES[0]);
+  const choice = DISPLAY_PERIOD;
   const range = useMemo(() => periodRange(choice, origin, planningSpan(state)), [choice, origin, state]);
   /**
    * What the proposal answers. A project's unfilled staffing need or an
@@ -1343,9 +1335,6 @@ export function ProposalView({
           <option value="">未選択</option>
           {subjects.map((item) => <option value={item.id} key={item.id}>{item.label}</option>)}
         </select></label>
-        {/* Inside the toolbar so `@media print` that already hides `.view-toolbar`
-            takes the tabs with it. The clip note sits after this box and prints. */}
-        <PeriodRangeTabs choice={choice} onChange={setChoice} namePrefix="候補者提案" />
         <span className="toolbar-result">最大{MAX_PROPOSAL_MEMBERS}名。社内リンクはログインが必要です。社外へ出すときはファイルか紙にします。</span>
         {/* The answer #148 settled on. A link cannot be sent outside — it carries real
             member ids — and a file can: no ids in it. What a file cannot do is expire, so
@@ -1547,18 +1536,6 @@ export function ProposalView({
   );
 }
 
-export function PeriodRangeTabs({ choice, onChange, namePrefix }: { choice: PeriodChoice; onChange: (choice: PeriodChoice) => void; namePrefix?: string }) {
-  return (
-    <div className="range-tabs" aria-label={namePrefix ? `${namePrefix}の表示期間` : "表示期間"}>{PERIOD_CHOICES.map((option) => {
-      const selected = periodChoiceEquals(choice, option);
-      const label = periodChoiceLabel(option);
-      const name = namePrefix ? `${namePrefix}の${label}` : label;
-      const key = option.unit === "all" ? "all" : `${option.unit}:${option.count}`;
-      return <button type="button" className={selected ? "selected" : ""} aria-label={name} aria-pressed={selected} onClick={() => onChange(option)} key={key}>{label}</button>;
-    })}</div>
-  );
-}
-
 const PLAN_COST_AXES: { axis: PlanCostAxis; label: string }[] = [
   { axis: "project", label: "プロジェクト" },
   { axis: "department", label: "部門" },
@@ -1575,7 +1552,7 @@ function PlanCostAxisTabs({ axis, onChange }: { axis: PlanCostAxis; onChange: (a
 }
 
 export function ReportsView({ state, onOpenWeek, onResolveNeed, onOpenOpportunity, onAddReport, onDeleteReport, canManageReports = false }: ReportsViewProps) {
-  const [choice, setChoice] = useState<PeriodChoice>(PERIOD_CHOICES[1]);
+  const choice = DISPLAY_PERIOD;
   const [reportId, setReportId] = useState((state.savedReports ?? [])[0]?.id ?? "");
   const [reportName, setReportName] = useState("");
   const [source, setSource] = useState<ReportSource>("members");
@@ -1673,7 +1650,6 @@ export function ReportsView({ state, onOpenWeek, onResolveNeed, onOpenOpportunit
     <section className="section-view reports-view" aria-labelledby="reports-heading">
       <div className="report-toolbar">
         <div><small>CAPACITY HORIZON</small><h2 id="reports-heading">需給バランスの見通し</h2><p>確定稼働と受注前の想定人数を分けて確認します。</p></div>
-        <PeriodRangeTabs choice={choice} onChange={setChoice} />
       </div>
 
       <section className="balance-card saved-report-card" aria-labelledby="saved-report-heading">
