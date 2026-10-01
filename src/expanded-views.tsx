@@ -131,6 +131,7 @@ import {
   visibleCustomFields,
   weekLabel,
   type PeriodBucket,
+  type PeriodBucketStats,
   type PeriodChoice,
   type PeriodMemberStats,
   type PeriodRange,
@@ -953,6 +954,29 @@ function memberNextOpenCopy(
   return nextOpen === 0 ? `${label} 空き${bucket.slack}%` : label;
 }
 
+/**
+ * The members list's month line with each month's busiest day under its point (#581).
+ *
+ * The line puts month i at (i + 0.5) / N of its width, so every column has to be the
+ * same width. Each label carries the widest label as an invisible sizer, so every track
+ * has the same min-content and the table — which sizes this cell from it — widens the
+ * rail until the widest label fits, the way the bars' `min-content` floors did.
+ * `minmax(0, 1fr)` alone gave the cell no min-content, and it fell to the column's
+ * 124px with twelve labels overflowing it (measured: 100px rail, 99 overlapping pairs).
+ */
+export function MonthRail({ buckets }: { buckets: readonly Pick<PeriodBucketStats, "from" | "to" | "peak" | "ratio" | "exceeds" | "open">[] }) {
+  const labels = buckets.map((bucket) => `${bucket.peak}%`);
+  const widest = labels.reduce((longest, label) => (label.length > longest.length ? label : longest), "");
+  return (
+    <div className="member-week-rail" style={{ "--rail-points": buckets.length } as React.CSSProperties}>
+      <TrendLine guides={[100]} points={buckets.map((bucket) => ({ value: bucket.ratio, tone: bucket.exceeds ? "over" as const : bucket.open ? "open" as const : undefined }))} />
+      {buckets.map((bucket, index) => (
+        <small key={`${bucket.from}:${bucket.to}`}>{labels[index]}<span className="member-week-rail-sizer" aria-hidden="true">{widest}</span></small>
+      ))}
+    </div>
+  );
+}
+
 export function MembersView({
   state,
   weekOffset,
@@ -1219,12 +1243,7 @@ export function MembersView({
                   {selectedScene && <td><span className="match-score">{match?.score ?? 0}/{scoreCeiling}点<small>空き{match?.availablePercent ?? 0}%</small></span></td>}
                   {listFields.map((field) => <td key={field.id}><span className="custom-field-cell">{formatCustomValue(field, customValue(member.customValues, field.id))}</span></td>)}
                   <td><span className={"load-ring " + (stats.exceeds ? "over" : stats.open ? "open" : "")} style={{ "--load": Math.min(100, loadRatio) } as React.CSSProperties}><strong>{load}%</strong></span><small className="capacity-limit">稼働上限 {member.capacity}%</small></td>
-                  {/* The line spans the first row; each month's label has its own column in
-                      the second, equal in width, so a point sits over its own label. */}
-                  <td><div className="member-week-rail" style={{ "--rail-points": periodStats?.buckets.length ?? 0 } as React.CSSProperties}>
-                    <TrendLine guides={[100]} points={(periodStats?.buckets ?? []).map((bucket) => ({ value: bucket.ratio, tone: bucket.exceeds ? "over" as const : bucket.open ? "open" as const : undefined }))} />
-                    {(periodStats?.buckets ?? []).map((bucket) => <small key={`${bucket.from}:${bucket.to}`}>{bucket.peak}%</small>)}
-                  </div></td>
+                  <td><MonthRail buckets={periodStats?.buckets ?? []} /></td>
                   <td><span className="next-open">{memberNextOpenCopy(member, periodStats, range, choice)}<small>{member.location}</small></span></td>
                   {/* The flex box is the div, not the td: a flex td is no longer a table cell,
                       so it stopped at its content's height and the sticky column let the

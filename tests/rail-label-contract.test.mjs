@@ -18,12 +18,13 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
  * own item in the second. Three things carry the layout, and this file pins all three:
  *
  * - the label in flow and unwrapped, so its track holds it;
- * - equal tracks, `repeat(var(--rail-points), minmax(0, 1fr))` with no column gap. The
- *   line places month i at (i + 0.5) / N of its width, a column's centre only while every
- *   column is the same width. `minmax(auto, 1fr)` let a wider label keep a wider column
- *   once the cell had room to spare, which put the points beside their labels;
- * - the table sized at max-content, where equal `fr` tracks resolve to the widest label,
- *   so no label is wider than its track.
+ * - equal tracks with no column gap. The line places month i at (i + 0.5) / N of its
+ *   width, a column's centre only while every column is the same width. Each label carries
+ *   the widest label as an invisible sizer, and the figures are tabular, so every track
+ *   has the same `min-content` floor;
+ * - that floor, `repeat(var(--rail-points), minmax(min-content, 1fr))`. It is what gives
+ *   the cell a min-content the table sizes the column from: `minmax(0, 1fr)` gave it none,
+ *   and the column's 124px squeezed twelve labels into a 100px rail, 99 pairs overlapping.
  *
  * ## What this cannot do
  *
@@ -103,9 +104,9 @@ test("the rail's columns are equal, so each point sits over its own label", asyn
   const columns = rules.flatMap(({ selector, body }) =>
     declarations(body, "grid-template-columns").map((value) => ({ selector, value })));
   assert.ok(columns.length >= 1, "nothing sets the rail's columns");
-  const equal = /^repeat\(\s*var\(--rail-points(?:\s*,\s*\d+)?\)\s*,\s*minmax\(\s*0\s*,\s*1fr\s*\)\s*\)$/u;
+  const equal = /^repeat\(\s*var\(--rail-points(?:\s*,\s*\d+)?\)\s*,\s*minmax\(\s*min-content\s*,\s*1fr\s*\)\s*\)$/u;
   const rogue = columns.filter((d) => !equal.test(d.value)).map((d) => `${d.selector.slice(0, 50)} => grid-template-columns: ${d.value}`);
-  assert.deepEqual(rogue, [], "columns that can differ in width put the line's points beside their labels:\n  " + rogue.join("\n  "));
+  assert.deepEqual(rogue, [], "the tracks need the labels' min-content as their floor, or the table squeezes the rail:\n  " + rogue.join("\n  "));
   // A count written into the stylesheet goes stale the day the period changes.
   const pinned = rules.flatMap(({ selector, body }) =>
     ["grid-template-columns", "grid-template", "grid", "grid-auto-columns"].flatMap((prop) =>
@@ -121,12 +122,16 @@ test("the rail's columns are equal, so each point sits over its own label", asyn
   assert.deepEqual(gaps, [], "a column gap moves the labels off the line's points:\n  " + gaps.join("\n  "));
 });
 
-test("the table gives the rail the width of its widest label, and the line spans the row", async () => {
+test("every label holds the widest one's width, and the line spans the row", async () => {
   const css = withoutComments(await read()).replaceAll("\r\n", "\n");
-  // Equal `fr` tracks resolve to the widest label only when the cell is sized at
-  // max-content; a narrower cell would leave minmax(0, 1fr) tracks under their labels.
-  const table = allRules(css, "^\\s*\\.member-table\\s*$").flatMap(({ body }) => declarations(body, "min-width"));
-  assert.ok(table.includes("max-content"), "`.member-table` must keep `min-width: max-content`");
+  // The sizer adds the widest label's width to every track's min-content and nothing to
+  // its height or to what is read out; tabular figures make equal length equal width.
+  const sizer = allRules(css, "\\.member-week-rail-sizer").map((rule) => rule.body).join(";");
+  assert.deepEqual(declarations(sizer, "display"), ["block"], "the sizer must take its own line to add width");
+  assert.deepEqual(declarations(sizer, "height"), ["0"], "the sizer must add no height");
+  assert.deepEqual(declarations(sizer, "visibility"), ["hidden"], "the sizer must not be seen");
+  const labels = allRules(css, "\\.member-week-rail\\s+small").flatMap(({ body }) => declarations(body, "font-variant-numeric"));
+  assert.ok(labels.includes("tabular-nums"), "with proportional figures, two labels of one length can differ in width");
   const line = allRules(css, "\\.member-week-rail\\s*>\\s*\\.trend-line");
   assert.ok(line.length >= 1, "no rule places the line in the rail");
   const body = line.map((rule) => rule.body).join(";");

@@ -2130,10 +2130,18 @@ describe("the members list's month rail (#581)", () => {
       expect(children.slice(1).map((child) => child.tagName.toLowerCase())).toEqual(Array.from({ length: 12 }, () => "small"));
       expect(rail.style.getPropertyValue("--rail-points")).toBe("12");
       // Every label reads as a percentage, so a swapped or empty cell shows up.
-      const notAPercentage = [...rail.querySelectorAll(":scope > small")]
-        .map((label) => label.textContent ?? "")
-        .filter((text) => !/^\d+%$/u.test(text));
+      const labels = [...rail.querySelectorAll(":scope > small")];
+      const notAPercentage = labels.map((label) => label.firstChild?.textContent ?? "").filter((text) => !/^\d+%$/u.test(text));
       expect(notAPercentage).toEqual([]);
+      // Each label carries the widest one, unseen and unread, so the twelve columns are
+      // equal and each point sits over its own label.
+      const own = labels.map((label) => label.firstChild?.textContent ?? "");
+      const widest = own.reduce((longest, text) => (text.length > longest.length ? text : longest), "");
+      for (const label of labels) {
+        const sizer = label.querySelector(".member-week-rail-sizer")!;
+        expect(sizer).toHaveAttribute("aria-hidden", "true");
+        expect(sizer.textContent).toBe(widest);
+      }
       // A point for every month: a member always has a load, even 0.
       expect(rail.querySelectorAll(".trend-line-slot")).toHaveLength(12);
       expect(rail.querySelectorAll(".trend-line-dot")).toHaveLength(12);
@@ -2180,7 +2188,7 @@ describe("the members list's month rail (#581)", () => {
     expect(dots[0]).toBe("trend-line-dot over");
     // The months after it carry no work, so every working day is under 60%.
     expect(dots.slice(1).every((name) => name === "trend-line-dot open")).toBe(true);
-    const labels = [...document.querySelectorAll(".member-week-rail > small")].map((label) => label.textContent);
+    const labels = [...document.querySelectorAll(".member-week-rail > small")].map((label) => label.firstChild?.textContent);
     expect(labels[0]).toBe("120%");
   });
 });

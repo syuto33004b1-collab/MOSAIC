@@ -2250,18 +2250,20 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 /* The line spans the first row; each month's label is its own item in the second,
    one column each (#581). Three things keep a point over its own label and the
    labels apart:
-   - equal tracks, `minmax(0, 1fr)`, with no column gap. The line places month i at
-     (i + 0.5) / N of its width, which is a column's centre only while every column
-     is the same width; `minmax(auto, 1fr)` let a wide label keep a wider column once
-     the cell had room to spare. The count comes from the markup, as --rail-points.
-   - the table sizes the cell at max-content (`.member-table { min-width:
-     max-content }`), where equal `fr` tracks resolve to the widest label's width,
-     so no label is wider than its track.
+   - equal tracks with no column gap. The line places month i at (i + 0.5) / N of
+     its width, which is a column's centre only while every column is the same width.
+     Each label carries the widest label as an invisible sizer, so every track has the
+     same `min-content` floor, and figures are tabular so equal length is equal width.
+     The count comes from the markup, as --rail-points.
+   - `min-content` floors, which give the cell a min-content of N widest labels; the
+     table sizes the column from it. `minmax(0, 1fr)` gave the cell none, and the
+     column's 124px squeezed twelve labels into 100px (measured, #581).
    - the label in flow with `white-space: nowrap`: an absolutely positioned label
      belongs to no track, which is how the old bars let their labels collide. */
-.member-week-rail { display: grid; grid-template-columns: repeat(var(--rail-points, 1), minmax(0, 1fr)); grid-template-rows: 29px auto; column-gap: 0; row-gap: 3px; }
+.member-week-rail { display: grid; grid-template-columns: repeat(var(--rail-points, 1), minmax(min-content, 1fr)); grid-template-rows: 29px auto; column-gap: 0; row-gap: 3px; }
 .member-week-rail > .trend-line { grid-column: 1 / -1; grid-row: 1; }
-.member-week-rail small { grid-row: 2; padding-inline: 2px; text-align: center; white-space: nowrap; color: #a0a7b5; font-family: var(--font-data); font-size: 5.5px; }
+.member-week-rail small { grid-row: 2; padding-inline: 1px; text-align: center; white-space: nowrap; color: #a0a7b5; font-family: var(--font-data); font-size: 5.5px; font-variant-numeric: tabular-nums; }
+.member-week-rail-sizer { display: block; height: 0; overflow: hidden; visibility: hidden; }
 .next-open { font-size: 8px; }
 .next-open small { margin-top: 4px; display: block; color: #969eae; font-size: 7px; }
 .member-period-bar,

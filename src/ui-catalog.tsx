@@ -19,7 +19,7 @@ import {
   X,
 } from "lucide-react";
 import { PROFICIENCY_LABELS, type PlanCostAxis } from "./domain";
-import { ActiveFilters, FavoriteStar, MilestoneOverdue, PlanCostAxisTabs } from "./expanded-views";
+import { ActiveFilters, FavoriteStar, MilestoneOverdue, MonthRail, PlanCostAxisTabs } from "./expanded-views";
 import { TrendLine } from "./trend-line";
 
 /**
@@ -163,10 +163,7 @@ function MonthRailSpecimen() {
     // Twelve labels need about 350px; below that the cell scrolls rather than spill (#574).
     // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- scrollport
     <div className="ui-catalog-cell ui-catalog-natural" tabIndex={0} role="region" aria-label="見本の月ごとの稼働">
-      <div className="member-week-rail" style={{ "--rail-points": MONTH_PEAKS.length } as CSSProperties}>
-        <TrendLine guides={[100]} points={MONTH_PEAKS.map((peak) => ({ value: Math.min(100, peak), tone: peak > 100 ? "over" as const : peak < 60 ? "open" as const : undefined }))} />
-        {MONTH_PEAKS.map((peak, index) => <small key={MONTHS[index]}>{peak}%</small>)}
-      </div>
+      <MonthRail buckets={MONTH_PEAKS.map((peak, index) => ({ from: MONTHS[index], to: MONTHS[index], peak, ratio: Math.min(100, peak), exceeds: peak > 100, open: peak < 60 }))} />
     </div>
   );
 }
