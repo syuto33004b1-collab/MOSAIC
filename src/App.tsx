@@ -3925,7 +3925,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
             <CsvTransferPanel state={workspace} organizationId={organizationId} canImport={canManageMembers} canImportProjects={canEdit} onImportMembers={handleImportMembers} onImportProjects={handleImportProjects} onImportAssignments={handleImportAssignments} />
           </>
         )}
-        {activeNav === "reports" && <ReportsView state={workspace} onOpenWeek={openWeekFromReport} onResolveNeed={openStaffingNeed} onOpenOpportunity={openOpportunity} onAddReport={handleAddSavedReport} onDeleteReport={handleDeleteSavedReport} canEdit={canEdit} canManageReports={canManageMembers && featureEnabled("savedReports")} />}
+        {activeNav === "reports" && <ReportsView state={workspace} committed={committedWorkspace} onOpenWeek={openWeekFromReport} onResolveNeed={openStaffingNeed} onOpenOpportunity={openOpportunity} onOpenProject={openProject} onAddReport={handleAddSavedReport} onDeleteReport={handleDeleteSavedReport} canEdit={canEdit} canManageReports={canManageMembers && featureEnabled("savedReports")} />}
         {activeNav === "catalog" && <UiCatalogView />}
       </section>
 
