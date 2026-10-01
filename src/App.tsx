@@ -3452,6 +3452,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
       void (async () => {
         try {
           setSyncStatus("saving");
+          setSyncError("");
           const result = await submitRemote(requestId, proposed, revisionRef.current, requestToken);
           revisionRef.current = result.revision;
           setRevision(result.revision);

@@ -562,6 +562,40 @@ describe("role-aware workspace", () => {
     await waitFor(() => expect(line()).toMatch(/^\d{1,2}:\d{2}に保存$/u));
   });
 
+  it("keeps the time when a refresh finds nothing newer, and says 読み込み after discarding (#500)", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      vi.setSystemTime(new Date(2026, 7, 19, 9, 5));
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      const adapter = sharedAdapter();
+      let notifyRevision: (revision?: number) => void = () => undefined;
+      adapter.subscribe = vi.fn((listener) => {
+        notifyRevision = listener;
+        return () => undefined;
+      });
+      adapter.reload = vi.fn()
+        .mockResolvedValueOnce({ state: initialWorkspace, revision: 7 })
+        .mockResolvedValueOnce({ state: initialWorkspace, revision: 8 });
+      render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
+      const line = () => document.querySelector(".sync-banner small")!.textContent;
+
+      vi.setSystemTime(new Date(2026, 7, 19, 10, 0));
+      act(() => { window.dispatchEvent(new Event("focus")); });
+      await waitFor(() => expect(adapter.reload).toHaveBeenCalledOnce());
+      await waitFor(() => expect(screen.getByText("チームと同期済み")).toBeInTheDocument());
+      expect(line()).toBe("9:05に読み込み");
+
+      await openAssignmentFormFromBoard(user);
+      await user.click(screen.getByRole("button", { name: "この内容で仮置きする" }));
+      act(() => notifyRevision(8));
+      vi.setSystemTime(new Date(2026, 7, 19, 10, 30));
+      await user.click(await screen.findByRole("button", { name: "下書きを破棄して再読み込み" }));
+      await waitFor(() => expect(line()).toBe("10:30に読み込み"));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("says when the screen last met the team's data, not the revision (#500)", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     try {

@@ -2197,10 +2197,11 @@ const PERSON_SCOPE_LABELS: Record<PersonScope, string> = {
 };
 
 /*
- * Under 「使えない機能」. A role with one ticked neither sees it nor saves it (get_workspace
- * returns it empty), so each name is the feature as its own screen calls it — with what it
- * is where the name alone says nothing, and 「利用」 rather than 「参照」 for the MCP, whose
- * writes stop too (#500).
+ * Under 「使えない機能」. A role with one ticked loses the feature, not only its saves: the
+ * workspace comes back without its scenes, reports, requests or opportunities, and the
+ * favourites and MCP calls are refused. So each name is the feature as its own screen calls
+ * it — with what it is where the name alone says nothing, and 「利用」 rather than 「参照」 for
+ * the MCP, whose writes stop too (#500).
  */
 const FEATURE_LABELS: Record<RestrictableFeature, string> = {
   searchScenes: "検索シーン（メンバー検索の保存条件）",
