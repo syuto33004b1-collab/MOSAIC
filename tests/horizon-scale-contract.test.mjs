@@ -143,9 +143,9 @@ test("the ceiling has neither a tick nor a line", async () => {
 
 test("each grid line names the same offset as its tick", async () => {
   const css = withoutComments(await readCss());
-  // The 0 line is drawn by the bar's own baseline rather than a `.horizon-guide`, so
-  // only the three that have one are paired.
-  for (const value of TICKS.filter((tick) => tick !== 0)) {
+  // The 0 line was the bars' own baseline; with a line instead of bars it is a
+  // `.horizon-guide` like the others (#582), so every tick is paired.
+  for (const value of TICKS) {
     const guide = declaration(css, `.horizon-guide.g${value}`, "top");
     assert.ok(guide !== null, `no .horizon-guide.g${value}`);
     const tick = declaration(css, `.horizon-y-labels .t${value}`, "top");
@@ -215,4 +215,49 @@ test("one element owns the rows, and the grid borrows them", async () => {
 
   assert.equal(declaration(css, ".horizon-y-labels", "grid-row"), "bar",
     "the ticks' box has to be the bar's row, which is the whole point (#133)");
+});
+
+/**
+ * #582: the bars became a line. Three things keep it on the scale the ticks name.
+ *
+ * - It is placed like the guides: absolutely, over the bar row and every column. As an
+ *   ordinary grid item it would take the bar row of every column and push the month
+ *   buttons into implicit columns.
+ * - Its plot has no inset, so its 0 and 120 are the row's bottom and top, where the ticks
+ *   put them. The shared line's default 3px inset would put 100% 3px off its guide.
+ * - Each month's point is placed with the same `/ 120` and centred on its value, the way
+ *   the line's vertices are; the columns touch, so a vertex at (i + 0.5) / N is a column's
+ *   centre.
+ */
+test("the line and each month's point use the ticks' scale", async () => {
+  const css = withoutComments(await readCss());
+  assert.equal(declaration(css, ".trend-line.horizon-line", "position"), "absolute",
+    "the line has to be placed like the guides, or it takes the month buttons' cells");
+  assert.equal(declaration(css, ".trend-line.horizon-line", "grid-row"), "bar");
+  assert.equal(declaration(css, ".trend-line.horizon-line", "grid-column"), "1 / -1");
+  assert.equal(declaration(css, ".trend-line.horizon-line", "inset"), "0");
+  assert.equal(declaration(css, ".horizon-line .trend-line-plot", "inset"), "0",
+    "an inset plot draws 100% a few pixels off its guide (#133)");
+  assert.equal(declaration(css, ".horizon-point", "transform"), "translate(-50%, 50%)",
+    "the point's centre, not its bottom edge, sits on the value");
+  assert.equal(declaration(css, ".horizon-grid", "column-gap"), "0",
+    "a gap between columns moves their centres off the line's vertices");
+
+  const tsx = withoutComments(await readTsx());
+  assert.match(tsx, /<TrendLine className="horizon-line" max=\{120\} dots="none" points=\{horizon\.map\(\(bucket\) => \(\{ value: bucket\.average \}\)\)\}/u,
+    `the line has to plot each month's average on a scale topping out at ${CEILING}, as the ticks do`);
+  assert.match(tsx, /className=\{"horizon-point"[\s\S]{0,200}?bottom: Math\.min\(100, bucket\.average \/ 120 \* 100\)/u,
+    "each point has to sit at its value on the same 120 scale");
+});
+
+test("the plan cost by month draws one line and lists its months without bars", async () => {
+  const css = withoutComments(await readCss());
+  const columns = declaration(css, ".plan-cost-list.is-month", "grid-template-columns") ?? "";
+  // Two tracks: the label and the amount. A third, empty one would shift every row.
+  assert.equal(columns.split(/\s+(?![^(]*\))/u).length, 2, `the month list has 「${columns}」`);
+  const tsx = withoutComments(await readTsx());
+  assert.match(tsx, /planCostAxis !== "month" && <i>/u, "the month rows must not draw a bar");
+  assert.match(tsx, /planCostAxis === "month" && \(\s*<div className="plan-cost-trend"/u, "the month axis draws its line");
+  // A month with no priced member is a gap, not a 0: 「未設定」 in the list, no point on the line.
+  assert.match(tsx, /value: row\.yen === 0 && row\.unsetCount > 0 \? null : row\.yen/u, "an unpriced month must break the line");
 });

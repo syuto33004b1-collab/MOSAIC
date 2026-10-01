@@ -279,7 +279,6 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .attention-title > div { min-width: 0; flex: 1; }
 .attention-title small { color: #9aa2b2; font-family: var(--font-data); font-size: 7px; font-weight: 800; letter-spacing: .16em; }
 .attention-title h2 { margin: 3px 0 0; font-size: 17px; letter-spacing: -.04em; }
-.attention-title .range-tabs { width: 100%; margin: 8px 0 0; flex-wrap: wrap; }
 .attention-breakdown { margin: 6px 0 0; color: #858e9f; font-size: 8px; line-height: 1.5; }
 .attention-title .horizon-clip-note { grid-column: auto; margin: 6px 0 0; }
 .attention-title > span { width: 26px; height: 26px; flex: 0 0 26px; border-radius: 9px; background: #ffebe9; color: #d95f55; display: grid; place-items: center; font-family: var(--font-data); font-size: var(--text-min); font-weight: 800; }
@@ -834,7 +833,11 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .drawer-icon.mint { background: #def3ec; color: #347c68; }
 .drawer-heading h2 { margin: 0; font-size: 19px; letter-spacing: -.04em; }
 .drawer-heading p { margin: 4px 0 0; color: #8b94a5; font-size: 9px; }
-.assignment-form > label {
+/* The assignment detail's fields sit one box down (#587), and in that pane the dates
+   take the same label as everything else rather than the inherited 16px. */
+.assignment-form > label,
+.assignment-detail-terms > label,
+.assignment-detail-terms > .form-grid > label {
   margin-bottom: 17px;
   display: block;
   color: #626c7f;
@@ -902,7 +905,7 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
    reading order come from the platform instead of from ARIA (#199). */
 .member-picker { min-width: 0; margin: 0 0 17px; padding: 0; border: 0; }
 .member-picker legend { padding: 0; color: #626c7f; font-size: var(--text-min); font-weight: 700; }
-.member-picker legend small { color: var(--muted-readable); font-size: var(--text-min); font-weight: 600; }
+.member-picker legend small { margin-top: 2px; display: block; color: var(--muted-readable); font-size: var(--text-min); font-weight: 600; }
 .member-picker-head { margin: 7px 0; display: flex; align-items: center; gap: 8px; }
 /* `min-width: 0` because the count beside it must not be the thing that shrinks:
    it is the sentence that says the list is not all of them. */
@@ -931,17 +934,18 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .member-picker-copy small { color: var(--muted-readable); font-size: var(--text-min); }
 .member-picker-load { font-family: var(--font-data); font-size: var(--text-min); font-weight: 700; white-space: nowrap; }
 .member-picker-load.over { color: var(--coral-deep); }
+/* The figure and, under it, how many days are over: one grid cell, so the row keeps
+   its four columns and the rail its own line (#587). */
+.member-picker-figures { display: grid; justify-items: end; gap: 1px; }
+.member-picker-over { color: var(--coral-deep); font-size: var(--text-min); font-weight: 600; white-space: nowrap; }
 /* 「—」 while the form's dates make no range (#253): quiet, not a warning. */
 .member-picker-load.unmeasured { color: var(--muted-readable); }
-/* One column per weekday, so the rail always fits its row rather than scrolling.
+/* One point per weekday, so the rail always fits its row rather than scrolling.
    `grid-column: 1 / -1` puts it on a second line under the copy — it is the last
-   child, so nothing gets pushed past it (#189 was the other way round). */
-.member-picker-rail { grid-column: 1 / -1; height: 10px; display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 1px; }
-/* Filled to the day's share of the ceiling, not merely coloured when busy: a day
-   at 10% and a day at 100% were the same block of green, which is the one thing
-   the rail exists to tell apart. */
-.member-picker-rail i { border-radius: 2px; background: linear-gradient(to top, var(--sage) var(--fill, 0%), var(--paper-deep) var(--fill, 0%)); }
-.member-picker-rail i.over { background: var(--coral); }
+   child, so nothing gets pushed past it (#189 was the other way round). The line's
+   height is the day's share of the ceiling (#581). */
+.member-picker-rail { grid-column: 1 / -1; height: 16px; display: block; }
+.member-picker-rail .trend-line { height: 100%; }
 .member-picker-empty { margin: 0; padding: 10px 2px; color: var(--muted-readable); font-size: var(--text-min); }
 .allocation-input {
   min-height: 48px;
@@ -1021,8 +1025,6 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .add-chooser small { color: var(--muted-readable); font-size: var(--text-min); }
 .drawer-danger { border: 1px solid #efc7c4; background: #fff8f7; color: #bd554e; }
 .drawer-danger:hover { border-color: #dfaaa6; background: #fff0ee; }
-.assignment-edit-actions { display: grid; gap: 8px; }
-.assignment-edit-actions .drawer-secondary { margin-top: 0; }
 .assignment-form input:disabled, .assignment-form select:disabled, .assignment-form textarea:disabled { cursor: not-allowed; opacity: .64; }
 .drawer-primary:disabled, .drawer-secondary:disabled, .drawer-danger:disabled { cursor: not-allowed; opacity: .52; }
 .capacity-card {
@@ -1033,11 +1035,11 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   background: #fff9f8;
 }
 .capacity-card > div:first-child { display: flex; align-items: baseline; justify-content: space-between; }
-.capacity-card > div:first-child span { color: #747e90; font-size: 9px; }
+.capacity-card > div:first-child span { color: var(--muted-readable); font-size: 9px; }
 .capacity-card > div:first-child strong { color: #d35e55; font-family: var(--font-data); font-size: 25px; }
 .capacity-meter { position: relative; height: 8px; margin: 10px 0 15px; border-radius: 999px; background: #f0dedc; }
 .capacity-meter span { display: block; width: 100%; height: 100%; border-radius: inherit; background: #e87369; }
-.capacity-meter i { position: absolute; right: 0; top: 12px; color: #a87773; font-family: var(--font-data); font-size: 7px; font-style: normal; }
+.capacity-meter i { position: absolute; right: 0; top: 12px; color: var(--muted-readable); font-family: var(--font-data); font-size: 7px; font-style: normal; }
 .capacity-card p { margin: 0; color: #9a6d69; font-size: 8px; line-height: 1.6; }
 .drawer-section-title, .candidate-label, .saved-candidate-label {
   margin-bottom: 9px;
@@ -1046,7 +1048,7 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   justify-content: space-between;
 }
 .drawer-section-title span, .candidate-label span, .saved-candidate-label span { color: #596377; font-size: 9px; font-weight: 700; }
-.drawer-section-title small, .candidate-label small, .saved-candidate-label small { color: #9ba3b2; font-size: 7px; }
+.drawer-section-title small, .candidate-label small, .saved-candidate-label small { color: var(--muted-readable); font-size: 7px; }
 .allocation-list {
   margin-bottom: 16px;
   border: 1px solid var(--line);
@@ -1065,7 +1067,7 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .allocation-list strong, .allocation-list small { display: block; }
 .allocation-list strong { font-size: 9px; }
 .drawer .allocation-list strong { overflow-wrap: anywhere; }
-.allocation-list small { margin-top: 3px; color: #939baa; font-size: 7px; }
+.allocation-list small { margin-top: 3px; color: var(--muted-readable); font-size: 7px; }
 .allocation-list b { font-family: var(--font-data); font-size: var(--text-min); }
 .project-dot { width: 8px; height: 8px; border-radius: 3px; }
 .project-dot.orange { background: #eea17d; }
@@ -1192,12 +1194,10 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
      short, uniform rows — a person and a percentage, a week and a bar — so
      halving the rows costs no legibility.
      Prefixed with `.drawer` for the specificity, not for the scope: these blocks
-     are declared again further down the file (`.profile-capacity` at its own
-     rule, the theme layer after that), and a bare class here loses to every one
-     of them on source order. */
+     are declared again further down the file (at their own rules, the theme layer
+     after that), and a bare class here loses to every one of them on source order. */
   .drawer .detail-member-list,
   .drawer .detail-need-list,
-  .drawer .profile-capacity,
   .drawer .allocation-list { display: grid; grid-template-columns: 1fr 1fr; }
   /* `:not(:last-child)`: with an odd number of rows the last one sits alone in the
      left column, and a right border there would draw a rule into empty space. */
@@ -1453,7 +1453,7 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .capacity-card.resolved > div:first-child strong { color: #3f886f; }
 .capacity-card.resolved .capacity-meter { background: #dceee8; }
 .capacity-card.resolved .capacity-meter span { background: #68b49c; }
-.capacity-card.resolved p { color: #568a78; }
+.capacity-card.resolved p { color: var(--sage); }
 .planned-candidate {
   padding: 15px;
   border: 1px solid #ccd4f5;
@@ -1468,6 +1468,7 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .planned-candidate strong { font-size: var(--text-min); }
 .planned-candidate small { margin-top: 4px; color: #818bbd; font-size: 8px; }
 .assignment-form > label > input,
+.assignment-detail-terms > label > input,
 .assignment-form .form-grid input {
   width: 100%;
   height: 43px;
@@ -1480,6 +1481,7 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   font-size: var(--text-min);
 }
 .assignment-form > label > input:focus,
+.assignment-detail-terms > label > input:focus,
 .assignment-form .form-grid input:focus { border-color: #91a0ff; box-shadow: 0 0 0 3px rgba(86,104,232,.1); }
 
 .section-view { width: 100%; max-width: 100%; min-width: 0; overflow-x: hidden; animation: rise-in .46s .04s ease-out backwards; /* `backwards` on purpose (#135) */ }
@@ -1844,13 +1846,9 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
    separate objects (#185). */
 .proposal-card-provenance { display: none; }
 .proposal-weeks { display: grid; gap: 7px; }
-.proposal-weeks > div { display: grid; grid-template-columns: minmax(52px, max-content) minmax(0, 1fr) minmax(72px, max-content); gap: 8px; align-items: center; font-size: var(--text-min); }
-.proposal-weeks > div > span { white-space: nowrap; }
+.proposal-weeks-ceiling { margin: 0; color: var(--muted-readable); font-size: var(--text-min); }
 .proposal-weeks-empty { margin: 0; color: var(--muted); }
 .proposal-view > .horizon-clip-note { grid-column: auto; margin: 8px 0 0; }
-.proposal-weeks i { height: 8px; border-radius: 99px; background: #eef1f6; overflow: hidden; }
-.proposal-weeks b { display: block; height: 100%; background: #8c99ed; }
-.proposal-weeks b.over { background: #ec847b; }
 .proposal-empty { border: 1px solid #dfe4ed; border-radius: 17px; background: #fff; }
 /* The star is an icon and nothing else, so it takes the width of one: in the project
    drawer it was holding down half a 834px row with a single ☆ in the middle (#296).
@@ -2142,10 +2140,8 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .status-pill.closing { background: #f3effa; color: #786491; }.status-pill.closing i { background: #9c86b7; }
 .need-note { margin-top: 5px; display: block; color: #c06b45; font-size: 7px; }
 .need-note.planned { color: #6372c4; }
-.four-week-rail { width: calc(100% - 41px); display: grid; grid-auto-flow: column; grid-auto-columns: minmax(6px, 1fr); gap: 3px; }
-.four-week-rail i { height: 6px; border-radius: 99px; background: #edf0f4; overflow: hidden; }
-.four-week-rail b { display: block; height: 100%; border-radius: inherit; background: #8391ed; }
-.four-week-rail b.short { background: #eaa078; }
+.four-week-rail { height: 22px; }
+.four-week-rail .trend-line { height: 100%; }
 .staffed-label { margin-top: 5px; display: block; color: #8c95a5; font-family: var(--font-data); font-size: 7px; }
 .progress-cell { display: flex; align-items: center; gap: 7px; }
 .progress-cell > span { width: 58px; height: 5px; border-radius: 99px; background: #edf0f4; overflow: hidden; }
@@ -2253,28 +2249,23 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .load-ring.open { background: conic-gradient(#73bda5 calc(var(--load) * 1%), #edf0f4 0); }
 .load-ring.over { background: conic-gradient(#e9786e 100%, #edf0f4 0); }
 .load-ring.over strong { color: #c85f56; }
-/* The bar and its label are separate items of the same grid, one column each.
-   Bucket count follows the selected period, so tracks are implicit
-   (`grid-auto-columns`) rather than `repeat(N)` or a JS `--rail-count`.
-   Two things keep neighbouring buckets apart, and both are needed:
-   - distinct tracks, so no box is placed over another. The label used to be
-     absolutely positioned inside its bar, and an out-of-flow box belongs to no
-     track at all, which is why repeat(4, 1fr) could not help it.
-   - `min-content` as the track floor. With `white-space: nowrap` on the label
-     that is the label's whole width, so a track never ends up narrower than the
-     text it has to show, and there is no pixel width to keep in step with
-     --text-min. Distinct tracks alone would not do it: the text would simply
-     overflow its own track into the next one.
-   Long values are absorbed by the column, not by overlapping — the cell grows
-   and the table scrolls. */
-.member-week-rail { display: grid; grid-auto-columns: minmax(min-content, 1fr); grid-template-rows: 29px auto; grid-auto-flow: column; align-items: end; column-gap: 5px; row-gap: 3px; }
-/* Pairing is bar then label per implicit column. src/App.test.tsx asserts the
-   rendered children against the selected period's bucket count. */
-.member-week-rail i { position: relative; height: 29px; border-radius: 5px 5px 3px 3px; background: #edf0f4; }
-.member-week-rail b { position: absolute; left: 0; right: 0; bottom: 0; border-radius: inherit; background: #8a97e7; }
-.member-week-rail i.open b { background: #7bc0aa; }
-.member-week-rail i.over b { background: #e87970; }
-.member-week-rail small { text-align: center; white-space: nowrap; color: #a0a7b5; font-family: var(--font-data); font-size: 5.5px; }
+/* The line spans the first row; each month's label is its own item in the second,
+   one column each (#581). Three things keep a point over its own label and the
+   labels apart:
+   - equal tracks with no column gap. The line places month i at (i + 0.5) / N of
+     its width, which is a column's centre only while every column is the same width.
+     Each label carries the widest label as an invisible sizer, so every track has the
+     same `min-content` floor, and figures are tabular so equal length is equal width.
+     The count comes from the markup, as --rail-points.
+   - `min-content` floors, which give the cell a min-content of N widest labels; the
+     table sizes the column from it. `minmax(0, 1fr)` gave the cell none, and the
+     column's 124px squeezed twelve labels into 100px (measured, #581).
+   - the label in flow with `white-space: nowrap`: an absolutely positioned label
+     belongs to no track, which is how the old bars let their labels collide. */
+.member-week-rail { display: grid; grid-template-columns: repeat(var(--rail-points, 1), minmax(min-content, 1fr)); grid-template-rows: 29px auto; column-gap: 0; row-gap: 3px; }
+.member-week-rail > .trend-line { grid-column: 1 / -1; grid-row: 1; }
+.member-week-rail small { grid-row: 2; padding-inline: 1px; text-align: center; white-space: nowrap; color: #a0a7b5; font-family: var(--font-data); font-size: 5.5px; font-variant-numeric: tabular-nums; }
+.member-week-rail-sizer { display: block; height: 0; overflow: hidden; visibility: hidden; user-select: none; }
 .next-open { font-size: 8px; }
 .next-open small { margin-top: 4px; display: block; color: #969eae; font-size: 7px; }
 .member-period-bar,
@@ -2340,7 +2331,9 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .horizon-plot {
   grid-column: 1 / -1;
   height: 188px;
-  padding-bottom: 25px;
+  /* The top is room for a point at 120% and its draft ring, which the plot's
+     `overflow-y: hidden` would otherwise cut; the bar row keeps its ratios (#582). */
+  padding: 8px 0 25px;
   display: grid;
   grid-template-columns: 34px 1fr;
   grid-template-rows: [bar] minmax(0, 1fr) [rate] auto [pipeline] auto [week] auto;
@@ -2388,12 +2381,13 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   display: grid;
   /* Column count comes from `--horizon-cols` (#393). A hard `repeat(12)` left
      a 1-month horizon at 1/12 width whenever the inline override was missing. */
-  grid-template-columns: repeat(var(--horizon-cols, 12), minmax(42px, 1fr));
+  grid-template-columns: repeat(var(--horizon-cols, 12), minmax(50px, 1fr));
   grid-template-rows: subgrid;
   align-items: end;
-  /* 列だけ。行に 8px を入れると3本の隙間で 24px をラベル側に取られ、
-     バーの軌道がそのぶん短くなる。行間はラベル自身の margin-top が持つ */
-  column-gap: 8px;
+  /* No gap: the line puts month i at (i + 0.5) / N of the grid's width, a column's
+     centre only while the columns touch. The old 42px column and 8px gap are one 50px
+     column now (#582). Rows have no gap either, for the bar row's sake. */
+  column-gap: 0;
 }
 /* 17% と 50% は (120-100)/120 と (120-60)/120 で、バーの軌道に対する割合。
    グリッドの行を指定しないと 188px の枠に対する割合になり、線がバーの目盛りを
@@ -2401,13 +2395,15 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
    `.horizon-grid` は position: relative なので、行を指定すればその行が包含ブロック */
 .horizon-guide { position: absolute; grid-row: bar; grid-column: 1 / -1; left: 0; right: 0; height: 1px; background: #edf0f4; }
 .horizon-guide.g100 { top: calc(100% / 6); border-top: 1px dashed #d9dee8; background: transparent; }.horizon-guide.g60 { top: 50%; }
+/* The baseline the bars used to draw. On the row's bottom edge, the same `top` as the 0 tick. */
+.horizon-guide.g0 { top: 100%; margin-top: -1px; }
 /* バーに固定の高さを持たせると、文字を上げるたびに枠から溢れる。12px 化で
    必要な高さが 168 → 170px になり、`.horizon-grid` は 188px 固定で
    overflow-y: hidden なので週ラベル9件が枠外に出た。ラベル3行を先に取って
    残りをバーに渡せば、文字サイズが動いてもバーが吸収する */
 .horizon-week {
   z-index: 1;
-  min-width: 42px;
+  min-width: 50px;
   padding: 0;
   border: 0;
   background: transparent;
@@ -2421,13 +2417,20 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 /* 受注前の数値が無い週でも週ラベルは week 行。auto 配置に任せると pipeline 行に
    上がってしまい、週ごとにラベルの高さが揃わない */
 .horizon-week > small { grid-row: week; }
-.horizon-bar { position: relative; width: 21px; height: 100%; border-radius: 6px 6px 3px 3px; background: #f0f2f6; overflow: visible; }
-.horizon-bar i { position: absolute; left: 0; right: 0; bottom: 0; border-radius: inherit; background: #8391e6; transition: height .25s ease; }
-.horizon-bar i.over { background: #e8786f; }
-.horizon-bar b { position: absolute; left: -3px; right: -3px; height: 6px; border: 1px dashed #6070c9; border-radius: 3px; background: #dfe3ff; }
+/* The month's point, centred on its value like the line's vertices: `bottom` is the
+   value and the translate puts the middle there, not the bottom edge. */
+.horizon-bar { position: relative; width: 100%; height: 100%; }
+.horizon-point { position: absolute; left: 50%; width: 8px; height: 8px; border: 1px solid #2c4e40; border-radius: 50%; background: var(--sage); transform: translate(-50%, 50%); }
+.horizon-point.over { border-color: var(--coral-deep); background: var(--coral); }
+/* A month with draft assignments in its figure. */
+.horizon-point.draft { outline: 1px dashed var(--coral-deep); outline-offset: 2px; }
 .horizon-week strong { margin-top: 5px; color: #596376; font-family: var(--font-data); font-size: 7px; }
 .horizon-week small { margin-top: 3px; color: #9aa2b1; font-family: var(--font-data); font-size: 6px; }
-.horizon-week:hover .horizon-bar { box-shadow: 0 0 0 3px #eef0ff; }
+/* Translucent, so the line under the buttons still shows through the column. */
+.horizon-week:hover,
+.horizon-week:focus-visible { background: color-mix(in srgb, var(--ink) 5%, transparent); }
+.horizon-week:hover .horizon-point,
+.horizon-week:focus-visible .horizon-point { box-shadow: 0 0 0 3px var(--coral-soft); }
 .horizon-caption { grid-column: 2; margin-top: 10px; padding-top: 10px; border-top: 1px solid #edf0f4; display: flex; align-items: center; gap: 12px; color: #8b94a5; font-size: 7px; }
 .horizon-caption > span { display: inline-flex; align-items: center; gap: 5px; }
 .horizon-caption i { width: 8px; height: 8px; border-radius: 3px; }
@@ -2495,6 +2498,8 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .plan-cost-list > div { display: contents; }
 .plan-cost-list > div > span { min-width: 0; }
 .plan-cost-list > .view-empty { grid-column: 1 / -1; }
+/* Months draw one line above the list instead of a bar per row (#582): two cells a row. */
+.plan-cost-list.is-month { grid-template-columns: minmax(100px, max-content) minmax(7.5em, max-content); justify-content: space-between; }
 .plan-cost-list strong, .plan-cost-list small { display: block; }
 .plan-cost-list strong { font-size: 8px; overflow-wrap: anywhere; }.plan-cost-list small { margin-top: 2px; color: #9aa2b0; font-size: 6px; }
 .plan-cost-list i { height: 6px; border-radius: 99px; background: #edf0f4; overflow: hidden; }
@@ -2562,7 +2567,6 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
    Two classes, so the grey of `.detail-facts span` does not win. */
 .milestone-cell .milestone-overdue,
 .detail-facts .milestone-overdue { display: block; color: var(--coral-deep); font-weight: 700; white-space: nowrap; }
-.drawer .range-tabs { margin-bottom: 12px; flex-wrap: wrap; width: 100%; }
 .drawer .horizon-clip-note { margin: 0 0 12px; }
 .detail-member-list { margin-bottom: 18px; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
 .detail-member-list button {
@@ -3085,8 +3089,12 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
     display: flex;
     flex-direction: column;
   }
-  .project-detail-period > .range-tabs,
   .project-detail-period > .drawer-section-title { flex: 0 0 auto; }
+  /* The line keeps its height; only the assignee list below it gives way and scrolls.
+     As a scroll container its automatic minimum height is 0, so without this a long
+     list would squeeze it and the pane's `overflow: hidden` would cut it (#583). */
+  .project-detail-period > .project-capacity-trend,
+  .project-detail-period > .horizon-clip-note { flex: 0 0 auto; }
   .project-detail-assignees {
     flex: 1 1 auto;
     min-height: 0;
@@ -3122,64 +3130,19 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
     border-right: 0;
   }
 }
-/* The capacity rail is a time series. The container query lays months in two
-   columns once the panel is wide, which puts April beside May. One column at
-   every viewport, including windows shorter than 720px (#210). */
-.drawer.project-detail-open .profile-capacity {
-  display: flex;
-  flex-direction: column;
-}
 .profile-skills { margin-bottom: 22px; display: flex; flex-wrap: wrap; gap: 5px; }
-.profile-capacity { margin-bottom: 22px; display: flex; flex-direction: column; gap: 9px; }
-/* 52px, not 42: the first label names its week now rather than saying 「今週」
-   (#146), and the longest that gets is 「12/28週」 at 41.1px — 0.9px of headroom
-   in the old track. Same number as `.proposal-weeks`, which holds the same
-   labels. The bar loses 10px of about 250. */
-/* 80px for the figure, not 31: 31px was the width of 「40% / 100%」 at the 7px this
-   rail used to be set in, and the 12px floor left the number in a fraction of the
-   room it needs — 「120% / 100%」 came out 31x49, three wrapped lines beside a 359px
-   bar. Measured in this rail's own font, bold 12px Manrope: 68px for
-   「40% / 100%」, 74px for 「100% / 100%」, 75px for a three-digit ceiling, so 80px
-   clears the widest of them. `.proposal-weeks` gets the same figure into 72px
-   because it is not set in Manrope — the number is not transferable.
-   Fixed rather than `auto` because each row is its own grid, so content-sized
-   numbers would give the four bars four different lengths, and comparing their
-   lengths down the column is what the rail is for (#210). */
-.profile-capacity > div { display: grid; grid-template-columns: 52px minmax(0, 1fr) 80px; align-items: center; gap: 8px; }
-.profile-capacity span { color: #848d9e; font-size: 7px; }
-.profile-capacity i { height: 6px; border-radius: 99px; background: #edf0f4; overflow: hidden; }
-.profile-capacity b { display: block; height: 100%; border-radius: inherit; background: #8391e7; }
-.profile-capacity b.over { background: #e87970; }
-.profile-capacity b.short { background: #eaa078; }
-.profile-capacity strong { color: #687285; font-family: var(--font-data); font-size: 7px; text-align: right; }
-/* Project detail (#467). The label track is 72px: 「2026年10月–」 measures 66px
-   in this rail's 12px face, so the year-month stays one line and a wider
-   bucket breaks after the dash. The figure track stays 80px (#210). */
+/* Project detail (#467). */
 .project-detail .drawer-section-title { margin-bottom: 12px; }
 .project-detail .detail-facts { padding: 16px; gap: 16px; }
 .project-detail .detail-member-list button { padding: 12px 14px; }
-.project-detail .profile-capacity { gap: 12px; }
-.project-detail .profile-capacity > div { grid-template-columns: 72px minmax(0, 1fr) 80px; }
 .project-detail .detail-member-list small,
-.project-detail .detail-need-list small,
-.project-detail .profile-capacity span {
+.project-detail .detail-need-list small {
   word-break: keep-all;
   overflow-wrap: anywhere;
 }
 .project-need-allocation { white-space: nowrap; }
 .project-detail .detail-need-list { gap: 10px; }
 .project-detail .detail-need-list button { padding: 12px 14px; }
-.project-detail .profile-capacity i { position: relative; height: 10px; }
-.project-capacity-tick {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  width: 1px;
-  transform: translateX(-0.5px);
-  background: color-mix(in srgb, var(--ink) 55%, transparent);
-  pointer-events: none;
-}
-.project-capacity-tick[data-inside="true"] { background: var(--paper); }
 .project-detail > .drawer-heading { flex-wrap: wrap; align-items: center; }
 .project-detail > .drawer-heading > .project-detail-title { min-width: 0; flex: 1 1 12rem; }
 .project-detail > .drawer-heading h2 { overflow-wrap: anywhere; }
@@ -3426,7 +3389,7 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   align-items: center;
   gap: 12px;
   margin: 8px 0 0;
-  color: #68758e;
+  color: var(--muted-readable);
   font-size: var(--text-min);
   font-weight: 700;
   line-height: var(--leading);
@@ -3795,6 +3758,8 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .drawer-kicker,
 .drawer-heading p,
 .assignment-form > label,
+.assignment-detail-terms > label,
+.assignment-detail-terms > .form-grid > label,
 .form-note,
 .capacity-card > div:first-child span,
 .capacity-meter i,
@@ -3891,8 +3856,6 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .detail-member-list b,
 .profile-hero p,
 .profile-hero small,
-.profile-capacity span,
-.profile-capacity strong,
 .production-organization-list small,
 .production-invitation-section small,
 .production-audit-detail dt,
@@ -3940,7 +3903,6 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .detail-member-list small,
 .profile-hero p,
 .profile-hero small,
-.profile-capacity span,
 .detail-need-list small,
 .capacity-limit,
 .production-runtime-info { color: var(--muted-readable); }
@@ -4172,6 +4134,21 @@ body {
   border-right: 1px solid var(--line);
   background: var(--canvas);
   color: var(--ink);
+}
+/* The column is sticky at 100vh, so what does not fit never comes back with the page's
+   scroll. A tenth nav item (#574) put the account row — 設定を開く in production — under
+   a 720px-tall window. The column scrolls itself instead. `overflow-x` is spelled out:
+   left `visible`, it computes to `auto`, and the 84px icon rail would grow a sideways bar.
+   A thin bar, because a classic 15px one left the rail's items 42px wide. Only above
+   620px, where the top bar and its sideways nav take over. */
+@media (min-width: 621px) {
+  .sidebar {
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+    scroll-padding-block: 8px;
+    scrollbar-width: thin;
+  }
 }
 
 .brand {
@@ -4801,14 +4778,8 @@ h1 {
 .status-pill.ready { color: #4f5d9e; }
 .status-pill.closing { color: #664e7f; }
 .status-pill i { background: currentColor; }
-.four-week-rail i,
-.progress-cell > span,
-.profile-capacity i { background: var(--paper-deep); }
-.four-week-rail b,
-.progress-cell b,
-.profile-capacity b { background: var(--sage); }
-.four-week-rail b.short,
-.profile-capacity b.short { background: var(--coral); }
+.progress-cell > span { background: var(--paper-deep); }
+.progress-cell b { background: var(--sage); }
 .staffed-label { color: var(--muted); }
 .owner-cell i { background: var(--paper-deep); color: var(--ink); }
 .row-open { color: var(--coral-deep); }
@@ -4818,9 +4789,6 @@ h1 {
 .load-ring::after { background: var(--paper-pure); }
 .load-ring.over { background: conic-gradient(var(--coral) calc(var(--load) * 1%), var(--paper-deep) 0); }
 .load-ring.over strong { color: #9e3f29; }
-.member-week-rail i { background: var(--paper-deep); }
-.member-week-rail b { background: var(--sage); }
-.member-week-rail i.over b { background: var(--coral); }
 
 .report-toolbar { margin-bottom: 24px; padding-bottom: 21px; border-bottom: 1px solid var(--line); }
 .report-toolbar small { color: var(--coral-deep); }
@@ -4838,15 +4806,11 @@ h1 {
 .horizon-plot { overflow-y: hidden; }
 .horizon-guide { background: var(--line); }
 .horizon-guide.g100 { border-top-color: var(--line-strong); }
-.horizon-bar { border-radius: 3px 3px 0 0; background: var(--paper-deep); }
-.horizon-bar i { background: var(--sage); }
-.horizon-bar i.over { background: var(--coral); }
-.horizon-bar b { border-color: var(--coral-deep); border-radius: 2px; background: var(--coral-soft); }
-.horizon-week:hover .horizon-bar { box-shadow: 0 0 0 3px var(--coral-soft); }
 .horizon-caption { border-top-color: var(--line); color: var(--muted); }
 .horizon-clip-note { color: var(--muted); }
-.horizon-caption i.confirmed { background: var(--sage); }
-.horizon-caption i.draft { border-color: var(--coral-deep); background: var(--coral-soft); }
+.horizon-caption i.confirmed { position: relative; width: 16px; height: 2px; border-radius: 0; background: var(--sage); }
+.horizon-caption i.confirmed::after { content: ""; position: absolute; left: 50%; top: 50%; width: 6px; height: 6px; border-radius: 50%; background: var(--sage); transform: translate(-50%, -50%); }
+.horizon-caption i.draft { width: 8px; height: 8px; border: 1px solid #2c4e40; border-radius: 50%; background: var(--sage); outline: 1px dashed var(--coral-deep); outline-offset: 2px; }
 .horizon-caption i.pipeline { background: var(--coral-soft); }
 .pipeline-chip { color: var(--coral-deep); }
 .horizon-caption button { color: var(--coral-deep); }
@@ -4928,6 +4892,8 @@ h1 {
 .close-button { border-color: var(--line); border-radius: 50%; color: var(--ink); }
 .assignment-form > label > input,
 .assignment-form > label > select,
+.assignment-detail-terms > label > input,
+.assignment-detail-terms > label > select,
 .assignment-form .form-grid input,
 .assignment-form .form-grid select,
 .assignment-form textarea {
@@ -4938,6 +4904,8 @@ h1 {
 }
 .assignment-form > label > input:focus,
 .assignment-form > label > select:focus,
+.assignment-detail-terms > label > input:focus,
+.assignment-detail-terms > label > select:focus,
 .assignment-form .form-grid input:focus,
 .assignment-form .form-grid select:focus,
 .assignment-form textarea:focus {
@@ -4971,8 +4939,7 @@ h1 {
 .production-scope-list { border-color: var(--line); border-radius: 3px; }
 .production-scope-list legend { color: var(--muted); }
 .production-secret-banner code { background: var(--canvas); }
-.capacity-meter,
-.profile-capacity i { background: var(--paper-deep); }
+.capacity-meter { background: var(--paper-deep); }
 .capacity-meter span { background: var(--sage); }
 .capacity-meter span.over { background: var(--coral); }
 .candidate-list button:hover,
@@ -6094,13 +6061,160 @@ h1 {
   margin-right: auto;
   margin-left: 0;
 }
-/* Assignment detail only (#440). The add form and the other drawers keep the
-   drawer width. 36rem is the cap; a narrower drawer still fills it, and the
-   block stays left. */
+/* Assignment detail (#587). The terms beside the candidates measured over them, and the
+   actions outside the scroll so they are on screen at every size (#541). This replaces
+   #440's 36rem cap, which left the right third of a 1440px dialog empty.
+   The member detail's shell (#458): the panel stops scrolling, the body between the
+   heading and the actions does. Its own class, because `.dialog-lg` is shared with four
+   other dialogs. The height is only released from 621px; below, the sheet keeps its
+   `min(88vh, 760px)`, which a two-class rule here would otherwise outrank. */
+.drawer.assignment-detail-open {
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.drawer.assignment-detail-open .drawer-top { flex: 0 0 auto; }
+@media (min-width: 621px) {
+  .drawer.assignment-detail-open {
+    height: auto;
+    max-height: 100%;
+  }
+}
 .assignment-edit-form {
-  max-width: 36rem;
-  margin-right: auto;
-  margin-left: 0;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+/* 6px of padding on each side, given back by the margin: a scroll box clips at its
+   padding edge, and the focus ring is 3px out at a 3px offset. Without it the ring of
+   every full-width field was cut along both sides. */
+.assignment-detail-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  margin: 0 -6px;
+  padding: 0 6px 6px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.assignment-edit-form .drawer-heading { margin-bottom: 12px; }
+.assignment-detail-status {
+  flex: 0 0 auto;
+  align-self: flex-start;
+  margin-top: 2px;
+  padding: 2px 8px;
+  border: 1px dashed var(--coral-deep);
+  border-radius: 3px;
+  color: var(--coral-deep);
+  font-size: var(--text-min);
+  font-weight: 700;
+  line-height: var(--leading);
+  white-space: nowrap;
+}
+/* Two ways out, not two halves of the dialog: sized to their words, side by side
+   while they fit (#424, #587). */
+.assignment-detail-links { margin: 0 0 20px; display: flex; flex-wrap: wrap; gap: 8px; }
+.assignment-detail-link {
+  max-width: 100%;
+  min-height: 44px;
+  padding: 0 10px 0 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: 3px;
+  background: var(--paper-pure);
+  color: var(--ink);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--text-min);
+  font-weight: 700;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+.assignment-detail-link:hover { border-color: var(--ink); background: var(--canvas); }
+.assignment-detail-link svg { flex: 0 0 auto; }
+.assignment-detail-panes { display: grid; grid-template-columns: minmax(0, 1fr); gap: 24px; }
+.assignment-detail-terms > .form-note:last-child { margin-bottom: 0; }
+.assignment-detail-panes > .member-picker { margin-bottom: 0; }
+/* Here the legend heads a pane of its own, opposite the fields; the add form's stays a
+   field label above its list. */
+.assignment-detail-panes > .member-picker legend {
+  color: var(--ink);
+  font-size: var(--text-sm);
+}
+/* Side by side once the panel's content box is 700px: about a 1210px viewport, so
+   1280 gets two panes of ~340px and 1052 keeps one column, where two would leave each
+   date field about 140px. Each pane scrolls on its own, and on the right only the list
+   does, so the search stays put. In one column the body scrolls and the list keeps
+   its own 296px, so showing the chosen row on open moves the list and not the fields
+   above it. */
+@container detail-panel (min-width: 700px) {
+  .assignment-detail-body {
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  .assignment-detail-body > .drawer-heading,
+  .assignment-detail-links { flex: 0 0 auto; }
+  .assignment-detail-panes {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
+    gap: 0 24px;
+  }
+  .assignment-detail-terms {
+    min-height: 0;
+    margin: 0 -6px;
+    padding: 0 6px 6px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+  .assignment-detail-panes > .member-picker {
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  /* `max-content` rows: with a height from the flex box rather than a max-height, auto
+     rows shrank to each row's 44px floor and the rails drew over the rows above them. */
+  .assignment-detail-panes .member-picker-list {
+    flex: 1 1 auto;
+    min-height: 0;
+    max-height: none;
+    grid-auto-rows: max-content;
+    align-content: start;
+  }
+}
+.assignment-detail-actions {
+  flex: 0 0 auto;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px 12px;
+}
+.assignment-detail-actions > .drawer-primary,
+.assignment-detail-actions > .drawer-danger,
+.assignment-detail-actions > .drawer-secondary {
+  width: auto;
+  margin-top: 0;
+  padding: 0 16px;
+}
+.assignment-detail-actions > .drawer-primary { min-width: 10rem; }
+.assignment-detail-actions > .drawer-secondary { grid-column: 1 / -1; }
+.assignment-detail-change {
+  margin: 0;
+  color: var(--muted-readable);
+  font-size: var(--text-min);
+  line-height: var(--leading);
+  text-align: right;
+}
+@media (max-width: 620px) {
+  .assignment-detail-actions { grid-template-columns: auto minmax(0, 1fr); }
+  .assignment-detail-change { grid-column: 1 / -1; grid-row: 1; text-align: left; }
 }
 /* History and period cards only. The department row uses the same compact
    button and stays at the start of its cell. */
@@ -6180,12 +6294,12 @@ h1 {
 .match-score {
   display: inline-flex;
   flex-direction: column;
-  color: #3e846f;
+  color: var(--sage);
   font-family: var(--font-data);
   font-size: 12px;
   font-weight: 700;
 }
-.match-score small { color: #8c95a6; font-size: var(--text-min); font-weight: 700; }
+.match-score small { color: var(--muted-readable); font-size: var(--text-min); font-weight: 700; }
 .saved-report-card { margin: 0 0 18px; }
 
 .pipeline-board {
@@ -6410,11 +6524,10 @@ h1 {
   /* Same reason, one level down: an avatar is a coloured disc with initials on it, and the
      disc is a background. The initials carry it; the border keeps it a disc. */
   .proposal-card .avatar { border: 1px solid #b9bfcc; }
-  /* The bars are backgrounds too. Each one has its figure printed beside it, so nothing is
-     lost when they do not print — but an outline on the fill keeps the shape of the
-     comparison, which is the reason the bars are there. */
-  .proposal-weeks i { border: 1px solid #b9bfcc; }
-  .proposal-weeks i b { outline: 1px solid #4a5468; }
+  /* The line is a stroke and prints; the points are backgrounds with a border, and each
+     month's figure is printed under its point. Paper has no scroll: every month shows.
+     Two classes, because the screen rule for `.labelled-trend` comes later in the file. */
+  .proposal-card .labelled-trend { overflow: visible; }
 
   /* Which fields, from the same tick boxes the file uses (#179). `data-print` on the card list
      carries the chosen column names; a column nobody chose takes its part of the card with it.
@@ -6488,3 +6601,114 @@ h1 {
   .skill-sheet-skills small { color: #4a5468; }
   .skill-sheet-history article { break-inside: avoid; }
 }
+
+/* UIカタログ (#574). Only the page's own frame: each specimen keeps the screen's
+   classes, so what it looks like comes from the rules above, not from here. */
+.ui-catalog { display: grid; gap: 28px; }
+.ui-catalog-lead { max-width: 72ch; margin: 0; color: var(--muted-readable); font-size: var(--text-sm); line-height: 1.7; }
+.ui-catalog-section > h2 { margin: 0 0 12px; color: var(--ink); font-size: var(--text-lg); }
+.ui-catalog-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 440px), 1fr)); gap: 14px; }
+.ui-catalog-card { min-width: 0; }
+.ui-catalog-card.ui-catalog-wide { grid-column: 1 / -1; }
+/* Beats `.card-heading > span`, the report cards' count chip, which would otherwise
+   dress this mark as a coral count. */
+.card-heading > .ui-catalog-sample {
+  flex: 0 0 auto;
+  min-height: 0;
+  padding: 2px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted-readable-dark);
+  font-family: inherit;
+  font-size: var(--text-min);
+  font-weight: 700;
+}
+.ui-catalog-specimens { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 190px), 1fr)); gap: 12px; }
+.ui-catalog-specimen {
+  min-width: 0;
+  margin: 0;
+  padding: 12px;
+  border: 1px dashed var(--line-strong);
+  border-radius: 4px;
+  display: grid;
+  align-content: start;
+  gap: 12px;
+}
+.ui-catalog-specimen.ui-catalog-wide { grid-column: 1 / -1; }
+.ui-catalog-stage { min-width: 0; min-height: 44px; display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.ui-catalog-stage > * { min-width: 0; max-width: 100%; }
+.ui-catalog-specimen.ui-catalog-wide .ui-catalog-stage { display: block; }
+.ui-catalog-cell { width: 100%; }
+.ui-catalog-cell.ui-catalog-natural { width: max-content; overflow-x: auto; }
+.ui-catalog-pair { display: inline-flex; align-items: center; gap: 8px; }
+.ui-catalog-specimen figcaption { display: grid; gap: 2px; color: var(--muted-readable); font-size: var(--text-min); line-height: 1.5; }
+.ui-catalog-specimen figcaption strong { color: var(--ink); font-size: var(--text-sm); }
+.ui-catalog-specimen code { color: var(--muted-readable-dark); font-family: ui-monospace, "SFMono-Regular", Menlo, monospace; font-size: var(--text-min); overflow-wrap: anywhere; }
+.ui-catalog-measure { color: var(--muted-readable-dark); font-size: var(--text-min); overflow-wrap: anywhere; }
+.ui-catalog-gaps { margin: 0; padding-left: 1.4em; color: var(--muted-readable); font-size: var(--text-sm); line-height: 1.8; }
+
+/* A line over time (#580, #581). The SVG and the points share `.trend-line-plot`,
+   inset by a point's radius so a value at 0 or at the top is not clipped; the inset
+   is outside the box both draw in, so the guides and the points use one scale. */
+.trend-line { position: relative; display: block; color: var(--sage); }
+.trend-line-plot { position: absolute; inset: 3px 0; }
+.trend-line-plot svg { position: absolute; inset: 0; width: 100%; height: 100%; display: block; overflow: visible; }
+.trend-line-guide { stroke: var(--line-strong); stroke-width: 1; stroke-dasharray: 3 3; }
+.trend-line-path { stroke: currentColor; stroke-width: 1.75; stroke-linejoin: round; stroke-linecap: round; }
+.trend-line-slot { position: absolute; top: 0; bottom: 0; }
+.trend-line-dot {
+  position: absolute;
+  left: 50%;
+  width: 6px;
+  height: 6px;
+  border: 1px solid #2c4e40;
+  border-radius: 50%;
+  background: var(--sage);
+  transform: translate(-50%, 50%);
+}
+.trend-line-dot.over,
+.trend-line-dot.short { border-color: var(--coral-deep); background: var(--coral); }
+.trend-line-dot.open { border-color: #3e846f; background: #7bc0aa; }
+@media (forced-colors: active) {
+  .trend-line { forced-color-adjust: none; color: CanvasText; }
+  .trend-line-guide { stroke: GrayText; }
+  /* Same specificity as the toned rules above, which a media query does not outrank. */
+  .trend-line-dot,
+  .trend-line-dot.open { border-color: Canvas; background: CanvasText; }
+  .trend-line-dot.over,
+  .trend-line-dot.short { border-color: Canvas; background: Highlight; }
+  .horizon-point { forced-color-adjust: none; border-color: Canvas; background: CanvasText; }
+  .horizon-point.over { background: Highlight; }
+}
+
+/* The forecast's line is placed like its guides: absolutely, over the bar row, so it
+   takes no cell from the month buttons. No inset, so its scale is the row the ticks and
+   guides use, (120 - v) / 120 (#133, #582). Under the buttons, which carry the points. */
+.trend-line.horizon-line { position: absolute; grid-row: bar; grid-column: 1 / -1; inset: 0; pointer-events: none; }
+.horizon-line .trend-line-plot { inset: 0; }
+
+/* The plan cost by month: the line over the same N equal columns its first and last
+   month labels sit in, so each label is centred under its point (#582). The inline
+   padding is room for a label wider than its column, 「12月 (一部)」 at 390px. */
+.plan-cost-trend { margin: 0 0 12px; padding-inline: 2em; display: grid; grid-template-columns: repeat(var(--rail-points, 1), minmax(0, 1fr)); grid-template-rows: 44px auto; column-gap: 0; row-gap: 4px; }
+.plan-cost-trend > .trend-line { grid-column: 1 / -1; grid-row: 1; }
+.plan-cost-trend small { grid-row: 2; justify-self: center; white-space: nowrap; color: var(--muted-readable); font-size: var(--text-min); }
+.plan-cost-trend-first { grid-column: 1; }
+.plan-cost-trend-last { grid-column: -2 / -1; }
+
+/* A line with each month's label and figure under its point (#583): N equal columns, the
+   line across the first row, a cell per month in the second. Each cell carries the widest
+   month and figure as sizers, so the columns stay equal and every point sits over its own
+   cell. Scrolls sideways only when the months do not fit. */
+.labelled-trend { overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; }
+.labelled-trend-grid { display: grid; grid-template-columns: repeat(var(--rail-points, 1), minmax(min-content, 1fr)); grid-template-rows: 48px auto; column-gap: 0; row-gap: 4px; }
+.labelled-trend-grid > .trend-line { grid-column: 1 / -1; grid-row: 1; }
+/* A block, not a grid: as grid items the sizers, being `overflow: hidden`, would have an
+   automatic minimum width of 0 and stop widening their column (measured: 36.7px and
+   27.1px columns side by side, points 4.4px off their months). */
+.labelled-trend-cell { grid-row: 2; padding-inline: 2px; display: block; text-align: center; white-space: nowrap; }
+.labelled-trend-month { display: block; color: var(--muted-readable); font-size: var(--text-min); font-variant-numeric: tabular-nums; }
+.labelled-trend-figure { display: block; color: var(--ink); font-family: var(--font-data); font-size: var(--text-min); font-variant-numeric: tabular-nums; }
+.labelled-trend-sizer { display: block; height: 0; overflow: hidden; visibility: hidden; user-select: none; }
+.project-capacity-trend { margin-bottom: 18px; }

@@ -7,33 +7,32 @@ import { fileURLToPath } from "node:url";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 /**
- * The four-week capacity rail already had `grid-template-columns: repeat(4, 1fr)`
- * and still let its week labels collide, because each label was absolutely
- * positioned inside its bar. An out-of-flow box belongs to no track, so the
- * grid could not keep the weeks apart.
+ * The members list's month rail, and what keeps its labels apart and under their points.
  *
- * Measured on main: "100%" is 26.2px at the 10px floor while a segment was
- * 19.56px from 390 to 1024px and 21.25px at 1920px. The label is wider than its
- * segment at every width. Three pairs overlapped up to about 1400px, and 3 to
- * 15 labels left the rail's own box at every width from 390 to 1920.
+ * It began as bars, each with its label absolutely positioned inside: an out-of-flow box
+ * belongs to no grid track, so the grid could not keep the weeks apart. Measured then,
+ * "100%" was 26.2px at the 10px floor while a segment was 19.56px from 390 to 1024px, and
+ * three pairs overlapped up to about 1400px.
  *
- * Two properties now carry the fix, and this file pins both:
- * - bar and label in distinct tracks, so no box is placed over another;
- * - `min-content` as the track floor, which with `nowrap` on the label is the
- *   label's whole width, so the text does not overflow its track into the next.
+ * It is a line now (#580, #581): one line spanning the first row, each month's label its
+ * own item in the second. Three things carry the layout, and this file pins all three:
  *
- * Distinct tracks alone would not be enough, and neither would the floor alone.
+ * - the label in flow and unwrapped, so its track holds it;
+ * - equal tracks with no column gap. The line places month i at (i + 0.5) / N of its
+ *   width, a column's centre only while every column is the same width. Each label carries
+ *   the widest label as an invisible sizer, and the figures are tabular, so every track
+ *   has the same `min-content` floor;
+ * - that floor, `repeat(var(--rail-points), minmax(min-content, 1fr))`. It is what gives
+ *   the cell a min-content the table sizes the column from: `minmax(0, 1fr)` gave it none,
+ *   and the column's 124px squeezed twelve labels into a 100px rail, 99 pairs overlapping.
  *
  * ## What this cannot do
  *
- * It reads declarations. It does not resolve the cascade, so specificity,
- * `!important` and conditional rules can all beat what it reads, and it does
- * not see the rendered boxes at all — nor the other ways a box can end up over
- * its neighbour (`transform`, negative margins, explicit overlapping
- * placement). The brace matching is flat, so CSS nesting would break the
- * selector attribution. The DOM half of the contract is asserted against a
- * rendered tree in src/App.test.tsx, and the rendered geometry at
- * 390/820/1024/1440/1920px, including every label forced to 99999%, is in the PR.
+ * It reads declarations. It does not resolve the cascade, so specificity, `!important`
+ * and conditional rules can all beat what it reads, and it does not see the rendered
+ * boxes. The brace matching is flat, so CSS nesting would break the selector attribution.
+ * The DOM half is asserted in src/App.test.tsx, and the rendered offsets between each
+ * point and its label at 390/1024/1440px are in the PR.
  */
 
 const read = () => readFile(path.join(root, "src", "styles.css"), "utf8");
@@ -74,20 +73,18 @@ function railRules(css) {
     }));
 }
 
-test("no rule takes the week label out of the grid", async () => {
+test("no rule takes the month label out of its track", async () => {
   const css = withoutComments(await read()).replaceAll("\r\n", "\n");
   const rules = allRules(css, "\\.member-week-rail\\s+small");
   assert.ok(rules.length >= 1, "no .member-week-rail small rule found");
   const offenders = [];
   for (const { selector, body } of rules) {
     for (const value of declarations(body, "position")) {
-      // Absolute and fixed remove the label from its track, which is the bug.
-      // Sticky keeps it in flow, so it is not part of this contract.
+      // Absolute and fixed remove the label from its track, which was the bug.
       if (/^(?:absolute|fixed)$/u.test(value)) offenders.push(`${selector.slice(0, 50)} => position: ${value}`);
     }
-    // nowrap is half of why min-content reserves the label's width: without it
-    // the label's min-content is its longest word, and "1件未対応 · 1件確認待ち"
-    // would wrap inside a track sized for one segment of it.
+    // Without nowrap a label's min-content is its longest word, and the track that is
+    // sized from it no longer holds the whole label.
     for (const value of declarations(body, "white-space")) {
       if (/^(?:normal|pre-line|pre-wrap|break-spaces)$/u.test(value)) offenders.push(`${selector.slice(0, 50)} => white-space: ${value}`);
     }
@@ -97,57 +94,58 @@ test("no rule takes the week label out of the grid", async () => {
     [],
     "an out-of-flow or wrapping label defeats the track that is supposed to hold it:\n  " + offenders.join("\n  "),
   );
+  // The last one, not any one: a later `grid-row: 1` would put the labels on the line.
+  const rows = rules.flatMap(({ body }) => declarations(body, "grid-row"));
+  assert.equal(rows.at(-1), "2", "the labels must sit in the second row, under the line");
+  // Tracks mean nothing if the box is not a grid, in any rule that styles the rail.
+  const displays = railRules(css).flatMap(({ selector, body }) => declarations(body, "display").map((value) => ({ selector, value })));
+  assert.ok(displays.length >= 1, "no rail rule declares display");
+  const notGrid = displays.filter((d) => d.value !== "grid").map((d) => `${d.selector.slice(0, 40)} => display: ${d.value}`);
+  assert.deepEqual(notGrid, [], "every rail rule must keep display: grid:\n  " + notGrid.join("\n  "));
 });
 
-test("the rail's tracks are never narrower than the label they hold", async () => {
-  const css = withoutComments(await read()).replaceAll("\r\n", "\n");
-  const auto = railRules(css).flatMap(({ selector, body }) =>
-    declarations(body, "grid-auto-columns").map((value) => ({ selector, value })));
-  assert.ok(auto.length >= 1, "nothing sets the rail's implicit columns");
-  const floor = /^minmax\(\s*min-content\s*,\s*1fr\s*\)$/u;
-  const rogue = auto
-    .filter((d) => !floor.test(d.value))
-    .map((d) => `${d.selector.slice(0, 50)} => grid-auto-columns: ${d.value}`);
-  assert.deepEqual(
-    rogue,
-    [],
-    "a track that can shrink below its label lets the text overflow into the next week:\n  " + rogue.join("\n  "),
-  );
-  const pinned = railRules(css).flatMap(({ selector, body }) =>
-    ["grid-template-columns", "grid-template", "grid"].flatMap((prop) =>
-      declarations(body, prop).map((value) => ({ selector, prop, value }))))
-    .filter((d) => /repeat\s*\(/u.test(d.value))
-    .map((d) => `${d.selector.slice(0, 50)} => ${d.prop}: ${d.value}`);
-  assert.deepEqual(
-    pinned,
-    [],
-    "an explicit repeat() pins the bucket count and defeats implicit tracks:\n  " + pinned.join("\n  "),
-  );
-});
-
-test("the bar and its label sit in one column, in two rows", async () => {
+test("the rail's columns are equal, so each point sits over its own label", async () => {
   const css = withoutComments(await read()).replaceAll("\r\n", "\n");
   const rules = railRules(css);
-  // Every rail rule, not just the one that sets the columns: a media query that
-  // overrides only grid-auto-flow puts every label one to three weeks away from
-  // its own bar, and would pass a check that read the base rule alone.
-  // Tracks mean nothing if the box is not a grid, and without column flow the
-  // eight children fill row 1 four at a time.
-  for (const [prop, expected, needed] of [
-    ["display", /^grid$/u, true],
-    ["grid-auto-flow", /^column$/u, true],
-    ["grid-template-rows", /^[^;]+\s+[^;\s]+$/u, true],
-  ]) {
-    const found = rules.flatMap(({ selector, body }) => declarations(body, prop).map((value) => ({ selector, value })));
-    if (needed) assert.ok(found.length >= 1, `no rail rule declares ${prop}`);
-    const wrong = found.filter((d) => !expected.test(d.value)).map((d) => `${d.selector.slice(0, 40)} => ${prop}: ${d.value}`);
-    assert.deepEqual(wrong, [], `every rail rule must keep ${prop} intact:\n  ` + wrong.join("\n  "));
-  }
-  // The rail's box has to contain both rows. `auto` is the only value that does
-  // so whatever the label needs; the old `height: 39px` against a 47px need is
-  // how the label came to sit outside the rail. This is deliberately strict —
-  // a large enough fixed height would also work, and would still fail here.
-  const heights = rules.flatMap(({ selector, body }) =>
-    declarations(body, "height").filter((v) => !/^auto$/u.test(v)).map((v) => `${selector.slice(0, 40)} => height: ${v}`));
+  const columns = rules.flatMap(({ selector, body }) =>
+    declarations(body, "grid-template-columns").map((value) => ({ selector, value })));
+  assert.ok(columns.length >= 1, "nothing sets the rail's columns");
+  const equal = /^repeat\(\s*var\(--rail-points(?:\s*,\s*\d+)?\)\s*,\s*minmax\(\s*min-content\s*,\s*1fr\s*\)\s*\)$/u;
+  const rogue = columns.filter((d) => !equal.test(d.value)).map((d) => `${d.selector.slice(0, 50)} => grid-template-columns: ${d.value}`);
+  assert.deepEqual(rogue, [], "the tracks need the labels' min-content as their floor, or the table squeezes the rail:\n  " + rogue.join("\n  "));
+  // A count written into the stylesheet goes stale the day the period changes.
+  const pinned = rules.flatMap(({ selector, body }) =>
+    ["grid-template-columns", "grid-template", "grid", "grid-auto-columns"].flatMap((prop) =>
+      declarations(body, prop).map((value) => ({ selector, prop, value }))))
+    .filter((d) => /repeat\(\s*\d/u.test(d.value) || d.prop === "grid-auto-columns")
+    .map((d) => `${d.selector.slice(0, 50)} => ${d.prop}: ${d.value}`);
+  assert.deepEqual(pinned, [], "the bucket count comes from the markup, as --rail-points:\n  " + pinned.join("\n  "));
+  // A gap between columns shifts every centre but the middle one's off (i + 0.5) / N.
+  const gaps = rules.flatMap(({ selector, body }) =>
+    ["column-gap", "gap", "grid-column-gap"].flatMap((prop) => declarations(body, prop).map((value) => ({ selector, prop, value }))))
+    .filter((d) => !/^0(?:px)?(?:\s+0(?:px)?)?$/u.test(d.value) && !(d.prop === "gap" && /^\S+\s+0(?:px)?$/u.test(d.value)))
+    .map((d) => `${d.selector.slice(0, 50)} => ${d.prop}: ${d.value}`);
+  assert.deepEqual(gaps, [], "a column gap moves the labels off the line's points:\n  " + gaps.join("\n  "));
+});
+
+test("every label holds the widest one's width, and the line spans the row", async () => {
+  const css = withoutComments(await read()).replaceAll("\r\n", "\n");
+  // The sizer adds the widest label's width to every track's min-content and nothing to
+  // its height or to what is read out; tabular figures make equal length equal width.
+  const sizer = allRules(css, "\\.member-week-rail-sizer").map((rule) => rule.body).join(";");
+  assert.deepEqual(declarations(sizer, "display"), ["block"], "the sizer must take its own line to add width");
+  assert.deepEqual(declarations(sizer, "height"), ["0"], "the sizer must add no height");
+  assert.deepEqual(declarations(sizer, "visibility"), ["hidden"], "the sizer must not be seen");
+  assert.deepEqual(declarations(sizer, "user-select"), ["none"], "the sizer must not ride along when a label is copied");
+  const labels = allRules(css, "\\.member-week-rail\\s+small").flatMap(({ body }) => declarations(body, "font-variant-numeric"));
+  assert.ok(labels.includes("tabular-nums"), "with proportional figures, two labels of one length can differ in width");
+  const line = allRules(css, "\\.member-week-rail\\s*>\\s*\\.trend-line");
+  assert.ok(line.length >= 1, "no rule places the line in the rail");
+  const body = line.map((rule) => rule.body).join(";");
+  assert.deepEqual(declarations(body, "grid-column"), ["1 / -1"], "the line must span every month's column");
+  assert.deepEqual(declarations(body, "grid-row"), ["1"], "the line belongs in the first row");
+  // The box has to contain both rows; a fixed height is how a label once sat outside it.
+  const heights = railRules(css).flatMap(({ selector, body: railBody }) =>
+    declarations(railBody, "height").filter((v) => !/^auto$/u.test(v)).map((v) => `${selector.slice(0, 40)} => height: ${v}`));
   assert.deepEqual(heights, [], "a fixed rail height stops the box growing with its label row:\n  " + heights.join("\n  "));
 });

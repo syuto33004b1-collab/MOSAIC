@@ -5,9 +5,11 @@
  * every one of them disables `color-contrast`. That left the repository with no way to
  * measure contrast at all, which #305 is about. A real browser computes it.
  *
- * What it covers is one pass over the nine navigation screens and four panel states,
- * in one browser. #305 weighed that against the run time AGENTS.md warns about: a browser
- * per screen would pay the launch cost nine times.
+ * What it covers is one pass over the navigation screens (ten since the UI catalog, #574)
+ * and four panel states, in one browser, and the three table screens again at 390px (#497).
+ * #305 weighed that
+ * against the run time AGENTS.md warns about: a browser per screen would pay the launch
+ * cost nine times.
  *
  * Every impact fails, not only serious and critical. Measured before writing this: there
  * are no violations on any of the states, so the strictest setting costs nothing today and
@@ -51,7 +53,7 @@ const axeSource = path.join(root, "node_modules", "axe-core", "axe.min.js");
 const BASE = "/";
 const KEEP_OPEN = process.argv.includes("--keep-open");
 
-/** The nine sidebar entries, and the `<h1>` each screen puts up (from `pageMeta`). */
+/** The sidebar entries, and the `<h1>` each screen puts up (from `pageMeta`). */
 const SCREENS = [
   ["アサインボード", "アサインボード"],
   ["プロジェクト", "プロジェクト・ポートフォリオ"],
@@ -62,6 +64,22 @@ const SCREENS = [
   ["スキルマップ", "スキルマップ"],
   ["項目定義", "項目と経歴"],
   ["レポート", "キャパシティ予測"],
+  ["UIカタログ", "UIカタログ"],
+];
+
+/**
+ * The screens scanned again at 390px, where their tables scroll sideways inside
+ * `.skill-map-wrap`. At 1440 all three fit, so `scrollable-region-focusable` never fired
+ * and the field table — which holds no control — sat outside the sweep (#497).
+ *
+ * The demo has management rights and open needs, so the org table and the skill map carry
+ * focusable rows here and pass with or without the box's own `tabIndex`. That half is
+ * pinned by the unit test, not by this pass.
+ */
+const NARROW_SCREENS = [
+  ["組織", "組織階層"],
+  ["スキルマップ", "スキルマップ"],
+  ["項目定義", "項目と経歴"],
 ];
 
 /**
@@ -280,7 +298,7 @@ async function main() {
       return rect.width >= 1 && rect.height >= 1;
     }, selector);
 
-    for (const [entry, heading] of SCREENS) {
+    const visit = async (entry, heading) => {
       await page.evaluate((label) => {
         const nav = document.querySelector('nav[aria-label="メインナビゲーション"]');
         const button = [...nav.querySelectorAll("button")].find((item) => item.textContent.trim().startsWith(label));
@@ -290,8 +308,28 @@ async function main() {
       // The screen's own heading, not a delay: a slow render would otherwise be recorded
       // under the next screen's name.
       await until(page, `the ${entry} screen`, (want) => document.querySelector("h1")?.textContent?.trim() === want, heading);
+    };
+
+    for (const [entry, heading] of SCREENS) {
+      await visit(entry, heading);
       results.push(await scan(page, entry));
     }
+
+    // A search scene adds a score column the plain members screen does not draw, and the
+    // score measured 4.43 against the 4.5 its 12px owes (#575). Picked by name: the first
+    // option is 「なし」, and 「モバイルQA候補」 can match nobody and draw no score at all.
+    await visit("メンバー", "メンバーと空き状況");
+    await page.evaluate((name) => {
+      const select = document.querySelector('select[aria-label="シーンを選ぶ"]');
+      if (!select) throw new Error("the members screen has no scene select");
+      const option = [...select.options].find((item) => item.textContent.trim() === name);
+      if (!option) throw new Error(`no search scene named ${name}`);
+      const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value").set;
+      setter.call(select, option.value);
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    }, "フロントエンド候補");
+    await seeing(page, ".match-score");
+    results.push(await scan(page, "メンバー（検索シーン）"));
 
     await page.evaluate(() => {
       const nav = document.querySelector('nav[aria-label="メインナビゲーション"]');
@@ -363,6 +401,19 @@ async function main() {
     if (await asked !== "confirm") throw new Error("closing the typed-in drawer asked with something other than a confirm");
     await until(page, "the drawer to close", () => !document.querySelector("[role=dialog]"));
 
+    // A saved assignment's detail: its own shell, two panes at this width (#587). Nothing is
+    // typed, so Escape closes it without asking.
+    await page.evaluate(() => {
+      const bar = document.querySelector("button.assignment");
+      if (!bar) throw new Error("the board has no assignment to open");
+      bar.click();
+    });
+    await until(page, "the assignment detail", () => document.querySelector("[role=dialog] h2")?.textContent?.trim() === "アサインの詳細");
+    await seeing(page, ".assignment-detail-actions");
+    results.push(await scan(page, "アサイン詳細ドロワー"));
+    await page.keyboard.press("Escape");
+    await until(page, "the assignment detail to close", () => !document.querySelector("[role=dialog]"));
+
     // Two labels: the launcher says something else when the assistant has no server to
     // call, which is the demo build's state.
     await click(["AIアシスタントを開く", "AIアシスタントの利用状況を確認"]);
@@ -378,6 +429,14 @@ async function main() {
     await page.evaluate(await readFile(axeSource, "utf8"));
     await until(page, "the legal notice", (want) => document.querySelector("h1")?.textContent?.trim() === want, "プライバシーと利用規約");
     results.push(await scan(page, "プライバシーと利用規約"));
+
+    await page.setViewport({ width: 390, height: 844 });
+    await page.goto(`${origin}${BASE}`, { waitUntil: "networkidle0" });
+    await page.evaluate(await readFile(axeSource, "utf8"));
+    for (const [entry, heading] of NARROW_SCREENS) {
+      await visit(entry, heading);
+      results.push(await scan(page, `${entry}（390px）`));
+    }
   } finally {
     if (!KEEP_OPEN) await browser.close();
     server.close();
@@ -386,7 +445,7 @@ async function main() {
   const violations = results.flatMap((result) => result.violations.map((item) => ({ ...item, state: result.state })));
   const incomplete = results.flatMap((result) => result.incomplete.map((item) => ({ ...item, state: result.state })));
 
-  console.log(`\naxe over ${results.length} states at 1440x900`);
+  console.log(`\naxe over ${results.length} states at 1440x900, the last ${NARROW_SCREENS.length} at 390x844`);
   for (const result of results) {
     console.log(`  ${result.violations.length === 0 ? "ok" : "FAIL"}  ${result.state}`
       + `  violations=${result.violations.length} incomplete=${result.incomplete.length}`

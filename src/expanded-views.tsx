@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import {
   AlertTriangle,
   ArrowRight,
@@ -80,11 +80,9 @@ import {
   formatWorkHistoryPeriod,
   getWeekStart,
   isActiveOpportunity,
-  PERIOD_CHOICES,
+  DISPLAY_PERIOD,
   PERIOD_CLIP_NOTE,
   periodBucketLabel,
-  periodChoiceEquals,
-  periodChoiceLabel,
   periodChoiceProseLabel,
   periodMemberStats,
   periodRange,
@@ -133,6 +131,7 @@ import {
   visibleCustomFields,
   weekLabel,
   type PeriodBucket,
+  type PeriodBucketStats,
   type PeriodChoice,
   type PeriodMemberStats,
   type PeriodRange,
@@ -159,6 +158,7 @@ import {
   type WorkHistoryEntry,
   type WorkspaceState,
 } from "./domain";
+import { LabelledTrend, TrendLine, type TrendPoint } from "./trend-line";
 
 type ProjectsViewProps = {
   state: WorkspaceState;
@@ -509,6 +509,17 @@ export type MemberCandidate = {
 };
 
 /**
+ * A candidate's rail: one point per day in the range, at that day's share of the ceiling
+ * and held at it once over. The shape only — when in the range the person is busy. How far
+ * over is the figure beside it, and how many days are is said in words (#587).
+ */
+export function pickerRailPoints(days: readonly Pick<DailyLoad, "load" | "capacity">[]): TrendPoint[] {
+  return days.map((day) => ({
+    value: day.capacity > 0 ? Math.min(100, Math.round((day.load / day.capacity) * 100)) : day.load > 0 ? 100 : 0,
+  }));
+}
+
+/**
  * Who to assign, searched for rather than scrolled through.
  *
  * Both assignment forms picked their member from a native `<select>`: no way to type
@@ -584,7 +595,9 @@ export function MemberPicker({
     <fieldset className="member-picker">
       {/* The range and what is being measured over it, so every row's number has a
           stated meaning and the group announces it once rather than per row. */}
-      <legend>{legend}<small> · {hint}</small></legend>
+      {/* The hint on a line of its own, still inside the legend so the group's name keeps it.
+          The separator is for that name only; on screen the line break does its work. */}
+      <legend>{legend}<span className="sr-only"> · </span><small>{hint}</small></legend>
       <div className="member-picker-head">
         <label className="inline-search">
           <Search size={15} />
@@ -595,29 +608,31 @@ export function MemberPicker({
         <span className="member-picker-count">{matched.length > rows.length ? `該当${matched.length}名中 ${rows.length}名` : `該当${matched.length}名`}</span>
       </div>
       <div className="member-picker-list">
-        {rows.map(({ member, peak, days, label }) => (
-          <label
-            className={"member-picker-item" + (value === member.id ? " chosen" : "")}
-            key={member.id}
-            ref={value === member.id ? chosenRef : null}
-          >
-            <input type="radio" name={name} value={member.id} checked={value === member.id} disabled={disabled} onChange={() => onChange(member.id)} />
-            <span className={"avatar " + member.avatarTone}>{member.initials}</span>
-            <span className="member-picker-copy"><strong>{label}</strong><small>{member.role} · {member.department}</small></span>
-            <span className={"member-picker-load" + (measured ? (days.some((day) => day.load > day.capacity) ? " over" : "") : " unmeasured")}>{measured ? `${peak}% / ${member.capacity}%` : "—"}</span>
-            {/* One cell per weekday in the range, filled to that day's share of the
-                ceiling. Decoration — the numbers beside it are what the row says out
-                loud — so past about 60 weekdays a cell is under 5px and the rail is a
-                texture rather than a reading, and the peak carries it. */}
-            <span className="member-picker-rail" aria-hidden="true">
-              {days.map((day) => <i
-                key={day.date}
-                className={day.load > day.capacity ? "over" : ""}
-                style={{ "--fill": (day.capacity > 0 ? Math.min(100, Math.round((day.load / day.capacity) * 100)) : day.load > 0 ? 100 : 0) + "%" } as React.CSSProperties}
-              />)}
-            </span>
-          </label>
-        ))}
+        {rows.map(({ member, peak, days, label }) => {
+          // Every day over the ceiling, weekend ones included — the same test as `.over`,
+          // which is why this says 「日」 and not 「営業日」.
+          const overDays = measured ? days.filter((day) => day.load > day.capacity).length : 0;
+          return (
+            <label
+              className={"member-picker-item" + (value === member.id ? " chosen" : "")}
+              key={member.id}
+              ref={value === member.id ? chosenRef : null}
+            >
+              <input type="radio" name={name} value={member.id} checked={value === member.id} disabled={disabled} onChange={() => onChange(member.id)} />
+              <span className={"avatar " + member.avatarTone}>{member.initials}</span>
+              <span className="member-picker-copy"><strong>{label}</strong><small>{member.role} · {member.department}</small></span>
+              {/* One wrapper, so the row keeps its four columns with the count under the figure. */}
+              <span className="member-picker-figures">
+                <span className={"member-picker-load" + (measured ? (overDays > 0 ? " over" : "") : " unmeasured")}>{measured ? `${peak}% / ${member.capacity}%` : "—"}</span>
+                {overDays > 0 && <small className="member-picker-over">上限超過 {overDays}日</small>}
+              </span>
+              {/* Decoration: the figure and the count are what the row says out loud. */}
+              <span className="member-picker-rail" aria-hidden="true">
+                <TrendLine dots="none" guides={[100]} points={pickerRailPoints(days)} />
+              </span>
+            </label>
+          );
+        })}
         {rows.length === 0 && <p className="member-picker-empty">条件に合うメンバーがいません。</p>}
       </div>
     </fieldset>
@@ -688,7 +703,7 @@ export function ProjectsView({
   const [localQuery, setLocalQuery] = useState("");
   const [status, setStatus] = useState("すべて");
   const [order, setOrder] = useState<ProjectOrder>("registered");
-  const [choice, setChoice] = useState<PeriodChoice>(PERIOD_CHOICES[0]);
+  const choice = DISPLAY_PERIOD;
   const weekStart = getWeekStart(weekOffset);
   // Named, not 「今週」: these screens follow the board's paging (#146).
   const weekName = weekLabel(weekStart);
@@ -757,18 +772,15 @@ export function ProjectsView({
         />
       </div>
 
-      <div className="projects-period-bar">
-        <PeriodRangeTabs choice={choice} onChange={setChoice} namePrefix="プロジェクト一覧" />
-        {range.clipped && <p className="horizon-clip-note" role="note">{PERIOD_CLIP_NOTE}</p>}
-      </div>
+      {range.clipped && <div className="projects-period-bar"><p className="horizon-clip-note" role="note">{PERIOD_CLIP_NOTE}</p></div>}
 
-      {/* The rail is bars with no week labels and no key. `title` puts the
+      {/* The rail is a line with no month labels and no key. `title` puts the
           numbers within reach of a mouse only, so the values go in each rail's
-          accessible name and the reading of the bars goes here, once, rather
+          accessible name and the reading of the line goes here, once, rather
           than per row. `aria-describedby` rather than adjacency alone: jumping
           straight to the table would otherwise miss this (#85). */}
       <p className="viz-caption" id="portfolio-rail-key">{range.buckets[0]
-        ? `「${periodChoiceProseLabel(choice)}の充足」は、${periodBucketLabel(choice, range.buckets[0], 0)}から${periodChoiceProseLabel(choice)}の充足率を示します。バーの長さが充足率で、必要人数に届かないバケットは橙色、案件期間外は—、必要人数未設定のバケットは空になります。`
+        ? `「${periodChoiceProseLabel(choice)}の充足」は、${periodBucketLabel(choice, range.buckets[0], 0)}から${periodChoiceProseLabel(choice)}の充足率を示します。線の高さが充足率、点線が必要人数です。届かない月は橙色の点、案件期間外は線が途切れ、必要人数未設定は線を描きません。`
         : `「${periodChoiceProseLabel(choice)}の充足」はこの期間では表示できません。`}</p>
 
       <div className="portfolio-table-wrap">
@@ -802,14 +814,17 @@ export function ProjectsView({
                         only. */}
                     {range.buckets.length > 0 && (
                     <div className="four-week-rail" role="img" aria-label={project.name + `の${periodChoiceProseLabel(choice)}の充足人数：` + range.buckets.map((bucket, index) => periodStaffingLabel(choice, bucket, index, counts[index] ?? null, project.demand)).join("、")}>
-                      {range.buckets.map((bucket, index) => {
-                        const count = counts[index] ?? null;
-                        const outside = count === null;
-                        const unset = project.demand === 0;
-                        const width = outside ? 0 : unset ? 0 : Math.min(100, count / project.demand * 100);
-                        const short = !outside && !unset && count < project.demand;
-                        return <i key={`${bucket.from}:${bucket.to}`} title={periodStaffingLabel(choice, bucket, index, count, project.demand)}><b className={short ? "short" : ""} style={{ width: width + "%" }} /></i>;
-                      })}
+                      <TrendLine
+                        guides={project.demand > 0 ? [100] : []}
+                        points={range.buckets.map((bucket, index) => {
+                          const count = counts[index] ?? null;
+                          const title = periodStaffingLabel(choice, bucket, index, count, project.demand);
+                          // No line for a month outside the project, nor for a project with no
+                          // headcount set: a full line would read as 「fully staffed」 (#85).
+                          if (count === null || project.demand === 0) return { value: null, title };
+                          return { value: Math.min(100, (count / project.demand) * 100), tone: count < project.demand ? "short" as const : undefined, title };
+                        })}
+                      />
                     </div>
                     )}
                     <span className="staffed-label">{project.demand === 0 ? "必要人数未設定" : `${weekName} ${currentMembers}/${project.demand}名`}</span>
@@ -951,6 +966,38 @@ function memberNextOpenCopy(
   return nextOpen === 0 ? `${label} 空き${bucket.slack}%` : label;
 }
 
+/**
+ * The label that sets every column's width. With tabular figures each digit is one width,
+ * so more digits is wider; among labels with as many digits, a decimal point adds width.
+ */
+export function widestRailLabel(labels: readonly string[]) {
+  const weight = (label: string) => [...label].reduce((sum, char) => sum + (/\d/u.test(char) ? 2 : 1), 0);
+  return labels.reduce((widest, label) => (weight(label) > weight(widest) ? label : widest), "");
+}
+
+/**
+ * The members list's month line with each month's busiest day under its point (#581).
+ *
+ * The line puts month i at (i + 0.5) / N of its width, so every column has to be the
+ * same width. Each label carries the widest label as an invisible sizer, so every track
+ * has the same min-content and the table — which sizes this cell from it — widens the
+ * rail until the widest label fits, the way the bars' `min-content` floors did.
+ * `minmax(0, 1fr)` alone gave the cell no min-content, and it fell to the column's
+ * 124px with twelve labels overflowing it (measured: 100px rail, 99 overlapping pairs).
+ */
+export function MonthRail({ buckets }: { buckets: readonly Pick<PeriodBucketStats, "from" | "to" | "peak" | "ratio" | "exceeds" | "open">[] }) {
+  const labels = buckets.map((bucket) => `${bucket.peak}%`);
+  const widest = widestRailLabel(labels);
+  return (
+    <div className="member-week-rail" style={{ "--rail-points": buckets.length } as React.CSSProperties}>
+      <TrendLine guides={[100]} points={buckets.map((bucket) => ({ value: bucket.ratio, tone: bucket.exceeds ? "over" as const : bucket.open ? "open" as const : undefined }))} />
+      {buckets.map((bucket, index) => (
+        <small key={`${bucket.from}:${bucket.to}`}>{labels[index]}<span className="member-week-rail-sizer" aria-hidden="true">{widest}</span></small>
+      ))}
+    </div>
+  );
+}
+
 export function MembersView({
   state,
   weekOffset,
@@ -985,7 +1032,7 @@ export function MembersView({
   const [sceneMinAvailable, setSceneMinAvailable] = useState("");
   const [order, setOrder] = useState<MemberOrder>("score");
   const [error, setError] = useState("");
-  const [choice, setChoice] = useState<PeriodChoice>(PERIOD_CHOICES[0]);
+  const choice = DISPLAY_PERIOD;
   const weekStart = getWeekStart(weekOffset);
   // Named, not 「今週」: these screens follow the board's paging (#146).
   const weekName = weekLabel(weekStart);
@@ -1100,10 +1147,7 @@ export function MembersView({
         <div className="capacity-legend"><span>稼働率</span><span><i className="open" />60%以下</span><span><i className="steady" />適正</span><span><i className="hot" />上限超過</span></div>
       </div>
 
-      <div className="member-period-bar">
-        <PeriodRangeTabs choice={choice} onChange={setChoice} namePrefix="メンバー一覧" />
-        {range.clipped && <p className="horizon-clip-note" role="note">{PERIOD_CLIP_NOTE}</p>}
-      </div>
+      {range.clipped && <div className="member-period-bar"><p className="horizon-clip-note" role="note">{PERIOD_CLIP_NOTE}</p></div>}
 
       <div className="view-toolbar">
         <label className="inline-search"><Search size={15} /><input value={searchValue} onChange={(event) => setSearchValue(event.target.value)} placeholder="名前・スキル・経歴を検索" aria-label="メンバーを検索" /></label>
@@ -1190,8 +1234,17 @@ export function MembersView({
         </p>
       )}
 
+      {/* The line is capped at the ceiling, the way `ratio` is, so the figure under each
+          point is what says how far past it a month went: the busiest day, which matches
+          the line only while every day's ceiling is the member's own (#581). */}
+      {range.buckets.length > 0 && (
+        <p className="viz-caption" id="member-rail-key">
+          「{periodChoiceProseLabel(choice)}の稼働」は、月ごとに稼働上限に対する割合を線で示します（100%で頭打ち）。点線が稼働上限で、上限超過の月は橙色、稼働率60%以下の月は緑の点です。下の数字は、その月でいちばん忙しい日の稼働です。
+        </p>
+      )}
+
       <div className="member-table-wrap">
-        <table className="member-table" aria-describedby={selectedScene ? "member-score-key" : undefined}>
+        <table className="member-table" aria-describedby={[range.buckets.length > 0 ? "member-rail-key" : "", selectedScene ? "member-score-key" : ""].filter(Boolean).join(" ") || undefined}>
           <thead><tr><th className="col-favorite"><span className="sr-only">お気に入り</span></th><th className="col-name">メンバー</th><th className="col-skills">スキル</th>{selectedScene && <th className="col-score">スコア</th>}{listFields.map((field) => <th key={field.id} className="col-custom">{field.label}</th>)}<th className="col-week">{weekName}の稼働</th><th className="col-rail">{periodChoiceProseLabel(choice)}の稼働</th><th className="col-next">次に稼働率60%以下</th><th className="col-actions"><span className="sr-only">操作</span></th></tr></thead>
           <tbody>
             {filtered.map((member) => {
@@ -1211,7 +1264,7 @@ export function MembersView({
                   {selectedScene && <td><span className="match-score">{match?.score ?? 0}/{scoreCeiling}点<small>空き{match?.availablePercent ?? 0}%</small></span></td>}
                   {listFields.map((field) => <td key={field.id}><span className="custom-field-cell">{formatCustomValue(field, customValue(member.customValues, field.id))}</span></td>)}
                   <td><span className={"load-ring " + (stats.exceeds ? "over" : stats.open ? "open" : "")} style={{ "--load": Math.min(100, loadRatio) } as React.CSSProperties}><strong>{load}%</strong></span><small className="capacity-limit">稼働上限 {member.capacity}%</small></td>
-                  <td><div className="member-week-rail">{(periodStats?.buckets ?? []).map((bucket) => { /* The label is a sibling of the bar, not a child: it belongs to its own grid track so it cannot overlap the next week's. */ return <Fragment key={`${bucket.from}:${bucket.to}`}><i className={bucket.exceeds ? "over" : bucket.open ? "open" : ""}><b style={{ height: Math.max(12, Math.min(100, bucket.ratio)) + "%" }} /></i><small>{bucket.peak}%</small></Fragment>; })}</div></td>
+                  <td><MonthRail buckets={periodStats?.buckets ?? []} /></td>
                   <td><span className="next-open">{memberNextOpenCopy(member, periodStats, range, choice)}<small>{member.location}</small></span></td>
                   {/* The flex box is the div, not the td: a flex td is no longer a table cell,
                       so it stopped at its content's height and the sticky column let the
@@ -1245,7 +1298,7 @@ export function ProposalView({
   const [pickerQuery, setPickerQuery] = useState("");
   /** Which columns the file carries. Minimal until the sender adds to it (#148). */
   const [exportColumns, setExportColumns] = useState<string[]>([...DEFAULT_PROPOSAL_CSV_COLUMNS]);
-  const [choice, setChoice] = useState<PeriodChoice>(PERIOD_CHOICES[0]);
+  const choice = DISPLAY_PERIOD;
   const range = useMemo(() => periodRange(choice, origin, planningSpan(state)), [choice, origin, state]);
   /**
    * What the proposal answers. A project's unfilled staffing need or an
@@ -1343,9 +1396,6 @@ export function ProposalView({
           <option value="">未選択</option>
           {subjects.map((item) => <option value={item.id} key={item.id}>{item.label}</option>)}
         </select></label>
-        {/* Inside the toolbar so `@media print` that already hides `.view-toolbar`
-            takes the tabs with it. The clip note sits after this box and prints. */}
-        <PeriodRangeTabs choice={choice} onChange={setChoice} namePrefix="候補者提案" />
         <span className="toolbar-result">最大{MAX_PROPOSAL_MEMBERS}名。社内リンクはログインが必要です。社外へ出すときはファイルか紙にします。</span>
         {/* The answer #148 settled on. A link cannot be sent outside — it carries real
             member ids — and a file can: no ids in it. What a file cannot do is expire, so
@@ -1526,16 +1576,22 @@ export function ProposalView({
                     </p>
                   );
                 })()}
+                {/* The ceiling once, inside the block the print tick box hides, rather than
+                    「80% / 100%」 twelve times: twelve columns have no room for it (#583). */}
                 <div className="proposal-weeks" aria-label={`${label}の${periodChoiceProseLabel(choice)}の稼働`}>
-                  {range.buckets.length === 0
+                  {range.buckets.length === 0 || !periodStats
                     ? <p className="proposal-weeks-empty">この期間は表示できません</p>
-                    : (periodStats?.buckets ?? []).map((bucket, index) => (
-                      <div key={`${bucket.from}:${bucket.to}`}>
-                        <span>{periodBucketLabel(choice, bucket, index)}</span>
-                        <i><b className={bucket.exceeds ? "over" : ""} style={{ width: bucket.ratio + "%" }} /></i>
-                        <strong>{bucket.peak}% / {member.capacity}%</strong>
-                      </div>
-                    ))}
+                    : (
+                      <>
+                        <p className="proposal-weeks-ceiling">稼働上限 {member.capacity}%</p>
+                        <LabelledTrend
+                          label={`${label}の${periodChoiceProseLabel(choice)}の稼働`}
+                          guides={[100]}
+                          points={periodStats.buckets.map((bucket) => ({ value: bucket.ratio, tone: bucket.exceeds ? "over" as const : undefined }))}
+                          cells={periodStats.buckets.map((bucket, index) => ({ key: `${bucket.from}:${bucket.to}`, month: periodBucketLabel(choice, bucket, index), figure: `${bucket.peak}%` }))}
+                        />
+                      </>
+                    )}
                 </div>
                 <button type="button" className="proposal-open" onClick={() => onOpenMember(member.id)}>詳細を開く</button>
               </article>
@@ -1547,25 +1603,13 @@ export function ProposalView({
   );
 }
 
-export function PeriodRangeTabs({ choice, onChange, namePrefix }: { choice: PeriodChoice; onChange: (choice: PeriodChoice) => void; namePrefix?: string }) {
-  return (
-    <div className="range-tabs" aria-label={namePrefix ? `${namePrefix}の表示期間` : "表示期間"}>{PERIOD_CHOICES.map((option) => {
-      const selected = periodChoiceEquals(choice, option);
-      const label = periodChoiceLabel(option);
-      const name = namePrefix ? `${namePrefix}の${label}` : label;
-      const key = option.unit === "all" ? "all" : `${option.unit}:${option.count}`;
-      return <button type="button" className={selected ? "selected" : ""} aria-label={name} aria-pressed={selected} onClick={() => onChange(option)} key={key}>{label}</button>;
-    })}</div>
-  );
-}
-
 const PLAN_COST_AXES: { axis: PlanCostAxis; label: string }[] = [
   { axis: "project", label: "プロジェクト" },
   { axis: "department", label: "部門" },
   { axis: "month", label: "月" },
 ];
 
-function PlanCostAxisTabs({ axis, onChange }: { axis: PlanCostAxis; onChange: (axis: PlanCostAxis) => void }) {
+export function PlanCostAxisTabs({ axis, onChange }: { axis: PlanCostAxis; onChange: (axis: PlanCostAxis) => void }) {
   return (
     <div className="range-tabs" aria-label="計画コストの集計軸">{PLAN_COST_AXES.map((option) => {
       const selected = axis === option.axis;
@@ -1575,7 +1619,7 @@ function PlanCostAxisTabs({ axis, onChange }: { axis: PlanCostAxis; onChange: (a
 }
 
 export function ReportsView({ state, onOpenWeek, onResolveNeed, onOpenOpportunity, onAddReport, onDeleteReport, canManageReports = false }: ReportsViewProps) {
-  const [choice, setChoice] = useState<PeriodChoice>(PERIOD_CHOICES[1]);
+  const choice = DISPLAY_PERIOD;
   const [reportId, setReportId] = useState((state.savedReports ?? [])[0]?.id ?? "");
   const [reportName, setReportName] = useState("");
   const [source, setSource] = useState<ReportSource>("members");
@@ -1673,7 +1717,6 @@ export function ReportsView({ state, onOpenWeek, onResolveNeed, onOpenOpportunit
     <section className="section-view reports-view" aria-labelledby="reports-heading">
       <div className="report-toolbar">
         <div><small>CAPACITY HORIZON</small><h2 id="reports-heading">需給バランスの見通し</h2><p>確定稼働と受注前の想定人数を分けて確認します。</p></div>
-        <PeriodRangeTabs choice={choice} onChange={setChoice} />
       </div>
 
       <section className="balance-card saved-report-card" aria-labelledby="saved-report-heading">
@@ -1723,16 +1766,20 @@ export function ReportsView({ state, onOpenWeek, onResolveNeed, onOpenOpportunit
       </section>
 
       <div className="horizon-card">
-        {/* The ticks and the bars share one row now. They used to be siblings with
-            independently computed heights, so the label reading 100% sat 31px below the
-            line drawn at 100% and a reader pairing them read a different value (#133). */}
+        {/* The ticks, the guides and the line share one row. They used to be siblings
+            with independently computed heights, so the label reading 100% sat 31px below
+            the line drawn at 100% and a reader pairing them read a different value (#133).
+            The line is drawn like the guides — absolutely, over the bar row — so it takes
+            no cell from the month buttons, which keep their own points and stay the
+            controls (#582). */}
         <div className="horizon-plot">
           <div className="horizon-y-labels"><span className="t100">100%</span><span className="t60">60%</span><span className="t0">0</span></div>
           <div className="horizon-grid" style={{ "--horizon-cols": Math.max(horizon.length, 1) } as CSSProperties}>
-            <div className="horizon-guide g100" /><div className="horizon-guide g60" />
+            <div className="horizon-guide g100" /><div className="horizon-guide g60" /><div className="horizon-guide g0" />
+            <TrendLine className="horizon-line" max={120} dots="none" points={horizon.map((bucket) => ({ value: bucket.average }))} />
             {horizon.map((bucket) => (
             <button className="horizon-week" type="button" onClick={() => openBoard(bucket.from)} key={`${bucket.from}:${bucket.to}`} aria-label={`${bucket.label} ${bucket.average}%${bucket.pipelineDemand > 0 ? ` 受注前+${bucket.pipelineDemand}名` : ""}`}>
-              <span className="horizon-bar"><i className={bucket.average > 100 ? "over" : ""} style={{ height: Math.min(100, bucket.average / 120 * 100) + "%" }} />{bucket.draft > 0 && <b style={{ bottom: Math.min(100, bucket.average / 120 * 100) + "%" }} />}</span>
+              <span className="horizon-bar"><i className={"horizon-point" + (bucket.average > 100 ? " over" : "") + (bucket.draft > 0 ? " draft" : "")} style={{ bottom: Math.min(100, bucket.average / 120 * 100) + "%" }} /></span>
               <strong>{bucket.average}%</strong>
               {bucket.pipelineDemand > 0 && <span className="pipeline-chip">+{bucket.pipelineDemand}名</span>}
               <small>{bucket.label}</small>
@@ -1754,14 +1801,30 @@ export function ReportsView({ state, onOpenWeek, onResolveNeed, onOpenOpportunit
           ) : (
             <>
               <p className="plan-cost-total">合計 {formatYen(planCost.totalYen)}{planCost.unsetCount > 0 ? ` · 未設定 ${planCost.unsetCount}名` : ""}</p>
-              <div className="plan-cost-list" aria-describedby="plan-cost-caption">
+              {/* Months are a series, so they are a line (#582); projects and departments
+                  have no order to draw a line through and keep their bars (#580). The
+                  list below still carries every amount, 未設定 and 「(一部)」 in text. */}
+              {planCostAxis === "month" && (
+                <div className="plan-cost-trend" style={{ "--rail-points": planCost.rows.length } as CSSProperties}>
+                  <TrendLine
+                    max={planCostMaxYen}
+                    points={planCost.rows.map((row) => ({
+                      value: row.yen === 0 && row.unsetCount > 0 ? null : row.yen,
+                      title: `${row.label} ${row.yen === 0 && row.unsetCount > 0 ? "未設定" : formatYen(row.yen)}`,
+                    }))}
+                  />
+                  <small className="plan-cost-trend-first">{planCost.rows[0]?.label}</small>
+                  {planCost.rows.length > 1 && <small className="plan-cost-trend-last">{planCost.rows.at(-1)?.label}</small>}
+                </div>
+              )}
+              <div className={"plan-cost-list" + (planCostAxis === "month" ? " is-month" : "")} aria-describedby="plan-cost-caption">
                 {planCost.rows.map((row) => (
                   <div key={row.key}>
                     <span style={row.depth > 0 ? { paddingInlineStart: `${row.depth * 12}px` } : undefined}>
                       <strong>{row.label}</strong>
                       {row.unsetCount > 0 && <small>未設定 {row.unsetCount}名</small>}
                     </span>
-                    <i><b style={{ width: `${Math.min(100, row.yen / planCostMaxYen * 100)}%` }} /></i>
+                    {planCostAxis !== "month" && <i><b style={{ width: `${Math.min(100, row.yen / planCostMaxYen * 100)}%` }} /></i>}
                     <em>{row.yen === 0 && row.unsetCount > 0 ? "未設定" : formatYen(row.yen)}</em>
                   </div>
                 ))}
@@ -1875,7 +1938,10 @@ export function SkillsView({ state, onAddCatalogEntry, onOpenMember, onResolveNe
           cell counts (#85). */}
       <p className="viz-caption" id="skill-rail-key">習熟度は、左から <b>初級</b>・<b>基礎</b>・<b>実務</b>・<b>応用</b>・<b>指導</b> の5段階です。マスの数字は、その習熟度の保有者数です。</p>
 
-      <div className="skill-map-wrap">
+      {/* Focusable itself: at 390px it scrolls sideways, and with no open need the rows
+          hold no button to reach it by (#497). */}
+      {/* eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- scrollport */}
+      <div className="skill-map-wrap" tabIndex={0} role="region" aria-label="スキルの一覧">
         <table className="skill-map-table" aria-describedby="skill-rail-key">
           <thead>
             <tr>
@@ -2504,7 +2570,10 @@ export function FieldsView({ state, onAddField, canManage = false, canManageRequ
         </form>
       )}
 
-      <div className="skill-map-wrap">
+      {/* No control in this table, so at 390px the sideways scroll is only reachable
+          through the box (#497). */}
+      {/* eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- scrollport */}
+      <div className="skill-map-wrap" tabIndex={0} role="region" aria-label="独自項目の一覧">
         <table className="skill-map-table">
           <thead>
             <tr>
@@ -2681,7 +2750,10 @@ export function OrgView({ state, onAddUnit, onMoveUnit, onArchiveUnit, canManage
         </form>
       )}
 
-      <div className="skill-map-wrap">
+      {/* Without management rights the rows hold no select or button, and at 390px the
+          table scrolls sideways (#497). */}
+      {/* eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- scrollport */}
+      <div className="skill-map-wrap" tabIndex={0} role="region" aria-label="部門の一覧">
         <table className="skill-map-table">
           <thead>
             <tr>
