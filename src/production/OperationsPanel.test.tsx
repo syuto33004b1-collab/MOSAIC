@@ -523,6 +523,12 @@ describe("OperationsPanel external mcp servers", () => {
     );
 
     await openSettingsSection(user, "外部連携");
+    // Write tools are accepted in the same form, so the header can no longer say reads only (#498).
+    expect(await screen.findByText(
+      "AI秘書は、ここで承認したサーバーの、承認したtoolだけを使います。書込に指定しなかったtoolはすぐに社外へ問い合わせて結果を受け取り、書込に指定したtoolは、AI秘書が呼んだあと利用者が確認してから実行します。localhostやプライベートIPは登録できません。最大5件です。",
+    )).toBeInTheDocument();
+    expect(screen.queryByText(/今段は参照のみ/u)).not.toBeInTheDocument();
+    expect(screen.queryByText(/外部への書込みは行いません/u)).not.toBeInTheDocument();
     await user.type(await screen.findByLabelText("サーバーキー"), "acme_hr");
     await user.type(screen.getByLabelText("表示名"), "ACME人事");
     await user.type(screen.getByLabelText("接続先URL"), "https://mcp.example.com/mcp");

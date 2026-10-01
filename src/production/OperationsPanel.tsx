@@ -852,7 +852,7 @@ export function OperationsPanel({
                   <button className="drawer-primary" type="submit" disabled={issuingEndpoint || !endpointName.trim() || !endpointUrl.trim()}><Radio size={15} />{issuingEndpoint ? "登録中…" : "Webhookを登録する"}</button>
                 </form>
                 <div className="drawer-section-title"><span>外部MCPサーバー</span><small>{loading ? "読込中" : `${mcpServers.length}件`}</small></div>
-                <div className="form-note"><Plug size={15} /><span>AI秘書がここで承認したサーバーの、承認したtoolだけを参照します。今段は参照のみで、外部への書込みは行いません。localhostやプライベートIPは登録できません。最大{MCP_SERVER_LIMITS.maxServersPerOrg}件です。</span></div>
+                <div className="form-note"><Plug size={15} /><span>AI秘書は、ここで承認したサーバーの、承認したtoolだけを使います。書込に指定しなかったtoolはすぐに社外へ問い合わせて結果を受け取り、書込に指定したtoolは、AI秘書が呼んだあと利用者が確認してから実行します。localhostやプライベートIPは登録できません。最大{MCP_SERVER_LIMITS.maxServersPerOrg}件です。</span></div>
                 <div className="allocation-list production-integration-list">
                   {mcpServers.map((server) => (
                     <div key={server.id}>
