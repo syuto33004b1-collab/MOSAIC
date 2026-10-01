@@ -6136,6 +6136,8 @@ h1 {
 .assignment-detail-panes { display: grid; grid-template-columns: minmax(0, 1fr); gap: 24px; }
 .assignment-detail-terms > .form-note:last-child { margin-bottom: 0; }
 .assignment-detail-panes > .member-picker { margin-bottom: 0; }
+/* Here the legend heads a pane of its own, opposite the fields; the add form's stays a
+   field label above its list. */
 .assignment-detail-panes > .member-picker legend {
   color: var(--ink);
   font-size: var(--text-sm);

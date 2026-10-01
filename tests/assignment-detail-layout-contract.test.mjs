@@ -67,6 +67,9 @@ test("the terms come before the candidates, and the actions are inside the form 
   const picker = form.indexOf("<MemberPicker");
   const actions = form.indexOf('className="assignment-detail-actions"');
   assert.ok(body > 0 && terms > body && picker > terms && actions > picker, "body → terms → picker → actions");
+  // Outside the scroll: every div opened from the body's own tag is closed before the actions.
+  const between = form.slice(form.lastIndexOf("<div", body), actions);
+  assert.equal((between.match(/<div\b/g) ?? []).length, (between.match(/<\/div>/g) ?? []).length + 1, "the actions sit after the body closes");
   assert.match(css, /\.assignment-detail-body \{[^}]*overflow-y:\s*auto/);
   assert.match(css, /\.assignment-detail-actions \{[^}]*flex:\s*0 0 auto/);
 });

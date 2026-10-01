@@ -501,7 +501,8 @@ function revealInPickerList(row: HTMLElement | null) {
   if (!row || !list) return;
   const rowBox = row.getBoundingClientRect();
   const listBox = list.getBoundingClientRect();
-  if (rowBox.top < listBox.top) list.scrollTop -= listBox.top - rowBox.top;
+  // A row taller than the list keeps its top, where the name is.
+  if (rowBox.top < listBox.top || rowBox.height > listBox.height) list.scrollTop += rowBox.top - listBox.top;
   else if (rowBox.bottom > listBox.bottom) list.scrollTop += rowBox.bottom - listBox.bottom;
 }
 
@@ -1477,8 +1478,10 @@ export default function Home({ mode = "demo", organizationId, organizationName =
     // Both forms, and only one of them is mounted at a time, so one ref is enough.
     // The edit form needs it more: it opens on whoever holds the assignment, and
     // that person is wherever their load puts them in the order (#219).
-    if (drawer !== "add" && drawer !== "assignment") return;
-    revealInPickerList(chosenCandidateRef.current);
+    // The add form keeps its list above the fields and the whole drawer scrolling, so
+    // there the row still brings the drawer along.
+    if (drawer === "add") chosenCandidateRef.current?.scrollIntoView({ block: "nearest" });
+    if (drawer === "assignment") revealInPickerList(chosenCandidateRef.current);
   }, [drawer]);
 
   const range = useMemo(() => boardRange("month", weekOffset), [weekOffset]);
