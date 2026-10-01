@@ -19,7 +19,7 @@ import {
   X,
 } from "lucide-react";
 import { PROFICIENCY_LABELS, type PlanCostAxis } from "./domain";
-import { ActiveFilters, FavoriteStar, MilestoneOverdue, MonthRail, PlanCostAxisTabs } from "./expanded-views";
+import { ActiveFilters, FavoriteStar, MilestoneOverdue, MonthRail, PlanCostAxisTabs, pickerRailPoints } from "./expanded-views";
 import { LabelledTrend, TrendLine } from "./trend-line";
 
 /**
@@ -161,7 +161,7 @@ function PickerRailSpecimen() {
   return (
     <div className="ui-catalog-cell">
       <span className="member-picker-rail" aria-hidden="true">
-        <TrendLine dots="flagged" guides={[100]} points={PICKER_DAYS.map((load) => ({ value: Math.min(100, load), tone: load > 100 ? "over" as const : undefined }))} />
+        <TrendLine dots="none" guides={[100]} points={pickerRailPoints(PICKER_DAYS.map((load) => ({ load, capacity: 100 })))} />
       </span>
     </div>
   );
@@ -376,7 +376,7 @@ export const UI_CATALOG: readonly CatalogSection[] = [
         specimens: [
           { label: "充足", classes: ["four-week-rail", "trend-line", "staffed-label"], probe: ".four-week-rail .trend-line", screens: "プロジェクト一覧（12か月の充足）", width: 162, Render: StaffingRailSpecimen },
           { label: "月ごとの稼働", classes: ["member-week-rail", "trend-line"], probe: ".member-week-rail .trend-line", screens: "メンバー一覧（12か月の稼働）", wide: true, Render: MonthRailSpecimen },
-          { label: "日ごとの稼働", classes: ["member-picker-rail", "trend-line"], probe: ".member-picker-rail .trend-line", screens: "アサインの追加（メンバーの候補）", wide: true, width: 518, Render: PickerRailSpecimen },
+          { label: "日ごとの稼働", classes: ["member-picker-rail", "trend-line"], probe: ".member-picker-rail .trend-line", screens: "アサインの追加・アサインの詳細（メンバーの候補）", wide: true, width: 518, Render: PickerRailSpecimen },
           { label: "充足（月と人数つき）", classes: ["project-capacity-trend", "labelled-trend", "trend-line"], probe: ".project-capacity-trend .trend-line", screens: "プロジェクト詳細（12か月の充足）", wide: true, width: 473, Render: ProjectCapacitySpecimen },
           { label: "稼働（月と値つき）", classes: ["proposal-weeks", "labelled-trend", "trend-line"], probe: ".proposal-weeks .trend-line", screens: "候補者提案（候補カード）", wide: true, Render: ProposalWeeksSpecimen },
           { label: "需給の見通し", classes: ["horizon-card", "horizon-plot", "horizon-grid", "horizon-line", "horizon-week", "horizon-point"], probe: ".horizon-line", screens: "レポート", wide: true, Render: HorizonSpecimen },

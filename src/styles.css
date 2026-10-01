@@ -833,7 +833,11 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .drawer-icon.mint { background: #def3ec; color: #347c68; }
 .drawer-heading h2 { margin: 0; font-size: 19px; letter-spacing: -.04em; }
 .drawer-heading p { margin: 4px 0 0; color: #8b94a5; font-size: 9px; }
-.assignment-form > label {
+/* The assignment detail's fields sit one box down (#587), and in that pane the dates
+   take the same label as everything else rather than the inherited 16px. */
+.assignment-form > label,
+.assignment-detail-terms > label,
+.assignment-detail-terms > .form-grid > label {
   margin-bottom: 17px;
   display: block;
   color: #626c7f;
@@ -901,7 +905,7 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
    reading order come from the platform instead of from ARIA (#199). */
 .member-picker { min-width: 0; margin: 0 0 17px; padding: 0; border: 0; }
 .member-picker legend { padding: 0; color: #626c7f; font-size: var(--text-min); font-weight: 700; }
-.member-picker legend small { color: var(--muted-readable); font-size: var(--text-min); font-weight: 600; }
+.member-picker legend small { margin-top: 2px; display: block; color: var(--muted-readable); font-size: var(--text-min); font-weight: 600; }
 .member-picker-head { margin: 7px 0; display: flex; align-items: center; gap: 8px; }
 /* `min-width: 0` because the count beside it must not be the thing that shrinks:
    it is the sentence that says the list is not all of them. */
@@ -930,6 +934,10 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .member-picker-copy small { color: var(--muted-readable); font-size: var(--text-min); }
 .member-picker-load { font-family: var(--font-data); font-size: var(--text-min); font-weight: 700; white-space: nowrap; }
 .member-picker-load.over { color: var(--coral-deep); }
+/* The figure and, under it, how many days are over: one grid cell, so the row keeps
+   its four columns and the rail its own line (#587). */
+.member-picker-figures { display: grid; justify-items: end; gap: 1px; }
+.member-picker-over { color: var(--coral-deep); font-size: var(--text-min); font-weight: 600; white-space: nowrap; }
 /* 「—」 while the form's dates make no range (#253): quiet, not a warning. */
 .member-picker-load.unmeasured { color: var(--muted-readable); }
 /* One point per weekday, so the rail always fits its row rather than scrolling.
@@ -1017,8 +1025,6 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .add-chooser small { color: var(--muted-readable); font-size: var(--text-min); }
 .drawer-danger { border: 1px solid #efc7c4; background: #fff8f7; color: #bd554e; }
 .drawer-danger:hover { border-color: #dfaaa6; background: #fff0ee; }
-.assignment-edit-actions { display: grid; gap: 8px; }
-.assignment-edit-actions .drawer-secondary { margin-top: 0; }
 .assignment-form input:disabled, .assignment-form select:disabled, .assignment-form textarea:disabled { cursor: not-allowed; opacity: .64; }
 .drawer-primary:disabled, .drawer-secondary:disabled, .drawer-danger:disabled { cursor: not-allowed; opacity: .52; }
 .capacity-card {
@@ -1462,6 +1468,7 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .planned-candidate strong { font-size: var(--text-min); }
 .planned-candidate small { margin-top: 4px; color: #818bbd; font-size: 8px; }
 .assignment-form > label > input,
+.assignment-detail-terms > label > input,
 .assignment-form .form-grid input {
   width: 100%;
   height: 43px;
@@ -1474,6 +1481,7 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   font-size: var(--text-min);
 }
 .assignment-form > label > input:focus,
+.assignment-detail-terms > label > input:focus,
 .assignment-form .form-grid input:focus { border-color: #91a0ff; box-shadow: 0 0 0 3px rgba(86,104,232,.1); }
 
 .section-view { width: 100%; max-width: 100%; min-width: 0; overflow-x: hidden; animation: rise-in .46s .04s ease-out backwards; /* `backwards` on purpose (#135) */ }
@@ -3750,6 +3758,8 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .drawer-kicker,
 .drawer-heading p,
 .assignment-form > label,
+.assignment-detail-terms > label,
+.assignment-detail-terms > .form-grid > label,
 .form-note,
 .capacity-card > div:first-child span,
 .capacity-meter i,
@@ -4882,6 +4892,8 @@ h1 {
 .close-button { border-color: var(--line); border-radius: 50%; color: var(--ink); }
 .assignment-form > label > input,
 .assignment-form > label > select,
+.assignment-detail-terms > label > input,
+.assignment-detail-terms > label > select,
 .assignment-form .form-grid input,
 .assignment-form .form-grid select,
 .assignment-form textarea {
@@ -4892,6 +4904,8 @@ h1 {
 }
 .assignment-form > label > input:focus,
 .assignment-form > label > select:focus,
+.assignment-detail-terms > label > input:focus,
+.assignment-detail-terms > label > select:focus,
 .assignment-form .form-grid input:focus,
 .assignment-form .form-grid select:focus,
 .assignment-form textarea:focus {
@@ -6047,13 +6061,160 @@ h1 {
   margin-right: auto;
   margin-left: 0;
 }
-/* Assignment detail only (#440). The add form and the other drawers keep the
-   drawer width. 36rem is the cap; a narrower drawer still fills it, and the
-   block stays left. */
+/* Assignment detail (#587). The terms beside the candidates measured over them, and the
+   actions outside the scroll so they are on screen at every size (#541). This replaces
+   #440's 36rem cap, which left the right third of a 1440px dialog empty.
+   The member detail's shell (#458): the panel stops scrolling, the body between the
+   heading and the actions does. Its own class, because `.dialog-lg` is shared with four
+   other dialogs. The height is only released from 621px; below, the sheet keeps its
+   `min(88vh, 760px)`, which a two-class rule here would otherwise outrank. */
+.drawer.assignment-detail-open {
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.drawer.assignment-detail-open .drawer-top { flex: 0 0 auto; }
+@media (min-width: 621px) {
+  .drawer.assignment-detail-open {
+    height: auto;
+    max-height: 100%;
+  }
+}
 .assignment-edit-form {
-  max-width: 36rem;
-  margin-right: auto;
-  margin-left: 0;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+/* 6px of padding on each side, given back by the margin: a scroll box clips at its
+   padding edge, and the focus ring is 3px out at a 3px offset. Without it the ring of
+   every full-width field was cut along both sides. */
+.assignment-detail-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  margin: 0 -6px;
+  padding: 0 6px 6px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.assignment-edit-form .drawer-heading { margin-bottom: 12px; }
+.assignment-detail-status {
+  flex: 0 0 auto;
+  align-self: flex-start;
+  margin-top: 2px;
+  padding: 2px 8px;
+  border: 1px dashed var(--coral-deep);
+  border-radius: 3px;
+  color: var(--coral-deep);
+  font-size: var(--text-min);
+  font-weight: 700;
+  line-height: var(--leading);
+  white-space: nowrap;
+}
+/* Two ways out, not two halves of the dialog: sized to their words, side by side
+   while they fit (#424, #587). */
+.assignment-detail-links { margin: 0 0 20px; display: flex; flex-wrap: wrap; gap: 8px; }
+.assignment-detail-link {
+  max-width: 100%;
+  min-height: 44px;
+  padding: 0 10px 0 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: 3px;
+  background: var(--paper-pure);
+  color: var(--ink);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--text-min);
+  font-weight: 700;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+.assignment-detail-link:hover { border-color: var(--ink); background: var(--canvas); }
+.assignment-detail-link svg { flex: 0 0 auto; }
+.assignment-detail-panes { display: grid; grid-template-columns: minmax(0, 1fr); gap: 24px; }
+.assignment-detail-terms > .form-note:last-child { margin-bottom: 0; }
+.assignment-detail-panes > .member-picker { margin-bottom: 0; }
+/* Here the legend heads a pane of its own, opposite the fields; the add form's stays a
+   field label above its list. */
+.assignment-detail-panes > .member-picker legend {
+  color: var(--ink);
+  font-size: var(--text-sm);
+}
+/* Side by side once the panel's content box is 700px: about a 1210px viewport, so
+   1280 gets two panes of ~340px and 1052 keeps one column, where two would leave each
+   date field about 140px. Each pane scrolls on its own, and on the right only the list
+   does, so the search stays put. In one column the body scrolls and the list keeps
+   its own 296px, so showing the chosen row on open moves the list and not the fields
+   above it. */
+@container detail-panel (min-width: 700px) {
+  .assignment-detail-body {
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  .assignment-detail-body > .drawer-heading,
+  .assignment-detail-links { flex: 0 0 auto; }
+  .assignment-detail-panes {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
+    gap: 0 24px;
+  }
+  .assignment-detail-terms {
+    min-height: 0;
+    margin: 0 -6px;
+    padding: 0 6px 6px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+  .assignment-detail-panes > .member-picker {
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  /* `max-content` rows: with a height from the flex box rather than a max-height, auto
+     rows shrank to each row's 44px floor and the rails drew over the rows above them. */
+  .assignment-detail-panes .member-picker-list {
+    flex: 1 1 auto;
+    min-height: 0;
+    max-height: none;
+    grid-auto-rows: max-content;
+    align-content: start;
+  }
+}
+.assignment-detail-actions {
+  flex: 0 0 auto;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px 12px;
+}
+.assignment-detail-actions > .drawer-primary,
+.assignment-detail-actions > .drawer-danger,
+.assignment-detail-actions > .drawer-secondary {
+  width: auto;
+  margin-top: 0;
+  padding: 0 16px;
+}
+.assignment-detail-actions > .drawer-primary { min-width: 10rem; }
+.assignment-detail-actions > .drawer-secondary { grid-column: 1 / -1; }
+.assignment-detail-change {
+  margin: 0;
+  color: var(--muted-readable);
+  font-size: var(--text-min);
+  line-height: var(--leading);
+  text-align: right;
+}
+@media (max-width: 620px) {
+  .assignment-detail-actions { grid-template-columns: auto minmax(0, 1fr); }
+  .assignment-detail-change { grid-column: 1 / -1; grid-row: 1; text-align: left; }
 }
 /* History and period cards only. The department row uses the same compact
    button and stays at the start of its cell. */

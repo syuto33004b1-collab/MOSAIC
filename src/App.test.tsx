@@ -314,7 +314,7 @@ describe("role-aware workspace", () => {
     expect(document.querySelector(".drawer")).not.toHaveClass("dialog-sm");
   });
 
-  it("caps the saved assignment form and leaves the add form at the drawer width (#440)", async () => {
+  it("keeps the saved assignment form's own class, which the add form does not wear (#440, #587)", async () => {
     const user = userEvent.setup();
     render(<App />);
     await user.click(screen.getAllByRole("button", { name: /のアサイン詳細/ })[0]);
@@ -8467,6 +8467,8 @@ describe("assignment detail opens the saved member and project (#424)", () => {
     expect(within(dialog).getByRole("button", { name: `${projectName}の詳細を開く` })).toBeInTheDocument();
     expect(within(dialog).getByRole("button", { name: "閉じる" })).toBeInTheDocument();
     expect(within(dialog).queryByRole("button", { name: "変更を仮置き" })).not.toBeInTheDocument();
+    // Nothing a viewer can save, so nothing to say about what saving would change (#587).
+    expect(dialog.querySelector(".assignment-detail-change")).toBeNull();
   });
 
   it("accepts a later team revision after the link clears the form draft", async () => {
@@ -8491,6 +8493,115 @@ describe("assignment detail opens the saved member and project (#424)", () => {
     notify?.(9);
     expect(await screen.findByText("チームの最新変更を反映しました")).toBeInTheDocument();
     expect(adapter.reload).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("assignment detail (#587)", () => {
+  const owner = { name: "管理 花子", email: "owner@example.com", role: "owner" as const };
+
+  function onAugust() {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date("2026-08-19T09:00:00+09:00"));
+    return userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+  }
+
+  afterEach(() => { vi.useRealTimers(); });
+
+  /**
+   * 保有 花子 holds the assignment being edited, Monday 17 to Sunday 23 August at 40%.
+   * 週末 太郎 already works Saturday the 22nd at 80%, so the swap reads 80% until the form
+   * ticks that Saturday too.
+   */
+  function weekendWorkspace() {
+    const project = { ...initialWorkspace.projects[0], id: "weekend-project", name: "週末案件", startDate: "2026-08-01", endDate: "2026-09-30" };
+    const holder = { ...initialWorkspace.members[0], id: "holder", name: "保有 花子", capacity: 100, unavailability: [] };
+    const weekender = { ...initialWorkspace.members[1], id: "weekender", name: "週末 太郎", capacity: 100, unavailability: [] };
+    return {
+      members: [holder, weekender],
+      projects: [project],
+      assignments: [
+        { id: "edited", personId: holder.id, projectId: project.id, startDate: "2026-08-17", endDate: "2026-08-23", allocation: 40, status: "confirmed", weekendWorkDates: [] },
+        { id: "saturday", personId: weekender.id, projectId: project.id, startDate: "2026-08-22", endDate: "2026-08-23", allocation: 80, status: "confirmed", weekendWorkDates: ["2026-08-22"] },
+      ],
+      needs: [],
+    } as unknown as WorkspaceState;
+  }
+
+  async function openEdited(user: ReturnType<typeof userEvent.setup>) {
+    const adapter = sharedAdapter();
+    adapter.initialState = weekendWorkspace();
+    render(<App mode="shared" organizationName="Example Inc." identity={owner} shared={adapter} />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^アサインボード( |$)/u }));
+    await user.click(screen.getByRole("button", { name: /^週末案件のアサイン詳細（保有 花子/u }));
+    return within(drawerDialog());
+  }
+
+  const rowFor = (name: string) => [...document.querySelectorAll(".member-picker-item")]
+    .find((row) => row.querySelector("strong")?.textContent === name)!;
+
+  it("measures the swap with the weekend days the form ticks", async () => {
+    const user = onAugust();
+    const dialog = await openEdited(user);
+    expect(rowFor("週末 太郎").querySelector(".member-picker-load")!.textContent).toBe("80% / 100%");
+    expect(rowFor("週末 太郎").querySelector(".member-picker-over")).toBeNull();
+
+    // Ticked beside the list, so the list follows: the Saturday carries 80 + 40.
+    await user.click(dialog.getByLabelText("22土"));
+    expect(rowFor("週末 太郎").querySelector(".member-picker-load")!.textContent).toBe("120% / 100%");
+    expect(rowFor("週末 太郎").querySelector(".member-picker-over")!.textContent).toBe("上限超過 1日");
+    // The count is part of the row's name, where the rail is decoration.
+    expect(dialog.getByRole("radio", { name: /週末 太郎.*上限超過 1日/u })).toBeInTheDocument();
+
+    await user.click(dialog.getByRole("radio", { name: /週末 太郎/u }));
+    expect(document.querySelector(".form-note.warn")).toHaveTextContent(/120% になります（稼働上限 100%）/u);
+
+    // No count while the dates make no range: the figures are 「—」 then (#253).
+    fireEvent.change(dialog.getByLabelText("終了日"), { target: { value: "2026-08-10" } });
+    expect(document.querySelectorAll(".member-picker-over")).toHaveLength(0);
+  });
+
+  it("says what saving would change, compared as it would be saved", async () => {
+    const user = onAugust();
+    const dialog = await openEdited(user);
+    const said = () => dialog.getByText(/^変更/u, { selector: ".assignment-detail-change" }).textContent;
+    expect(said()).toBe("変更はありません");
+    expect(document.querySelector(".assignment-detail-status")).toBeNull();
+
+    await user.click(dialog.getByLabelText("22土"));
+    expect(said()).toBe("変更: 土日の稼働");
+    // Ending on Friday drops that Saturday at save, so it is no longer a change of its own.
+    fireEvent.change(dialog.getByLabelText("終了日"), { target: { value: "2026-08-21" } });
+    expect(said()).toBe("変更: 期間");
+    // The field holds text and the saved value is a number: retyping 40 changes nothing.
+    await user.clear(dialog.getByLabelText("稼働配分（%）"));
+    await user.type(dialog.getByLabelText("稼働配分（%）"), "40");
+    expect(said()).toBe("変更: 期間");
+    await user.clear(dialog.getByLabelText("稼働配分（%）"));
+    await user.type(dialog.getByLabelText("稼働配分（%）"), "55");
+    await user.click(dialog.getByRole("radio", { name: /週末 太郎/u }));
+    expect(said()).toBe("変更: 担当者・期間・稼働配分");
+
+    await user.click(dialog.getByRole("button", { name: "変更を仮置き" }));
+    expect(screen.getByText("アサインの変更を仮置きしました")).toBeInTheDocument();
+    // Now a draft, which the board hatches and the detail says in words.
+    await user.click(screen.getByRole("button", { name: /^週末案件のアサイン詳細（週末 太郎・[^）]*稼働55%/u }));
+    const again = within(drawerDialog());
+    expect(again.getByText("仮置き", { selector: ".assignment-detail-status" })).toBeInTheDocument();
+    expect(again.getByRole("heading", { name: "アサインの詳細" })).toBeInTheDocument();
+    expect(again.getByText(/^変更/u, { selector: ".assignment-detail-change" }).textContent).toBe("変更はありません");
+  });
+
+  it("closes with nothing to save once the edits come back to the saved values", async () => {
+    const user = onAugust();
+    const dialog = await openEdited(user);
+    await user.click(dialog.getByLabelText("22土"));
+    fireEvent.change(dialog.getByLabelText("終了日"), { target: { value: "2026-08-21" } });
+    fireEvent.change(dialog.getByLabelText("終了日"), { target: { value: "2026-08-23" } });
+    await user.click(dialog.getByLabelText("22土"));
+    expect(dialog.getByText("変更はありません")).toBeInTheDocument();
+    await user.click(dialog.getByRole("button", { name: "変更を仮置き" }));
+    expect(screen.getByText("アサインの変更はありません")).toBeInTheDocument();
+    expect(queryDrawerDialog()).not.toBeInTheDocument();
   });
 });
 

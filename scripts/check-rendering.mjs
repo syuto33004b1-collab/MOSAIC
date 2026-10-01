@@ -401,6 +401,19 @@ async function main() {
     if (await asked !== "confirm") throw new Error("closing the typed-in drawer asked with something other than a confirm");
     await until(page, "the drawer to close", () => !document.querySelector("[role=dialog]"));
 
+    // A saved assignment's detail: its own shell, two panes at this width (#587). Nothing is
+    // typed, so Escape closes it without asking.
+    await page.evaluate(() => {
+      const bar = document.querySelector("button.assignment");
+      if (!bar) throw new Error("the board has no assignment to open");
+      bar.click();
+    });
+    await until(page, "the assignment detail", () => document.querySelector("[role=dialog] h2")?.textContent?.trim() === "アサインの詳細");
+    await seeing(page, ".assignment-detail-actions");
+    results.push(await scan(page, "アサイン詳細ドロワー"));
+    await page.keyboard.press("Escape");
+    await until(page, "the assignment detail to close", () => !document.querySelector("[role=dialog]"));
+
     // Two labels: the launcher says something else when the assistant has no server to
     // call, which is the demo build's state.
     await click(["AIアシスタントを開く", "AIアシスタントの利用状況を確認"]);
