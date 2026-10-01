@@ -8287,6 +8287,17 @@ describe("project drawer assignees follow the twelve months shown (#423, #569)",
     expect(panel.querySelector(".project-need-allocation")?.textContent).toBe("稼働配分 50%");
   });
 
+  it("draws no line and no headcount line for a project with no required headcount (#583)", async () => {
+    const user = onAugust();
+    const { panel } = await openPeriodProject(user, { ...periodState(rows), projects: [{ ...project, demand: 0 }] });
+    const trend = panel.querySelector(".project-capacity-trend")!;
+    expect(trend.querySelectorAll(".labelled-trend-cell")).toHaveLength(12);
+    expect(trend.querySelectorAll(".trend-line-path, .trend-line-dot, .trend-line-guide")).toHaveLength(0);
+    const figures = [...trend.querySelectorAll(".labelled-trend-figure:not(.labelled-trend-sizer)")].map((figure) => figure.textContent);
+    expect(figures.every((figure) => figure === "未設定" || figure === "—")).toBe(true);
+    expect(figures).toContain("未設定");
+  });
+
   it("opens the member from a row", async () => {
     const user = onAugust();
     const { dialog } = await openPeriodProject(user, periodState(rows));

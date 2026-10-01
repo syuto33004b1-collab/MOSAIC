@@ -166,7 +166,7 @@ export function LabelledTrend({
             <span className="labelled-trend-month">{cell.month}</span>
             <strong className="labelled-trend-figure">{cell.figure}</strong>
             <span className="labelled-trend-month labelled-trend-sizer" aria-hidden="true">{widestMonth}</span>
-            <span className="labelled-trend-figure labelled-trend-sizer" aria-hidden="true">{widestFigure}</span>
+            <strong className="labelled-trend-figure labelled-trend-sizer" aria-hidden="true">{widestFigure}</strong>
           </span>
         ))}
       </div>

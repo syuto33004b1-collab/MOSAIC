@@ -12,6 +12,9 @@ test("the project drawer panes scroll the assignee list and the facts, not the m
   const period = media.match(/\.project-detail-period \{([^}]+)\}/);
   const list = media.match(/\.project-detail-assignees \{([^}]+)\}/);
   const facts = media.match(/\.project-detail-facts \{([^}]+)\}/);
+  // The staffing line must not shrink with the list: a scroll container's automatic
+  // minimum height is 0, and the pane cuts what does not fit (#583).
+  assert.match(media, /\.project-detail-period > \.project-capacity-trend,[^{]*\{[^}]*flex:\s*0 0 auto/u);
   assert.ok(period && list && facts);
   assert.match(period[1], /overflow:\s*hidden/);
   assert.match(list[1], /overflow:\s*auto/);
