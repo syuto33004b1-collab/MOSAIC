@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import {
   AlertTriangle,
   ArrowRight,
@@ -131,6 +131,7 @@ import {
   visibleCustomFields,
   weekLabel,
   type PeriodBucket,
+  type PeriodBucketStats,
   type PeriodChoice,
   type PeriodMemberStats,
   type PeriodRange,
@@ -157,6 +158,7 @@ import {
   type WorkHistoryEntry,
   type WorkspaceState,
 } from "./domain";
+import { TrendLine } from "./trend-line";
 
 type ProjectsViewProps = {
   state: WorkspaceState;
@@ -603,16 +605,19 @@ export function MemberPicker({
             <span className={"avatar " + member.avatarTone}>{member.initials}</span>
             <span className="member-picker-copy"><strong>{label}</strong><small>{member.role} · {member.department}</small></span>
             <span className={"member-picker-load" + (measured ? (days.some((day) => day.load > day.capacity) ? " over" : "") : " unmeasured")}>{measured ? `${peak}% / ${member.capacity}%` : "—"}</span>
-            {/* One cell per weekday in the range, filled to that day's share of the
-                ceiling. Decoration — the numbers beside it are what the row says out
-                loud — so past about 60 weekdays a cell is under 5px and the rail is a
-                texture rather than a reading, and the peak carries it. */}
+            {/* One point per weekday in the range, at that day's share of the ceiling.
+                Decoration — the numbers beside it are what the row says out loud — so
+                only the days over the ceiling get a dot: past about 60 weekdays a dot
+                per day would be a texture rather than a reading. */}
             <span className="member-picker-rail" aria-hidden="true">
-              {days.map((day) => <i
-                key={day.date}
-                className={day.load > day.capacity ? "over" : ""}
-                style={{ "--fill": (day.capacity > 0 ? Math.min(100, Math.round((day.load / day.capacity) * 100)) : day.load > 0 ? 100 : 0) + "%" } as React.CSSProperties}
-              />)}
+              <TrendLine
+                dots="flagged"
+                guides={[100]}
+                points={days.map((day) => ({
+                  value: day.capacity > 0 ? Math.min(100, Math.round((day.load / day.capacity) * 100)) : day.load > 0 ? 100 : 0,
+                  tone: day.load > day.capacity ? "over" as const : undefined,
+                }))}
+              />
             </span>
           </label>
         ))}
@@ -757,13 +762,13 @@ export function ProjectsView({
 
       {range.clipped && <div className="projects-period-bar"><p className="horizon-clip-note" role="note">{PERIOD_CLIP_NOTE}</p></div>}
 
-      {/* The rail is bars with no week labels and no key. `title` puts the
+      {/* The rail is a line with no month labels and no key. `title` puts the
           numbers within reach of a mouse only, so the values go in each rail's
-          accessible name and the reading of the bars goes here, once, rather
+          accessible name and the reading of the line goes here, once, rather
           than per row. `aria-describedby` rather than adjacency alone: jumping
           straight to the table would otherwise miss this (#85). */}
       <p className="viz-caption" id="portfolio-rail-key">{range.buckets[0]
-        ? `「${periodChoiceProseLabel(choice)}の充足」は、${periodBucketLabel(choice, range.buckets[0], 0)}から${periodChoiceProseLabel(choice)}の充足率を示します。バーの長さが充足率で、必要人数に届かないバケットは橙色、案件期間外は—、必要人数未設定のバケットは空になります。`
+        ? `「${periodChoiceProseLabel(choice)}の充足」は、${periodBucketLabel(choice, range.buckets[0], 0)}から${periodChoiceProseLabel(choice)}の充足率を示します。線の高さが充足率、点線が必要人数です。届かない月は橙色の点、案件期間外は線が途切れ、必要人数未設定は線を描きません。`
         : `「${periodChoiceProseLabel(choice)}の充足」はこの期間では表示できません。`}</p>
 
       <div className="portfolio-table-wrap">
@@ -797,14 +802,17 @@ export function ProjectsView({
                         only. */}
                     {range.buckets.length > 0 && (
                     <div className="four-week-rail" role="img" aria-label={project.name + `の${periodChoiceProseLabel(choice)}の充足人数：` + range.buckets.map((bucket, index) => periodStaffingLabel(choice, bucket, index, counts[index] ?? null, project.demand)).join("、")}>
-                      {range.buckets.map((bucket, index) => {
-                        const count = counts[index] ?? null;
-                        const outside = count === null;
-                        const unset = project.demand === 0;
-                        const width = outside ? 0 : unset ? 0 : Math.min(100, count / project.demand * 100);
-                        const short = !outside && !unset && count < project.demand;
-                        return <i key={`${bucket.from}:${bucket.to}`} title={periodStaffingLabel(choice, bucket, index, count, project.demand)}><b className={short ? "short" : ""} style={{ width: width + "%" }} /></i>;
-                      })}
+                      <TrendLine
+                        guides={project.demand > 0 ? [100] : []}
+                        points={range.buckets.map((bucket, index) => {
+                          const count = counts[index] ?? null;
+                          const title = periodStaffingLabel(choice, bucket, index, count, project.demand);
+                          // No line for a month outside the project, nor for a project with no
+                          // headcount set: a full line would read as 「fully staffed」 (#85).
+                          if (count === null || project.demand === 0) return { value: null, title };
+                          return { value: Math.min(100, (count / project.demand) * 100), tone: count < project.demand ? "short" as const : undefined, title };
+                        })}
+                      />
                     </div>
                     )}
                     <span className="staffed-label">{project.demand === 0 ? "必要人数未設定" : `${weekName} ${currentMembers}/${project.demand}名`}</span>
@@ -944,6 +952,38 @@ function memberNextOpenCopy(
   const bucket = stats.buckets[nextOpen];
   const label = periodBucketLabel(choice, bucket, nextOpen);
   return nextOpen === 0 ? `${label} 空き${bucket.slack}%` : label;
+}
+
+/**
+ * The label that sets every column's width. With tabular figures each digit is one width,
+ * so more digits is wider; among labels with as many digits, a decimal point adds width.
+ */
+export function widestRailLabel(labels: readonly string[]) {
+  const weight = (label: string) => [...label].reduce((sum, char) => sum + (/\d/u.test(char) ? 2 : 1), 0);
+  return labels.reduce((widest, label) => (weight(label) > weight(widest) ? label : widest), "");
+}
+
+/**
+ * The members list's month line with each month's busiest day under its point (#581).
+ *
+ * The line puts month i at (i + 0.5) / N of its width, so every column has to be the
+ * same width. Each label carries the widest label as an invisible sizer, so every track
+ * has the same min-content and the table — which sizes this cell from it — widens the
+ * rail until the widest label fits, the way the bars' `min-content` floors did.
+ * `minmax(0, 1fr)` alone gave the cell no min-content, and it fell to the column's
+ * 124px with twelve labels overflowing it (measured: 100px rail, 99 overlapping pairs).
+ */
+export function MonthRail({ buckets }: { buckets: readonly Pick<PeriodBucketStats, "from" | "to" | "peak" | "ratio" | "exceeds" | "open">[] }) {
+  const labels = buckets.map((bucket) => `${bucket.peak}%`);
+  const widest = widestRailLabel(labels);
+  return (
+    <div className="member-week-rail" style={{ "--rail-points": buckets.length } as React.CSSProperties}>
+      <TrendLine guides={[100]} points={buckets.map((bucket) => ({ value: bucket.ratio, tone: bucket.exceeds ? "over" as const : bucket.open ? "open" as const : undefined }))} />
+      {buckets.map((bucket, index) => (
+        <small key={`${bucket.from}:${bucket.to}`}>{labels[index]}<span className="member-week-rail-sizer" aria-hidden="true">{widest}</span></small>
+      ))}
+    </div>
+  );
 }
 
 export function MembersView({
@@ -1182,8 +1222,17 @@ export function MembersView({
         </p>
       )}
 
+      {/* The line is capped at the ceiling, the way `ratio` is, so the figure under each
+          point is what says how far past it a month went: the busiest day, which matches
+          the line only while every day's ceiling is the member's own (#581). */}
+      {range.buckets.length > 0 && (
+        <p className="viz-caption" id="member-rail-key">
+          「{periodChoiceProseLabel(choice)}の稼働」は、月ごとに稼働上限に対する割合を線で示します（100%で頭打ち）。点線が稼働上限で、上限超過の月は橙色、稼働率60%以下の月は緑の点です。下の数字は、その月でいちばん忙しい日の稼働です。
+        </p>
+      )}
+
       <div className="member-table-wrap">
-        <table className="member-table" aria-describedby={selectedScene ? "member-score-key" : undefined}>
+        <table className="member-table" aria-describedby={[range.buckets.length > 0 ? "member-rail-key" : "", selectedScene ? "member-score-key" : ""].filter(Boolean).join(" ") || undefined}>
           <thead><tr><th className="col-favorite"><span className="sr-only">お気に入り</span></th><th className="col-name">メンバー</th><th className="col-skills">スキル</th>{selectedScene && <th className="col-score">スコア</th>}{listFields.map((field) => <th key={field.id} className="col-custom">{field.label}</th>)}<th className="col-week">{weekName}の稼働</th><th className="col-rail">{periodChoiceProseLabel(choice)}の稼働</th><th className="col-next">次に稼働率60%以下</th><th className="col-actions"><span className="sr-only">操作</span></th></tr></thead>
           <tbody>
             {filtered.map((member) => {
@@ -1203,7 +1252,7 @@ export function MembersView({
                   {selectedScene && <td><span className="match-score">{match?.score ?? 0}/{scoreCeiling}点<small>空き{match?.availablePercent ?? 0}%</small></span></td>}
                   {listFields.map((field) => <td key={field.id}><span className="custom-field-cell">{formatCustomValue(field, customValue(member.customValues, field.id))}</span></td>)}
                   <td><span className={"load-ring " + (stats.exceeds ? "over" : stats.open ? "open" : "")} style={{ "--load": Math.min(100, loadRatio) } as React.CSSProperties}><strong>{load}%</strong></span><small className="capacity-limit">稼働上限 {member.capacity}%</small></td>
-                  <td><div className="member-week-rail">{(periodStats?.buckets ?? []).map((bucket) => { /* The label is a sibling of the bar, not a child: it belongs to its own grid track so it cannot overlap the next week's. */ return <Fragment key={`${bucket.from}:${bucket.to}`}><i className={bucket.exceeds ? "over" : bucket.open ? "open" : ""}><b style={{ height: Math.max(12, Math.min(100, bucket.ratio)) + "%" }} /></i><small>{bucket.peak}%</small></Fragment>; })}</div></td>
+                  <td><MonthRail buckets={periodStats?.buckets ?? []} /></td>
                   <td><span className="next-open">{memberNextOpenCopy(member, periodStats, range, choice)}<small>{member.location}</small></span></td>
                   {/* The flex box is the div, not the td: a flex td is no longer a table cell,
                       so it stopped at its content's height and the sticky column let the

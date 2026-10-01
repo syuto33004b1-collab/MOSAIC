@@ -4,7 +4,7 @@ import axe from "axe-core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import App, { capacityTickMarks, monthColumnGuidesMisaligned, type SharedWorkspaceAdapter } from "./App";
 import { parseCsv } from "./csv";
-import { MembersView, ProjectsView, ProposalView } from "./expanded-views";
+import { MembersView, ProjectsView, ProposalView, widestRailLabel } from "./expanded-views";
 import { DEMO_FAVORITES_KEY } from "./collaboration";
 import { addDays, buildPlanCostRows, buildSavedReport, currentLocalDate, boardBasisWeek, boardRange, DISPLAY_PERIOD, formatDate, formatYen, periodRange, formatWorkHistoryPeriod, getWeekDays, getWeekStart, initialWorkspace, memberDailyLoads, memberLoad, memberMonthChartLabel, memberMonthLedger, memberMonthPointLabel, memberPeakLoad, PERIOD_CLIP_NOTE, weekLabel, type StaffingNeed, type WorkspaceState } from "./domain";
 import type { ChatTransport } from "./lib/ai/chatClient";
@@ -1785,7 +1785,7 @@ describe("role-aware workspace", () => {
     // and the cell now says so (#150).
     expect(screen.getByText("60/60点")).toBeInTheDocument();
     expect(document.querySelector(".viz-caption#member-score-key")!.textContent).toContain("満点となる 60 点");
-    expect(document.querySelector(".member-table")).toHaveAttribute("aria-describedby", "member-score-key");
+    expect(document.querySelector(".member-table")!.getAttribute("aria-describedby")?.split(" ")).toContain("member-score-key");
     expect(screen.queryAllByRole("button", { name: /佐伯 優斗/ }).find((button) => button.classList.contains("member-name-cell"))).toBeUndefined();
 
     await user.type(screen.getByPlaceholderText("フロントエンド候補"), "React実務者");
@@ -2106,58 +2106,98 @@ describe("CSV import", () => {
   });
 });
 
-describe("four-week capacity rail", () => {
+describe("the members list's month rail (#581)", () => {
   /**
-   * Each week's label used to be absolutely positioned inside its bar, so the
-   * grid that was supposed to keep the four weeks apart could not: "100%" is
-   * 26.2px at the 10px floor while a segment was 19.6-21.3px, and the labels
-   * overlapped their neighbour at every width up to about 1400px and escaped
-   * the rail's own box at every width measured, up to 1920px.
+   * The rail was a bar per month with its label under it, and before that each label sat
+   * absolutely positioned inside its bar, where no grid track could keep it from its
+   * neighbour: "100%" was wider than a segment at every width up to about 1400px.
    *
-   * Bar and label are now separate items of the same grid, one column each.
-   * Grid items in different tracks cannot overlap, so this asserts the
-   * structure that makes that true rather than any pixel width. The rendered
-   * geometry is in the PR.
+   * It is a line now (#580): one line across the first row, and each month's label its
+   * own item in the second. The labels stay in flow, one per column, so they still cannot
+   * overlap; the line puts month i at the centre of column i, so the columns are equal
+   * (pinned in tests/rail-label-contract.test.mjs). The rendered offsets are in the PR.
    */
-  it("keeps each week's label out of its bar so the two share a grid column", async () => {
+  it("draws one line and twelve labels, the labels in flow and in order", async () => {
     const user = userEvent.setup();
     render(<App />);
     await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: "メンバー" }));
 
-    const rails = document.querySelectorAll(".member-week-rail");
+    const rails = document.querySelectorAll<HTMLElement>(".member-week-rail");
     expect(rails.length).toBeGreaterThan(0);
     for (const rail of rails) {
-      // grid-auto-flow: column over two rows fills each column top-to-bottom
-      // before moving on, so the order has to be bar, its label, next bar, its
-      // label. Counting 4 and 4 would also pass i,i,i,i,small,small,small,small,
-      // which puts every label one to three weeks away from its own bar.
-      const tags = [...rail.children].map((child) => child.tagName.toLowerCase());
-      expect(tags.length % 2).toBe(0);
-      expect(tags).toEqual(Array.from({ length: tags.length / 2 }, () => ["i", "small"]).flat());
-      expect(tags).toHaveLength(24);
-      // A label nested in its bar is out of the grid entirely — the original bug.
-      expect(rail.querySelectorAll("i small")).toHaveLength(0);
+      const children = [...rail.children];
+      expect(children[0]).toHaveClass("trend-line");
+      expect(children.slice(1).map((child) => child.tagName.toLowerCase())).toEqual(Array.from({ length: 12 }, () => "small"));
+      expect(rail.style.getPropertyValue("--rail-points")).toBe("12");
       // Every label reads as a percentage, so a swapped or empty cell shows up.
-      const notAPercentage = [...rail.querySelectorAll(":scope > small")]
-        .map((label) => label.textContent ?? "")
-        .filter((text) => !/^\d+%$/u.test(text));
+      const labels = [...rail.querySelectorAll(":scope > small")];
+      const notAPercentage = labels.map((label) => label.firstChild?.textContent ?? "").filter((text) => !/^\d+%$/u.test(text));
       expect(notAPercentage).toEqual([]);
-    }
-  });
-
-  it("draws the rail as twelve paired bars, one per month (#569)", async () => {
-    const user = userEvent.setup();
-    render(<App />);
-    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: "メンバー" }));
-    const rails = document.querySelectorAll(".member-week-rail");
-    expect(rails.length).toBeGreaterThan(0);
-    for (const rail of rails) {
-      expect([...rail.children].map((child) => child.tagName.toLowerCase()))
-        .toEqual(Array.from({ length: 12 }, () => ["i", "small"] as const).flat());
+      // Each label carries the widest one, unseen and unread, so the twelve columns are
+      // equal and each point sits over its own label.
+      const own = labels.map((label) => label.firstChild?.textContent ?? "");
+      const widest = own.reduce((longest, text) => (text.length > longest.length ? text : longest), "");
+      for (const label of labels) {
+        const sizer = label.querySelector(".member-week-rail-sizer")!;
+        expect(sizer).toHaveAttribute("aria-hidden", "true");
+        expect(sizer.textContent).toBe(widest);
+      }
+      // A point for every month: a member always has a load, even 0.
+      expect(rail.querySelectorAll(".trend-line-slot")).toHaveLength(12);
+      expect(rail.querySelectorAll(".trend-line-dot")).toHaveLength(12);
+      expect(rail.querySelector(".trend-line-guide")?.getAttribute("data-value")).toBe("100");
     }
     const headers = [...screen.getByRole("table").querySelectorAll("thead th")].map((th) => th.textContent ?? "");
     expect(headers).toContain("12か月の稼働");
     expect(headers).toContain("次に稼働率60%以下");
+  });
+
+  it("keys the line above the table, and points the table at the key", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: "メンバー" }));
+    const key = document.getElementById("member-rail-key")!;
+    expect(key.textContent).toContain("点線が稼働上限");
+    expect(key.textContent).toContain("上限超過の月は橙色");
+    expect(key.textContent).toContain("いちばん忙しい日の稼働");
+    expect(screen.getByRole("table").getAttribute("aria-describedby")?.split(" ")).toContain("member-rail-key");
+  });
+
+  it("sizes every column from the widest label, counting digits before a decimal point", () => {
+    expect(widestRailLabel(["0%", "100%", "80%"])).toBe("100%");
+    // Same length, but a point is narrower than a digit in tabular figures.
+    expect(widestRailLabel(["1.5%", "100%"])).toBe("100%");
+    expect(widestRailLabel(["125%", "1.25%"])).toBe("1.25%");
+    expect(widestRailLabel([])).toBe("");
+  });
+
+  it("colours a month over the ceiling and one at 60% or less, the way the legend does", () => {
+    const member = { ...initialWorkspace.members[0], id: "rail-tones", name: "線 太郎", capacity: 100 };
+    const project = initialWorkspace.projects[0];
+    const monday = getWeekStart(0);
+    render(
+      <MembersView
+        state={{
+          ...initialWorkspace,
+          members: [member],
+          assignments: [
+            { id: "over", personId: member.id, projectId: project.id, startDate: monday, endDate: addDays(monday, 4), allocation: 120, status: "confirmed" },
+          ],
+        } as unknown as WorkspaceState}
+        weekOffset={0}
+        origin={monday}
+        onOpen={() => undefined}
+        onAssign={() => undefined}
+        onAddScene={() => undefined}
+        onDeleteScene={() => undefined}
+      />,
+    );
+    const dots = [...document.querySelectorAll(".member-week-rail .trend-line-dot")].map((dot) => dot.className);
+    expect(dots[0]).toBe("trend-line-dot over");
+    // The months after it carry no work, so every working day is under 60%.
+    expect(dots.slice(1).every((name) => name === "trend-line-dot open")).toBe(true);
+    const labels = [...document.querySelectorAll(".member-week-rail > small")].map((label) => label.firstChild?.textContent);
+    expect(labels[0]).toBe("120%");
   });
 });
 
@@ -3062,7 +3102,7 @@ describe("a key for what colour and position encode", () => {
     const label = rail.getAttribute("aria-label") ?? "";
     expect(label).toMatch(/\d+月: ([0-9]+\/[0-9]+名|必要人数未設定|—)/u);
     expect(label).not.toContain("週目:");
-    expect(rail.querySelectorAll("i")).toHaveLength(12);
+    expect(rail.querySelectorAll(".trend-line-slot")).toHaveLength(12);
 
     // And the one number under the rail says which week it is.
     expect(document.querySelector(".staffed-label")!.textContent).toMatch(/^(\d+\/\d+週 \d+\/\d+名|必要人数未設定)$/u);
@@ -3104,7 +3144,7 @@ describe("a key for what colour and position encode", () => {
     expect(skillCaption.id).not.toBe("");
   });
 
-  it("empties the bar for a month with no required headcount, the way the key says", async () => {
+  it("draws no line for a project with no required headcount, the way the key says", async () => {
     const project = { ...initialWorkspace.projects[0], id: "unset", name: "人数未定 案件", demand: 0 };
     const adapter = sharedAdapter();
     adapter.initialState = { members: [], projects: [project], assignments: [], needs: [] } as unknown as WorkspaceState;
@@ -3112,21 +3152,30 @@ describe("a key for what colour and position encode", () => {
     const user = userEvent.setup();
     await goTo(user, /^プロジェクト 登録 \d+件$/u);
 
-    // A full bar would read as 100% staffed under 「バーの長さが充足率」, which is
+    // A line at the top would read as 100% staffed under 「線の高さが充足率」, which is
     // not something the app knows here.
     const rail = screen.getByRole("img", { name: /人数未定 案件の12か月の充足人数：/u });
     expect(rail.getAttribute("aria-label")).toMatch(/\d+月: 必要人数未設定/u);
-    for (const fill of rail.querySelectorAll("b")) expect((fill as HTMLElement).style.width).toBe("0%");
+    expect(rail.querySelectorAll(".trend-line-slot")).toHaveLength(12);
+    // Nor the dashed line: it stands for the required headcount, which is not set.
+    expect(rail.querySelectorAll(".trend-line-path, .trend-line-dot, .trend-line-guide")).toHaveLength(0);
+    expect(document.querySelector(".viz-caption")!.textContent).toContain("必要人数未設定は線を描きません");
     expect(document.querySelector(".staffed-label")!.textContent).toBe("必要人数未設定");
   });
 
-  it("draws the staffing rail as twelve monthly bars under a 12か月 header (#569)", async () => {
+  it("draws the staffing rail as a twelve-month line under a 12か月 header (#569, #581)", async () => {
     const user = userEvent.setup();
     render(<App />);
     await goTo(user, /^プロジェクト 登録 \d+件$/u);
 
     const rail = screen.getAllByRole("img", { name: /の12か月の充足人数：/u })[0];
-    expect(rail.querySelectorAll("i")).toHaveLength(12);
+    expect(rail.querySelector("svg")!.getAttribute("viewBox")).toBe("0 0 12 100");
+    expect(rail.querySelectorAll(".trend-line-slot")).toHaveLength(12);
+    // The dashed line is the required headcount.
+    expect(rail.querySelector(".trend-line-guide")!.getAttribute("data-value")).toBe("100");
+    // Each month's numbers reach a pointer on the month's whole column, as the bars' did.
+    expect([...rail.querySelectorAll<HTMLElement>(".trend-line-slot")].every((slot) => /^\d+月: /u.test(slot.title))).toBe(true);
+    expect(document.querySelector(".viz-caption")!.textContent).toContain("線の高さが充足率、点線が必要人数です");
     const headers = [...screen.getByRole("table").querySelectorAll("thead th")].map((th) => th.textContent ?? "");
     expect(headers).toContain("12か月の充足");
   });
@@ -3153,7 +3202,10 @@ describe("a key for what colour and position encode", () => {
     expect(label).toContain("9月: 0/2名");
     expect(label).toContain("10月: —");
     expect(label).toContain("11月: —");
-    expect(rail.querySelectorAll("i")).toHaveLength(12);
+    expect(rail.querySelectorAll(".trend-line-slot")).toHaveLength(12);
+    // One month inside the project: a point and no line, short of the two it needs.
+    expect([...rail.querySelectorAll(".trend-line-dot")].map((dot) => dot.className)).toEqual(["trend-line-dot short"]);
+    expect(rail.querySelectorAll(".trend-line-path")).toHaveLength(0);
   });
 
   it("names an empty holiday-calendar span instead of drawing a rail", () => {
@@ -5548,13 +5600,14 @@ describe("what the fit score is out of", () => {
     expect(caption!.textContent).toContain("20点");
     expect(caption!.textContent).toContain("40点");
     expect(caption!.textContent).toContain("必須スキルは満たしていることが前提");
-    expect(document.querySelector(".member-table")).toHaveAttribute("aria-describedby", "member-score-key");
+    // The month rail's key is always there; the score's joins it while a scene is picked (#581).
+    expect(document.querySelector(".member-table")).toHaveAttribute("aria-describedby", "member-rail-key member-score-key");
 
     // And it is gone with the column, not left behind explaining nothing.
     await user.selectOptions(screen.getByLabelText("シーンを選ぶ") as HTMLSelectElement, "");
     expect(document.querySelector(".match-score")).toBeNull();
     expect(document.querySelector(".viz-caption#member-score-key")).toBeNull();
-    expect(document.querySelector(".member-table")).not.toHaveAttribute("aria-describedby");
+    expect(document.querySelector(".member-table")).toHaveAttribute("aria-describedby", "member-rail-key");
   });
 
   /**

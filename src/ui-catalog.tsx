@@ -1,4 +1,4 @@
-import { Fragment, useLayoutEffect, useRef, useState, type ComponentType, type CSSProperties, type ReactNode } from "react";
+import { useLayoutEffect, useRef, useState, type ComponentType, type CSSProperties, type ReactNode } from "react";
 import {
   ArrowRight,
   Bell,
@@ -19,7 +19,8 @@ import {
   X,
 } from "lucide-react";
 import { PROFICIENCY_LABELS, type PlanCostAxis } from "./domain";
-import { ActiveFilters, FavoriteStar, MilestoneOverdue, PlanCostAxisTabs } from "./expanded-views";
+import { ActiveFilters, FavoriteStar, MilestoneOverdue, MonthRail, PlanCostAxisTabs } from "./expanded-views";
+import { TrendLine } from "./trend-line";
 
 /**
  * One part, drawn the way a screen draws it.
@@ -68,7 +69,7 @@ function StaffingRailSpecimen() {
   return (
     <div className="ui-catalog-cell">
       <div className="four-week-rail" role="img" aria-label={"見本の充足人数：" + STAFFED.map((count, index) => `${MONTHS[index]} ${count}/4名`).join("、")}>
-        {STAFFED.map((count, index) => <i key={MONTHS[index]}><b className={count < 4 ? "short" : ""} style={{ width: (count / 4) * 100 + "%" }} /></i>)}
+        <TrendLine guides={[100]} points={STAFFED.map((count, index) => ({ value: (count / 4) * 100, tone: count < 4 ? "short" as const : undefined, title: `${MONTHS[index]}: ${count}/4名` }))} />
       </div>
       <span className="staffed-label">1月 3/4名</span>
     </div>
@@ -150,7 +151,7 @@ function PickerRailSpecimen() {
   return (
     <div className="ui-catalog-cell">
       <span className="member-picker-rail" aria-hidden="true">
-        {PICKER_DAYS.map((load, index) => <i key={index} className={load > 100 ? "over" : ""} style={{ "--fill": Math.min(100, load) + "%" } as CSSProperties} />)}
+        <TrendLine dots="flagged" guides={[100]} points={PICKER_DAYS.map((load) => ({ value: Math.min(100, load), tone: load > 100 ? "over" as const : undefined }))} />
       </span>
     </div>
   );
@@ -162,14 +163,7 @@ function MonthRailSpecimen() {
     // Twelve labels need about 350px; below that the cell scrolls rather than spill (#574).
     // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- scrollport
     <div className="ui-catalog-cell ui-catalog-natural" tabIndex={0} role="region" aria-label="見本の月ごとの稼働">
-      <div className="member-week-rail">
-        {MONTH_PEAKS.map((peak, index) => (
-          <Fragment key={MONTHS[index]}>
-            <i className={peak > 100 ? "over" : peak < 60 ? "open" : ""}><b style={{ height: Math.max(12, Math.min(100, peak)) + "%" }} /></i>
-            <small>{peak}%</small>
-          </Fragment>
-        ))}
-      </div>
+      <MonthRail buckets={MONTH_PEAKS.map((peak, index) => ({ from: MONTHS[index], to: MONTHS[index], peak, ratio: Math.min(100, peak), exceeds: peak > 100, open: peak <= 60 }))} />
     </div>
   );
 }
@@ -344,14 +338,23 @@ export const UI_CATALOG: readonly CatalogSection[] = [
     title: "グラフ",
     cards: [
       {
-        title: "横棒（割合を長さで見せる）",
-        note: "同じ見せ方の棒が、画面ごとに別の作りになっています。",
+        title: "折れ線（推移を線で見せる）",
+        note: "時間の推移は折れ線で表します（#580）。点線は100%（必要人数・稼働上限）、橙色の点は不足か上限超過、緑の点は稼働率60%以下です。",
         wide: true,
         sample: true,
         specimens: [
-          { label: "充足レール", classes: ["four-week-rail", "staffed-label"], probe: ".four-week-rail b", screens: "プロジェクト一覧（充足）", width: 162, Render: StaffingRailSpecimen },
+          { label: "充足", classes: ["four-week-rail", "trend-line", "staffed-label"], probe: ".four-week-rail .trend-line", screens: "プロジェクト一覧（12か月の充足）", width: 162, Render: StaffingRailSpecimen },
+          { label: "月ごとの稼働", classes: ["member-week-rail", "trend-line"], probe: ".member-week-rail .trend-line", screens: "メンバー一覧（12か月の稼働）", wide: true, Render: MonthRailSpecimen },
+          { label: "日ごとの稼働", classes: ["member-picker-rail", "trend-line"], probe: ".member-picker-rail .trend-line", screens: "アサインの追加（メンバーの候補）", wide: true, width: 518, Render: PickerRailSpecimen },
+        ],
+      },
+      {
+        title: "横棒（割合を長さで見せる）",
+        note: "順序の無い比較と1つの値のメーターは、#580 の例外として棒のまま残します。プロジェクト詳細の充足は #583 で折れ線にします。",
+        wide: true,
+        sample: true,
+        specimens: [
           { label: "進捗バー", classes: ["progress-cell"], probe: ".progress-cell b", screens: "プロジェクト一覧（進捗）", Render: ProgressSpecimen },
-          { label: "日ごとの稼働", classes: ["member-picker-rail"], probe: ".member-picker-rail i", screens: "アサインの追加（メンバーの候補）", wide: true, width: 518, Render: PickerRailSpecimen },
           { label: "上限との比較", classes: ["capacity-card", "capacity-meter"], probe: ".capacity-meter span", screens: "上限超過の詳細", wide: true, Render: CapacityMeterSpecimen },
           { label: "充足と必要人数の目盛り", classes: ["profile-capacity", "project-capacity-tick"], probe: ".profile-capacity b", context: ["project-detail"], screens: "プロジェクト詳細", wide: true, width: 473, Render: ProjectCapacitySpecimen },
           { label: "部門ごとの稼働", classes: ["department-list"], probe: ".department-list b", screens: "レポート（部門別）", wide: true, Render: DepartmentListSpecimen },
@@ -360,10 +363,10 @@ export const UI_CATALOG: readonly CatalogSection[] = [
       },
       {
         title: "縦棒（量を高さで見せる）",
+        note: "需給の見通しは #582 で折れ線にします。",
         wide: true,
         sample: true,
         specimens: [
-          { label: "月ごとの稼働", classes: ["member-week-rail"], probe: ".member-week-rail b", screens: "メンバー一覧", wide: true, Render: MonthRailSpecimen },
           { label: "需給の見通し", classes: ["horizon-card", "horizon-plot", "horizon-grid", "horizon-week", "horizon-bar"], probe: ".horizon-bar i", screens: "レポート", wide: true, Render: HorizonSpecimen },
         ],
       },

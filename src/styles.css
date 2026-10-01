@@ -932,15 +932,12 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .member-picker-load.over { color: var(--coral-deep); }
 /* 「—」 while the form's dates make no range (#253): quiet, not a warning. */
 .member-picker-load.unmeasured { color: var(--muted-readable); }
-/* One column per weekday, so the rail always fits its row rather than scrolling.
+/* One point per weekday, so the rail always fits its row rather than scrolling.
    `grid-column: 1 / -1` puts it on a second line under the copy — it is the last
-   child, so nothing gets pushed past it (#189 was the other way round). */
-.member-picker-rail { grid-column: 1 / -1; height: 10px; display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 1px; }
-/* Filled to the day's share of the ceiling, not merely coloured when busy: a day
-   at 10% and a day at 100% were the same block of green, which is the one thing
-   the rail exists to tell apart. */
-.member-picker-rail i { border-radius: 2px; background: linear-gradient(to top, var(--sage) var(--fill, 0%), var(--paper-deep) var(--fill, 0%)); }
-.member-picker-rail i.over { background: var(--coral); }
+   child, so nothing gets pushed past it (#189 was the other way round). The line's
+   height is the day's share of the ceiling (#581). */
+.member-picker-rail { grid-column: 1 / -1; height: 16px; display: block; }
+.member-picker-rail .trend-line { height: 100%; }
 .member-picker-empty { margin: 0; padding: 10px 2px; color: var(--muted-readable); font-size: var(--text-min); }
 .allocation-input {
   min-height: 48px;
@@ -2141,10 +2138,8 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .status-pill.closing { background: #f3effa; color: #786491; }.status-pill.closing i { background: #9c86b7; }
 .need-note { margin-top: 5px; display: block; color: #c06b45; font-size: 7px; }
 .need-note.planned { color: #6372c4; }
-.four-week-rail { width: calc(100% - 41px); display: grid; grid-auto-flow: column; grid-auto-columns: minmax(6px, 1fr); gap: 3px; }
-.four-week-rail i { height: 6px; border-radius: 99px; background: #edf0f4; overflow: hidden; }
-.four-week-rail b { display: block; height: 100%; border-radius: inherit; background: #8391ed; }
-.four-week-rail b.short { background: #eaa078; }
+.four-week-rail { height: 22px; }
+.four-week-rail .trend-line { height: 100%; }
 .staffed-label { margin-top: 5px; display: block; color: #8c95a5; font-family: var(--font-data); font-size: 7px; }
 .progress-cell { display: flex; align-items: center; gap: 7px; }
 .progress-cell > span { width: 58px; height: 5px; border-radius: 99px; background: #edf0f4; overflow: hidden; }
@@ -2252,28 +2247,23 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .load-ring.open { background: conic-gradient(#73bda5 calc(var(--load) * 1%), #edf0f4 0); }
 .load-ring.over { background: conic-gradient(#e9786e 100%, #edf0f4 0); }
 .load-ring.over strong { color: #c85f56; }
-/* The bar and its label are separate items of the same grid, one column each.
-   Bucket count follows the selected period, so tracks are implicit
-   (`grid-auto-columns`) rather than `repeat(N)` or a JS `--rail-count`.
-   Two things keep neighbouring buckets apart, and both are needed:
-   - distinct tracks, so no box is placed over another. The label used to be
-     absolutely positioned inside its bar, and an out-of-flow box belongs to no
-     track at all, which is why repeat(4, 1fr) could not help it.
-   - `min-content` as the track floor. With `white-space: nowrap` on the label
-     that is the label's whole width, so a track never ends up narrower than the
-     text it has to show, and there is no pixel width to keep in step with
-     --text-min. Distinct tracks alone would not do it: the text would simply
-     overflow its own track into the next one.
-   Long values are absorbed by the column, not by overlapping — the cell grows
-   and the table scrolls. */
-.member-week-rail { display: grid; grid-auto-columns: minmax(min-content, 1fr); grid-template-rows: 29px auto; grid-auto-flow: column; align-items: end; column-gap: 5px; row-gap: 3px; }
-/* Pairing is bar then label per implicit column. src/App.test.tsx asserts the
-   rendered children against the selected period's bucket count. */
-.member-week-rail i { position: relative; height: 29px; border-radius: 5px 5px 3px 3px; background: #edf0f4; }
-.member-week-rail b { position: absolute; left: 0; right: 0; bottom: 0; border-radius: inherit; background: #8a97e7; }
-.member-week-rail i.open b { background: #7bc0aa; }
-.member-week-rail i.over b { background: #e87970; }
-.member-week-rail small { text-align: center; white-space: nowrap; color: #a0a7b5; font-family: var(--font-data); font-size: 5.5px; }
+/* The line spans the first row; each month's label is its own item in the second,
+   one column each (#581). Three things keep a point over its own label and the
+   labels apart:
+   - equal tracks with no column gap. The line places month i at (i + 0.5) / N of
+     its width, which is a column's centre only while every column is the same width.
+     Each label carries the widest label as an invisible sizer, so every track has the
+     same `min-content` floor, and figures are tabular so equal length is equal width.
+     The count comes from the markup, as --rail-points.
+   - `min-content` floors, which give the cell a min-content of N widest labels; the
+     table sizes the column from it. `minmax(0, 1fr)` gave the cell none, and the
+     column's 124px squeezed twelve labels into 100px (measured, #581).
+   - the label in flow with `white-space: nowrap`: an absolutely positioned label
+     belongs to no track, which is how the old bars let their labels collide. */
+.member-week-rail { display: grid; grid-template-columns: repeat(var(--rail-points, 1), minmax(min-content, 1fr)); grid-template-rows: 29px auto; column-gap: 0; row-gap: 3px; }
+.member-week-rail > .trend-line { grid-column: 1 / -1; grid-row: 1; }
+.member-week-rail small { grid-row: 2; padding-inline: 1px; text-align: center; white-space: nowrap; color: #a0a7b5; font-family: var(--font-data); font-size: 5.5px; font-variant-numeric: tabular-nums; }
+.member-week-rail-sizer { display: block; height: 0; overflow: hidden; visibility: hidden; user-select: none; }
 .next-open { font-size: 8px; }
 .next-open small { margin-top: 4px; display: block; color: #969eae; font-size: 7px; }
 .member-period-bar,
@@ -4813,13 +4803,10 @@ h1 {
 .status-pill.ready { color: #4f5d9e; }
 .status-pill.closing { color: #664e7f; }
 .status-pill i { background: currentColor; }
-.four-week-rail i,
 .progress-cell > span,
 .profile-capacity i { background: var(--paper-deep); }
-.four-week-rail b,
 .progress-cell b,
 .profile-capacity b { background: var(--sage); }
-.four-week-rail b.short,
 .profile-capacity b.short { background: var(--coral); }
 .staffed-label { color: var(--muted); }
 .owner-cell i { background: var(--paper-deep); color: var(--ink); }
@@ -4830,9 +4817,6 @@ h1 {
 .load-ring::after { background: var(--paper-pure); }
 .load-ring.over { background: conic-gradient(var(--coral) calc(var(--load) * 1%), var(--paper-deep) 0); }
 .load-ring.over strong { color: #9e3f29; }
-.member-week-rail i { background: var(--paper-deep); }
-.member-week-rail b { background: var(--sage); }
-.member-week-rail i.over b { background: var(--coral); }
 
 .report-toolbar { margin-bottom: 24px; padding-bottom: 21px; border-bottom: 1px solid var(--line); }
 .report-toolbar small { color: var(--coral-deep); }
@@ -6546,3 +6530,35 @@ h1 {
 .ui-catalog-specimen code { color: var(--muted-readable-dark); font-family: ui-monospace, "SFMono-Regular", Menlo, monospace; font-size: var(--text-min); overflow-wrap: anywhere; }
 .ui-catalog-measure { color: var(--muted-readable-dark); font-size: var(--text-min); overflow-wrap: anywhere; }
 .ui-catalog-gaps { margin: 0; padding-left: 1.4em; color: var(--muted-readable); font-size: var(--text-sm); line-height: 1.8; }
+
+/* A line over time (#580, #581). The SVG and the points share `.trend-line-plot`,
+   inset by a point's radius so a value at 0 or at the top is not clipped; the inset
+   is outside the box both draw in, so the guides and the points use one scale. */
+.trend-line { position: relative; display: block; color: var(--sage); }
+.trend-line-plot { position: absolute; inset: 3px 0; }
+.trend-line-plot svg { position: absolute; inset: 0; width: 100%; height: 100%; display: block; overflow: visible; }
+.trend-line-guide { stroke: var(--line-strong); stroke-width: 1; stroke-dasharray: 3 3; }
+.trend-line-path { stroke: currentColor; stroke-width: 1.75; stroke-linejoin: round; stroke-linecap: round; }
+.trend-line-slot { position: absolute; top: 0; bottom: 0; }
+.trend-line-dot {
+  position: absolute;
+  left: 50%;
+  width: 6px;
+  height: 6px;
+  border: 1px solid #2c4e40;
+  border-radius: 50%;
+  background: var(--sage);
+  transform: translate(-50%, 50%);
+}
+.trend-line-dot.over,
+.trend-line-dot.short { border-color: var(--coral-deep); background: var(--coral); }
+.trend-line-dot.open { border-color: #3e846f; background: #7bc0aa; }
+@media (forced-colors: active) {
+  .trend-line { forced-color-adjust: none; color: CanvasText; }
+  .trend-line-guide { stroke: GrayText; }
+  /* Same specificity as the toned rules above, which a media query does not outrank. */
+  .trend-line-dot,
+  .trend-line-dot.open { border-color: Canvas; background: CanvasText; }
+  .trend-line-dot.over,
+  .trend-line-dot.short { border-color: Canvas; background: Highlight; }
+}
