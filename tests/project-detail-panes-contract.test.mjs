@@ -5,27 +5,6 @@ import test from "node:test";
 const css = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
 const app = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
 
-/** Index of the `}` that closes the `{` at `open`, skipping comments. */
-function blockEnd(source, open) {
-  let depth = 0;
-  let i = open;
-  while (i < source.length) {
-    if (source.startsWith("/*", i)) {
-      const end = source.indexOf("*/", i + 2);
-      if (end < 0) return -1;
-      i = end + 2;
-      continue;
-    }
-    if (source[i] === "{") depth += 1;
-    else if (source[i] === "}") {
-      depth -= 1;
-      if (depth === 0) return i;
-    }
-    i += 1;
-  }
-  return -1;
-}
-
 test("the project drawer panes scroll the assignee list and the facts, not the member classes", () => {
   const start = css.indexOf(".drawer.project-detail-open {");
   assert.ok(start > 0, "expected the project two-pane rules");
