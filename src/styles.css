@@ -2424,8 +2424,9 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .horizon-point.draft { outline: 1px dashed var(--coral-deep); outline-offset: 2px; }
 .horizon-week strong { margin-top: 5px; color: #596376; font-family: var(--font-data); font-size: 7px; }
 .horizon-week small { margin-top: 3px; color: #9aa2b1; font-family: var(--font-data); font-size: 6px; }
+/* Translucent, so the line under the buttons still shows through the column. */
 .horizon-week:hover,
-.horizon-week:focus-visible { background: var(--canvas); }
+.horizon-week:focus-visible { background: color-mix(in srgb, var(--ink) 5%, transparent); }
 .horizon-week:hover .horizon-point,
 .horizon-week:focus-visible .horizon-point { box-shadow: 0 0 0 3px var(--coral-soft); }
 .horizon-caption { grid-column: 2; margin-top: 10px; padding-top: 10px; border-top: 1px solid #edf0f4; display: flex; align-items: center; gap: 12px; color: #8b94a5; font-size: 7px; }
@@ -6570,6 +6571,8 @@ h1 {
   .trend-line-dot.open { border-color: Canvas; background: CanvasText; }
   .trend-line-dot.over,
   .trend-line-dot.short { border-color: Canvas; background: Highlight; }
+  .horizon-point { forced-color-adjust: none; border-color: Canvas; background: CanvasText; }
+  .horizon-point.over { background: Highlight; }
 }
 
 /* The forecast's line is placed like its guides: absolutely, over the bar row, so it
@@ -6579,8 +6582,9 @@ h1 {
 .horizon-line .trend-line-plot { inset: 0; }
 
 /* The plan cost by month: the line over the same N equal columns its first and last
-   month labels sit in, so each label is centred under its point (#582). */
-.plan-cost-trend { margin: 0 0 12px; display: grid; grid-template-columns: repeat(var(--rail-points, 1), minmax(0, 1fr)); grid-template-rows: 44px auto; column-gap: 0; row-gap: 4px; }
+   month labels sit in, so each label is centred under its point (#582). The inline
+   padding is room for a label wider than its column, 「12月 (一部)」 at 390px. */
+.plan-cost-trend { margin: 0 0 12px; padding-inline: 2em; display: grid; grid-template-columns: repeat(var(--rail-points, 1), minmax(0, 1fr)); grid-template-rows: 44px auto; column-gap: 0; row-gap: 4px; }
 .plan-cost-trend > .trend-line { grid-column: 1 / -1; grid-row: 1; }
 .plan-cost-trend small { grid-row: 2; justify-self: center; white-space: nowrap; color: var(--muted-readable); font-size: var(--text-min); }
 .plan-cost-trend-first { grid-column: 1; }

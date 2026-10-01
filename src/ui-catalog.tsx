@@ -171,7 +171,7 @@ function MonthRailSpecimen() {
 const HORIZON = MONTHS.map((label, index) => ({
   label,
   average: [72, 85, 96, 104, 88, 64, 58, 70, 91, 112, 76, 60][index],
-  draft: index === 3 || index === 9,
+  draft: index === 2 || index === 9,
   pipeline: index === 5 ? 2 : index === 8 ? 1 : 0,
 }));
 const PLAN_COST_MONTHS = MONTHS.map((label, index) => ({ label, yen: [2.4, 2.6, 2.6, 2.2, 1.8, 1.8, 2.0, 2.4, 2.4, 0, 1.2, 1.2][index] * 1_000_000, unset: index === 9 ? 1 : 0 }));
@@ -186,7 +186,7 @@ function PlanCostMonthSpecimen() {
         <small className="plan-cost-trend-last">{PLAN_COST_MONTHS.at(-1)!.label}</small>
       </div>
       <div className="plan-cost-list is-month">
-        {PLAN_COST_MONTHS.slice(0, 3).map((row) => (
+        {PLAN_COST_MONTHS.slice(8, 11).map((row) => (
           <div key={row.label}><span><strong>{row.label}</strong>{row.unset > 0 && <small>未設定 {row.unset}名</small>}</span><em>{amount(row)}</em></div>
         ))}
       </div>
@@ -360,7 +360,7 @@ export const UI_CATALOG: readonly CatalogSection[] = [
     cards: [
       {
         title: "折れ線（推移を線で見せる）",
-        note: "時間の推移は折れ線で表します（#580）。点線は100%（必要人数・稼働上限）、橙色の点は不足か上限超過、緑の点は稼働率60%以下です。",
+        note: "時間の推移は折れ線で表します（#580）。点線は100%（必要人数・稼働上限）です。点は、橙が不足か上限超過、緑が稼働率60%以下、破線の輪が仮置きを含む月です。線が途切れるのは値の無い月です。",
         wide: true,
         sample: true,
         specimens: [

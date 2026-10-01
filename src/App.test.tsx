@@ -1473,11 +1473,14 @@ describe("role-aware workspace", () => {
       expect(line.querySelectorAll(".trend-line-dot")).toHaveLength(0);
       const weeks = [...grid.querySelectorAll<HTMLButtonElement>(".horizon-week")];
       expect(weeks.map((week) => week.querySelectorAll(".horizon-point").length)).toEqual(Array.from({ length: 12 }, () => 1));
-      // The point sits at its value on the ticks' 120 scale, and the button still names it.
-      for (const week of weeks) {
+      // The point sits at its value on the ticks' 120 scale, the button still names it, and
+      // the line's vertex for the month is at the same height.
+      const vertices = line.querySelector("polyline")!.getAttribute("points")!.split(" ").map((point) => Number(point.split(",")[1]));
+      weeks.forEach((week, index) => {
         const average = Number(/ (\d+)%/u.exec(week.getAttribute("aria-label") ?? "")![1]);
         expect((week.querySelector(".horizon-point") as HTMLElement).style.bottom).toBe(`${Math.min(100, average / 120 * 100)}%`);
-      }
+        expect(vertices[index]).toBeCloseTo(100 - Math.min(100, average / 120 * 100), 1);
+      });
       // No bar is left, and the baseline the bars drew is a guide now.
       expect(grid.querySelectorAll(".horizon-bar i:not(.horizon-point), .horizon-bar b")).toHaveLength(0);
       expect(grid.querySelector(".horizon-guide.g0")).not.toBeNull();
@@ -1692,6 +1695,8 @@ describe("role-aware workspace", () => {
       expect(screen.getByRole("heading", { name: "計画コスト" })).toBeInTheDocument();
       expect(screen.getByRole("button", { name: "計画コストのプロジェクト", pressed: true })).toBeInTheDocument();
       expect(card).toHaveTextContent("Atlas リニューアル");
+      expect(card.querySelector(".plan-cost-trend")).toBeNull();
+      expect(card.querySelectorAll(".plan-cost-list i").length).toBeGreaterThan(0);
       // The total is the twelve months the screen shows (#569).
       const twelveMonths = buildPlanCostRows(initialWorkspace, periodRange(DISPLAY_PERIOD, "2026-08-19"), "project");
       expect(card.querySelector(".plan-cost-total")!.textContent).toContain(`合計 ${formatYen(twelveMonths.totalYen)}`);

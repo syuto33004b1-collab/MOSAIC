@@ -244,8 +244,8 @@ test("the line and each month's point use the ticks' scale", async () => {
     "a gap between columns moves their centres off the line's vertices");
 
   const tsx = withoutComments(await readTsx());
-  assert.match(tsx, /<TrendLine className="horizon-line" max=\{120\}/u,
-    `the line's scale has to top out at ${CEILING}, as the ticks do`);
+  assert.match(tsx, /<TrendLine className="horizon-line" max=\{120\} dots="none" points=\{horizon\.map\(\(bucket\) => \(\{ value: bucket\.average \}\)\)\}/u,
+    `the line has to plot each month's average on a scale topping out at ${CEILING}, as the ticks do`);
   assert.match(tsx, /className=\{"horizon-point"[\s\S]{0,200}?bottom: Math\.min\(100, bucket\.average \/ 120 \* 100\)/u,
     "each point has to sit at its value on the same 120 scale");
 });
@@ -258,4 +258,6 @@ test("the plan cost by month draws one line and lists its months without bars", 
   const tsx = withoutComments(await readTsx());
   assert.match(tsx, /planCostAxis !== "month" && <i>/u, "the month rows must not draw a bar");
   assert.match(tsx, /planCostAxis === "month" && \(\s*<div className="plan-cost-trend"/u, "the month axis draws its line");
+  // A month with no priced member is a gap, not a 0: 「未設定」 in the list, no point on the line.
+  assert.match(tsx, /value: row\.yen === 0 && row\.unsetCount > 0 \? null : row\.yen/u, "an unpriced month must break the line");
 });
