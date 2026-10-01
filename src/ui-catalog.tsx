@@ -20,7 +20,7 @@ import {
 } from "lucide-react";
 import { PROFICIENCY_LABELS, type PlanCostAxis } from "./domain";
 import { ActiveFilters, FavoriteStar, MilestoneOverdue, MonthRail, PlanCostAxisTabs } from "./expanded-views";
-import { TrendLine } from "./trend-line";
+import { LabelledTrend, TrendLine } from "./trend-line";
 
 /**
  * One part, drawn the way a screen draws it.
@@ -30,7 +30,7 @@ import { TrendLine } from "./trend-line";
  * dropped would otherwise leave a specimen that looks right and describes nothing.
  * `probe` is the element whose computed style is shown: the one that paints, not its
  * wrapper. `context` are the ancestor classes a screen's selectors need before the part
- * looks the way it does there (`.assignment-form > label`, `.project-detail .profile-capacity`).
+ * looks the way it does there (`.assignment-form > label`, `.plan-cost-card .range-tabs`).
  */
 export type CatalogSpecimen = {
   label: string;
@@ -128,20 +128,30 @@ function CapacityMeterSpecimen() {
   );
 }
 
-const DETAIL_COUNTS = [3, 4, 2];
+const DETAIL_COUNTS: (number | null)[] = [3, 4, 4, 2, 4, 4, 4, 3, 4, 4, null, null];
 function ProjectCapacitySpecimen() {
   return (
-    <div className="profile-capacity">
-      {DETAIL_COUNTS.map((count, index) => (
-        <div key={MONTHS[index]}>
-          <span>{MONTHS[index]}</span>
-          <i>
-            <b className={count < 4 ? "short" : ""} style={{ width: (count / 4) * 100 + "%" }} />
-            {[1, 2, 3].map((tick) => <span key={tick} className="project-capacity-tick" data-inside={tick / 4 < count / 4 ? "true" : "false"} style={{ left: (tick / 4) * 100 + "%" }} aria-hidden="true" />)}
-          </i>
-          <strong>{count}/4名</strong>
-        </div>
-      ))}
+    <LabelledTrend
+      className="project-capacity-trend"
+      label="見本の12か月の充足"
+      guides={[100]}
+      points={DETAIL_COUNTS.map((count) => (count === null ? { value: null } : { value: (count / 4) * 100, tone: count < 4 ? "short" as const : undefined }))}
+      cells={DETAIL_COUNTS.map((count, index) => ({ key: MONTHS[index], month: MONTHS[index], figure: count === null ? "—" : `${count}/4名` }))}
+    />
+  );
+}
+
+const PROPOSAL_PEAKS = [60, 80, 100, 120, 90, 70, 40, 50, 80, 100, 60, 30];
+function ProposalWeeksSpecimen() {
+  return (
+    <div className="proposal-weeks" aria-label="見本の12か月の稼働">
+      <p className="proposal-weeks-ceiling">稼働上限 100%</p>
+      <LabelledTrend
+        label="見本の12か月の稼働"
+        guides={[100]}
+        points={PROPOSAL_PEAKS.map((peak) => ({ value: Math.min(100, peak), tone: peak > 100 ? "over" as const : undefined }))}
+        cells={PROPOSAL_PEAKS.map((peak, index) => ({ key: MONTHS[index], month: MONTHS[index], figure: `${peak}%` }))}
+      />
     </div>
   );
 }
@@ -367,19 +377,20 @@ export const UI_CATALOG: readonly CatalogSection[] = [
           { label: "充足", classes: ["four-week-rail", "trend-line", "staffed-label"], probe: ".four-week-rail .trend-line", screens: "プロジェクト一覧（12か月の充足）", width: 162, Render: StaffingRailSpecimen },
           { label: "月ごとの稼働", classes: ["member-week-rail", "trend-line"], probe: ".member-week-rail .trend-line", screens: "メンバー一覧（12か月の稼働）", wide: true, Render: MonthRailSpecimen },
           { label: "日ごとの稼働", classes: ["member-picker-rail", "trend-line"], probe: ".member-picker-rail .trend-line", screens: "アサインの追加（メンバーの候補）", wide: true, width: 518, Render: PickerRailSpecimen },
+          { label: "充足（月と人数つき）", classes: ["project-capacity-trend", "labelled-trend", "trend-line"], probe: ".project-capacity-trend .trend-line", screens: "プロジェクト詳細（12か月の充足）", wide: true, width: 473, Render: ProjectCapacitySpecimen },
+          { label: "稼働（月と値つき）", classes: ["proposal-weeks", "labelled-trend", "trend-line"], probe: ".proposal-weeks .trend-line", screens: "候補者提案（候補カード）", wide: true, Render: ProposalWeeksSpecimen },
           { label: "需給の見通し", classes: ["horizon-card", "horizon-plot", "horizon-grid", "horizon-line", "horizon-week", "horizon-point"], probe: ".horizon-line", screens: "レポート", wide: true, Render: HorizonSpecimen },
           { label: "計画コスト（月）", classes: ["plan-cost-trend", "trend-line", "plan-cost-list"], probe: ".plan-cost-trend .trend-line", screens: "レポート（計画コストの集計軸「月」）", wide: true, Render: PlanCostMonthSpecimen },
         ],
       },
       {
         title: "横棒（割合を長さで見せる）",
-        note: "順序の無い比較と1つの値のメーターは、#580 の例外として棒のまま残します。プロジェクト詳細の充足は #583 で折れ線にします。",
+        note: "順序の無い比較と1つの値のメーターは、#580 の例外として棒のまま残します。",
         wide: true,
         sample: true,
         specimens: [
           { label: "進捗バー", classes: ["progress-cell"], probe: ".progress-cell b", screens: "プロジェクト一覧（進捗）", Render: ProgressSpecimen },
           { label: "上限との比較", classes: ["capacity-card", "capacity-meter"], probe: ".capacity-meter span", screens: "上限超過の詳細", wide: true, Render: CapacityMeterSpecimen },
-          { label: "充足と必要人数の目盛り", classes: ["profile-capacity", "project-capacity-tick"], probe: ".profile-capacity b", context: ["project-detail"], screens: "プロジェクト詳細", wide: true, width: 473, Render: ProjectCapacitySpecimen },
           { label: "部門ごとの稼働", classes: ["department-list"], probe: ".department-list b", screens: "レポート（部門別）", wide: true, Render: DepartmentListSpecimen },
           { label: "計画コスト", classes: ["plan-cost-list"], probe: ".plan-cost-list b", screens: "レポート（計画コストの集計軸「プロジェクト」「部門」）", wide: true, Render: PlanCostSpecimen },
         ],

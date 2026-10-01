@@ -34,6 +34,7 @@ import {
 } from "lucide-react";
 import { ActiveFilters, CustomFieldFacts, CustomFieldInputs, MemberPicker, WeekendWorkPicker, type MemberCandidate, CsvTransferPanel, FavoriteStar, FieldsView, MemberOrgFields, MembersView, MilestoneOverdue, OpportunitiesView, OrgFacts, OrgView, ProjectsView, ProposalView, ReportsView, SkillsView, UnavailabilityEditor, WorkHistoryEditor } from "./expanded-views";
 import { SkillSheet, printSkillSheet } from "./skill-sheet";
+import { LabelledTrend } from "./trend-line";
 import { UiCatalogView } from "./ui-catalog";
 import { AiChat } from "./components/ai-chat/AiChat";
 import type { ChatTransport } from "./lib/ai/chatClient";
@@ -381,20 +382,6 @@ const MEMBER_PICKER_LIMIT = 12;
 
 /** 「8月17日」, or a dash while a date input is empty. The year is on the inputs below it. */
 const shortDate = (iso: string) => /^\d{4}-\d{2}-\d{2}$/u.test(iso) ? formatDate(iso).replace(/^\d{4}年/u, "") : "—";
-
-/**
- * One tick per required person, not counting the ends. Demand outside 2..12,
- * or a month outside the project (`count === null`), draws nothing: a comb
- * stops being a count. `inside` is strictly left of the fill, so a tick on
- * the fill's edge stays on the empty side of the track.
- */
-export function capacityTickMarks(demand: number, count: number | null) {
-  if (count === null || !Number.isInteger(demand) || demand < 2 || demand > 12) return [];
-  return Array.from({ length: demand - 1 }, (_, index) => {
-    const fraction = (index + 1) / demand;
-    return { fraction, inside: fraction < count / demand };
-  });
-}
 
 /**
  * The project drawer's 「次の節目」 cell. The list keeps `8/28`. This cell and
@@ -4149,29 +4136,39 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                 <div className="project-detail-panes">
                   <div className="project-detail-period">
                     <div className="drawer-section-title"><span>{periodChoiceProseLabel(DISPLAY_PERIOD)}の充足</span><small>{selectedProject.demand === 0 ? "必要人数 未設定" : `必要 ${selectedProject.demand}名`}</small></div>
-                    {/* 12 bars leave the assignee list at 34px on 1052×720, so the
-                        bars scroll with the list. This heading stays put. */}
-                    {/* eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- scrollport */}
-                    <div className="project-detail-assignees" tabIndex={0} role="region" aria-label={`${periodChoiceProseLabel(DISPLAY_PERIOD)}の充足${drawerPeriodHasRange ? "と担当" : ""}`}>
-                      {drawerRange.clipped && <p className="horizon-clip-note" role="note">{PERIOD_CLIP_NOTE}</p>}
-                      <div className="profile-capacity">{drawerRange.buckets.map((bucket, index) => {
-                        const count = projectPeriodCount(workspace, selectedProject, bucket.from, bucket.to);
-                        const outside = count === null;
-                        const unset = selectedProject.demand === 0;
-                        const width = outside ? 0 : unset ? 100 : Math.min(100, count / selectedProject.demand * 100);
-                        const figure = outside ? "—" : unset ? "未設定" : `${count}/${selectedProject.demand}名`;
-                        const ticks = capacityTickMarks(outside ? 0 : selectedProject.demand, outside ? null : count);
-                        return <div key={`${bucket.from}:${bucket.to}`}><span>{periodBucketLabel(DISPLAY_PERIOD, bucket, index)}</span><i><b className={!outside && !unset && count < selectedProject.demand ? "short" : ""} style={{ width: width + "%" }} />{ticks.map((tick, tickIndex) => <span key={tickIndex} className="project-capacity-tick" data-inside={tick.inside ? "true" : "false"} style={{ left: (tick.fraction * 100) + "%" }} aria-hidden="true" />)}</i><strong>{figure}</strong></div>;
-                      })}</div>
-                      {drawerPeriodHasRange && (
-                        <>
-                          <div className="drawer-section-title"><span>{periodChoiceProseLabel(DISPLAY_PERIOD)}の担当</span><small>{projectPeriodAssignments.length}件</small></div>
-                          {projectPeriodAssignments.length === 0
-                            ? <div className="candidate-empty"><UsersRound size={18} /><span><strong>この期間の担当はありません</strong></span></div>
-                            : <div className="detail-member-list">{projectPeriodAssignments.map((assignment) => { const member = memberById(workspace, assignment.personId); return <button onClick={() => member && openMember(member.id)} key={assignment.id}><span className={"avatar " + member?.avatarTone}>{member?.initials}</span><span><strong>{member?.name}</strong><small>{member?.role}</small><small>{formatDate(assignment.startDate)} — {formatDate(assignment.endDate)}</small></span><b>{`稼働配分 ${assignment.allocation}%`}</b></button>; })}</div>}
-                        </>
-                      )}
-                    </div>
+                    {drawerRange.clipped && <p className="horizon-clip-note" role="note">{PERIOD_CLIP_NOTE}</p>}
+                    {/* A line is short, so it stays under its heading rather than scrolling
+                        with the assignee list the way the twelve bars had to (#583). */}
+                    {drawerRange.buckets.length > 0 && (() => {
+                      const counts = drawerRange.buckets.map((bucket) => projectPeriodCount(workspace, selectedProject, bucket.from, bucket.to));
+                      return (
+                        <LabelledTrend
+                          className="project-capacity-trend"
+                          label={`${periodChoiceProseLabel(DISPLAY_PERIOD)}の充足`}
+                          guides={selectedProject.demand > 0 ? [100] : []}
+                          points={counts.map((count) => (count === null || selectedProject.demand === 0
+                            ? { value: null }
+                            : { value: Math.min(100, (count / selectedProject.demand) * 100), tone: count < selectedProject.demand ? "short" as const : undefined }))}
+                          cells={drawerRange.buckets.map((bucket, index) => {
+                            const count = counts[index];
+                            return {
+                              key: `${bucket.from}:${bucket.to}`,
+                              month: periodBucketLabel(DISPLAY_PERIOD, bucket, index),
+                              figure: count === null ? "—" : selectedProject.demand === 0 ? "未設定" : `${count}/${selectedProject.demand}名`,
+                            };
+                          })}
+                        />
+                      );
+                    })()}
+                    {drawerPeriodHasRange && (
+                      // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- scrollport
+                      <div className="project-detail-assignees" tabIndex={0} role="region" aria-label={`${periodChoiceProseLabel(DISPLAY_PERIOD)}の担当`}>
+                        <div className="drawer-section-title"><span>{periodChoiceProseLabel(DISPLAY_PERIOD)}の担当</span><small>{projectPeriodAssignments.length}件</small></div>
+                        {projectPeriodAssignments.length === 0
+                          ? <div className="candidate-empty"><UsersRound size={18} /><span><strong>この期間の担当はありません</strong></span></div>
+                          : <div className="detail-member-list">{projectPeriodAssignments.map((assignment) => { const member = memberById(workspace, assignment.personId); return <button onClick={() => member && openMember(member.id)} key={assignment.id}><span className={"avatar " + member?.avatarTone}>{member?.initials}</span><span><strong>{member?.name}</strong><small>{member?.role}</small><small>{formatDate(assignment.startDate)} — {formatDate(assignment.endDate)}</small></span><b>{`稼働配分 ${assignment.allocation}%`}</b></button>; })}</div>}
+                      </div>
+                    )}
                   </div>
                   <div className="project-detail-facts" role="region" aria-label="案件の事実と要員要件">
                     <div className="detail-facts"><div><span>状態</span><strong>{selectedProject.status}</strong></div><div><span>進捗</span><strong>{selectedProject.progress}%</strong></div><div><span>責任者</span><strong>{ownerLabel(workspace, selectedProject) ?? "未設定"}</strong></div><div><span>完了予定</span><strong>{formatDate(selectedProject.endDate)}</strong></div><div className="fact-wide"><span>次の節目</span><strong><ProjectMilestoneValue project={selectedProject} today={todayIso} /></strong></div></div>

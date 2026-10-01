@@ -158,7 +158,7 @@ import {
   type WorkHistoryEntry,
   type WorkspaceState,
 } from "./domain";
-import { TrendLine } from "./trend-line";
+import { LabelledTrend, TrendLine } from "./trend-line";
 
 type ProjectsViewProps = {
   state: WorkspaceState;
@@ -1564,16 +1564,22 @@ export function ProposalView({
                     </p>
                   );
                 })()}
+                {/* The ceiling once, inside the block the print tick box hides, rather than
+                    「80% / 100%」 twelve times: twelve columns have no room for it (#583). */}
                 <div className="proposal-weeks" aria-label={`${label}の${periodChoiceProseLabel(choice)}の稼働`}>
-                  {range.buckets.length === 0
+                  {range.buckets.length === 0 || !periodStats
                     ? <p className="proposal-weeks-empty">この期間は表示できません</p>
-                    : (periodStats?.buckets ?? []).map((bucket, index) => (
-                      <div key={`${bucket.from}:${bucket.to}`}>
-                        <span>{periodBucketLabel(choice, bucket, index)}</span>
-                        <i><b className={bucket.exceeds ? "over" : ""} style={{ width: bucket.ratio + "%" }} /></i>
-                        <strong>{bucket.peak}% / {member.capacity}%</strong>
-                      </div>
-                    ))}
+                    : (
+                      <>
+                        <p className="proposal-weeks-ceiling">稼働上限 {member.capacity}%</p>
+                        <LabelledTrend
+                          label={`${label}の${periodChoiceProseLabel(choice)}の稼働`}
+                          guides={[100]}
+                          points={periodStats.buckets.map((bucket) => ({ value: bucket.ratio, tone: bucket.exceeds ? "over" as const : undefined }))}
+                          cells={periodStats.buckets.map((bucket, index) => ({ key: `${bucket.from}:${bucket.to}`, month: periodBucketLabel(choice, bucket, index), figure: `${bucket.peak}%` }))}
+                        />
+                      </>
+                    )}
                 </div>
                 <button type="button" className="proposal-open" onClick={() => onOpenMember(member.id)}>詳細を開く</button>
               </article>
