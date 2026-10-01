@@ -1748,16 +1748,20 @@ export function ReportsView({ state, onOpenWeek, onResolveNeed, onOpenOpportunit
       </section>
 
       <div className="horizon-card">
-        {/* The ticks and the bars share one row now. They used to be siblings with
-            independently computed heights, so the label reading 100% sat 31px below the
-            line drawn at 100% and a reader pairing them read a different value (#133). */}
+        {/* The ticks, the guides and the line share one row. They used to be siblings
+            with independently computed heights, so the label reading 100% sat 31px below
+            the line drawn at 100% and a reader pairing them read a different value (#133).
+            The line is drawn like the guides — absolutely, over the bar row — so it takes
+            no cell from the month buttons, which keep their own points and stay the
+            controls (#582). */}
         <div className="horizon-plot">
           <div className="horizon-y-labels"><span className="t100">100%</span><span className="t60">60%</span><span className="t0">0</span></div>
           <div className="horizon-grid" style={{ "--horizon-cols": Math.max(horizon.length, 1) } as CSSProperties}>
-            <div className="horizon-guide g100" /><div className="horizon-guide g60" />
+            <div className="horizon-guide g100" /><div className="horizon-guide g60" /><div className="horizon-guide g0" />
+            <TrendLine className="horizon-line" max={120} dots="none" points={horizon.map((bucket) => ({ value: bucket.average }))} />
             {horizon.map((bucket) => (
             <button className="horizon-week" type="button" onClick={() => openBoard(bucket.from)} key={`${bucket.from}:${bucket.to}`} aria-label={`${bucket.label} ${bucket.average}%${bucket.pipelineDemand > 0 ? ` 受注前+${bucket.pipelineDemand}名` : ""}`}>
-              <span className="horizon-bar"><i className={bucket.average > 100 ? "over" : ""} style={{ height: Math.min(100, bucket.average / 120 * 100) + "%" }} />{bucket.draft > 0 && <b style={{ bottom: Math.min(100, bucket.average / 120 * 100) + "%" }} />}</span>
+              <span className="horizon-bar"><i className={"horizon-point" + (bucket.average > 100 ? " over" : "") + (bucket.draft > 0 ? " draft" : "")} style={{ bottom: Math.min(100, bucket.average / 120 * 100) + "%" }} /></span>
               <strong>{bucket.average}%</strong>
               {bucket.pipelineDemand > 0 && <span className="pipeline-chip">+{bucket.pipelineDemand}名</span>}
               <small>{bucket.label}</small>
@@ -1779,14 +1783,30 @@ export function ReportsView({ state, onOpenWeek, onResolveNeed, onOpenOpportunit
           ) : (
             <>
               <p className="plan-cost-total">合計 {formatYen(planCost.totalYen)}{planCost.unsetCount > 0 ? ` · 未設定 ${planCost.unsetCount}名` : ""}</p>
-              <div className="plan-cost-list" aria-describedby="plan-cost-caption">
+              {/* Months are a series, so they are a line (#582); projects and departments
+                  have no order to draw a line through and keep their bars (#580). The
+                  list below still carries every amount, 未設定 and 「(一部)」 in text. */}
+              {planCostAxis === "month" && (
+                <div className="plan-cost-trend" style={{ "--rail-points": planCost.rows.length } as CSSProperties}>
+                  <TrendLine
+                    max={planCostMaxYen}
+                    points={planCost.rows.map((row) => ({
+                      value: row.yen === 0 && row.unsetCount > 0 ? null : row.yen,
+                      title: `${row.label} ${row.yen === 0 && row.unsetCount > 0 ? "未設定" : formatYen(row.yen)}`,
+                    }))}
+                  />
+                  <small className="plan-cost-trend-first">{planCost.rows[0]?.label}</small>
+                  {planCost.rows.length > 1 && <small className="plan-cost-trend-last">{planCost.rows.at(-1)?.label}</small>}
+                </div>
+              )}
+              <div className={"plan-cost-list" + (planCostAxis === "month" ? " is-month" : "")} aria-describedby="plan-cost-caption">
                 {planCost.rows.map((row) => (
                   <div key={row.key}>
                     <span style={row.depth > 0 ? { paddingInlineStart: `${row.depth * 12}px` } : undefined}>
                       <strong>{row.label}</strong>
                       {row.unsetCount > 0 && <small>未設定 {row.unsetCount}名</small>}
                     </span>
-                    <i><b style={{ width: `${Math.min(100, row.yen / planCostMaxYen * 100)}%` }} /></i>
+                    {planCostAxis !== "month" && <i><b style={{ width: `${Math.min(100, row.yen / planCostMaxYen * 100)}%` }} /></i>}
                     <em>{row.yen === 0 && row.unsetCount > 0 ? "未設定" : formatYen(row.yen)}</em>
                   </div>
                 ))}

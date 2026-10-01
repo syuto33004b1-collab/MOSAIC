@@ -58,6 +58,12 @@ describe("TrendLine (#581)", () => {
     ]);
   });
 
+  it("draws the line alone when the caller's own controls carry the points", () => {
+    const { container } = render(<TrendLine dots="none" points={[{ value: 30, tone: "over" }, { value: null }, { value: 40 }]} />);
+    expect(container.querySelectorAll(".trend-line-dot")).toHaveLength(0);
+    expect(container.querySelectorAll(".trend-line-slot")).toHaveLength(3);
+  });
+
   it("keeps a dense series to its flagged points, and still shows a point that stands alone", () => {
     const { container } = render(<TrendLine dots="flagged" points={[{ value: 30 }, { value: 120, tone: "over" }, { value: 50 }, { value: null }, { value: 40 }, { value: null }]} />);
     const dots = [...container.querySelectorAll<HTMLElement>(".trend-line-dot")];

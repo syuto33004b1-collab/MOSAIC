@@ -58,8 +58,11 @@ export function TrendLine({
   max?: number;
   /** Values that get a dashed reference line: the ceiling, or the headcount the project needs. */
   guides?: readonly number[];
-  /** `flagged` keeps the dots to toned points, for a series too dense to dot every value. */
-  dots?: "all" | "flagged";
+  /**
+   * `flagged` keeps the dots to toned points, for a series too dense to dot every value.
+   * `none` draws the line alone, for a caller whose points are controls of their own.
+   */
+  dots?: "all" | "flagged" | "none";
   className?: string;
 }) {
   const count = points.length;
@@ -76,7 +79,7 @@ export function TrendLine({
           ))}
         </svg>
         {points.map((point, index) => {
-          const showDot = point.value !== null && (dots === "all" || Boolean(point.tone) || isolated(points, index));
+          const showDot = point.value !== null && dots !== "none" && (dots === "all" || Boolean(point.tone) || isolated(points, index));
           return (
             <i
               key={index}
