@@ -768,7 +768,7 @@ export function ProjectsView({
           than per row. `aria-describedby` rather than adjacency alone: jumping
           straight to the table would otherwise miss this (#85). */}
       <p className="viz-caption" id="portfolio-rail-key">{range.buckets[0]
-        ? `「${periodChoiceProseLabel(choice)}の充足」は、${periodBucketLabel(choice, range.buckets[0], 0)}から${periodChoiceProseLabel(choice)}の充足率を示します。線の高さが充足率で、点線が必要人数です。必要人数に届かない月は橙色の点、案件期間外は線が途切れ、必要人数未設定の案件は線を描きません。`
+        ? `「${periodChoiceProseLabel(choice)}の充足」は、${periodBucketLabel(choice, range.buckets[0], 0)}から${periodChoiceProseLabel(choice)}の充足率を示します。線の高さが充足率、点線が必要人数です。届かない月は橙色の点、案件期間外は線が途切れ、必要人数未設定は線を描きません。`
         : `「${periodChoiceProseLabel(choice)}の充足」はこの期間では表示できません。`}</p>
 
       <div className="portfolio-table-wrap">

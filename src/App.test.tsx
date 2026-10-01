@@ -3150,7 +3150,7 @@ describe("a key for what colour and position encode", () => {
     expect(rail.getAttribute("aria-label")).toMatch(/\d+月: 必要人数未設定/u);
     expect(rail.querySelectorAll(".trend-line-slot")).toHaveLength(12);
     expect(rail.querySelectorAll(".trend-line-path, .trend-line-dot")).toHaveLength(0);
-    expect(document.querySelector(".viz-caption")!.textContent).toContain("必要人数未設定の案件は線を描きません");
+    expect(document.querySelector(".viz-caption")!.textContent).toContain("必要人数未設定は線を描きません");
     expect(document.querySelector(".staffed-label")!.textContent).toBe("必要人数未設定");
   });
 
@@ -3166,7 +3166,7 @@ describe("a key for what colour and position encode", () => {
     expect(rail.querySelector(".trend-line-guide")!.getAttribute("data-value")).toBe("100");
     // Each month's numbers reach a pointer on the month's whole column, as the bars' did.
     expect([...rail.querySelectorAll<HTMLElement>(".trend-line-slot")].every((slot) => /^\d+月: /u.test(slot.title))).toBe(true);
-    expect(document.querySelector(".viz-caption")!.textContent).toContain("線の高さが充足率で、点線が必要人数です");
+    expect(document.querySelector(".viz-caption")!.textContent).toContain("線の高さが充足率、点線が必要人数です");
     const headers = [...screen.getByRole("table").querySelectorAll("thead th")].map((th) => th.textContent ?? "");
     expect(headers).toContain("12か月の充足");
   });
