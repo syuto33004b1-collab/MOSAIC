@@ -171,9 +171,29 @@ function MonthRailSpecimen() {
 const HORIZON = MONTHS.map((label, index) => ({
   label,
   average: [72, 85, 96, 104, 88, 64, 58, 70, 91, 112, 76, 60][index],
-  draft: index === 3 || index === 9,
+  draft: index === 2 || index === 9,
   pipeline: index === 5 ? 2 : index === 8 ? 1 : 0,
 }));
+const PLAN_COST_MONTHS = MONTHS.map((label, index) => ({ label, yen: [2.4, 2.6, 2.6, 2.2, 1.8, 1.8, 2.0, 2.4, 2.4, 0, 1.2, 1.2][index] * 1_000_000, unset: index === 9 ? 1 : 0 }));
+function PlanCostMonthSpecimen() {
+  const max = Math.max(...PLAN_COST_MONTHS.map((row) => row.yen));
+  const amount = (row: (typeof PLAN_COST_MONTHS)[number]) => (row.yen === 0 && row.unset > 0 ? "未設定" : `¥${row.yen.toLocaleString("ja-JP")}`);
+  return (
+    <>
+      <div className="plan-cost-trend" style={{ "--rail-points": PLAN_COST_MONTHS.length } as CSSProperties}>
+        <TrendLine max={max} points={PLAN_COST_MONTHS.map((row) => ({ value: row.yen === 0 && row.unset > 0 ? null : row.yen, title: `${row.label} ${amount(row)}` }))} />
+        <small className="plan-cost-trend-first">{PLAN_COST_MONTHS[0].label}</small>
+        <small className="plan-cost-trend-last">{PLAN_COST_MONTHS.at(-1)!.label}</small>
+      </div>
+      <div className="plan-cost-list is-month">
+        {PLAN_COST_MONTHS.slice(8, 11).map((row) => (
+          <div key={row.label}><span><strong>{row.label}</strong>{row.unset > 0 && <small>未設定 {row.unset}名</small>}</span><em>{amount(row)}</em></div>
+        ))}
+      </div>
+    </>
+  );
+}
+
 function HorizonSpecimen() {
   const height = (value: number) => Math.min(100, (value / 120) * 100) + "%";
   return (
@@ -181,10 +201,11 @@ function HorizonSpecimen() {
       <div className="horizon-plot">
         <div className="horizon-y-labels"><span className="t100">100%</span><span className="t60">60%</span><span className="t0">0</span></div>
         <div className="horizon-grid" style={{ "--horizon-cols": HORIZON.length } as CSSProperties}>
-          <div className="horizon-guide g100" /><div className="horizon-guide g60" />
+          <div className="horizon-guide g100" /><div className="horizon-guide g60" /><div className="horizon-guide g0" />
+          <TrendLine className="horizon-line" max={120} dots="none" points={HORIZON.map((bucket) => ({ value: bucket.average }))} />
           {HORIZON.map((bucket) => (
             <button className="horizon-week" type="button" key={bucket.label} aria-label={`見本 ${bucket.label} ${bucket.average}%${bucket.pipeline > 0 ? ` 受注前+${bucket.pipeline}名` : ""}`}>
-              <span className="horizon-bar"><i className={bucket.average > 100 ? "over" : ""} style={{ height: height(bucket.average) }} />{bucket.draft && <b style={{ bottom: height(bucket.average) }} />}</span>
+              <span className="horizon-bar"><i className={"horizon-point" + (bucket.average > 100 ? " over" : "") + (bucket.draft ? " draft" : "")} style={{ bottom: height(bucket.average) }} /></span>
               <strong>{bucket.average}%</strong>
               {bucket.pipeline > 0 && <span className="pipeline-chip">+{bucket.pipeline}名</span>}
               <small>{bucket.label}</small>
@@ -339,13 +360,15 @@ export const UI_CATALOG: readonly CatalogSection[] = [
     cards: [
       {
         title: "折れ線（推移を線で見せる）",
-        note: "時間の推移は折れ線で表します（#580）。点線は100%（必要人数・稼働上限）、橙色の点は不足か上限超過、緑の点は稼働率60%以下です。",
+        note: "時間の推移は折れ線で表します（#580）。点線は100%（必要人数・稼働上限）です。点は、橙が不足か上限超過、緑が稼働率60%以下、破線の輪が仮置きを含む月です。線が途切れるのは値の無い月です。",
         wide: true,
         sample: true,
         specimens: [
           { label: "充足", classes: ["four-week-rail", "trend-line", "staffed-label"], probe: ".four-week-rail .trend-line", screens: "プロジェクト一覧（12か月の充足）", width: 162, Render: StaffingRailSpecimen },
           { label: "月ごとの稼働", classes: ["member-week-rail", "trend-line"], probe: ".member-week-rail .trend-line", screens: "メンバー一覧（12か月の稼働）", wide: true, Render: MonthRailSpecimen },
           { label: "日ごとの稼働", classes: ["member-picker-rail", "trend-line"], probe: ".member-picker-rail .trend-line", screens: "アサインの追加（メンバーの候補）", wide: true, width: 518, Render: PickerRailSpecimen },
+          { label: "需給の見通し", classes: ["horizon-card", "horizon-plot", "horizon-grid", "horizon-line", "horizon-week", "horizon-point"], probe: ".horizon-line", screens: "レポート", wide: true, Render: HorizonSpecimen },
+          { label: "計画コスト（月）", classes: ["plan-cost-trend", "trend-line", "plan-cost-list"], probe: ".plan-cost-trend .trend-line", screens: "レポート（計画コストの集計軸「月」）", wide: true, Render: PlanCostMonthSpecimen },
         ],
       },
       {
@@ -358,16 +381,7 @@ export const UI_CATALOG: readonly CatalogSection[] = [
           { label: "上限との比較", classes: ["capacity-card", "capacity-meter"], probe: ".capacity-meter span", screens: "上限超過の詳細", wide: true, Render: CapacityMeterSpecimen },
           { label: "充足と必要人数の目盛り", classes: ["profile-capacity", "project-capacity-tick"], probe: ".profile-capacity b", context: ["project-detail"], screens: "プロジェクト詳細", wide: true, width: 473, Render: ProjectCapacitySpecimen },
           { label: "部門ごとの稼働", classes: ["department-list"], probe: ".department-list b", screens: "レポート（部門別）", wide: true, Render: DepartmentListSpecimen },
-          { label: "計画コスト", classes: ["plan-cost-list"], probe: ".plan-cost-list b", screens: "レポート（計画コスト）", wide: true, Render: PlanCostSpecimen },
-        ],
-      },
-      {
-        title: "縦棒（量を高さで見せる）",
-        note: "需給の見通しは #582 で折れ線にします。",
-        wide: true,
-        sample: true,
-        specimens: [
-          { label: "需給の見通し", classes: ["horizon-card", "horizon-plot", "horizon-grid", "horizon-week", "horizon-bar"], probe: ".horizon-bar i", screens: "レポート", wide: true, Render: HorizonSpecimen },
+          { label: "計画コスト", classes: ["plan-cost-list"], probe: ".plan-cost-list b", screens: "レポート（計画コストの集計軸「プロジェクト」「部門」）", wide: true, Render: PlanCostSpecimen },
         ],
       },
       {

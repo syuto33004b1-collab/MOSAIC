@@ -1458,6 +1458,34 @@ describe("role-aware workspace", () => {
       expect(document.querySelectorAll(".horizon-week")).toHaveLength(12);
     });
 
+    it("draws the report horizon as a line through one point per month (#582)", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      vi.setSystemTime(new Date("2026-08-19T09:00:00+09:00"));
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      render(<App />);
+      await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: "レポート" }));
+
+      const grid = document.querySelector(".horizon-grid") as HTMLElement;
+      // One line across the months, decoration: each month stays a button with its own point.
+      const line = grid.querySelector(".trend-line.horizon-line")!;
+      expect(line).toHaveAttribute("aria-hidden", "true");
+      expect(line.querySelector("svg")!.getAttribute("viewBox")).toBe("0 0 12 100");
+      expect(line.querySelectorAll(".trend-line-dot")).toHaveLength(0);
+      const weeks = [...grid.querySelectorAll<HTMLButtonElement>(".horizon-week")];
+      expect(weeks.map((week) => week.querySelectorAll(".horizon-point").length)).toEqual(Array.from({ length: 12 }, () => 1));
+      // The point sits at its value on the ticks' 120 scale, the button still names it, and
+      // the line's vertex for the month is at the same height.
+      const vertices = line.querySelector("polyline")!.getAttribute("points")!.split(" ").map((point) => Number(point.split(",")[1]));
+      weeks.forEach((week, index) => {
+        const average = Number(/ (\d+)%/u.exec(week.getAttribute("aria-label") ?? "")![1]);
+        expect((week.querySelector(".horizon-point") as HTMLElement).style.bottom).toBe(`${Math.min(100, average / 120 * 100)}%`);
+        expect(vertices[index]).toBeCloseTo(100 - Math.min(100, average / 120 * 100), 1);
+      });
+      // No bar is left, and the baseline the bars drew is a guide now.
+      expect(grid.querySelectorAll(".horizon-bar i:not(.horizon-point), .horizon-bar b")).toHaveLength(0);
+      expect(grid.querySelector(".horizon-guide.g0")).not.toBeNull();
+    });
+
     it("opens the board from a month of the report horizon", async () => {
       vi.useFakeTimers({ shouldAdvanceTime: true });
       vi.setSystemTime(new Date("2026-08-19T09:00:00+09:00"));
@@ -1667,6 +1695,8 @@ describe("role-aware workspace", () => {
       expect(screen.getByRole("heading", { name: "計画コスト" })).toBeInTheDocument();
       expect(screen.getByRole("button", { name: "計画コストのプロジェクト", pressed: true })).toBeInTheDocument();
       expect(card).toHaveTextContent("Atlas リニューアル");
+      expect(card.querySelector(".plan-cost-trend")).toBeNull();
+      expect(card.querySelectorAll(".plan-cost-list i").length).toBeGreaterThan(0);
       // The total is the twelve months the screen shows (#569).
       const twelveMonths = buildPlanCostRows(initialWorkspace, periodRange(DISPLAY_PERIOD, "2026-08-19"), "project");
       expect(card.querySelector(".plan-cost-total")!.textContent).toContain(`合計 ${formatYen(twelveMonths.totalYen)}`);
@@ -1675,9 +1705,22 @@ describe("role-aware workspace", () => {
       expect(document.querySelectorAll(".plan-cost-list")).toHaveLength(1);
       expect(card).toHaveTextContent("開発本部");
       expect(card).not.toHaveTextContent("Atlas リニューアル");
+      // Projects and departments have no order to draw a line through: bars (#580).
+      expect(card.querySelector(".plan-cost-trend")).toBeNull();
+      expect(card.querySelectorAll(".plan-cost-list i").length).toBeGreaterThan(0);
       await user.click(screen.getByRole("button", { name: "計画コストの月" }));
       expect(card).toHaveTextContent("8月");
       expect(card).not.toHaveTextContent("開発本部");
+      // Months are a series: one line, its first and last month under it, and the list
+      // keeps every amount but no bar (#582).
+      const months = buildPlanCostRows(initialWorkspace, periodRange(DISPLAY_PERIOD, "2026-08-19"), "month").rows;
+      const trend = card.querySelector(".plan-cost-trend")!;
+      expect(trend.querySelectorAll(".trend-line-slot")).toHaveLength(months.length);
+      expect(trend.querySelector(".plan-cost-trend-first")!.textContent).toBe(months[0].label);
+      expect(trend.querySelector(".plan-cost-trend-last")!.textContent).toBe(months.at(-1)!.label);
+      expect(card.querySelector(".plan-cost-list")).toHaveClass("is-month");
+      expect(card.querySelectorAll(".plan-cost-list i")).toHaveLength(0);
+      expect(card.querySelectorAll(".plan-cost-list em")).toHaveLength(months.length);
     });
 
     it("hides the plan-cost card when no member carries the field", async () => {

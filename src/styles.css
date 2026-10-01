@@ -2329,7 +2329,9 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .horizon-plot {
   grid-column: 1 / -1;
   height: 188px;
-  padding-bottom: 25px;
+  /* The top is room for a point at 120% and its draft ring, which the plot's
+     `overflow-y: hidden` would otherwise cut; the bar row keeps its ratios (#582). */
+  padding: 8px 0 25px;
   display: grid;
   grid-template-columns: 34px 1fr;
   grid-template-rows: [bar] minmax(0, 1fr) [rate] auto [pipeline] auto [week] auto;
@@ -2377,12 +2379,13 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   display: grid;
   /* Column count comes from `--horizon-cols` (#393). A hard `repeat(12)` left
      a 1-month horizon at 1/12 width whenever the inline override was missing. */
-  grid-template-columns: repeat(var(--horizon-cols, 12), minmax(42px, 1fr));
+  grid-template-columns: repeat(var(--horizon-cols, 12), minmax(50px, 1fr));
   grid-template-rows: subgrid;
   align-items: end;
-  /* 列だけ。行に 8px を入れると3本の隙間で 24px をラベル側に取られ、
-     バーの軌道がそのぶん短くなる。行間はラベル自身の margin-top が持つ */
-  column-gap: 8px;
+  /* No gap: the line puts month i at (i + 0.5) / N of the grid's width, a column's
+     centre only while the columns touch. The old 42px column and 8px gap are one 50px
+     column now (#582). Rows have no gap either, for the bar row's sake. */
+  column-gap: 0;
 }
 /* 17% と 50% は (120-100)/120 と (120-60)/120 で、バーの軌道に対する割合。
    グリッドの行を指定しないと 188px の枠に対する割合になり、線がバーの目盛りを
@@ -2390,13 +2393,15 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
    `.horizon-grid` は position: relative なので、行を指定すればその行が包含ブロック */
 .horizon-guide { position: absolute; grid-row: bar; grid-column: 1 / -1; left: 0; right: 0; height: 1px; background: #edf0f4; }
 .horizon-guide.g100 { top: calc(100% / 6); border-top: 1px dashed #d9dee8; background: transparent; }.horizon-guide.g60 { top: 50%; }
+/* The baseline the bars used to draw. On the row's bottom edge, the same `top` as the 0 tick. */
+.horizon-guide.g0 { top: 100%; margin-top: -1px; }
 /* バーに固定の高さを持たせると、文字を上げるたびに枠から溢れる。12px 化で
    必要な高さが 168 → 170px になり、`.horizon-grid` は 188px 固定で
    overflow-y: hidden なので週ラベル9件が枠外に出た。ラベル3行を先に取って
    残りをバーに渡せば、文字サイズが動いてもバーが吸収する */
 .horizon-week {
   z-index: 1;
-  min-width: 42px;
+  min-width: 50px;
   padding: 0;
   border: 0;
   background: transparent;
@@ -2410,13 +2415,20 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 /* 受注前の数値が無い週でも週ラベルは week 行。auto 配置に任せると pipeline 行に
    上がってしまい、週ごとにラベルの高さが揃わない */
 .horizon-week > small { grid-row: week; }
-.horizon-bar { position: relative; width: 21px; height: 100%; border-radius: 6px 6px 3px 3px; background: #f0f2f6; overflow: visible; }
-.horizon-bar i { position: absolute; left: 0; right: 0; bottom: 0; border-radius: inherit; background: #8391e6; transition: height .25s ease; }
-.horizon-bar i.over { background: #e8786f; }
-.horizon-bar b { position: absolute; left: -3px; right: -3px; height: 6px; border: 1px dashed #6070c9; border-radius: 3px; background: #dfe3ff; }
+/* The month's point, centred on its value like the line's vertices: `bottom` is the
+   value and the translate puts the middle there, not the bottom edge. */
+.horizon-bar { position: relative; width: 100%; height: 100%; }
+.horizon-point { position: absolute; left: 50%; width: 8px; height: 8px; border: 1px solid #2c4e40; border-radius: 50%; background: var(--sage); transform: translate(-50%, 50%); }
+.horizon-point.over { border-color: var(--coral-deep); background: var(--coral); }
+/* A month with draft assignments in its figure. */
+.horizon-point.draft { outline: 1px dashed var(--coral-deep); outline-offset: 2px; }
 .horizon-week strong { margin-top: 5px; color: #596376; font-family: var(--font-data); font-size: 7px; }
 .horizon-week small { margin-top: 3px; color: #9aa2b1; font-family: var(--font-data); font-size: 6px; }
-.horizon-week:hover .horizon-bar { box-shadow: 0 0 0 3px #eef0ff; }
+/* Translucent, so the line under the buttons still shows through the column. */
+.horizon-week:hover,
+.horizon-week:focus-visible { background: color-mix(in srgb, var(--ink) 5%, transparent); }
+.horizon-week:hover .horizon-point,
+.horizon-week:focus-visible .horizon-point { box-shadow: 0 0 0 3px var(--coral-soft); }
 .horizon-caption { grid-column: 2; margin-top: 10px; padding-top: 10px; border-top: 1px solid #edf0f4; display: flex; align-items: center; gap: 12px; color: #8b94a5; font-size: 7px; }
 .horizon-caption > span { display: inline-flex; align-items: center; gap: 5px; }
 .horizon-caption i { width: 8px; height: 8px; border-radius: 3px; }
@@ -2484,6 +2496,8 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .plan-cost-list > div { display: contents; }
 .plan-cost-list > div > span { min-width: 0; }
 .plan-cost-list > .view-empty { grid-column: 1 / -1; }
+/* Months draw one line above the list instead of a bar per row (#582): two cells a row. */
+.plan-cost-list.is-month { grid-template-columns: minmax(100px, max-content) minmax(7.5em, max-content); justify-content: space-between; }
 .plan-cost-list strong, .plan-cost-list small { display: block; }
 .plan-cost-list strong { font-size: 8px; overflow-wrap: anywhere; }.plan-cost-list small { margin-top: 2px; color: #9aa2b0; font-size: 6px; }
 .plan-cost-list i { height: 6px; border-radius: 99px; background: #edf0f4; overflow: hidden; }
@@ -4834,15 +4848,11 @@ h1 {
 .horizon-plot { overflow-y: hidden; }
 .horizon-guide { background: var(--line); }
 .horizon-guide.g100 { border-top-color: var(--line-strong); }
-.horizon-bar { border-radius: 3px 3px 0 0; background: var(--paper-deep); }
-.horizon-bar i { background: var(--sage); }
-.horizon-bar i.over { background: var(--coral); }
-.horizon-bar b { border-color: var(--coral-deep); border-radius: 2px; background: var(--coral-soft); }
-.horizon-week:hover .horizon-bar { box-shadow: 0 0 0 3px var(--coral-soft); }
 .horizon-caption { border-top-color: var(--line); color: var(--muted); }
 .horizon-clip-note { color: var(--muted); }
-.horizon-caption i.confirmed { background: var(--sage); }
-.horizon-caption i.draft { border-color: var(--coral-deep); background: var(--coral-soft); }
+.horizon-caption i.confirmed { position: relative; width: 16px; height: 2px; border-radius: 0; background: var(--sage); }
+.horizon-caption i.confirmed::after { content: ""; position: absolute; left: 50%; top: 50%; width: 6px; height: 6px; border-radius: 50%; background: var(--sage); transform: translate(-50%, -50%); }
+.horizon-caption i.draft { width: 8px; height: 8px; border: 1px solid #2c4e40; border-radius: 50%; background: var(--sage); outline: 1px dashed var(--coral-deep); outline-offset: 2px; }
 .horizon-caption i.pipeline { background: var(--coral-soft); }
 .pipeline-chip { color: var(--coral-deep); }
 .horizon-caption button { color: var(--coral-deep); }
@@ -6561,4 +6571,21 @@ h1 {
   .trend-line-dot.open { border-color: Canvas; background: CanvasText; }
   .trend-line-dot.over,
   .trend-line-dot.short { border-color: Canvas; background: Highlight; }
+  .horizon-point { forced-color-adjust: none; border-color: Canvas; background: CanvasText; }
+  .horizon-point.over { background: Highlight; }
 }
+
+/* The forecast's line is placed like its guides: absolutely, over the bar row, so it
+   takes no cell from the month buttons. No inset, so its scale is the row the ticks and
+   guides use, (120 - v) / 120 (#133, #582). Under the buttons, which carry the points. */
+.trend-line.horizon-line { position: absolute; grid-row: bar; grid-column: 1 / -1; inset: 0; pointer-events: none; }
+.horizon-line .trend-line-plot { inset: 0; }
+
+/* The plan cost by month: the line over the same N equal columns its first and last
+   month labels sit in, so each label is centred under its point (#582). The inline
+   padding is room for a label wider than its column, 「12月 (一部)」 at 390px. */
+.plan-cost-trend { margin: 0 0 12px; padding-inline: 2em; display: grid; grid-template-columns: repeat(var(--rail-points, 1), minmax(0, 1fr)); grid-template-rows: 44px auto; column-gap: 0; row-gap: 4px; }
+.plan-cost-trend > .trend-line { grid-column: 1 / -1; grid-row: 1; }
+.plan-cost-trend small { grid-row: 2; justify-self: center; white-space: nowrap; color: var(--muted-readable); font-size: var(--text-min); }
+.plan-cost-trend-first { grid-column: 1; }
+.plan-cost-trend-last { grid-column: -2 / -1; }
