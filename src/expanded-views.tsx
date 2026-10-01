@@ -10,6 +10,7 @@ import {
   CircleAlert,
   ClipboardCheck,
   Download,
+  Flag,
   Gauge,
   Layers3,
   MailPlus,
@@ -73,7 +74,8 @@ import {
   MONTHLY_COST_FIELD_LABEL,
   memberHasMonthlyCostField,
   milestoneOverdueDays,
-  periodIdleCostYen,
+  decisionItems,
+  idleCostYenOver,
   buildPlanCostRows,
   workspaceHasPricedMonthlyCost,
   workspaceShowsMonthlyCost,
@@ -90,7 +92,6 @@ import {
   isActiveProfileRequest,
   matchMembers,
   skillInputProblems,
-  openNeeds,
   matchScoreMax,
   memberById,
   needCandidatePersonIds,
@@ -226,9 +227,12 @@ type ProposalViewProps = {
 
 type ReportsViewProps = {
   state: WorkspaceState;
+  /** The saved workspace, so the count can say what it was before the drafts (#487). */
+  committed?: WorkspaceState;
   onOpenWeek: (fromIso: string) => void;
   onResolveNeed: (needId: string) => void;
   onOpenOpportunity?: (opportunityId: string) => void;
+  onOpenProject?: (projectId: string) => void;
   onAddReport: (input: { name: string; source: ReportSource; groupBy: ReportGroupBy; metric: ReportMetric }) => void;
   onDeleteReport: (reportId: string) => void;
   canEdit?: boolean;
@@ -1618,7 +1622,7 @@ export function PlanCostAxisTabs({ axis, onChange }: { axis: PlanCostAxis; onCha
   );
 }
 
-export function ReportsView({ state, onOpenWeek, onResolveNeed, onOpenOpportunity, onAddReport, onDeleteReport, canManageReports = false }: ReportsViewProps) {
+export function ReportsView({ state, committed, onOpenWeek, onResolveNeed, onOpenOpportunity, onOpenProject, onAddReport, onDeleteReport, canManageReports = false }: ReportsViewProps) {
   const choice = DISPLAY_PERIOD;
   const [reportId, setReportId] = useState((state.savedReports ?? [])[0]?.id ?? "");
   const [reportName, setReportName] = useState("");
@@ -1689,12 +1693,10 @@ export function ReportsView({ state, onOpenWeek, onResolveNeed, onOpenOpportunit
         const totals = loadFromPeople(people);
         return { id: department, name: department, path: [department], depth: 0, count: totals.count, average: totals.average, managers: [] as string[] };
       }).sort((a, b) => b.average - a.average);
-  const periodOverloads = memberPeriodStats.filter((row) => row.stats.exceeds);
-  const periodIdle = memberPeriodStats.filter((row) => row.stats.open);
-  // The same list the board warns about (#255): unfilled and not yet over.
-  const activeNeeds = openNeeds(state, origin);
-  const activeOpportunities = (state.opportunities ?? []).filter(isActiveOpportunity);
-  const pipelineNeeds = (state.opportunityNeeds ?? []).filter((need) => activeOpportunities.some((opportunity) => opportunity.id === need.opportunityId));
+  // The owner's definition, counted once (#482, #524). With drafts, as every other
+  // figure here is; the saved count is said only when the drafts change it (#487).
+  const decisions = decisionItems(state, { range, today: origin });
+  const savedDecisionCount = committed ? decisionItems(committed, { range, today: origin }).length : decisions.length;
   const reports = state.savedReports ?? [];
   const selectedReport = reports.find((report) => report.id === reportId) ?? reports[0];
   const reportRows = selectedReport
@@ -1841,27 +1843,34 @@ export function ReportsView({ state, onOpenWeek, onResolveNeed, onOpenOpportunit
         </section>
 
         <section className="exceptions-card">
-          <div className="card-heading"><div><small>EXCEPTIONS</small><h3>判断が必要な項目</h3></div><span>{periodOverloads.length + periodIdle.length + activeNeeds.length + pipelineNeeds.length}</span></div>
-          <div className="exception-list">
-            {periodOverloads.map(({ member, stats }) => {
-              const exceedFrom = stats.firstExceedDate ?? range.from;
-              return <button type="button" onClick={() => openBoard(exceedFrom)} key={member.id}><span className="exception-icon risk"><CircleAlert size={14} /></span><span><strong>{memberLabel(state, member)}さんが期間中に超過</strong><small>稼働を調整してください</small></span><ChevronRight size={15} /></button>;
-            })}
-            {periodIdle.map(({ member }) => {
-              const idleYen = memberHasMonthlyCostField(member) ? periodIdleCostYen(state, member, range.from, range.to) : null;
-              const idleNote = !memberHasMonthlyCostField(member)
-                ? "配置を検討してください"
-                : idleYen == null
-                  ? "原価未設定"
-                  : `遊休 ${formatYen(idleYen)}`;
-              return <button type="button" onClick={() => openBoard(range.from)} key={member.id}><span className="exception-icon idle"><UsersRound size={14} /></span><span><strong>{memberLabel(state, member)}さんが期間中ずっと空き</strong><small>{idleNote}</small></span><ChevronRight size={15} /></button>;
-            })}
-            {activeNeeds.map((need) => <button type="button" onClick={() => onResolveNeed(need.id)} key={need.id}><span className={"exception-icon " + (need.status === "planned" ? "planned" : "open")}><CalendarClock size={14} /></span><span><strong>{state.projects.find((project) => project.id === need.projectId)?.name}</strong><small>{need.role} {need.allocation}% · {need.status === "planned" ? "解消予定" : "担当未定"}</small></span><ChevronRight size={15} /></button>)}
-            {pipelineNeeds.map((need) => {
-              const opportunity = activeOpportunities.find((item) => item.id === need.opportunityId);
-              return <button type="button" onClick={() => onOpenOpportunity?.(need.opportunityId)} key={need.id}><span className="exception-icon pipeline"><BriefcaseBusiness size={14} /></span><span><strong>{opportunity?.name ?? "受注前案件"}</strong><small>{need.role} {need.allocation}% · {OPPORTUNITY_STAGE_LABELS[opportunity?.stage ?? "inquiry"]}の要員計画</small></span><ChevronRight size={15} /></button>;
-            })}
-          </div>
+          <div className="card-heading"><div><small>EXCEPTIONS</small><h3>判断が必要な項目</h3></div><span>{decisions.length}</span></div>
+          {savedDecisionCount !== decisions.length && <p className="exceptions-saved-count">保存済みでは {savedDecisionCount}件</p>}
+          {decisions.length === 0 ? <p className="exceptions-empty">判断が必要な項目はありません</p> : (
+            <div className="exception-list">
+              {decisions.map((item) => {
+                if (item.kind === "unstaffed") {
+                  return <button type="button" onClick={() => onResolveNeed(item.need.id)} key={item.key}><span className="exception-icon open"><CalendarClock size={14} /></span><span><strong>{state.projects.find((project) => project.id === item.need.projectId)?.name}</strong><small>{item.need.role} {item.need.allocation}% · {item.startPassed ? "開始日を過ぎて担当未定" : "担当未定"}</small></span><ChevronRight size={15} /></button>;
+                }
+                if (item.kind === "overload") {
+                  return <button type="button" onClick={() => openBoard(item.firstExceedDate)} key={item.key}><span className="exception-icon risk"><CircleAlert size={14} /></span><span><strong>{memberLabel(state, item.member)}さんが期間中に超過</strong><small>上限超過 {item.weeks}週</small></span><ChevronRight size={15} /></button>;
+                }
+                if (item.kind === "idle") {
+                  // The idle weeks' own cost, and only where the cost is shown at all (#486).
+                  const idleYen = memberHasMonthlyCostField(item.member) ? idleCostYenOver(state, item.member, item.spans) : null;
+                  const idleNote = !memberHasMonthlyCostField(item.member)
+                    ? "配置を検討してください"
+                    : idleYen == null
+                      ? "原価未設定"
+                      : `遊休 ${formatYen(idleYen)}`;
+                  return <button type="button" onClick={() => openBoard(range.from)} key={item.key}><span className="exception-icon idle"><UsersRound size={14} /></span><span><strong>{memberLabel(state, item.member)}さんの遊休が {item.weeks}週</strong><small>{idleNote}</small></span><ChevronRight size={15} /></button>;
+                }
+                if (item.kind === "milestone") {
+                  return <button type="button" onClick={() => onOpenProject?.(item.project.id)} key={item.key}><span className="exception-icon milestone"><Flag size={14} /></span><span><strong>{item.project.name}の節目が {item.overdueDays}日超過</strong><small>{item.project.nextMilestone.trim() || "次の節目"}</small></span><ChevronRight size={15} /></button>;
+                }
+                return <button type="button" onClick={() => onOpenOpportunity?.(item.opportunity.id)} key={item.key}><span className="exception-icon pipeline"><BriefcaseBusiness size={14} /></span><span><strong>{item.opportunity.name}</strong><small>{item.need.role} {item.need.allocation}% · 空きのある候補がいません</small></span><ChevronRight size={15} /></button>;
+              })}
+            </div>
+          )}
         </section>
       </div>
     </section>

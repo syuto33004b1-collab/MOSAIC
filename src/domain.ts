@@ -1404,6 +1404,20 @@ export function periodIdleCostYen(
 ): number | null {
   if (member.monthlyCost == null) return null;
   if (isoDayNumber(from) === null || isoDayNumber(to) === null || to < from) return null;
+  return idleCostYenOver(state, member, [{ from, to }], dailyLoads);
+}
+
+/**
+ * The same idle yen over several spans, rounded once: the weeks a member was idle are
+ * what their 遊休原価 is, not the slack left in their busy weeks (#486, #524).
+ */
+export function idleCostYenOver(
+  state: WorkspaceState,
+  member: Member,
+  spans: readonly PeriodBucket[],
+  dailyLoads: typeof memberDailyLoads = memberDailyLoads,
+): number | null {
+  if (member.monthlyCost == null) return null;
   const denomByMonth = new Map<string, number>();
   const denom = (date: string) => {
     const key = date.slice(0, 7);
@@ -1414,14 +1428,18 @@ export function periodIdleCostYen(
     }
     return count;
   };
+  const valid = spans.filter((span) => isoDayNumber(span.from) !== null && isoDayNumber(span.to) !== null && span.from <= span.to);
+  if (valid.length === 0) return null;
   let yen = 0;
-  for (const day of dailyLoads(state, member.id, from, to)) {
-    if (day.weekend) continue;
-    const unused = Math.max(0, day.capacity - day.load);
-    if (unused <= 0) continue;
-    const days = denom(day.date);
-    if (days <= 0) continue;
-    yen += member.monthlyCost * (unused / 100) / days;
+  for (const span of valid) {
+    for (const day of dailyLoads(state, member.id, span.from, span.to)) {
+      if (day.weekend) continue;
+      const unused = Math.max(0, day.capacity - day.load);
+      if (unused <= 0) continue;
+      const days = denom(day.date);
+      if (days <= 0) continue;
+      yen += member.monthlyCost * (unused / 100) / days;
+    }
   }
   return Math.round(yen);
 }
@@ -3429,6 +3447,116 @@ export function searchSceneFromNeed(need: Pick<StaffingNeed, "id" | "role" | "sk
  */
 export function openNeeds(state: Pick<WorkspaceState, "needs">, todayIso: string) {
   return state.needs.filter((need) => need.status !== "filled" && need.endDate >= todayIso);
+}
+
+export type DecisionItem =
+  | { kind: "unstaffed"; key: string; need: StaffingNeed; startPassed: boolean }
+  | { kind: "overload"; key: string; member: Member; weeks: number; firstExceedDate: string }
+  | { kind: "idle"; key: string; member: Member; weeks: number; spans: PeriodBucket[] }
+  | { kind: "milestone"; key: string; project: Project; overdueDays: number }
+  | { kind: "pipeline"; key: string; opportunity: Opportunity; need: OpportunityNeed; startPassed: boolean };
+
+/** A week is idle below this share of its weekday ceilings; 20% itself is not (#482). */
+export const IDLE_BELOW_PERCENT = 20;
+/** Idle weeks in the twelve months before a member is listed: the quarter's 4, scaled (#482). */
+export const IDLE_WEEKS_AT_LEAST = 16;
+
+/**
+ * 「判断が必要な項目」, the one list every screen is to count from, in the order the owner
+ * fixed (#482, #486, #524): unstaffed needs, then people over their ceiling, idle people,
+ * overdue milestones, and pre-award staffing that nobody has room for.
+ *
+ * Only the members the caller can see, and no money: idle people are ordered by weeks, so
+ * the order cannot leak a cost a role is not shown (#486). Run on the draft workspace and
+ * on the saved one, the difference is what saving would change (#487).
+ */
+export function decisionItems(
+  state: WorkspaceState,
+  options: {
+    range: PeriodRange;
+    today: string;
+    idleBelowPercent?: number;
+    idleWeeks?: number;
+    dailyLoads?: typeof memberDailyLoads;
+  },
+): DecisionItem[] {
+  const { range, today, idleBelowPercent = IDLE_BELOW_PERCENT, idleWeeks = IDLE_WEEKS_AT_LEAST, dailyLoads = memberDailyLoads } = options;
+  const hasRange = Boolean(range.from && range.to && range.from <= range.to);
+  const byName = (left: Member, right: Member) => memberLabel(state, left).localeCompare(memberLabel(state, right), "ja");
+  // Started ones first, the nearest to today first among them; then the soonest to start.
+  const byStart = (left: { startDate: string; id: string }, right: { startDate: string; id: string }) => {
+    const leftPassed = left.startDate < today;
+    const rightPassed = right.startDate < today;
+    if (leftPassed !== rightPassed) return leftPassed ? -1 : 1;
+    const order = leftPassed ? right.startDate.localeCompare(left.startDate) : left.startDate.localeCompare(right.startDate);
+    return order || left.id.localeCompare(right.id);
+  };
+
+  const unstaffed: DecisionItem[] = !hasRange ? [] : state.needs
+    .filter((need) => need.status === "open" && need.endDate >= today && overlaps(need.startDate, need.endDate, range.from, range.to))
+    .sort(byStart)
+    .map((need) => ({ kind: "unstaffed", key: `unstaffed:${need.id}`, need, startPassed: need.startDate < today }));
+
+  const overloaded: Extract<DecisionItem, { kind: "overload" }>[] = [];
+  const idle: Extract<DecisionItem, { kind: "idle" }>[] = [];
+  if (hasRange) {
+    for (const member of state.members) {
+      const weeks = new Map<string, { from: string; to: string; over: boolean; load: number; capacity: number }>();
+      let firstExceedDate: string | null = null;
+      for (const day of dailyLoads(state, member.id, range.from, range.to)) {
+        const monday = getWeekStartForDate(day.date);
+        const week = weeks.get(monday) ?? { from: day.date, to: day.date, over: false, load: 0, capacity: 0 };
+        weeks.set(monday, week);
+        week.to = day.date;
+        if (day.load > day.capacity) {
+          week.over = true;
+          firstExceedDate ??= day.date;
+        }
+        // Weekday supply only: holidays and leave carry a 0 ceiling and drop out, and a
+        // recorded weekend is excess above the week, not room in it (#222, #482).
+        if (!day.weekend && day.capacity > 0) {
+          week.load += day.load;
+          week.capacity += day.capacity;
+        }
+      }
+      const overWeeks = [...weeks.values()].filter((week) => week.over).length;
+      if (overWeeks > 0 && firstExceedDate) {
+        overloaded.push({ kind: "overload", key: `overload:${member.id}`, member, weeks: overWeeks, firstExceedDate });
+      }
+      // In whole numbers, so exactly the threshold is never idle.
+      const idleSpans = [...weeks.values()]
+        .filter((week) => week.capacity > 0 && week.load * 100 < week.capacity * idleBelowPercent)
+        .map(({ from, to }) => ({ from, to }));
+      if (idleSpans.length >= idleWeeks) {
+        idle.push({ kind: "idle", key: `idle:${member.id}`, member, weeks: idleSpans.length, spans: idleSpans });
+      }
+    }
+  }
+  overloaded.sort((left, right) => right.weeks - left.weeks || byName(left.member, right.member));
+  idle.sort((left, right) => right.weeks - left.weeks || byName(left.member, right.member));
+
+  const milestones: DecisionItem[] = state.projects
+    .filter((project) => project.status !== "完了")
+    .map((project) => ({ project, overdueDays: milestoneOverdueDays(project.nextMilestoneDate, today) }))
+    .filter((entry) => entry.overdueDays > 0)
+    .sort((left, right) => right.overdueDays - left.overdueDays || left.project.name.localeCompare(right.project.name, "ja"))
+    .map(({ project, overdueDays }) => ({ kind: "milestone", key: `milestone:${project.id}`, project, overdueDays }));
+
+  // The opportunity detail's own candidate test: someone in the role, with the skills,
+  // and room for the allocation over the whole plan (App.tsx `opportunityCandidates`).
+  const pipeline: DecisionItem[] = !hasRange ? [] : (state.opportunityNeeds ?? [])
+    .flatMap((need) => {
+      const opportunity = opportunityById(state, need.opportunityId);
+      if (!opportunity || !canConvertOpportunity(opportunity)) return [];
+      if (need.endDate < today || !overlaps(need.startDate, need.endDate, range.from, range.to)) return [];
+      const someoneHasRoom = state.members.some((member) => memberMatchesNeed(member, need)
+        && memberAvailablePercent(state, member, need.startDate, need.endDate) >= need.allocation);
+      return someoneHasRoom ? [] : [{ opportunity, need }];
+    })
+    .sort((left, right) => byStart(left.need, right.need))
+    .map(({ opportunity, need }) => ({ kind: "pipeline", key: `pipeline:${need.id}`, opportunity, need, startPassed: need.startDate < today }));
+
+  return [...unstaffed, ...overloaded, ...idle, ...milestones, ...pipeline];
 }
 
 export function addSearchScene(scenes: SearchScene[], input: {

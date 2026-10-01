@@ -4838,6 +4838,10 @@ h1 {
 .exception-icon.planned { background: var(--sage-soft); color: var(--sage); }
 .exception-icon.pipeline { background: var(--coral-soft); color: var(--coral-deep); }
 .exception-icon.idle { background: var(--sage-soft); color: var(--sage); }
+/* An overdue milestone, and the two lines the list now says about itself (#524). */
+.exception-icon.milestone { background: var(--paper-deep); color: var(--ink); }
+.exceptions-saved-count { margin: -4px 0 8px; color: var(--muted-readable); font-size: var(--text-min); line-height: var(--leading); }
+.exceptions-empty { margin: 0; padding: 10px 2px; color: var(--muted-readable); font-size: var(--text-min); line-height: var(--leading); }
 .report-insight {
   border-color: #b9d4c5;
   border-radius: 3px;

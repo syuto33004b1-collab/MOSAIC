@@ -780,8 +780,50 @@ describe("role-aware workspace", () => {
     await user.keyboard("{Escape}");
 
     await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^レポート/u }));
-    expect(screen.queryByText(/QA Engineer 40% · 担当未定/u)).toBeNull();
-    expect(screen.getByText(/Backend Engineer 60% · 担当未定/u)).toBeInTheDocument();
+    expect(screen.queryByText(/QA Engineer 40%/u)).toBeNull();
+    // The report says which have started (#524), as the board's card does above.
+    expect(screen.getByText("Backend Engineer 60% · 開始日を過ぎて担当未定")).toBeInTheDocument();
+    expect(screen.getByText("Designer 50% · 担当未定")).toBeInTheDocument();
+  });
+
+  it("lists the report's decisions in the owner's order, says the saved count when drafts change it, and opens a milestone's project (#524)", async () => {
+    const user = userEvent.setup();
+    const adapter = sharedAdapter();
+    const member = { ...initialWorkspace.members[0], id: "qa", name: "品質 花子", role: "QA Engineer", skills: ["QA"], skillLevels: undefined, capacity: 100, unavailability: [] };
+    const project = { ...initialWorkspace.projects[0], id: "late", name: "節目 案件", status: "進行中" as const, nextMilestone: "受入判定", nextMilestoneDate: "2026-08-12" };
+    adapter.initialState = {
+      ...initialWorkspace,
+      members: [member], projects: [project], assignments: [], opportunities: [], opportunityNeeds: [],
+      needs: [{ id: "need", projectId: "late", role: "QA Engineer", skills: ["QA"], startDate: "2026-08-24", endDate: "2026-09-30", allocation: 40, status: "open" }],
+    } as unknown as WorkspaceState;
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^レポート/u }));
+    const card = () => screen.getByText("判断が必要な項目").closest("section")!;
+    const rows = () => [...card().querySelectorAll(".exception-list button strong")].map((row) => row.textContent);
+    expect(rows()).toEqual(["節目 案件", expect.stringMatching(/^品質 花子さんの遊休が \d+週$/u), "節目 案件の節目が 7日超過"]);
+    expect(card().querySelector(".card-heading > span")!.textContent).toBe("3");
+    expect(card().querySelector(".exceptions-saved-count")).toBeNull();
+
+    // A draft placement resolves the need on screen; the saved data still has it.
+    await user.click(within(card()).getByRole("button", { name: /QA Engineer 40% · 担当未定/u }));
+    await user.click(within(drawerDialog()).getByRole("button", { name: "仮置き" }));
+    if (queryDrawerDialog()) await user.click(within(drawerDialog()).getByRole("button", { name: "詳細パネルを閉じる" }));
+    expect(card().querySelector(".card-heading > span")!.textContent).toBe("2");
+    expect(card().querySelector(".exceptions-saved-count")!.textContent).toBe("保存済みでは 3件");
+
+    await user.click(within(card()).getByRole("button", { name: /節目 案件の節目が 7日超過/u }));
+    expect(document.querySelector(".drawer-kicker")!.textContent).toBe("PROJECT DETAIL");
+  });
+
+  it("says so when the report has nothing to decide (#524)", async () => {
+    const user = userEvent.setup();
+    const adapter = sharedAdapter();
+    adapter.initialState = { ...initialWorkspace, members: [], projects: [], assignments: [], needs: [], opportunities: [], opportunityNeeds: [] } as unknown as WorkspaceState;
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^レポート/u }));
+    const card = screen.getByText("判断が必要な項目").closest("section")!;
+    expect(card.querySelector(".card-heading > span")!.textContent).toBe("0");
+    expect(within(card).getByText("判断が必要な項目はありません")).toBeInTheDocument();
   });
 
   it("says what the draft would take the member to, and still lets it through", async () => {
@@ -1610,8 +1652,10 @@ describe("role-aware workspace", () => {
       render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "admin@example.com", role: "admin" }} shared={adapter} />);
       const navigation = within(screen.getByRole("navigation", { name: "メインナビゲーション" }));
       await user.click(navigation.getByRole("button", { name: "レポート" }));
-      expect(screen.getByText("遊休 太郎さんが期間中ずっと空き")).toBeInTheDocument();
-      expect(screen.getByText("遊休 太郎さんが期間中ずっと空き").closest("button")).toHaveTextContent(/[¥￥]/);
+      // Weeks under 20% of the ceiling, sixteen or more of them in the twelve months (#482).
+      const idleRow = screen.getByText(/^遊休 太郎さんの遊休が \d+週$/u);
+      expect(Number(idleRow.textContent!.match(/(\d+)週/u)![1])).toBeGreaterThanOrEqual(16);
+      expect(idleRow.closest("button")).toHaveTextContent(/[¥￥]/);
       expect(screen.queryByText("今週の示唆")).not.toBeInTheDocument();
       expect(screen.queryByRole("note")).not.toBeInTheDocument();
 
@@ -1640,8 +1684,8 @@ describe("role-aware workspace", () => {
       };
       render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "admin@example.com", role: "admin" }} shared={adapter} />);
       await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: "レポート" }));
-      expect(screen.getByText("隠した 太郎さんが期間中ずっと空き").closest("button")).toHaveTextContent("配置を検討してください");
-      expect(screen.getByText("未設定 花子さんが期間中ずっと空き").closest("button")).toHaveTextContent("原価未設定");
+      expect(screen.getByText(/^隠した 太郎さんの遊休が \d+週$/u).closest("button")).toHaveTextContent("配置を検討してください");
+      expect(screen.getByText(/^未設定 花子さんの遊休が \d+週$/u).closest("button")).toHaveTextContent("原価未設定");
     });
 
     it("measures a saved report's avgLoad over the twelve months the screen shows (#569)", async () => {
