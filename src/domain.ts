@@ -1428,9 +1428,10 @@ export function idleCostYenOver(
     }
     return count;
   };
+  const valid = spans.filter((span) => isoDayNumber(span.from) !== null && isoDayNumber(span.to) !== null && span.from <= span.to);
+  if (valid.length === 0) return null;
   let yen = 0;
-  for (const span of spans) {
-    if (isoDayNumber(span.from) === null || isoDayNumber(span.to) === null || span.to < span.from) continue;
+  for (const span of valid) {
     for (const day of dailyLoads(state, member.id, span.from, span.to)) {
       if (day.weekend) continue;
       const unused = Math.max(0, day.capacity - day.load);

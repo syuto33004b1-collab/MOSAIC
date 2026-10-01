@@ -125,12 +125,37 @@ describe("decision items: 遊休 (#482, #486)", () => {
       .filter((item) => item.kind === "idle")
       .map((item) => item.weeks);
     expect(weeksOf([leave])).toEqual([15]);
+    // 19% on weekdays stays idle with a full Saturday on top; counting the Saturday
+    // would make each week (95 + 100) / 600, about 33%, and none idle.
     const saturdays = Array.from({ length: 16 }, (_, index) => {
       const date = new Date(Date.UTC(2026, 7, 8 + index * 7)).toISOString().slice(0, 10);
       return work(`s${index}`, "b", date, date, 100, { weekendWorkDates: [date] });
     });
-    expect(weeksOf([person("b")], saturdays)).toEqual([16]);
+    expect(weeksOf([person("b")], [work("weekdays", "b", "2026-08-03", "2026-11-22", 19), ...saturdays])).toEqual([16]);
     expect(weeksOf([person("zero", { capacity: 0 })])).toEqual([]);
+  });
+
+  it("measures a week by its total, not by its busiest or quietest day", () => {
+    // Four empty weekdays and one at 50% are 10% of the week: idle, though one day is not.
+    // Wednesdays, because 23 September is a holiday and its week keeps no load at all;
+    // a Friday that week would be 50 of the two days left, 25%.
+    const oneDayAWeek = Array.from({ length: 16 }, (_, index) => {
+      const date = new Date(Date.UTC(2026, 7, 5 + index * 7)).toISOString().slice(0, 10);
+      return work(`w${index}`, "a", date, date, 50);
+    });
+    expect(decisionItems(state({ members: [person("a")], assignments: oneDayAWeek }), { range: SIXTEEN_WEEKS, today: TODAY })
+      .filter((item) => item.kind === "idle").map((item) => item.weeks)).toEqual([16]);
+  });
+
+  it("counts a week the range cuts as one week, over the days inside it", () => {
+    // Wednesday 5 August to Tuesday 17 November: the first and last weeks are cut.
+    const cut: PeriodRange = { from: "2026-08-05", to: "2026-11-17", buckets: [], clipped: false };
+    const idle = decisionItems(state({ members: [person("a")] }), { range: cut, today: TODAY })
+      .filter((item) => item.kind === "idle");
+    expect(idle.map((item) => item.weeks)).toEqual([16]);
+    if (idle[0].kind !== "idle") throw new Error("expected an idle item");
+    expect(idle[0].spans[0]).toEqual({ from: "2026-08-05", to: "2026-08-09" });
+    expect(idle[0].spans.at(-1)).toEqual({ from: "2026-11-16", to: "2026-11-17" });
   });
 
   it("orders idle people by weeks, not by what they cost", () => {
@@ -179,6 +204,14 @@ describe("decision items: 未充足, 節目超過, 受注前の影響 (#524)", (
     ]);
   });
 
+  it("does not call a need starting today started, and counts a 完了 project's open need", () => {
+    const items = decisionItems(state({
+      projects: [{ ...initialWorkspace.projects[0], id: "done", status: "完了", nextMilestoneDate: null }],
+      needs: [{ ...need("today", TODAY, "2026-09-30"), projectId: "done" }],
+    }), { range: SIXTEEN_WEEKS, today: TODAY });
+    expect(items.map((item) => item.kind === "unstaffed" ? [item.need.id, item.startPassed] : item.key)).toEqual([["today", false]]);
+  });
+
   it("counts overdue milestones on projects not 完了, the most overdue first, whatever the range", () => {
     const project = (id: string, nextMilestoneDate: string | null, status: Project["status"] = "進行中"): Project => ({ ...initialWorkspace.projects[0], id, name: `案件 ${id}`, status, nextMilestoneDate });
     const items = decisionItems(state({
@@ -216,6 +249,11 @@ describe("decision items: 未充足, 節目超過, 受注前の影響 (#524)", (
     // Free the person and the plan has a candidate, so it stops being a decision.
     const free = { ...workspace, assignments: [] };
     expect(decisionItems(free, { range: SIXTEEN_WEEKS, today: TODAY }).filter((item) => item.kind === "pipeline")).toEqual([]);
+
+    // A plan starting today has not started.
+    const startsToday = { ...workspace, opportunityNeeds: [plan("today", "open", TODAY, "2026-10-30")] };
+    expect(decisionItems(startsToday, { range: SIXTEEN_WEEKS, today: TODAY })
+      .map((item) => item.kind === "pipeline" ? [item.need.id, item.startPassed] : item.key)).toEqual([["today", false]]);
   });
 
   it("orders the kinds as the owner fixed, and keeps only milestones without a range", () => {
@@ -245,8 +283,10 @@ describe("idle cost over the idle weeks (#486)", () => {
     expect(idleCostYenOver(workspace, member, [{ from: "2026-08-01", to: "2026-08-15" }, { from: "2026-08-16", to: "2026-08-31" }])).toBe(600_000);
   });
 
-  it("is null when the cost is hidden or unset", () => {
+  it("is null when the cost is hidden or unset, or when no span is a real one", () => {
     expect(idleCostYenOver(workspace, { ...member, monthlyCost: undefined }, [{ from: "2026-08-01", to: "2026-08-31" }])).toBeNull();
     expect(idleCostYenOver(workspace, { ...member, monthlyCost: null }, [{ from: "2026-08-01", to: "2026-08-31" }])).toBeNull();
+    expect(idleCostYenOver(workspace, member, [])).toBeNull();
+    expect(idleCostYenOver(workspace, member, [{ from: "2026-08-31", to: "2026-08-01" }, { from: "", to: "2026-08-31" }])).toBeNull();
   });
 });
