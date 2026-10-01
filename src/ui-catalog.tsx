@@ -163,7 +163,7 @@ function MonthRailSpecimen() {
     // Twelve labels need about 350px; below that the cell scrolls rather than spill (#574).
     // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- scrollport
     <div className="ui-catalog-cell ui-catalog-natural" tabIndex={0} role="region" aria-label="見本の月ごとの稼働">
-      <MonthRail buckets={MONTH_PEAKS.map((peak, index) => ({ from: MONTHS[index], to: MONTHS[index], peak, ratio: Math.min(100, peak), exceeds: peak > 100, open: peak < 60 }))} />
+      <MonthRail buckets={MONTH_PEAKS.map((peak, index) => ({ from: MONTHS[index], to: MONTHS[index], peak, ratio: Math.min(100, peak), exceeds: peak > 100, open: peak <= 60 }))} />
     </div>
   );
 }
@@ -339,7 +339,7 @@ export const UI_CATALOG: readonly CatalogSection[] = [
     cards: [
       {
         title: "折れ線（推移を線で見せる）",
-        note: "時間の推移は折れ線で表します（#580）。点線は100%（必要人数・稼働上限）、橙色の点は不足か上限超過です。",
+        note: "時間の推移は折れ線で表します（#580）。点線は100%（必要人数・稼働上限）、橙色の点は不足か上限超過、緑の点は稼働率60%以下です。",
         wide: true,
         sample: true,
         specimens: [

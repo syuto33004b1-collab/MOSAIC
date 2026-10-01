@@ -94,8 +94,14 @@ test("no rule takes the month label out of its track", async () => {
     [],
     "an out-of-flow or wrapping label defeats the track that is supposed to hold it:\n  " + offenders.join("\n  "),
   );
+  // The last one, not any one: a later `grid-row: 1` would put the labels on the line.
   const rows = rules.flatMap(({ body }) => declarations(body, "grid-row"));
-  assert.ok(rows.includes("2"), "the labels must sit in the second row, under the line");
+  assert.equal(rows.at(-1), "2", "the labels must sit in the second row, under the line");
+  // Tracks mean nothing if the box is not a grid, in any rule that styles the rail.
+  const displays = railRules(css).flatMap(({ selector, body }) => declarations(body, "display").map((value) => ({ selector, value })));
+  assert.ok(displays.length >= 1, "no rail rule declares display");
+  const notGrid = displays.filter((d) => d.value !== "grid").map((d) => `${d.selector.slice(0, 40)} => display: ${d.value}`);
+  assert.deepEqual(notGrid, [], "every rail rule must keep display: grid:\n  " + notGrid.join("\n  "));
 });
 
 test("the rail's columns are equal, so each point sits over its own label", async () => {
@@ -130,6 +136,7 @@ test("every label holds the widest one's width, and the line spans the row", asy
   assert.deepEqual(declarations(sizer, "display"), ["block"], "the sizer must take its own line to add width");
   assert.deepEqual(declarations(sizer, "height"), ["0"], "the sizer must add no height");
   assert.deepEqual(declarations(sizer, "visibility"), ["hidden"], "the sizer must not be seen");
+  assert.deepEqual(declarations(sizer, "user-select"), ["none"], "the sizer must not ride along when a label is copied");
   const labels = allRules(css, "\\.member-week-rail\\s+small").flatMap(({ body }) => declarations(body, "font-variant-numeric"));
   assert.ok(labels.includes("tabular-nums"), "with proportional figures, two labels of one length can differ in width");
   const line = allRules(css, "\\.member-week-rail\\s*>\\s*\\.trend-line");

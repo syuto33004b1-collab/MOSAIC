@@ -2263,7 +2263,7 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .member-week-rail { display: grid; grid-template-columns: repeat(var(--rail-points, 1), minmax(min-content, 1fr)); grid-template-rows: 29px auto; column-gap: 0; row-gap: 3px; }
 .member-week-rail > .trend-line { grid-column: 1 / -1; grid-row: 1; }
 .member-week-rail small { grid-row: 2; padding-inline: 1px; text-align: center; white-space: nowrap; color: #a0a7b5; font-family: var(--font-data); font-size: 5.5px; font-variant-numeric: tabular-nums; }
-.member-week-rail-sizer { display: block; height: 0; overflow: hidden; visibility: hidden; }
+.member-week-rail-sizer { display: block; height: 0; overflow: hidden; visibility: hidden; user-select: none; }
 .next-open { font-size: 8px; }
 .next-open small { margin-top: 4px; display: block; color: #969eae; font-size: 7px; }
 .member-period-bar,
@@ -6556,7 +6556,9 @@ h1 {
 @media (forced-colors: active) {
   .trend-line { forced-color-adjust: none; color: CanvasText; }
   .trend-line-guide { stroke: GrayText; }
-  .trend-line-dot { border-color: Canvas; background: CanvasText; }
+  /* Same specificity as the toned rules above, which a media query does not outrank. */
+  .trend-line-dot,
+  .trend-line-dot.open { border-color: Canvas; background: CanvasText; }
   .trend-line-dot.over,
-  .trend-line-dot.short { background: Highlight; }
+  .trend-line-dot.short { border-color: Canvas; background: Highlight; }
 }

@@ -4,7 +4,7 @@ import axe from "axe-core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import App, { capacityTickMarks, monthColumnGuidesMisaligned, type SharedWorkspaceAdapter } from "./App";
 import { parseCsv } from "./csv";
-import { MembersView, ProjectsView, ProposalView } from "./expanded-views";
+import { MembersView, ProjectsView, ProposalView, widestRailLabel } from "./expanded-views";
 import { DEMO_FAVORITES_KEY } from "./collaboration";
 import { addDays, buildPlanCostRows, buildSavedReport, currentLocalDate, boardBasisWeek, boardRange, DISPLAY_PERIOD, formatDate, formatYen, periodRange, formatWorkHistoryPeriod, getWeekDays, getWeekStart, initialWorkspace, memberDailyLoads, memberLoad, memberMonthChartLabel, memberMonthLedger, memberMonthPointLabel, memberPeakLoad, PERIOD_CLIP_NOTE, weekLabel, type StaffingNeed, type WorkspaceState } from "./domain";
 import type { ChatTransport } from "./lib/ai/chatClient";
@@ -2163,6 +2163,14 @@ describe("the members list's month rail (#581)", () => {
     expect(screen.getByRole("table").getAttribute("aria-describedby")?.split(" ")).toContain("member-rail-key");
   });
 
+  it("sizes every column from the widest label, counting digits before a decimal point", () => {
+    expect(widestRailLabel(["0%", "100%", "80%"])).toBe("100%");
+    // Same length, but a point is narrower than a digit in tabular figures.
+    expect(widestRailLabel(["1.5%", "100%"])).toBe("100%");
+    expect(widestRailLabel(["125%", "1.25%"])).toBe("1.25%");
+    expect(widestRailLabel([])).toBe("");
+  });
+
   it("colours a month over the ceiling and one at 60% or less, the way the legend does", () => {
     const member = { ...initialWorkspace.members[0], id: "rail-tones", name: "線 太郎", capacity: 100 };
     const project = initialWorkspace.projects[0];
@@ -3149,7 +3157,8 @@ describe("a key for what colour and position encode", () => {
     const rail = screen.getByRole("img", { name: /人数未定 案件の12か月の充足人数：/u });
     expect(rail.getAttribute("aria-label")).toMatch(/\d+月: 必要人数未設定/u);
     expect(rail.querySelectorAll(".trend-line-slot")).toHaveLength(12);
-    expect(rail.querySelectorAll(".trend-line-path, .trend-line-dot")).toHaveLength(0);
+    // Nor the dashed line: it stands for the required headcount, which is not set.
+    expect(rail.querySelectorAll(".trend-line-path, .trend-line-dot, .trend-line-guide")).toHaveLength(0);
     expect(document.querySelector(".viz-caption")!.textContent).toContain("必要人数未設定は線を描きません");
     expect(document.querySelector(".staffed-label")!.textContent).toBe("必要人数未設定");
   });

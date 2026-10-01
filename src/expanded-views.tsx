@@ -803,7 +803,7 @@ export function ProjectsView({
                     {range.buckets.length > 0 && (
                     <div className="four-week-rail" role="img" aria-label={project.name + `の${periodChoiceProseLabel(choice)}の充足人数：` + range.buckets.map((bucket, index) => periodStaffingLabel(choice, bucket, index, counts[index] ?? null, project.demand)).join("、")}>
                       <TrendLine
-                        guides={[100]}
+                        guides={project.demand > 0 ? [100] : []}
                         points={range.buckets.map((bucket, index) => {
                           const count = counts[index] ?? null;
                           const title = periodStaffingLabel(choice, bucket, index, count, project.demand);
@@ -955,6 +955,15 @@ function memberNextOpenCopy(
 }
 
 /**
+ * The label that sets every column's width. With tabular figures each digit is one width,
+ * so more digits is wider; among labels with as many digits, a decimal point adds width.
+ */
+export function widestRailLabel(labels: readonly string[]) {
+  const weight = (label: string) => [...label].reduce((sum, char) => sum + (/\d/u.test(char) ? 2 : 1), 0);
+  return labels.reduce((widest, label) => (weight(label) > weight(widest) ? label : widest), "");
+}
+
+/**
  * The members list's month line with each month's busiest day under its point (#581).
  *
  * The line puts month i at (i + 0.5) / N of its width, so every column has to be the
@@ -966,7 +975,7 @@ function memberNextOpenCopy(
  */
 export function MonthRail({ buckets }: { buckets: readonly Pick<PeriodBucketStats, "from" | "to" | "peak" | "ratio" | "exceeds" | "open">[] }) {
   const labels = buckets.map((bucket) => `${bucket.peak}%`);
-  const widest = labels.reduce((longest, label) => (label.length > longest.length ? label : longest), "");
+  const widest = widestRailLabel(labels);
   return (
     <div className="member-week-rail" style={{ "--rail-points": buckets.length } as React.CSSProperties}>
       <TrendLine guides={[100]} points={buckets.map((bucket) => ({ value: bucket.ratio, tone: bucket.exceeds ? "over" as const : bucket.open ? "open" as const : undefined }))} />
