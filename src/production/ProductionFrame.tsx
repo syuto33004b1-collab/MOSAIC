@@ -28,7 +28,7 @@ export function ProductionFrame({
         <div className="workspace-mode"><span>{sidebarLabel}</span><small>{sidebarDescription}</small></div>
         <div className="sidebar-spacer" />
         <div className="month-card production-trust-card">
-          <div className="month-card-label"><span>安全な共同作業</span><strong>RLS</strong></div>
+          <div className="month-card-label"><span>安全な共同作業</span><strong>組織内だけ</strong></div>
           <div className="month-track"><span style={{ width: "100%" }} /></div>
           <p>所属する組織の情報だけを読み込み、変更履歴を記録します。</p>
         </div>
