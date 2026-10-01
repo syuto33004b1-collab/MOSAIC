@@ -539,7 +539,57 @@ describe("role-aware workspace", () => {
     await act(async () => resolveFirstReload({ state: initialWorkspace, revision: 8 }));
 
     await waitFor(() => expect(adapter.reload).toHaveBeenCalledTimes(2));
-    expect(await screen.findByText("revision 9")).toBeInTheDocument();
+    expect(await screen.findByText(/^\d{1,2}:\d{2}に最新を反映$/u)).toBeInTheDocument();
+    expect(screen.queryByText(/revision/u)).toBeNull();
+  });
+
+  it("clears an earlier sync error once a viewer's own submission saves (#500)", async () => {
+    const user = userEvent.setup();
+    const adapter = sharedAdapter();
+    const state = { ...initialWorkspace, members: initialWorkspace.members.map((member) => member.id === "nakamura" ? { ...member, authUserId: "viewer-user" } : member) };
+    adapter.initialState = state;
+    adapter.reload = vi.fn().mockRejectedValueOnce(new Error("共有データに接続できません")).mockResolvedValue({ state, revision: 7 });
+    adapter.submitProfileRequest = vi.fn().mockResolvedValue({ revision: 8, savedAt: "2026-08-19T10:00:00Z" });
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "閲覧 太郎", email: "viewer@example.com", role: "viewer", userId: "viewer-user" }} shared={adapter} />);
+    const line = () => document.querySelector(".sync-banner small")!.textContent;
+
+    act(() => { window.dispatchEvent(new Event("focus")); });
+    await waitFor(() => expect(line()).toBe("共有データに接続できません"));
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: "項目定義" }));
+    await user.click(screen.getByRole("button", { name: "中村 美咲の内容で提出" }));
+    await waitFor(() => expect(adapter.submitProfileRequest).toHaveBeenCalledOnce());
+    // Saved, so the line says when — not the error the save has just answered.
+    await waitFor(() => expect(line()).toMatch(/^\d{1,2}:\d{2}に保存$/u));
+  });
+
+  it("says when the screen last met the team's data, not the revision (#500)", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      vi.setSystemTime(new Date(2026, 7, 19, 9, 5));
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      const adapter = sharedAdapter();
+      adapter.save = vi.fn().mockResolvedValue({ revision: 8, savedAt: "2001-01-01T00:00:00Z" });
+      render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
+      const line = () => document.querySelector(".sync-banner small")!.textContent;
+      expect(line()).toBe("9:05に読み込み");
+
+      // The device's clock, not the save's `savedAt`.
+      vi.setSystemTime(new Date(2026, 7, 19, 14, 30));
+      await openAssignmentFormFromBoard(user);
+      await user.click(screen.getByRole("button", { name: "この内容で仮置きする" }));
+      await user.click(screen.getByRole("button", { name: "チームへ保存" }));
+      await waitFor(() => expect(line()).toBe("14:30に保存"));
+
+      // Another day gets its date, another year its year too.
+      vi.setSystemTime(new Date(2026, 7, 20, 8, 0));
+      await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^プロジェクト 登録 \d+件$/u }));
+      expect(line()).toBe("8/19 14:30に保存");
+      vi.setSystemTime(new Date(2027, 0, 4, 8, 0));
+      await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^アサインボード( |$)/u }));
+      expect(line()).toBe("2026/8/19 14:30に保存");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("removes a fully reduced assignment instead of saving a zero allocation", async () => {
@@ -1360,6 +1410,11 @@ describe("role-aware workspace", () => {
     expect(screen.getByText("計画担当・閲覧者には月額原価は常に非表示です。")).toBeInTheDocument();
     await user.selectOptions(screen.getByLabelText("権限を設定するロール"), "admin");
     expect(screen.getAllByRole("checkbox", { name: "月額原価" }).length).toBeGreaterThan(0);
+    // Named for what goes away, in the words the screens use (#500).
+    const features = within(screen.getByRole("group", { name: "使えない機能" }));
+    expect(features.getByRole("checkbox", { name: "検索シーン（メンバー検索の保存条件）" })).toBeInTheDocument();
+    expect(features.getByRole("checkbox", { name: "AI秘書の社外MCP利用" })).toBeInTheDocument();
+    expect(features.queryByText(/社外MCP参照/u)).toBeNull();
     expect(screen.getAllByText("雇用形態").length).toBeGreaterThan(0);
     await user.type(screen.getByPlaceholderText("雇用形態"), "在留資格");
     await user.type(screen.getByPlaceholderText("employment_type"), "visa_status");

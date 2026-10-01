@@ -470,6 +470,24 @@ function formRangeHint(startDate: string, endDate: string, measured: string) {
   return measured;
 }
 
+type SyncEvent = { at: number; kind: "loaded" | "saved" | "refreshed" };
+const SYNC_EVENT_WORDS: Record<SyncEvent["kind"], string> = { loaded: "読み込み", saved: "保存", refreshed: "最新を反映" };
+
+/**
+ * The sync banner's second line, in place of 「revision N」 (#500): when this screen last
+ * met the team's data, and how. The device's clock throughout — a reload carries no server
+ * time, and mixing the two could put a save after the refresh that followed it.
+ */
+function syncEventLine(event: SyncEvent, now = Date.now()) {
+  const at = new Date(event.at);
+  const today = new Date(now);
+  const time = `${at.getHours()}:${String(at.getMinutes()).padStart(2, "0")}`;
+  const sameDay = at.getFullYear() === today.getFullYear() && at.getMonth() === today.getMonth() && at.getDate() === today.getDate();
+  const day = `${at.getMonth() + 1}/${at.getDate()}`;
+  const when = sameDay ? time : at.getFullYear() === today.getFullYear() ? `${day} ${time}` : `${at.getFullYear()}/${day} ${time}`;
+  return `${when}に${SYNC_EVENT_WORDS[event.kind]}`;
+}
+
 /** The weekend days the edit form would save: the save drops any outside the form's own range. */
 function weekendWithinRange(form: Pick<AssignmentEditForm, "startDate" | "endDate" | "weekendWorkDates">) {
   return form.weekendWorkDates.filter((date) => date >= form.startDate && date <= form.endDate);
@@ -997,6 +1015,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
   const [unsavedChanges, setUnsavedChanges] = useState(0);
   const [hydrated, setHydrated] = useState(mode === "shared");
   const [revision, setRevision] = useState(shared?.initialRevision ?? 0);
+  const [lastSync, setLastSync] = useState<SyncEvent>(() => ({ at: Date.now(), kind: "loaded" }));
   const [permissions, setPermissions] = useState<WorkspacePermissions | undefined>(shared?.initialPermissions);
   const [syncStatus, setSyncStatus] = useState<"idle" | "saving" | "refreshing" | "conflict" | "error">("idle");
   const [syncError, setSyncError] = useState("");
@@ -1401,6 +1420,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
         }
         revisionRef.current = latest.revision;
         setRevision(latest.revision);
+        setLastSync({ at: Date.now(), kind: "refreshed" });
         setWorkspace(cloneState(latest.state));
         setCommittedWorkspace(cloneState(latest.state));
         closeDrawer();
@@ -2519,6 +2539,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
         const result = await shared.save(saved, revisionRef.current, saveRequest.requestId);
         revisionRef.current = result.revision;
         setRevision(result.revision);
+        setLastSync({ at: Date.now(), kind: "saved" });
         setToast(count + "件の変更をチームへ保存しました");
       } else {
         window.localStorage.setItem(storageKey, JSON.stringify(saved));
@@ -2568,6 +2589,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
       if (latest.permissions) setPermissions(latest.permissions);
       revisionRef.current = latest.revision;
       setRevision(latest.revision);
+      setLastSync({ at: Date.now(), kind: "loaded" });
       setWorkspace(cloneState(latest.state));
       setCommittedWorkspace(cloneState(latest.state));
       setPendingSave(null);
@@ -3433,10 +3455,12 @@ export default function Home({ mode = "demo", organizationId, organizationName =
           const result = await submitRemote(requestId, proposed, revisionRef.current, requestToken);
           revisionRef.current = result.revision;
           setRevision(result.revision);
+          setLastSync({ at: Date.now(), kind: "saved" });
           const state = result.state ? cloneState(result.state) : next;
           setWorkspace(state);
           setCommittedWorkspace(cloneState(state));
           setSyncStatus("idle");
+          setSyncError("");
           setToast("更新内容を提出しました");
         } catch (error) {
           setSyncStatus("error");
@@ -3561,7 +3585,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
   const syncNeedsAction = syncStatus === "conflict" || syncStatus === "error";
   const syncBanner = mode === "shared" ? (
     <div className={["sync-banner", syncStatus, syncNeedsAction ? "" : "sync-banner-sidebar"].filter(Boolean).join(" ")} role={syncNeedsAction ? "alert" : "status"}>
-      <span className="live-dot" /><span><strong>{syncStatus === "saving" ? "チームへ保存中" : syncStatus === "refreshing" ? "最新データを確認中" : syncStatus === "conflict" ? "他のユーザーの変更があります" : syncStatus === "error" ? (syncRetryable ? "共有データに接続できません" : "入力内容を保存できません") : "チームと同期済み"}</strong><small>{syncError || `revision ${revision}`}</small></span>
+      <span className="live-dot" /><span><strong>{syncStatus === "saving" ? "チームへ保存中" : syncStatus === "refreshing" ? "最新データを確認中" : syncStatus === "conflict" ? "他のユーザーの変更があります" : syncStatus === "error" ? (syncRetryable ? "共有データに接続できません" : "入力内容を保存できません") : "チームと同期済み"}</strong><small>{syncError || syncEventLine(lastSync)}</small></span>
       {syncStatus === "conflict" && <button onClick={() => void discardAndReloadShared()}>下書きを破棄して再読み込み</button>}
       {syncStatus === "error" && (unsavedChanges > 0
         ? (syncRetryable ? <button onClick={() => void saveChanges()}>もう一度保存</button> : <button onClick={undoChanges}>未保存変更を元に戻す</button>)
