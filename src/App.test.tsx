@@ -2,7 +2,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import userEvent from "@testing-library/user-event";
 import axe from "axe-core";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import App, { capacityTickMarks, monthColumnGuidesMisaligned, type SharedWorkspaceAdapter } from "./App";
+import App, { monthColumnGuidesMisaligned, type SharedWorkspaceAdapter } from "./App";
 import { parseCsv } from "./csv";
 import { MembersView, ProjectsView, ProposalView, widestRailLabel } from "./expanded-views";
 import { DEMO_FAVORITES_KEY } from "./collaboration";
@@ -5239,12 +5239,15 @@ describe("detail drawer period horizon (#366)", () => {
     await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^プロジェクト 登録 \d+件$/u }));
     await user.click([...document.querySelectorAll(".project-name-cell")].find((node) => node.textContent?.includes("短い案件")) as HTMLElement);
     expect(document.querySelector(".project-detail-period > .drawer-section-title span")?.textContent).toBe("12か月の充足");
-    const rows = [...document.querySelectorAll(".drawer .profile-capacity > div")];
-    expect(rows).toHaveLength(12);
-    expect(rows[0].querySelector("span")!.textContent).toBe("8月");
-    expect(rows[0].querySelector("strong")!.textContent).toBe("1/2名");
-    expect(rows[0].querySelector("b")!.classList.contains("short")).toBe(true);
-    expect(rows.slice(1).every((row) => row.querySelector("strong")!.textContent === "—")).toBe(true);
+    const cells = [...document.querySelectorAll(".drawer .project-capacity-trend .labelled-trend-cell")];
+    expect(cells).toHaveLength(12);
+    expect(cells[0].querySelector(".labelled-trend-month")!.textContent).toBe("8月");
+    expect(cells[0].querySelector(".labelled-trend-figure")!.textContent).toBe("1/2名");
+    // August is short, and the months after the project draw no point.
+    const slots = [...document.querySelectorAll(".drawer .project-capacity-trend .trend-line-slot")];
+    expect(slots[0].querySelector(".trend-line-dot")!.classList.contains("short")).toBe(true);
+    expect(slots.slice(1).every((slot) => slot.querySelector(".trend-line-dot") === null)).toBe(true);
+    expect(cells.slice(1).every((cell) => cell.querySelector(".labelled-trend-figure")!.textContent === "—")).toBe(true);
   });
 
   it("does not treat the empty days before a mid-month start as a shortage", async () => {
@@ -5272,10 +5275,12 @@ describe("detail drawer period horizon (#366)", () => {
     render(<App mode="shared" organizationName="Example Inc." identity={owner} shared={adapter} />);
     await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^プロジェクト 登録 \d+件$/u }));
     await user.click([...document.querySelectorAll(".project-name-cell")].find((node) => node.textContent?.includes("月中開始")) as HTMLElement);
-    const august = [...document.querySelectorAll(".drawer .profile-capacity > div")].find((row) => row.querySelector("span")?.textContent === "8月");
-    expect(august).toBeDefined();
-    expect(august!.querySelector("strong")!.textContent).toBe("2/2名");
-    expect(august!.querySelector("b")!.classList.contains("short")).toBe(false);
+    const cells = [...document.querySelectorAll(".drawer .project-capacity-trend .labelled-trend-cell")];
+    const index = cells.findIndex((cell) => cell.querySelector(".labelled-trend-month")?.textContent === "8月");
+    expect(index).toBeGreaterThanOrEqual(0);
+    expect(cells[index].querySelector(".labelled-trend-figure")!.textContent).toBe("2/2名");
+    const dot = document.querySelectorAll(".drawer .project-capacity-trend .trend-line-slot")[index].querySelector(".trend-line-dot")!;
+    expect(dot.classList.contains("short")).toBe(false);
   });
 });
 
@@ -6443,8 +6448,11 @@ describe("the proposal rail shows twelve months", () => {
     await user.click(document.querySelectorAll(".proposal-picker-item")[0]);
 
     const rail = document.querySelector(".proposal-weeks")!;
-    expect(rail.querySelectorAll(":scope > div")).toHaveLength(12);
+    expect(rail.querySelectorAll(".labelled-trend-cell")).toHaveLength(12);
+    expect(rail.querySelector("svg")!.getAttribute("viewBox")).toBe("0 0 12 100");
     expect(rail.getAttribute("aria-label")).toMatch(/の12か月の稼働$/u);
+    // The ceiling once, inside the block the print tick box hides (#583).
+    expect([...rail.querySelectorAll(".proposal-weeks-ceiling")].map((node) => node.textContent)).toEqual([expect.stringMatching(/^稼働上限 \d+%$/u)]);
     expect(document.querySelector(".proposal-view .range-tabs")).toBeNull();
     expect(document.querySelector(".proposal-view > .horizon-clip-note")).toBeNull();
   });
@@ -6457,7 +6465,7 @@ describe("the proposal rail shows twelve months", () => {
       render(<App />);
       await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^提案( |$)/u }));
       await user.click(document.querySelectorAll(".proposal-picker-item")[0]);
-      const labels = [...document.querySelector(".proposal-weeks")!.querySelectorAll(":scope > div > span")].map((node) => node.textContent);
+      const labels = [...document.querySelector(".proposal-weeks")!.querySelectorAll(".labelled-trend-cell > .labelled-trend-month:not(.labelled-trend-sizer)")].map((node) => node.textContent);
       expect(labels[0]).toBe("9月");
       expect(labels).toHaveLength(12);
     } finally {
@@ -6472,8 +6480,8 @@ describe("the proposal rail shows twelve months", () => {
     await user.click(document.querySelectorAll(".proposal-picker-item")[0]);
 
     const rail = document.querySelector(".proposal-weeks")!;
-    const labels = [...rail.querySelectorAll(":scope > div > span")].map((el) => el.textContent);
-    const peaks = [...rail.querySelectorAll(":scope > div strong")].map((el) => el.textContent!.split(" / ")[0]);
+    const labels = [...rail.querySelectorAll(".labelled-trend-month:not(.labelled-trend-sizer)")].map((el) => el.textContent);
+    const peaks = [...rail.querySelectorAll(".labelled-trend-figure:not(.labelled-trend-sizer)")].map((el) => el.textContent);
     expect(labels).toHaveLength(12);
     expect(peaks).toHaveLength(12);
 
@@ -6499,7 +6507,7 @@ describe("the proposal rail shows twelve months", () => {
     expect(parseCsv(await created[0].text()).rows[0]["見通しの稼働率"]).toBe(`12か月 ${labels[0]}起点 ${peaks.join(" / ")}`);
   });
 
-  it("names an empty holiday-calendar span instead of drawing bars", () => {
+  it("names an empty holiday-calendar span instead of drawing a line", () => {
     render(
       <ProposalView
         state={initialWorkspace}
@@ -6511,7 +6519,8 @@ describe("the proposal rail shows twelve months", () => {
       />,
     );
     expect(document.querySelector(".proposal-weeks")!.textContent).toContain("この期間は表示できません");
-    expect(document.querySelectorAll(".proposal-weeks > div")).toHaveLength(0);
+    expect(document.querySelector(".proposal-weeks .labelled-trend")).toBeNull();
+    expect(document.querySelector(".proposal-weeks-ceiling")).toBeNull();
     expect(screen.getByRole("note")).toHaveTextContent("祝日カレンダーは2016年から2035年までです");
   });
 });
@@ -8158,30 +8167,6 @@ describe("member drawer assignments are the whole history (#437)", () => {
  * to the project's own dates. The heading names the period so the two figures
  * can disagree without being read as the same count.
  */
-describe("capacityTickMarks", () => {
-  it("draws one tick per person between the ends and marks those under the fill", () => {
-    expect(capacityTickMarks(3, 1)).toEqual([
-      { fraction: 1 / 3, inside: false },
-      { fraction: 2 / 3, inside: false },
-    ]);
-    expect(capacityTickMarks(3, 2)).toEqual([
-      { fraction: 1 / 3, inside: true },
-      { fraction: 2 / 3, inside: false },
-    ]);
-    expect(capacityTickMarks(5, 0)).toHaveLength(4);
-    expect(capacityTickMarks(5, 0).every((tick) => tick.inside === false)).toBe(true);
-    expect(capacityTickMarks(3, 3).every((tick) => tick.inside)).toBe(true);
-  });
-
-  it("draws nothing outside 2..12 or when the month is outside the project", () => {
-    expect(capacityTickMarks(0, 0)).toEqual([]);
-    expect(capacityTickMarks(1, 1)).toEqual([]);
-    expect(capacityTickMarks(13, 4)).toEqual([]);
-    expect(capacityTickMarks(3, null)).toEqual([]);
-    expect(capacityTickMarks(2.5, 1)).toEqual([]);
-  });
-});
-
 describe("project drawer assignees follow the twelve months shown (#423, #569)", () => {
   const owner = { name: "管理 花子", email: "owner@example.com", role: "owner" as const };
   const person = { ...initialWorkspace.members[0], id: "period-person", name: "期間 太郎", role: "Engineer" };
@@ -8268,13 +8253,16 @@ describe("project drawer assignees follow the twelve months shown (#423, #569)",
     expect(dates).toContain(`${formatDate("2026-12-01")} — ${formatDate("2026-12-15")}`);
     expect(dates).not.toContain(`${formatDate("2027-09-06")} — ${formatDate("2027-09-10")}`);
     // The rail is the thinnest week, which is empty before anyone starts.
-    expect(panel.querySelector(".profile-capacity")?.textContent).toContain("0/5名");
+    expect(panel.querySelector(".project-capacity-trend")?.textContent).toContain("0/5名");
     const headline = panel.querySelector(".project-period-headline");
     expect(headline?.querySelector(".project-period-figure")?.textContent).toBe("0/5");
     expect(headline?.querySelector(".project-period-caption")?.textContent).toBe("12か月でいちばん薄い");
     expect(headline?.querySelector(".sr-only")?.textContent).toBe("必要5名のうち0名");
     expect(panel.querySelector(".project-detail")).toBeTruthy();
-    expect(dialog.getByRole("region", { name: "12か月の充足と担当" })).toBeInTheDocument();
+    // The line stays under its heading; only the assignee list scrolls (#583).
+    const assignees = dialog.getByRole("region", { name: "12か月の担当" });
+    expect(assignees.querySelector(".project-capacity-trend")).toBeNull();
+    expect(panel.querySelector(".project-detail-period > .project-capacity-trend")).not.toBeNull();
     expect(panel.querySelector(".detail-member-list b")?.textContent).toMatch(/^稼働配分 \d+%$/u);
     expect(panel.querySelector(".project-detail-actions")?.textContent).toContain("要員要件を追加");
     expect(panel.querySelector(".project-detail-actions")?.textContent).toContain("この案件へアサインを追加");
@@ -8282,17 +8270,20 @@ describe("project drawer assignees follow the twelve months shown (#423, #569)",
     expect(dialog.getByText("QA")).toBeInTheDocument();
   });
 
-  it("marks each required person on a short month and keeps the allocation phrase together", async () => {
+  it("draws a short month as an orange point under the required headcount, and keeps the allocation phrase together (#583)", async () => {
     const user = onAugust();
     const { panel } = await openPeriodProject(user, periodState(rows));
-    const months = [...panel.querySelectorAll(".profile-capacity > div")];
-    expect(months).toHaveLength(12);
-    const ticks = [...months[0].querySelectorAll(".project-capacity-tick")];
-    expect(ticks).toHaveLength(4);
-    expect(ticks.map((tick) => tick.getAttribute("data-inside"))).toEqual(["false", "false", "false", "false"]);
-    expect(ticks.every((tick) => tick.getAttribute("aria-hidden") === "true")).toBe(true);
-    // January to July are past the project's end, so they carry no marks.
-    expect(months.slice(5).every((month) => month.querySelectorAll(".project-capacity-tick").length === 0)).toBe(true);
+    const trend = panel.querySelector(".project-capacity-trend")!;
+    expect(trend.querySelectorAll(".labelled-trend-cell")).toHaveLength(12);
+    // The dashed line is the headcount the project needs.
+    expect(trend.querySelector(".trend-line-guide")!.getAttribute("data-value")).toBe("100");
+    const slots = [...trend.querySelectorAll(".trend-line-slot")];
+    expect(slots[0].querySelector(".trend-line-dot")!.className).toBe("trend-line-dot short");
+    // January to July are past the project's end: no point, and the figure says so.
+    expect(slots.slice(5).every((slot) => slot.querySelector(".trend-line-dot") === null)).toBe(true);
+    expect([...trend.querySelectorAll(".labelled-trend-figure:not(.labelled-trend-sizer)")].slice(5).every((figure) => figure.textContent === "—")).toBe(true);
+    // No per-person comb any more: the figure carries the count.
+    expect(panel.querySelector(".project-capacity-tick")).toBeNull();
     expect(panel.querySelector(".project-need-allocation")?.textContent).toBe("稼働配分 50%");
   });
 

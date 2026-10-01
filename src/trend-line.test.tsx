@@ -1,6 +1,6 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { TrendLine, trendPolylines, type TrendPoint } from "./trend-line";
+import { LabelledTrend, TrendLine, trendPolylines, widestText, type TrendPoint } from "./trend-line";
 
 const values = (...items: (number | null)[]): TrendPoint[] => items.map((value) => ({ value }));
 
@@ -69,5 +69,48 @@ describe("TrendLine (#581)", () => {
     const dots = [...container.querySelectorAll<HTMLElement>(".trend-line-dot")];
     expect(dots.map((dot) => dot.className)).toEqual(["trend-line-dot over", "trend-line-dot"]);
     expect(dots.map((dot) => dot.style.bottom)).toEqual(["100%", "40%"]);
+  });
+});
+
+describe("LabelledTrend (#583)", () => {
+  const cells = [
+    { key: "a", month: "10月", figure: "3/4名" },
+    { key: "b", month: "11月", figure: "—" },
+    { key: "c", month: "12月", figure: "未設定" },
+  ];
+
+  it("puts each month's label and figure under its point, in reading order", () => {
+    const { container } = render(<LabelledTrend label="見本" points={values(75, null, 100)} cells={cells} />);
+    const grid = container.querySelector<HTMLElement>(".labelled-trend-grid")!;
+    expect(grid.style.getPropertyValue("--rail-points")).toBe("3");
+    expect(grid.firstElementChild).toHaveClass("trend-line");
+    const read = [...container.querySelectorAll(".labelled-trend-cell")].map((cell) => [...cell.querySelectorAll(":scope > :not(.labelled-trend-sizer)")].map((node) => node.textContent).join(" "));
+    expect(read).toEqual(["10月 3/4名", "11月 —", "12月 未設定"]);
+  });
+
+  it("gives every cell the widest month and figure, unseen and unread, so the columns are equal", () => {
+    const { container } = render(<LabelledTrend label="見本" points={values(75, null, 100)} cells={cells} />);
+    for (const cell of container.querySelectorAll(".labelled-trend-cell")) {
+      const sizers = [...cell.querySelectorAll(".labelled-trend-sizer")];
+      expect(sizers.map((sizer) => sizer.textContent)).toEqual(["10月", "未設定"]);
+      for (const sizer of sizers) expect(sizer).toHaveAttribute("aria-hidden", "true");
+    }
+  });
+
+  it("is a plain block, not a tab stop, while its months fit", () => {
+    const { container } = render(<LabelledTrend label="見本の充足" points={values(75)} cells={cells.slice(0, 1)} />);
+    const box = container.querySelector(".labelled-trend")!;
+    expect(box).not.toHaveAttribute("tabindex");
+    expect(box).not.toHaveAttribute("role");
+  });
+});
+
+describe("widestText (#583)", () => {
+  it("weighs full-width characters over digits, and digits over a slash", () => {
+    expect(widestText(["3/4名", "未設定", "—"])).toBe("未設定");
+    expect(widestText(["10/12名", "未設定"])).toBe("10/12名");
+    expect(widestText(["9月", "10月", "12月"])).toBe("10月");
+    expect(widestText(["100%", "80%"])).toBe("100%");
+    expect(widestText([])).toBe("");
   });
 });

@@ -1188,12 +1188,10 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
      short, uniform rows — a person and a percentage, a week and a bar — so
      halving the rows costs no legibility.
      Prefixed with `.drawer` for the specificity, not for the scope: these blocks
-     are declared again further down the file (`.profile-capacity` at its own
-     rule, the theme layer after that), and a bare class here loses to every one
-     of them on source order. */
+     are declared again further down the file (at their own rules, the theme layer
+     after that), and a bare class here loses to every one of them on source order. */
   .drawer .detail-member-list,
   .drawer .detail-need-list,
-  .drawer .profile-capacity,
   .drawer .allocation-list { display: grid; grid-template-columns: 1fr 1fr; }
   /* `:not(:last-child)`: with an odd number of rows the last one sits alone in the
      left column, and a right border there would draw a rule into empty space. */
@@ -1840,13 +1838,9 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
    separate objects (#185). */
 .proposal-card-provenance { display: none; }
 .proposal-weeks { display: grid; gap: 7px; }
-.proposal-weeks > div { display: grid; grid-template-columns: minmax(52px, max-content) minmax(0, 1fr) minmax(72px, max-content); gap: 8px; align-items: center; font-size: var(--text-min); }
-.proposal-weeks > div > span { white-space: nowrap; }
+.proposal-weeks-ceiling { margin: 0; color: var(--muted-readable); font-size: var(--text-min); }
 .proposal-weeks-empty { margin: 0; color: var(--muted); }
 .proposal-view > .horizon-clip-note { grid-column: auto; margin: 8px 0 0; }
-.proposal-weeks i { height: 8px; border-radius: 99px; background: #eef1f6; overflow: hidden; }
-.proposal-weeks b { display: block; height: 100%; background: #8c99ed; }
-.proposal-weeks b.over { background: #ec847b; }
 .proposal-empty { border: 1px solid #dfe4ed; border-radius: 17px; background: #fff; }
 /* The star is an icon and nothing else, so it takes the width of one: in the project
    drawer it was holding down half a 834px row with a single ☆ in the middle (#296).
@@ -3123,64 +3117,19 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
     border-right: 0;
   }
 }
-/* The capacity rail is a time series. The container query lays months in two
-   columns once the panel is wide, which puts April beside May. One column at
-   every viewport, including windows shorter than 720px (#210). */
-.drawer.project-detail-open .profile-capacity {
-  display: flex;
-  flex-direction: column;
-}
 .profile-skills { margin-bottom: 22px; display: flex; flex-wrap: wrap; gap: 5px; }
-.profile-capacity { margin-bottom: 22px; display: flex; flex-direction: column; gap: 9px; }
-/* 52px, not 42: the first label names its week now rather than saying 「今週」
-   (#146), and the longest that gets is 「12/28週」 at 41.1px — 0.9px of headroom
-   in the old track. Same number as `.proposal-weeks`, which holds the same
-   labels. The bar loses 10px of about 250. */
-/* 80px for the figure, not 31: 31px was the width of 「40% / 100%」 at the 7px this
-   rail used to be set in, and the 12px floor left the number in a fraction of the
-   room it needs — 「120% / 100%」 came out 31x49, three wrapped lines beside a 359px
-   bar. Measured in this rail's own font, bold 12px Manrope: 68px for
-   「40% / 100%」, 74px for 「100% / 100%」, 75px for a three-digit ceiling, so 80px
-   clears the widest of them. `.proposal-weeks` gets the same figure into 72px
-   because it is not set in Manrope — the number is not transferable.
-   Fixed rather than `auto` because each row is its own grid, so content-sized
-   numbers would give the four bars four different lengths, and comparing their
-   lengths down the column is what the rail is for (#210). */
-.profile-capacity > div { display: grid; grid-template-columns: 52px minmax(0, 1fr) 80px; align-items: center; gap: 8px; }
-.profile-capacity span { color: #848d9e; font-size: 7px; }
-.profile-capacity i { height: 6px; border-radius: 99px; background: #edf0f4; overflow: hidden; }
-.profile-capacity b { display: block; height: 100%; border-radius: inherit; background: #8391e7; }
-.profile-capacity b.over { background: #e87970; }
-.profile-capacity b.short { background: #eaa078; }
-.profile-capacity strong { color: #687285; font-family: var(--font-data); font-size: 7px; text-align: right; }
-/* Project detail (#467). The label track is 72px: 「2026年10月–」 measures 66px
-   in this rail's 12px face, so the year-month stays one line and a wider
-   bucket breaks after the dash. The figure track stays 80px (#210). */
+/* Project detail (#467). */
 .project-detail .drawer-section-title { margin-bottom: 12px; }
 .project-detail .detail-facts { padding: 16px; gap: 16px; }
 .project-detail .detail-member-list button { padding: 12px 14px; }
-.project-detail .profile-capacity { gap: 12px; }
-.project-detail .profile-capacity > div { grid-template-columns: 72px minmax(0, 1fr) 80px; }
 .project-detail .detail-member-list small,
-.project-detail .detail-need-list small,
-.project-detail .profile-capacity span {
+.project-detail .detail-need-list small {
   word-break: keep-all;
   overflow-wrap: anywhere;
 }
 .project-need-allocation { white-space: nowrap; }
 .project-detail .detail-need-list { gap: 10px; }
 .project-detail .detail-need-list button { padding: 12px 14px; }
-.project-detail .profile-capacity i { position: relative; height: 10px; }
-.project-capacity-tick {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  width: 1px;
-  transform: translateX(-0.5px);
-  background: color-mix(in srgb, var(--ink) 55%, transparent);
-  pointer-events: none;
-}
-.project-capacity-tick[data-inside="true"] { background: var(--paper); }
 .project-detail > .drawer-heading { flex-wrap: wrap; align-items: center; }
 .project-detail > .drawer-heading > .project-detail-title { min-width: 0; flex: 1 1 12rem; }
 .project-detail > .drawer-heading h2 { overflow-wrap: anywhere; }
@@ -3892,8 +3841,6 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .detail-member-list b,
 .profile-hero p,
 .profile-hero small,
-.profile-capacity span,
-.profile-capacity strong,
 .production-organization-list small,
 .production-invitation-section small,
 .production-audit-detail dt,
@@ -3941,7 +3888,6 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .detail-member-list small,
 .profile-hero p,
 .profile-hero small,
-.profile-capacity span,
 .detail-need-list small,
 .capacity-limit,
 .production-runtime-info { color: var(--muted-readable); }
@@ -4817,11 +4763,8 @@ h1 {
 .status-pill.ready { color: #4f5d9e; }
 .status-pill.closing { color: #664e7f; }
 .status-pill i { background: currentColor; }
-.progress-cell > span,
-.profile-capacity i { background: var(--paper-deep); }
-.progress-cell b,
-.profile-capacity b { background: var(--sage); }
-.profile-capacity b.short { background: var(--coral); }
+.progress-cell > span { background: var(--paper-deep); }
+.progress-cell b { background: var(--sage); }
 .staffed-label { color: var(--muted); }
 .owner-cell i { background: var(--paper-deep); color: var(--ink); }
 .row-open { color: var(--coral-deep); }
@@ -4977,8 +4920,7 @@ h1 {
 .production-scope-list { border-color: var(--line); border-radius: 3px; }
 .production-scope-list legend { color: var(--muted); }
 .production-secret-banner code { background: var(--canvas); }
-.capacity-meter,
-.profile-capacity i { background: var(--paper-deep); }
+.capacity-meter { background: var(--paper-deep); }
 .capacity-meter span { background: var(--sage); }
 .capacity-meter span.over { background: var(--coral); }
 .candidate-list button:hover,
@@ -6416,11 +6358,9 @@ h1 {
   /* Same reason, one level down: an avatar is a coloured disc with initials on it, and the
      disc is a background. The initials carry it; the border keeps it a disc. */
   .proposal-card .avatar { border: 1px solid #b9bfcc; }
-  /* The bars are backgrounds too. Each one has its figure printed beside it, so nothing is
-     lost when they do not print — but an outline on the fill keeps the shape of the
-     comparison, which is the reason the bars are there. */
-  .proposal-weeks i { border: 1px solid #b9bfcc; }
-  .proposal-weeks i b { outline: 1px solid #4a5468; }
+  /* The line is a stroke and prints; the points are backgrounds with a border, and each
+     month's figure is printed under its point. Paper has no scroll: every month shows. */
+  .labelled-trend { overflow: visible; }
 
   /* Which fields, from the same tick boxes the file uses (#179). `data-print` on the card list
      carries the chosen column names; a column nobody chose takes its part of the card with it.
@@ -6589,3 +6529,16 @@ h1 {
 .plan-cost-trend small { grid-row: 2; justify-self: center; white-space: nowrap; color: var(--muted-readable); font-size: var(--text-min); }
 .plan-cost-trend-first { grid-column: 1; }
 .plan-cost-trend-last { grid-column: -2 / -1; }
+
+/* A line with each month's label and figure under its point (#583): N equal columns, the
+   line across the first row, a cell per month in the second. Each cell carries the widest
+   month and figure as sizers, so the columns stay equal and every point sits over its own
+   cell. Scrolls sideways only when the months do not fit. */
+.labelled-trend { overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; }
+.labelled-trend-grid { display: grid; grid-template-columns: repeat(var(--rail-points, 1), minmax(min-content, 1fr)); grid-template-rows: 48px auto; column-gap: 0; row-gap: 4px; }
+.labelled-trend-grid > .trend-line { grid-column: 1 / -1; grid-row: 1; }
+.labelled-trend-cell { grid-row: 2; padding-inline: 2px; display: grid; justify-items: center; text-align: center; white-space: nowrap; }
+.labelled-trend-month { color: var(--muted-readable); font-size: var(--text-min); }
+.labelled-trend-figure { color: var(--ink); font-family: var(--font-data); font-size: var(--text-min); font-variant-numeric: tabular-nums; }
+.labelled-trend-sizer { display: block; height: 0; overflow: hidden; visibility: hidden; user-select: none; }
+.project-capacity-trend { margin-bottom: 18px; }

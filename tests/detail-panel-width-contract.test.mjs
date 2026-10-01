@@ -38,7 +38,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
  *    616. The number to compare is never the one you can see — and `clientWidth`
  *    is not it either, since that excludes the scrollbar and reads 15px under.
  * 3. Every selector in that block is `.drawer`-prefixed for specificity. The
- *    blocks it lays out — `.profile-capacity`, `.detail-member-list` — are
+ *    blocks it lays out — `.detail-member-list`, `.allocation-list` — are
  *    declared again further down the file, and a bare class here loses to them on
  *    source order. That was the second thing that silently did nothing.
  *
@@ -113,52 +113,35 @@ test("the two columns key off the panel, and the mobile sheet opts out", async (
 });
 
 /**
- * The panel's capacity rail. Its figure sat in a 31px track — the width of
- * 「40% / 100%」 at the 7px this rail used to be set in, before the 12px floor.
- * Measured in the rail's own font, bold 12px Manrope: 68px for 「40% / 100%」,
- * 74px for 「100% / 100%」, 75px for a three-digit ceiling. So 「120% / 100%」 drew
- * as 31x49 — three wrapped lines — beside a 359px bar, at every panel width,
- * which is why widening the panel in #196 did not help.
- *
- * Two things to hold, and neither is visible from the declaration alone:
- *
- * 1. Room for the widest figure. 76px is the floor the measurements above give;
- *    the rule ships 80px.
- * 2. A *fixed* track. Each row is its own grid, so `auto` would size each row's
- *    number to its own content and give the four bars four different lengths —
- *    and comparing their lengths down the column is what a rail is for.
- *
- * `.proposal-weeks` carries the same figure in 72px because it is not set in
- * Manrope. The number does not transfer between them; this checks only this one.
+ * The project panel's staffing line (#583). It replaced a rail of twelve bars whose
+ * figure needed a fixed 80px track (#210): each row was its own grid, and comparing bar
+ * lengths down the column was the point. The figures now sit one per month under the
+ * line's points, in N equal columns, so the things to hold are that a figure never wraps
+ * inside its column and that the columns stay equal: every cell carries the widest month
+ * and figure as sizers, with `min-content` as the floor.
  */
-test("the capacity rail's figure has room for its widest reading", async () => {
+test("the staffing line's figures keep one line and the months keep equal columns", async () => {
   const css = withoutComments(await read());
-  // Every row rule, not the first one. A later override also matches
-  // `.profile-capacity > div`, and checking only the first would let that
-  // override silently replace the rule this test is about (#467).
-  const rules = [...css.matchAll(/\.profile-capacity > div \{([^}]*)\}/gu)];
-  assert.ok(rules.length > 0, "expected the .profile-capacity row rule");
-  for (const rule of rules) {
-    const columns = rule[1].match(/grid-template-columns:\s*([^;]+)/u);
-    assert.ok(columns, ".profile-capacity > div declares no grid-template-columns");
-    // Split on top-level whitespace, so `minmax(0, 1fr)` stays one track.
-    const parts = [];
-    let depth = 0;
-    let current = "";
-    for (const character of columns[1].trim()) {
-      if (character === "(") depth += 1;
-      if (character === ")") depth -= 1;
-      if (depth === 0 && /\s/u.test(character)) { if (current) parts.push(current); current = ""; continue; }
-      current += character;
-    }
-    if (current) parts.push(current);
-    const track = parts.at(-1);
-    const px = /^(\d+(?:\.\d+)?)px$/u.exec(track ?? "");
-    assert.ok(px, `the figure's track is 「${track}」; it has to be a fixed px width, or the four `
-      + "bars in a rail get four different lengths and stop being comparable (#210)");
-    assert.ok(Number(px[1]) >= 76, `the figure's track is ${px[1]}px. 「100% / 100%」 measures 74px in `
-      + "bold 12px Manrope and a three-digit ceiling 75px, so under 76 it wraps (#210)");
-  }
+  const grid = css.match(/\.labelled-trend-grid \{([^}]*)\}/u);
+  assert.ok(grid, "expected the .labelled-trend-grid rule");
+  assert.match(grid[1], /grid-template-columns:\s*repeat\(var\(--rail-points, 1\), minmax\(min-content, 1fr\)\)/u,
+    "the months need equal columns floored at their widest label, or a point stops sitting over its figure");
+  assert.match(grid[1], /column-gap:\s*0/u, "a gap moves every column's centre off the line's (i + 0.5) / N");
+  const cell = css.match(/\.labelled-trend-cell \{([^}]*)\}/u);
+  assert.ok(cell, "expected the .labelled-trend-cell rule");
+  assert.match(cell[1], /white-space:\s*nowrap/u, "a wrapped 「10/12名」 is three lines under one point");
+  const sizer = css.match(/\.labelled-trend-sizer \{([^}]*)\}/u);
+  assert.ok(sizer, "expected the .labelled-trend-sizer rule");
+  assert.match(sizer[1], /height:\s*0/u);
+  assert.match(sizer[1], /visibility:\s*hidden/u);
+  assert.match(sizer[1], /user-select:\s*none/u);
+  // Months that do not fit scroll sideways inside the line's own box, not the panel's.
+  // The screen rule, at the start of a line; the print rule (indented, in @media print)
+  // drops the scroll so every month reaches the paper.
+  const box = css.match(/(?:^|\n)\.labelled-trend \{([^}]*)\}/u);
+  assert.ok(box, "expected the .labelled-trend rule");
+  assert.match(box[1], /overflow-x:\s*auto/u);
+  assert.match(box[1], /overflow-y:\s*hidden/u);
 });
 
 test("the threshold is pinned, and every rule in the block is .drawer-prefixed", async () => {

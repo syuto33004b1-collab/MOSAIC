@@ -1,3 +1,5 @@
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
+
 /**
  * A small line chart for a run of values over time (#580, #581).
  *
@@ -93,5 +95,81 @@ export function TrendLine({
         })}
       </span>
     </span>
+  );
+}
+
+/**
+ * Width, in digits, of each glyph the figures and months here use: tabular digits are one
+ * digit wide, a slash and a percent sign about 0.7 and 1.4, a full-width character (名, 月,
+ * 未設定, —) about 1.7. Only used to pick which label sets every column's width.
+ */
+const GLYPHS: [RegExp, number][] = [[/\d/u, 1], [/\//u, 0.71], [/%/u, 1.43], [/[\u2014\u3000-\u9fff\uff00-\uffef]/u, 1.71]];
+
+export function widestText(texts: readonly string[]) {
+  const width = (text: string) => [...text].reduce((sum, char) => sum + (GLYPHS.find(([pattern]) => pattern.test(char))?.[1] ?? 1), 0);
+  return texts.reduce((widest, text) => (width(text) > width(widest) ? text : widest), "");
+}
+
+export type TrendCell = { key: string; month: string; figure: string };
+
+/**
+ * A line with each month's label and figure under its point (#583).
+ *
+ * The line puts month i at (i + 0.5) / N of its width, so the columns under it are equal:
+ * each cell carries the widest month and the widest figure as invisible sizers, the way
+ * the members list's month rail does (#581). When the months do not fit their box the
+ * row scrolls sideways, and only then is it a focusable, named region — a card per
+ * candidate would otherwise put a tab stop in every card for nothing.
+ */
+export function LabelledTrend({
+  points,
+  cells,
+  max = 100,
+  guides = [],
+  label,
+  className,
+}: {
+  points: readonly TrendPoint[];
+  cells: readonly TrendCell[];
+  max?: number;
+  guides?: readonly number[];
+  /** The scroll region's name, used only while the months overflow. */
+  label: string;
+  className?: string;
+}) {
+  const [scrollable, setScrollable] = useState(false);
+  const cleanup = useRef<(() => void) | null>(null);
+  const observe = useCallback((node: HTMLDivElement | null) => {
+    cleanup.current?.();
+    cleanup.current = null;
+    // jsdom has no layout and no ResizeObserver; the row is then never a scroll region.
+    if (!node || typeof ResizeObserver === "undefined") return;
+    const measure = () => setScrollable(node.scrollWidth > node.clientWidth + 1);
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    if (node.firstElementChild) observer.observe(node.firstElementChild);
+    cleanup.current = () => observer.disconnect();
+  }, []);
+  useEffect(() => () => cleanup.current?.(), []);
+  const widestMonth = widestText(cells.map((cell) => cell.month));
+  const widestFigure = widestText(cells.map((cell) => cell.figure));
+  return (
+    <div
+      className={"labelled-trend" + (className ? " " + className : "")}
+      ref={observe}
+      {...(scrollable ? { role: "region", tabIndex: 0, "aria-label": label } : {})}
+    >
+      <div className="labelled-trend-grid" style={{ "--rail-points": cells.length } as CSSProperties}>
+        <TrendLine points={points} max={max} guides={guides} />
+        {cells.map((cell) => (
+          <span className="labelled-trend-cell" key={cell.key}>
+            <span className="labelled-trend-month">{cell.month}</span>
+            <strong className="labelled-trend-figure">{cell.figure}</strong>
+            <span className="labelled-trend-month labelled-trend-sizer" aria-hidden="true">{widestMonth}</span>
+            <span className="labelled-trend-figure labelled-trend-sizer" aria-hidden="true">{widestFigure}</span>
+          </span>
+        ))}
+      </div>
+    </div>
   );
 }
