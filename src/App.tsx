@@ -470,6 +470,41 @@ function formRangeHint(startDate: string, endDate: string, measured: string) {
   return measured;
 }
 
+/** The weekend days the edit form would save: the save drops any outside the form's own range. */
+function weekendWithinRange(form: Pick<AssignmentEditForm, "startDate" | "endDate" | "weekendWorkDates">) {
+  return form.weekendWorkDates.filter((date) => date >= form.startDate && date <= form.endDate);
+}
+
+/**
+ * What saving the edit form would change, by field name. Compared as it would be saved —
+ * the allocation as a number, the weekend days cut to the range — so the footer's line and
+ * the submit's 「アサインの変更はありません」 cannot disagree (#587).
+ */
+function assignmentEditChanges(saved: Assignment, form: AssignmentEditForm) {
+  const datesKey = (dates: readonly string[]) => [...dates].sort().join(",");
+  const changes: string[] = [];
+  if (saved.personId !== form.personId) changes.push("担当者");
+  if (saved.projectId !== form.projectId) changes.push("プロジェクト");
+  if (saved.startDate !== form.startDate || saved.endDate !== form.endDate) changes.push("期間");
+  if (saved.allocation !== Number(form.allocation)) changes.push("稼働配分");
+  if (datesKey(saved.weekendWorkDates ?? []) !== datesKey(weekendWithinRange(form))) changes.push("土日の稼働");
+  return changes;
+}
+
+/**
+ * Brings the chosen candidate into view inside its own list and nowhere else.
+ * `scrollIntoView` also scrolls every ancestor, and with the fields above the list that
+ * opened the assignment detail scrolled past them (#587).
+ */
+function revealInPickerList(row: HTMLElement | null) {
+  const list = row?.closest<HTMLElement>(".member-picker-list");
+  if (!row || !list) return;
+  const rowBox = row.getBoundingClientRect();
+  const listBox = list.getBoundingClientRect();
+  if (rowBox.top < listBox.top) list.scrollTop -= listBox.top - rowBox.top;
+  else if (rowBox.bottom > listBox.bottom) list.scrollTop += rowBox.bottom - listBox.bottom;
+}
+
 function worstLoadOverCapacity<T extends { load: number; capacity: number }>(days: T[]): T | undefined {
   if (days.length === 0) return undefined;
   return days.reduce((worst, day) => (day.load - day.capacity) > (worst.load - worst.capacity) ? day : worst);
@@ -1443,7 +1478,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
     // The edit form needs it more: it opens on whoever holds the assignment, and
     // that person is wherever their load puts them in the order (#219).
     if (drawer !== "add" && drawer !== "assignment") return;
-    chosenCandidateRef.current?.scrollIntoView({ block: "nearest" });
+    revealInPickerList(chosenCandidateRef.current);
   }, [drawer]);
 
   const range = useMemo(() => boardRange("month", weekOffset), [weekOffset]);
@@ -1641,9 +1676,11 @@ export default function Home({ mode = "demo", organizationId, organizationName =
    * list (#219).
    *
    * So each row is measured against a workspace where this assignment has already
-   * moved to that person, with the form's dates and allocation on it. Same function
-   * every other figure uses, no arithmetic of its own, and the holder's own row comes
-   * out at exactly what the board shows them at.
+   * moved to that person, with the form's dates, allocation and weekend days on it —
+   * the weekend days as the save would keep them, or ticking one beside the list would
+   * leave every figure in it where it was (#587). Same function every other figure
+   * uses, no arithmetic of its own, and the holder's own row comes out at exactly what
+   * the board shows them at.
    */
   const editCandidates: MemberCandidate[] = (() => {
     if (!selectedAssignment) return [];
@@ -1653,6 +1690,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
       startDate: assignmentEditForm.startDate,
       endDate: assignmentEditForm.endDate,
       allocation: Number(assignmentEditForm.allocation) || 0,
+      weekendWorkDates: weekendWithinRange(assignmentEditForm),
     };
     return workspace.members.map((member) => {
       const preview = { ...workspace, assignments: [...others, { ...moved, personId: member.id }] };
@@ -1705,6 +1743,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
     if (!worst) return null;
     return { projected: worst.load, capacity: worst.capacity };
   })();
+  const editChanges = selectedAssignment ? assignmentEditChanges(selectedAssignment, assignmentEditForm) : [];
   const canAddAssignment = canEdit && workspace.members.length > 0 && workspace.projects.length > 0;
 
   const memberRows: ScheduleRow[] = workspace.members.map((member) => {
@@ -2260,15 +2299,9 @@ export default function Home({ mode = "demo", organizationId, organizationName =
       setToast("稼働配分は1〜100%で設定してください");
       return;
     }
-    const changed = selectedAssignment.personId !== assignmentEditForm.personId
-      || selectedAssignment.projectId !== assignmentEditForm.projectId
-      || selectedAssignment.startDate !== assignmentEditForm.startDate
-      || selectedAssignment.endDate !== assignmentEditForm.endDate
-      || selectedAssignment.allocation !== allocation
-      // Or the weekend days moved, which is a change like any other — without this
-      // the form would answer 「アサインの変更はありません」 and throw the edit away.
-      || [...(selectedAssignment.weekendWorkDates ?? [])].sort().join(",") !== [...assignmentEditForm.weekendWorkDates].sort().join(",");
-    if (!changed) {
+    // The weekend days count too — without them the form would answer
+    // 「アサインの変更はありません」 and throw that edit away.
+    if (assignmentEditChanges(selectedAssignment, assignmentEditForm).length === 0) {
       closeDrawer();
       setToast("アサインの変更はありません");
       return;
@@ -2291,8 +2324,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
       endDate: assignmentEditForm.endDate,
       allocation,
       status: "draft",
-      weekendWorkDates: assignmentEditForm.weekendWorkDates
-        .filter((date) => date >= assignmentEditForm.startDate && date <= assignmentEditForm.endDate),
+      weekendWorkDates: weekendWithinRange(assignmentEditForm),
     };
     const nextAssignment: Assignment = detachFromNeed ? {
       ...editedAssignment,
@@ -3959,7 +3991,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
               `no-static-element-interactions` both skip an `aria-hidden` element, and
               a directive here reports as unused. */}
           <div className="overlay-backdrop" aria-hidden="true" onClick={requestCloseDrawer} />
-          <section className={"drawer " + DRAWER_DIALOG_SIZE[drawer] + (drawer === "member" ? " member-detail-open" : "") + (drawer === "project" ? " project-detail-open" : "")} ref={drawerRef} role="dialog" aria-modal="true" aria-labelledby={DRAWER_TITLE_ID} tabIndex={-1}>
+          <section className={"drawer " + DRAWER_DIALOG_SIZE[drawer] + (drawer === "member" ? " member-detail-open" : "") + (drawer === "project" ? " project-detail-open" : "") + (drawer === "assignment" ? " assignment-detail-open" : "")} ref={drawerRef} role="dialog" aria-modal="true" aria-labelledby={DRAWER_TITLE_ID} tabIndex={-1}>
             <div className="drawer-handle" />
             <div className="drawer-top"><span className="drawer-kicker">{drawer === "needForm" && editingNeedId ? "EDIT STAFFING NEED" : drawer === "opportunityNeedForm" && editingOpportunityNeedId ? "EDIT STAFFING PLAN" : DRAWER_KICKER[drawer]}</span><button className="close-button" aria-label="詳細パネルを閉じる" onClick={requestCloseDrawer}><X size={18} /></button></div>
 
@@ -4018,54 +4050,74 @@ export default function Home({ mode = "demo", organizationId, organizationName =
 
             {drawer === "assignment" && selectedAssignment && (
               <form className="assignment-form assignment-edit-form" onChange={markFormDraftDirty} onSubmit={handleEditAssignment}>
-                <div className="drawer-heading"><span className="drawer-icon cobalt"><CalendarDays size={19} /></span><div><h2 id={DRAWER_TITLE_ID}>アサインの詳細</h2><p>{selectedAssignmentProjectName} · {selectedAssignmentPersonName}</p></div></div>
-                {(selectedAssignmentPerson || selectedAssignmentProject) && (
-                  <div className="entity-action-row">
-                    {selectedAssignmentPerson && <button className="drawer-secondary" type="button" onClick={() => { clearFormDraft(); openMember(selectedAssignmentPerson.id); }}>{selectedAssignmentPersonName}の詳細を開く</button>}
-                    {selectedAssignmentProject && <button className="drawer-secondary" type="button" onClick={() => { clearFormDraft(); openProject(selectedAssignmentProject.id); }}>{selectedAssignmentProjectName}の詳細を開く</button>}
+                <div className="assignment-detail-body">
+                  <div className="drawer-heading">
+                    <span className="drawer-icon cobalt"><CalendarDays size={19} /></span>
+                    <div><h2 id={DRAWER_TITLE_ID}>アサインの詳細</h2><p>{selectedAssignmentProjectName} · {selectedAssignmentPersonName}</p></div>
+                    {/* The board's hatching, in words. Outside the heading and its caption,
+                        which name the dialog and the saved pair (#424, #501). */}
+                    {selectedAssignment.status === "draft" && <span className="assignment-detail-status">仮置き</span>}
                   </div>
-                )}
-                {/* 「付け替えた場合の稼働」, not the plain load: this assignment is already in
-                    the workspace, so a plain reading counts it against whoever holds it and
-                    means something different for them than for everyone else in the list.
-                    The figure here is what the board would show if this form were saved onto
-                    that person, which is the question a swap actually asks (#219). */}
-                <MemberPicker
-                  legend="メンバー"
-                  hint={formRangeHint(assignmentEditForm.startDate, assignmentEditForm.endDate, `${shortDate(assignmentEditForm.startDate)} — ${shortDate(assignmentEditForm.endDate)} · 付け替えた場合の稼働 · 空きが多い順`)}
-                  measured={formRangeMeasured(assignmentEditForm.startDate, assignmentEditForm.endDate)}
-                  name="assignment-edit-member"
-                  searchLabel="付け替え先のメンバーを検索"
-                  candidates={editCandidates}
-                  limit={MEMBER_PICKER_LIMIT}
-                  value={assignmentEditForm.personId}
-                  onChange={(personId) => setAssignmentEditForm({ ...assignmentEditForm, personId })}
-                  query={memberPickerQuery}
-                  onQueryChange={setMemberPickerQuery}
-                  disabled={!canEdit}
-                  chosenRef={chosenCandidateRef}
-                />
-                <label htmlFor="assignment-edit-project">プロジェクト<select id="assignment-edit-project" aria-label="プロジェクト" disabled={!canEdit} value={assignmentEditForm.projectId} onChange={(event) => setAssignmentEditForm({ ...assignmentEditForm, projectId: event.target.value })}>{workspace.projects.map((project) => <option value={project.id} key={project.id}>{project.name}</option>)}</select></label>
-                <div className="form-grid">
-                  <label>開始日<input required disabled={!canEdit} type="date" min={projectById(workspace, assignmentEditForm.projectId)?.startDate} max={projectById(workspace, assignmentEditForm.projectId)?.endDate} value={assignmentEditForm.startDate} onChange={(event) => setAssignmentEditForm({ ...assignmentEditForm, startDate: event.target.value })} /></label>
-                  <label>終了日<input required disabled={!canEdit} min={assignmentEditForm.startDate || projectById(workspace, assignmentEditForm.projectId)?.startDate} max={projectById(workspace, assignmentEditForm.projectId)?.endDate} type="date" value={assignmentEditForm.endDate} onChange={(event) => setAssignmentEditForm({ ...assignmentEditForm, endDate: event.target.value })} /></label>
+                  {(selectedAssignmentPerson || selectedAssignmentProject) && (
+                    <div className="assignment-detail-links">
+                      {selectedAssignmentPerson && <button className="assignment-detail-link" type="button" onClick={() => { clearFormDraft(); openMember(selectedAssignmentPerson.id); }}>{selectedAssignmentPersonName}の詳細を開く<ChevronRight size={14} /></button>}
+                      {selectedAssignmentProject && <button className="assignment-detail-link" type="button" onClick={() => { clearFormDraft(); openProject(selectedAssignmentProject.id); }}>{selectedAssignmentProjectName}の詳細を開く<ChevronRight size={14} /></button>}
+                    </div>
+                  )}
+                  {/* The terms first: every figure in the list beside or below them is measured
+                      over these dates, this allocation and these weekend days (#587). */}
+                  <div className="assignment-detail-panes">
+                    <div className="assignment-detail-terms">
+                      <label htmlFor="assignment-edit-project">プロジェクト<select id="assignment-edit-project" aria-label="プロジェクト" disabled={!canEdit} value={assignmentEditForm.projectId} onChange={(event) => setAssignmentEditForm({ ...assignmentEditForm, projectId: event.target.value })}>{workspace.projects.map((project) => <option value={project.id} key={project.id}>{project.name}</option>)}</select></label>
+                      <div className="form-grid">
+                        <label>開始日<input required disabled={!canEdit} type="date" min={projectById(workspace, assignmentEditForm.projectId)?.startDate} max={projectById(workspace, assignmentEditForm.projectId)?.endDate} value={assignmentEditForm.startDate} onChange={(event) => setAssignmentEditForm({ ...assignmentEditForm, startDate: event.target.value })} /></label>
+                        <label>終了日<input required disabled={!canEdit} min={assignmentEditForm.startDate || projectById(workspace, assignmentEditForm.projectId)?.startDate} max={projectById(workspace, assignmentEditForm.projectId)?.endDate} type="date" value={assignmentEditForm.endDate} onChange={(event) => setAssignmentEditForm({ ...assignmentEditForm, endDate: event.target.value })} /></label>
+                      </div>
+                      <label>稼働配分（%）<input required disabled={!canEdit} min="1" max="100" step="1" type="number" value={assignmentEditForm.allocation} onChange={(event) => setAssignmentEditForm({ ...assignmentEditForm, allocation: event.target.value })} /></label>
+                      <WeekendWorkPicker
+                        startDate={assignmentEditForm.startDate}
+                        endDate={assignmentEditForm.endDate}
+                        value={assignmentEditForm.weekendWorkDates}
+                        onChange={(weekendWorkDates) => setAssignmentEditForm({ ...assignmentEditForm, weekendWorkDates })}
+                        disabled={!canEdit}
+                      />
+                      {canEdit && editOverload && <div className="form-note warn" role="status"><AlertTriangle size={15} /><span>この内容だと {shortDate(assignmentEditForm.startDate)} — {shortDate(assignmentEditForm.endDate)} の稼働が {editOverload.projected}% になります（稼働上限 {editOverload.capacity}%）。仮置きはできます。</span></div>}
+                      <div className="form-note"><SlidersHorizontal size={15} /><span>{canEdit ? selectedAssignment.staffingNeedId ? "要員要件を満たさない変更では、元の不足ロールを再オープンします。変更は保存まで元に戻せます。" : "変更と取消は仮置きされ、チームへ保存するまで元に戻せます。" : "このアサインは閲覧のみです。変更権限があるメンバーへ依頼してください。"}</span></div>
+                    </div>
+                    {/* 「付け替えた場合の稼働」, not the plain load: this assignment is already in
+                        the workspace, so a plain reading counts it against whoever holds it and
+                        means something different for them than for everyone else in the list.
+                        The figure here is what the board would show if this form were saved onto
+                        that person, which is the question a swap actually asks (#219). */}
+                    <MemberPicker
+                      legend="メンバー"
+                      hint={formRangeHint(assignmentEditForm.startDate, assignmentEditForm.endDate, `${shortDate(assignmentEditForm.startDate)} — ${shortDate(assignmentEditForm.endDate)} · 付け替えた場合の稼働 · 空きが多い順`)}
+                      measured={formRangeMeasured(assignmentEditForm.startDate, assignmentEditForm.endDate)}
+                      name="assignment-edit-member"
+                      searchLabel="付け替え先のメンバーを検索"
+                      candidates={editCandidates}
+                      limit={MEMBER_PICKER_LIMIT}
+                      value={assignmentEditForm.personId}
+                      onChange={(personId) => setAssignmentEditForm({ ...assignmentEditForm, personId })}
+                      query={memberPickerQuery}
+                      onQueryChange={setMemberPickerQuery}
+                      disabled={!canEdit}
+                      chosenRef={chosenCandidateRef}
+                    />
+                  </div>
                 </div>
-                <label>稼働配分（%）<input required disabled={!canEdit} min="1" max="100" step="1" type="number" value={assignmentEditForm.allocation} onChange={(event) => setAssignmentEditForm({ ...assignmentEditForm, allocation: event.target.value })} /></label>
-                <WeekendWorkPicker
-                  startDate={assignmentEditForm.startDate}
-                  endDate={assignmentEditForm.endDate}
-                  value={assignmentEditForm.weekendWorkDates}
-                  onChange={(weekendWorkDates) => setAssignmentEditForm({ ...assignmentEditForm, weekendWorkDates })}
-                  disabled={!canEdit}
-                />
-                {canEdit && editOverload && <div className="form-note warn" role="status"><AlertTriangle size={15} /><span>この内容だと {shortDate(assignmentEditForm.startDate)} — {shortDate(assignmentEditForm.endDate)} の稼働が {editOverload.projected}% になります（稼働上限 {editOverload.capacity}%）。仮置きはできます。</span></div>}
-                <div className="form-note"><SlidersHorizontal size={15} /><span>{canEdit ? selectedAssignment.staffingNeedId ? "要員要件を満たさない変更では、元の不足ロールを再オープンします。変更は保存まで元に戻せます。" : "変更と取消は仮置きされ、チームへ保存するまで元に戻せます。" : "このアサインは閲覧のみです。変更権限があるメンバーへ依頼してください。"}</span></div>
-                {canEdit ? (
-                  <div className="assignment-edit-actions">
-                    <button className="drawer-primary" type="submit"><Check size={16} />変更を仮置き</button>
-                    <button className="drawer-danger" type="button" onClick={removeAssignment}><Trash2 size={15} />{selectedAssignmentIsPersisted ? "アサインを取消" : "仮置きを削除"}</button>
-                  </div>
-                ) : <button className="drawer-secondary" type="button" onClick={requestCloseDrawer}>閉じる</button>}
+                {/* Inside the form, outside its scroll: the submit and the dirty-draft
+                    tracking (#492) both hang off the form element. */}
+                <div className="assignment-detail-actions">
+                  {canEdit ? (
+                    <>
+                      <button className="drawer-danger" type="button" onClick={removeAssignment}><Trash2 size={15} />{selectedAssignmentIsPersisted ? "アサインを取消" : "仮置きを削除"}</button>
+                      {/* Not a live region: it would speak on every keystroke in the allocation. */}
+                      <p className="assignment-detail-change">{editChanges.length > 0 ? `変更: ${editChanges.join("・")}` : "変更はありません"}</p>
+                      <button className="drawer-primary" type="submit"><Check size={16} />変更を仮置き</button>
+                    </>
+                  ) : <button className="drawer-secondary" type="button" onClick={requestCloseDrawer}>閉じる</button>}
+                </div>
               </form>
             )}
 

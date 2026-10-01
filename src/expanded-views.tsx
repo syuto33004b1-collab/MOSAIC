@@ -158,7 +158,7 @@ import {
   type WorkHistoryEntry,
   type WorkspaceState,
 } from "./domain";
-import { LabelledTrend, TrendLine } from "./trend-line";
+import { LabelledTrend, TrendLine, type TrendPoint } from "./trend-line";
 
 type ProjectsViewProps = {
   state: WorkspaceState;
@@ -509,6 +509,17 @@ export type MemberCandidate = {
 };
 
 /**
+ * A candidate's rail: one point per day in the range, at that day's share of the ceiling
+ * and held at it once over. The shape only — when in the range the person is busy. How far
+ * over is the figure beside it, and how many days are is said in words (#587).
+ */
+export function pickerRailPoints(days: readonly Pick<DailyLoad, "load" | "capacity">[]): TrendPoint[] {
+  return days.map((day) => ({
+    value: day.capacity > 0 ? Math.min(100, Math.round((day.load / day.capacity) * 100)) : day.load > 0 ? 100 : 0,
+  }));
+}
+
+/**
  * Who to assign, searched for rather than scrolled through.
  *
  * Both assignment forms picked their member from a native `<select>`: no way to type
@@ -584,7 +595,9 @@ export function MemberPicker({
     <fieldset className="member-picker">
       {/* The range and what is being measured over it, so every row's number has a
           stated meaning and the group announces it once rather than per row. */}
-      <legend>{legend}<small> · {hint}</small></legend>
+      {/* The hint on a line of its own, still inside the legend so the group's name keeps it.
+          The separator is for that name only; on screen the line break does its work. */}
+      <legend>{legend}<span className="sr-only"> · </span><small>{hint}</small></legend>
       <div className="member-picker-head">
         <label className="inline-search">
           <Search size={15} />
@@ -595,32 +608,31 @@ export function MemberPicker({
         <span className="member-picker-count">{matched.length > rows.length ? `該当${matched.length}名中 ${rows.length}名` : `該当${matched.length}名`}</span>
       </div>
       <div className="member-picker-list">
-        {rows.map(({ member, peak, days, label }) => (
-          <label
-            className={"member-picker-item" + (value === member.id ? " chosen" : "")}
-            key={member.id}
-            ref={value === member.id ? chosenRef : null}
-          >
-            <input type="radio" name={name} value={member.id} checked={value === member.id} disabled={disabled} onChange={() => onChange(member.id)} />
-            <span className={"avatar " + member.avatarTone}>{member.initials}</span>
-            <span className="member-picker-copy"><strong>{label}</strong><small>{member.role} · {member.department}</small></span>
-            <span className={"member-picker-load" + (measured ? (days.some((day) => day.load > day.capacity) ? " over" : "") : " unmeasured")}>{measured ? `${peak}% / ${member.capacity}%` : "—"}</span>
-            {/* One point per weekday in the range, at that day's share of the ceiling.
-                Decoration — the numbers beside it are what the row says out loud — so
-                only the days over the ceiling get a dot: past about 60 weekdays a dot
-                per day would be a texture rather than a reading. */}
-            <span className="member-picker-rail" aria-hidden="true">
-              <TrendLine
-                dots="flagged"
-                guides={[100]}
-                points={days.map((day) => ({
-                  value: day.capacity > 0 ? Math.min(100, Math.round((day.load / day.capacity) * 100)) : day.load > 0 ? 100 : 0,
-                  tone: day.load > day.capacity ? "over" as const : undefined,
-                }))}
-              />
-            </span>
-          </label>
-        ))}
+        {rows.map(({ member, peak, days, label }) => {
+          // Every day over the ceiling, weekend ones included — the same test as `.over`,
+          // which is why this says 「日」 and not 「営業日」.
+          const overDays = measured ? days.filter((day) => day.load > day.capacity).length : 0;
+          return (
+            <label
+              className={"member-picker-item" + (value === member.id ? " chosen" : "")}
+              key={member.id}
+              ref={value === member.id ? chosenRef : null}
+            >
+              <input type="radio" name={name} value={member.id} checked={value === member.id} disabled={disabled} onChange={() => onChange(member.id)} />
+              <span className={"avatar " + member.avatarTone}>{member.initials}</span>
+              <span className="member-picker-copy"><strong>{label}</strong><small>{member.role} · {member.department}</small></span>
+              {/* One wrapper, so the row keeps its four columns with the count under the figure. */}
+              <span className="member-picker-figures">
+                <span className={"member-picker-load" + (measured ? (overDays > 0 ? " over" : "") : " unmeasured")}>{measured ? `${peak}% / ${member.capacity}%` : "—"}</span>
+                {overDays > 0 && <small className="member-picker-over">上限超過 {overDays}日</small>}
+              </span>
+              {/* Decoration: the figure and the count are what the row says out loud. */}
+              <span className="member-picker-rail" aria-hidden="true">
+                <TrendLine dots="none" guides={[100]} points={pickerRailPoints(days)} />
+              </span>
+            </label>
+          );
+        })}
         {rows.length === 0 && <p className="member-picker-empty">条件に合うメンバーがいません。</p>}
       </div>
     </fieldset>
