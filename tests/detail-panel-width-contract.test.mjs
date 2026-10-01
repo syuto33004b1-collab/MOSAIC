@@ -130,6 +130,9 @@ test("the staffing line's figures keep one line and the months keep equal column
   const cell = css.match(/\.labelled-trend-cell \{([^}]*)\}/u);
   assert.ok(cell, "expected the .labelled-trend-cell rule");
   assert.match(cell[1], /white-space:\s*nowrap/u, "a wrapped 「10/12名」 is three lines under one point");
+  // As grid items the sizers (`overflow: hidden`) would get an automatic minimum width of
+  // 0 and stop widening their column: measured 36.7px and 27.1px side by side, 4.4px off.
+  assert.match(cell[1], /display:\s*block/u, "the month cell must be a block so its sizers count");
   const sizer = css.match(/\.labelled-trend-sizer \{([^}]*)\}/u);
   assert.ok(sizer, "expected the .labelled-trend-sizer rule");
   assert.match(sizer[1], /height:\s*0/u);
