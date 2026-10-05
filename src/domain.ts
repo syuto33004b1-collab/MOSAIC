@@ -225,6 +225,117 @@ export function needCandidatePersonIds(need: Pick<StaffingNeed, "candidatePerson
   return need?.candidatePersonIds ?? [];
 }
 
+/**
+ * One saved assignment as `list_assignment_history` returns it (#600), cancelled
+ * ones included. `cancelledAt` is null for a cancellation made before the
+ * history existed: it is shown as unrecorded, never filled in.
+ */
+export type AssignmentHistoryEntry = {
+  id: string;
+  projectId: string;
+  projectCode: string;
+  projectName: string;
+  projectArchived: boolean;
+  startDate: string;
+  endDate: string;
+  allocation: number;
+  status: AssignmentStatus | "cancelled";
+  label?: string | null;
+  cancelledAt?: string | null;
+  cancelledByName?: string | null;
+};
+
+/** A cancellation recorded by the demo, which has no server to keep cancelled rows. */
+export type DemoCancelledAssignment = AssignmentHistoryEntry & { personId: string };
+
+export const ASSIGNMENT_HISTORY_LIMIT = 200;
+
+/**
+ * The saved assignments a save cancels: present before, gone after. The shared
+ * save sends exactly these as `assignments.cancelIds`, and the screens count the
+ * same set, so the two cannot disagree (#600).
+ */
+export function cancelledAssignmentIds(state: Pick<WorkspaceState, "assignments">, previous: Pick<WorkspaceState, "assignments">) {
+  const remaining = new Set(state.assignments.map((assignment) => assignment.id));
+  return previous.assignments.filter((assignment) => !remaining.has(assignment.id)).map((assignment) => assignment.id);
+}
+
+/**
+ * The part of a person's history the month sheet does not already show: what
+ * ended before today and what was cancelled. Newest start first.
+ */
+export function pastAssignmentHistory(entries: AssignmentHistoryEntry[], todayIso: string) {
+  return entries
+    .filter((entry) => entry.status === "cancelled" || entry.endDate < todayIso)
+    .sort((a, b) => (a.startDate === b.startDate ? a.id.localeCompare(b.id) : a.startDate < b.startDate ? 1 : -1));
+}
+
+/** The demo's equivalent of `list_assignment_history`. */
+export function demoAssignmentHistory(
+  state: Pick<WorkspaceState, "assignments" | "projects">,
+  cancelled: DemoCancelledAssignment[],
+  personId: string,
+): AssignmentHistoryEntry[] {
+  const projects = new Map(state.projects.map((project) => [project.id, project]));
+  const live = state.assignments
+    .filter((assignment) => assignment.personId === personId)
+    .map((assignment): AssignmentHistoryEntry => {
+      const project = projects.get(assignment.projectId);
+      return {
+        id: assignment.id,
+        projectId: assignment.projectId,
+        projectCode: project?.code ?? "",
+        projectName: project?.name ?? "",
+        projectArchived: !project,
+        startDate: assignment.startDate,
+        endDate: assignment.endDate,
+        allocation: assignment.allocation,
+        status: assignment.status,
+        label: assignment.label ?? null,
+        cancelledAt: null,
+        cancelledByName: null,
+      };
+    });
+  const gone = cancelled
+    .filter((entry) => entry.personId === personId)
+    .map((entry) => ({ ...entry, projectArchived: !projects.has(entry.projectId) }));
+  return [...live, ...gone];
+}
+
+/**
+ * What a demo save cancels, written down before the rows disappear from state.
+ * `cancelledIds` comes from the same diff the shared save sends as `cancelIds`.
+ */
+export function demoCancellations(
+  previous: Pick<WorkspaceState, "assignments" | "projects">,
+  cancelledIds: string[],
+  cancelledAt: string,
+  cancelledByName: string,
+): DemoCancelledAssignment[] {
+  const projects = new Map(previous.projects.map((project) => [project.id, project]));
+  const ids = new Set(cancelledIds);
+  return previous.assignments
+    .filter((assignment) => ids.has(assignment.id))
+    .map((assignment) => {
+      const project = projects.get(assignment.projectId);
+      return {
+        id: assignment.id,
+        personId: assignment.personId,
+        projectId: assignment.projectId,
+        projectCode: project?.code ?? "",
+        projectName: project?.name ?? "",
+        projectArchived: false,
+        startDate: assignment.startDate,
+        endDate: assignment.endDate,
+        allocation: assignment.allocation,
+        status: "cancelled" as const,
+        label: assignment.label ?? null,
+        cancelledAt,
+        cancelledByName,
+      };
+    });
+}
+
 export type OpportunityStage = "inquiry" | "proposal" | "negotiation" | "won" | "lost";
 
 export type Opportunity = {

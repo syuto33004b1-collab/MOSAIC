@@ -688,6 +688,49 @@ describe("organization invite function", () => {
     });
   });
 
+  it("reads a person's assignment history and drops rows it cannot read (#600)", async () => {
+    const rpc = vi.fn().mockResolvedValue({
+      data: {
+        items: [
+          {
+            id: "h-1", projectId: "p-1", projectCode: "ATL", projectName: "Atlas", projectArchived: true,
+            startDate: "2026-07-01", endDate: "2026-07-31", allocation: 37.5, status: "cancelled",
+            label: null, cancelledAt: null, cancelledByName: null,
+          },
+          {
+            id: "h-2", projectId: "p-1", projectCode: "ATL", projectName: "Atlas", projectArchived: false,
+            startDate: "2026-08-01", endDate: "2026-08-31", allocation: 50, status: "confirmed",
+            label: "運用", cancelledAt: "2026-08-02T00:00:00Z", cancelledByName: "佐藤",
+          },
+          { id: "h-3", projectId: "p-1", startDate: "2026-08-01", endDate: "2026-08-31", allocation: 50, status: "archived" },
+          { id: "h-4", projectId: "p-1", startDate: "8/1", endDate: "2026-08-31", allocation: 50, status: "confirmed" },
+        ],
+      },
+      error: null,
+    });
+    const repository = new ProductionRepository({ rpc } as unknown as SupabaseClient);
+
+    await expect(repository.listAssignmentHistory("org-1", "person-1")).resolves.toEqual([
+      {
+        id: "h-1", projectId: "p-1", projectCode: "ATL", projectName: "Atlas", projectArchived: true,
+        startDate: "2026-07-01", endDate: "2026-07-31", allocation: 37.5, status: "cancelled",
+        label: null, cancelledAt: null, cancelledByName: null,
+      },
+      {
+        id: "h-2", projectId: "p-1", projectCode: "ATL", projectName: "Atlas", projectArchived: false,
+        startDate: "2026-08-01", endDate: "2026-08-31", allocation: 50, status: "confirmed",
+        label: "運用", cancelledAt: "2026-08-02T00:00:00Z", cancelledByName: "佐藤",
+      },
+    ]);
+    expect(rpc).toHaveBeenCalledWith("list_assignment_history", { p_organization_id: "org-1", p_person_id: "person-1" });
+  });
+
+  it("maps a refused history read to the permission error", async () => {
+    const rpc = vi.fn().mockResolvedValue({ data: null, error: { code: "42501", message: "not authorized" } });
+    const repository = new ProductionRepository({ rpc } as unknown as SupabaseClient);
+    await expect(repository.listAssignmentHistory("org-1", "person-1")).rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
+
   it("lists and updates personal favorites through dedicated RPCs", async () => {
     const rpc = vi.fn()
       .mockResolvedValueOnce({

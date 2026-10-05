@@ -174,6 +174,7 @@ function SharedWorkspaceRoute({
     initialRevision: workspace.revision,
     initialState: workspace.state,
     initialPermissions: workspace.permissions,
+    listAssignmentHistory: (personId: string) => repository.listAssignmentHistory(currentOrganization.id, personId),
     listFavorites: () => repository.listFavorites(currentOrganization.id),
     reload: sharedController.reload,
     save: sharedController.save,

@@ -1,6 +1,6 @@
 import type { AuthError, PostgrestError, SupabaseClient, User } from "@supabase/supabase-js";
-import type { Assignment, CustomFieldDefinition, CustomFieldEntity, CustomFieldType, Member, MemberUnavailability, Opportunity, OpportunityNeed, OpportunityStage, OrgMembership, OrgUnit, PersonScope, ProfileRequest, ProfileRequestScope, ProfileRequestStatus, Project, ReportGroupBy, ReportMetric, ReportSource, RestrictableFeature, RestrictableRole, RolePermission, SavedReport, SearchScene, SearchSkillFilter, SkillDefinition, SkillImportance, SkillKind, StaffingNeed, WorkHistoryEntry, WorkspaceState } from "../domain";
-import { hydrateWorkspaceSkills, MONTHLY_COST_YEN_MAX, OPPORTUNITY_STAGES, normalizeMemberUnavailability, normalizeSkillProficiency, normalizeWorkHistory, parseSkillInput, PERSON_SCOPES, PROFILE_REQUEST_SCOPES, PROFILE_REQUEST_STATUSES, RESTRICTABLE_FEATURES, RESTRICTABLE_ROLES } from "../domain";
+import type { Assignment, AssignmentHistoryEntry, CustomFieldDefinition, CustomFieldEntity, CustomFieldType, Member, MemberUnavailability, Opportunity, OpportunityNeed, OpportunityStage, OrgMembership, OrgUnit, PersonScope, ProfileRequest, ProfileRequestScope, ProfileRequestStatus, Project, ReportGroupBy, ReportMetric, ReportSource, RestrictableFeature, RestrictableRole, RolePermission, SavedReport, SearchScene, SearchSkillFilter, SkillDefinition, SkillImportance, SkillKind, StaffingNeed, WorkHistoryEntry, WorkspaceState } from "../domain";
+import { cancelledAssignmentIds, hydrateWorkspaceSkills, MONTHLY_COST_YEN_MAX, OPPORTUNITY_STAGES, normalizeMemberUnavailability, normalizeSkillProficiency, normalizeWorkHistory, parseSkillInput, PERSON_SCOPES, PROFILE_REQUEST_SCOPES, PROFILE_REQUEST_STATUSES, RESTRICTABLE_FEATURES, RESTRICTABLE_ROLES } from "../domain";
 import { normalizeFavorites, type Favorite, type FavoriteKind } from "../collaboration";
 import { appAuthRedirectUrl } from "./authRecovery";
 import { consumeOAuthPending, markOAuthPending } from "./oauthPending";
@@ -55,6 +55,7 @@ const avatarTones = new Set<Member["avatarTone"]>(["lavender", "peach", "sky", "
 const projectTones = new Set<Project["tone"]>(["blue", "mint", "orange", "plum", "sky"]);
 const projectStatuses = new Set<Project["status"]>(["進行中", "要注意", "準備中", "完了間近", "完了"]);
 const assignmentStatuses = new Set<Assignment["status"]>(["confirmed", "draft"]);
+const historyStatuses = new Set<AssignmentHistoryEntry["status"]>(["confirmed", "draft", "cancelled"]);
 const needStatuses = new Set<StaffingNeed["status"]>(["open", "planned", "filled"]);
 const opportunityStages = new Set<OpportunityStage>(OPPORTUNITY_STAGES);
 const customFieldEntities = new Set<CustomFieldEntity>(["member", "project"]);
@@ -1122,6 +1123,33 @@ export function normalizeFeedbackItem(value: unknown): FeedbackItem | undefined 
   };
 }
 
+function normalizeAssignmentHistoryEntry(value: unknown): AssignmentHistoryEntry | undefined {
+  const record = asRecord(value);
+  if (!record) return undefined;
+  const id = readString(record, "id");
+  const projectId = readString(record, "projectId");
+  const startDate = readString(record, "startDate");
+  const endDate = readString(record, "endDate");
+  const status = readString(record, "status");
+  const allocation = Number(record.allocation);
+  if (!id || !projectId || !startDate || !endDate || !isoDatePattern.test(startDate) || !isoDatePattern.test(endDate)) return undefined;
+  if (!status || !historyStatuses.has(status as AssignmentHistoryEntry["status"]) || !Number.isFinite(allocation)) return undefined;
+  return {
+    id,
+    projectId,
+    projectCode: readString(record, "projectCode") ?? "",
+    projectName: readString(record, "projectName") ?? "",
+    projectArchived: record.projectArchived === true,
+    startDate,
+    endDate,
+    allocation,
+    status: status as AssignmentHistoryEntry["status"],
+    label: readString(record, "label") ?? null,
+    cancelledAt: readString(record, "cancelledAt") ?? null,
+    cancelledByName: readString(record, "cancelledByName") ?? null,
+  };
+}
+
 function stableJson(value: unknown): string {
   if (value === null || typeof value !== "object") return JSON.stringify(value) ?? "null";
   if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
@@ -1167,7 +1195,7 @@ export function workspaceChangesPayload(
   if (projectUpsert.length || projectArchiveIds.length) payload.projects = { upsert: projectUpsert, archiveIds: projectArchiveIds };
 
   const assignmentUpsert = changedRows(state.assignments, previous.assignments);
-  const assignmentCancelIds = removedIds(state.assignments, previous.assignments);
+  const assignmentCancelIds = cancelledAssignmentIds(state, previous);
   if (assignmentUpsert.length || assignmentCancelIds.length) payload.assignments = { upsert: assignmentUpsert, cancelIds: assignmentCancelIds };
 
   const needUpsert = changedRows(state.needs, previous.needs);
@@ -1439,6 +1467,18 @@ export class ProductionRepository {
       revision,
       savedAt: readString(record, "saved_at", "savedAt", "updated_at") ?? new Date().toISOString(),
     };
+  }
+
+  async listAssignmentHistory(organizationId: string, personId: string): Promise<AssignmentHistoryEntry[]> {
+    const { data, error } = await this.client.rpc("list_assignment_history", {
+      p_organization_id: organizationId,
+      p_person_id: personId,
+    });
+    if (error) throw rpcError("アサインの履歴を読み込み", error);
+    const record = asRecord(unwrapRpcValue(data));
+    return readArray(record, "items")
+      .map(normalizeAssignmentHistoryEntry)
+      .filter((entry): entry is AssignmentHistoryEntry => Boolean(entry));
   }
 
   async listFavorites(organizationId: string): Promise<Favorite[]> {
