@@ -4973,8 +4973,8 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                       {canManageMembers && <button className="drawer-danger" type="button" onClick={archiveMember}><Trash2 size={15} />メンバーをアーカイブ</button>}
                     </div>
                   </details>
-                  <button className="drawer-secondary" type="button" onClick={() => openMemberHistory(selectedMember.id)}><History size={15} />アサインの履歴</button>
-                  {mayEvaluate(selectedMember) && <button className="drawer-secondary" type="button" onClick={() => openMemberEvaluations(selectedMember.id)}><NotebookPen size={15} />評価</button>}
+                  <button className="drawer-secondary member-detail-record" type="button" onClick={() => openMemberHistory(selectedMember.id)}><History size={15} />アサインの履歴</button>
+                  {mayEvaluate(selectedMember) && <button className="drawer-secondary member-detail-record" type="button" onClick={() => openMemberEvaluations(selectedMember.id)}><NotebookPen size={15} />評価</button>}
                   <button className="drawer-secondary" type="button" onClick={() => addMemberToProposal(selectedMember.id)}>提案ビューに追加</button>
                   {canEdit && <button className="drawer-primary" type="button" onClick={() => openAssignmentFor(selectedMember.id)}><Plus size={16} />この人へアサインを追加</button>}
                 </div>

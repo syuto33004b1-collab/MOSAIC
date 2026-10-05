@@ -3093,6 +3093,12 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   margin-top: 0;
   flex: 1 1 9rem;
 }
+/* The history and evaluation buttons size to their words so they share a row
+   with その他: a third row of actions pushes 空き and the work history out of
+   the panes on a 390px screen. */
+.member-detail-actions > .member-detail-record {
+  flex: 1 1 auto;
+}
 .member-detail-more,
 .project-detail-more { position: relative; flex: 0 0 auto; }
 .member-detail-more > summary,
