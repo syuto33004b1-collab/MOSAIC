@@ -290,7 +290,7 @@ const DRAWER_KICKER = {
   project: "PROJECT DETAIL",
   member: "MEMBER PROFILE",
   memberHistory: "ASSIGNMENT HISTORY",
-  memberEvaluations: "EVALUATIONS",
+  memberEvaluations: "ASPIRATIONS & EVALUATIONS",
   newProject: "NEW PROJECT",
   newMember: "NEW MEMBER",
   editProject: "EDIT PROJECT",
