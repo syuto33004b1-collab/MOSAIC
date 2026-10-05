@@ -1,6 +1,6 @@
 import type { AuthError, PostgrestError, SupabaseClient, User } from "@supabase/supabase-js";
-import type { Assignment, AssignmentHistoryEntry, CancelReasons, CustomFieldDefinition, CustomFieldEntity, CustomFieldType, Member, MemberUnavailability, Opportunity, OpportunityNeed, OpportunityStage, OrgMembership, OrgUnit, PersonScope, ProfileRequest, ProfileRequestScope, ProfileRequestStatus, Project, ReportGroupBy, ReportMetric, ReportSource, RestrictableFeature, RestrictableRole, RolePermission, SavedReport, SearchScene, SearchSkillFilter, SkillDefinition, SkillImportance, SkillKind, StaffingNeed, WorkHistoryEntry, WorkspaceState } from "../domain";
-import { cancelledAssignmentIds, changeReasonsFor, hydrateWorkspaceSkills, MONTHLY_COST_YEN_MAX, OPPORTUNITY_STAGES, normalizeMemberUnavailability, normalizeSkillProficiency, normalizeWorkHistory, parseSkillInput, PERSON_SCOPES, PROFILE_REQUEST_SCOPES, PROFILE_REQUEST_STATUSES, RESTRICTABLE_FEATURES, RESTRICTABLE_ROLES } from "../domain";
+import type { Assignment, AssignmentHistoryEntry, CancelReasons, EvaluationVisibility, PersonEvaluation, PersonEvaluationDraft, CustomFieldDefinition, CustomFieldEntity, CustomFieldType, Member, MemberUnavailability, Opportunity, OpportunityNeed, OpportunityStage, OrgMembership, OrgUnit, PersonScope, ProfileRequest, ProfileRequestScope, ProfileRequestStatus, Project, ReportGroupBy, ReportMetric, ReportSource, RestrictableFeature, RestrictableRole, RolePermission, SavedReport, SearchScene, SearchSkillFilter, SkillDefinition, SkillImportance, SkillKind, StaffingNeed, WorkHistoryEntry, WorkspaceState } from "../domain";
+import { cancelledAssignmentIds, changeReasonsFor, EVALUATION_VISIBILITIES, hydrateWorkspaceSkills, MONTHLY_COST_YEN_MAX, OPPORTUNITY_STAGES, normalizeMemberUnavailability, normalizeSkillProficiency, normalizeWorkHistory, parseSkillInput, PERSON_SCOPES, PROFILE_REQUEST_SCOPES, PROFILE_REQUEST_STATUSES, RESTRICTABLE_FEATURES, RESTRICTABLE_ROLES } from "../domain";
 import { normalizeFavorites, type Favorite, type FavoriteKind } from "../collaboration";
 import { appAuthRedirectUrl } from "./authRecovery";
 import { consumeOAuthPending, markOAuthPending } from "./oauthPending";
@@ -1155,6 +1155,56 @@ function normalizeAssignmentHistoryEntry(value: unknown): AssignmentHistoryEntry
   };
 }
 
+function normalizePersonEvaluation(value: unknown): PersonEvaluation | undefined {
+  const record = asRecord(value);
+  if (!record) return undefined;
+  const id = readString(record, "id");
+  const personId = readString(record, "personId");
+  const observedOn = readString(record, "observedOn");
+  const visibility = readString(record, "visibility");
+  const version = readNumber(record, "version");
+  if (!id || !personId || !observedOn || !isoDatePattern.test(observedOn) || version === undefined) return undefined;
+  if (!visibility || !EVALUATION_VISIBILITIES.includes(visibility as EvaluationVisibility)) return undefined;
+  const withdrawn = asRecord(record.withdrawn);
+  const text = (key: "strengths" | "concerns" | "basis") => (key in record ? { [key]: readString(record, key) ?? null } : {});
+  return {
+    id,
+    version,
+    personId,
+    projectId: readString(record, "projectId") ?? null,
+    projectName: readString(record, "projectName") ?? null,
+    observedOn,
+    visibility: visibility as EvaluationVisibility,
+    authorName: readString(record, "authorName") ?? "MOSAICユーザー",
+    createdAt: readString(record, "createdAt") ?? "",
+    updatedAt: readString(record, "updatedAt") ?? "",
+    mine: record.mine === true,
+    canEdit: record.canEdit === true,
+    canWithdraw: record.canWithdraw === true,
+    ...text("strengths"),
+    ...text("concerns"),
+    ...text("basis"),
+    withdrawn: withdrawn ? {
+      at: readString(withdrawn, "at") ?? "",
+      byName: readString(withdrawn, "byName") ?? "MOSAICユーザー",
+      reason: readString(withdrawn, "reason") ?? "",
+    } : null,
+  };
+}
+
+function evaluationError(action: string, error: PostgrestError) {
+  if (error.code === "40001") {
+    return new ProductionRepositoryError("ほかの人が先にこの評価を変更しました。読み込み直してから、もう一度操作してください。", {
+      cause: error,
+      code: "EVALUATION_CONFLICT",
+    });
+  }
+  if (error.code === "22023") {
+    return new ProductionRepositoryError("入力内容を確認してください。", { cause: error, code: "INVALID_EVALUATION", retryable: false });
+  }
+  return rpcError(action, error);
+}
+
 function stableJson(value: unknown): string {
   if (value === null || typeof value !== "object") return JSON.stringify(value) ?? "null";
   if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
@@ -1487,6 +1537,55 @@ export class ProductionRepository {
     return readArray(record, "items")
       .map(normalizeAssignmentHistoryEntry)
       .filter((entry): entry is AssignmentHistoryEntry => Boolean(entry));
+  }
+
+  async listPersonEvaluations(organizationId: string, personId: string): Promise<{ items: PersonEvaluation[]; canWrite: boolean }> {
+    const { data, error } = await this.client.rpc("list_person_evaluations", {
+      p_organization_id: organizationId,
+      p_person_id: personId,
+    });
+    if (error) throw evaluationError("評価を読み込み", error);
+    const record = asRecord(unwrapRpcValue(data));
+    return {
+      items: readArray(record, "items")
+        .map(normalizePersonEvaluation)
+        .filter((item): item is PersonEvaluation => Boolean(item)),
+      canWrite: record?.canWrite === true,
+    };
+  }
+
+  async savePersonEvaluation(organizationId: string, requestId: string, draft: PersonEvaluationDraft): Promise<{ id: string; version: number }> {
+    const { data, error } = await this.client.rpc("save_person_evaluation", {
+      p_evaluation: {
+        ...(draft.id ? { id: draft.id, expectedVersion: draft.expectedVersion } : {}),
+        personId: draft.personId,
+        projectId: draft.projectId || null,
+        observedOn: draft.observedOn,
+        strengths: draft.strengths.trim(),
+        concerns: draft.concerns.trim(),
+        basis: draft.basis.trim(),
+        visibility: draft.visibility,
+      },
+      p_organization_id: organizationId,
+      p_request_id: requestId,
+    });
+    if (error) throw evaluationError("評価を保存", error);
+    const record = asRecord(unwrapRpcValue(data));
+    const id = readString(record, "id");
+    const version = readNumber(record, "version");
+    if (!id || version === undefined) throw new ProductionRepositoryError("保存した評価を確認できませんでした。", { code: "INVALID_EVALUATION_RESULT" });
+    return { id, version };
+  }
+
+  async withdrawPersonEvaluation(organizationId: string, id: string, expectedVersion: number, reason: string, requestId: string): Promise<void> {
+    const { error } = await this.client.rpc("withdraw_person_evaluation", {
+      p_expected_version: expectedVersion,
+      p_id: id,
+      p_organization_id: organizationId,
+      p_reason: reason.trim(),
+      p_request_id: requestId,
+    });
+    if (error) throw evaluationError("評価を取り下げ", error);
   }
 
   async listFavorites(organizationId: string): Promise<Favorite[]> {

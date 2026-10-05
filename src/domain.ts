@@ -268,6 +268,113 @@ export function changeReasonsFor(cancelledIds: string[], reasons: CancelReasons)
   });
 }
 
+/** Who may read an evaluation besides its author (#601). */
+export type EvaluationVisibility = "assigners" | "managers";
+export const EVALUATION_VISIBILITIES: EvaluationVisibility[] = ["assigners", "managers"];
+export const EVALUATION_TEXT_MAX = 2000;
+export const EVALUATION_WITHDRAW_REASON_MAX = 500;
+
+/**
+ * One evaluation as `list_person_evaluations` returns it. `strengths`,
+ * `concerns`, and `basis` are absent when the caller is not given the text
+ * (a withdrawn evaluation, for anyone but the owner and the author).
+ */
+export type PersonEvaluation = {
+  id: string;
+  version: number;
+  personId: string;
+  projectId: string | null;
+  projectName: string | null;
+  observedOn: string;
+  visibility: EvaluationVisibility;
+  authorName: string;
+  createdAt: string;
+  updatedAt: string;
+  mine: boolean;
+  canEdit: boolean;
+  canWithdraw: boolean;
+  strengths?: string | null;
+  concerns?: string | null;
+  basis?: string | null;
+  withdrawn: { at: string; byName: string; reason: string } | null;
+};
+
+export type PersonEvaluationDraft = {
+  id?: string;
+  expectedVersion?: number;
+  personId: string;
+  projectId: string | null;
+  observedOn: string;
+  strengths: string;
+  concerns: string;
+  basis: string;
+  visibility: EvaluationVisibility;
+};
+
+/** The same rule `save_person_evaluation` applies, so the form can say it before sending. */
+export function evaluationDraftProblem(draft: Pick<PersonEvaluationDraft, "observedOn" | "strengths" | "concerns" | "basis">) {
+  const strengths = draft.strengths.trim();
+  const concerns = draft.concerns.trim();
+  const basis = draft.basis.trim();
+  if (!isCivilIsoDate(draft.observedOn)) return "時期を日付で入れてください";
+  if (!strengths && !concerns) return "良かった点か課題のどちらかを書いてください";
+  if (concerns && !basis) return "課題を書いたときは、そう評価した理由と場面も書いてください";
+  if ([strengths, concerns, basis].some((text) => text.length > EVALUATION_TEXT_MAX)) return `それぞれ${EVALUATION_TEXT_MAX}字までです`;
+  return null;
+}
+
+/** The demo's evaluations: the demo user wrote all of them, so every one is theirs. */
+export type DemoEvaluation = Omit<PersonEvaluation, "projectName" | "mine" | "canEdit" | "canWithdraw">;
+
+export function demoEvaluationsFor(
+  stored: DemoEvaluation[],
+  projects: Pick<Project, "id" | "name">[],
+  personId: string,
+): PersonEvaluation[] {
+  const names = new Map(projects.map((project) => [project.id, project.name]));
+  return stored
+    .filter((evaluation) => evaluation.personId === personId)
+    .map((evaluation) => ({
+      ...evaluation,
+      projectName: evaluation.projectId ? names.get(evaluation.projectId) ?? null : null,
+      mine: true,
+      canEdit: !evaluation.withdrawn,
+      canWithdraw: !evaluation.withdrawn,
+    }))
+    .sort((a, b) => (a.observedOn === b.observedOn ? b.createdAt.localeCompare(a.createdAt) : a.observedOn < b.observedOn ? 1 : -1));
+}
+
+export function demoSaveEvaluation(
+  stored: DemoEvaluation[],
+  draft: PersonEvaluationDraft,
+  now: string,
+  authorName: string,
+  newIdValue: string,
+): DemoEvaluation[] {
+  const text = (value: string) => value.trim() || null;
+  const fields = {
+    personId: draft.personId,
+    projectId: draft.projectId || null,
+    observedOn: draft.observedOn,
+    strengths: text(draft.strengths),
+    concerns: text(draft.concerns),
+    basis: text(draft.basis),
+    visibility: draft.visibility,
+  };
+  if (!draft.id) {
+    return [...stored, { id: newIdValue, version: 1, authorName, createdAt: now, updatedAt: now, withdrawn: null, ...fields }];
+  }
+  return stored.map((evaluation) => evaluation.id === draft.id && !evaluation.withdrawn
+    ? { ...evaluation, ...fields, version: evaluation.version + 1, updatedAt: now }
+    : evaluation);
+}
+
+export function demoWithdrawEvaluation(stored: DemoEvaluation[], id: string, reason: string, now: string, byName: string): DemoEvaluation[] {
+  return stored.map((evaluation) => evaluation.id === id && !evaluation.withdrawn
+    ? { ...evaluation, version: evaluation.version + 1, updatedAt: now, withdrawn: { at: now, byName, reason: reason.trim() } }
+    : evaluation);
+}
+
 /** A cancellation recorded by the demo, which has no server to keep cancelled rows. */
 export type DemoCancelledAssignment = AssignmentHistoryEntry & { personId: string };
 

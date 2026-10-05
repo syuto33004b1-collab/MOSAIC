@@ -6,7 +6,7 @@ import App, { monthColumnGuidesMisaligned, type SharedWorkspaceAdapter } from ".
 import { parseCsv } from "./csv";
 import { MembersView, ProjectsView, ProposalView, widestRailLabel } from "./expanded-views";
 import { DEMO_FAVORITES_KEY } from "./collaboration";
-import { addDays, type AssignmentHistoryEntry, buildPlanCostRows, buildSavedReport, currentLocalDate, boardBasisWeek, boardRange, DISPLAY_PERIOD, formatDate, formatYen, periodRange, formatWorkHistoryPeriod, getWeekDays, getWeekStart, initialWorkspace, memberDailyLoads, memberLoad, memberMonthChartLabel, memberMonthLedger, memberMonthPointLabel, memberPeakLoad, PERIOD_CLIP_NOTE, weekLabel, type StaffingNeed, type WorkspaceState } from "./domain";
+import { addDays, type AssignmentHistoryEntry, type PersonEvaluation, buildPlanCostRows, buildSavedReport, currentLocalDate, boardBasisWeek, boardRange, DISPLAY_PERIOD, formatDate, formatYen, periodRange, formatWorkHistoryPeriod, getWeekDays, getWeekStart, initialWorkspace, memberDailyLoads, memberLoad, memberMonthChartLabel, memberMonthLedger, memberMonthPointLabel, memberPeakLoad, PERIOD_CLIP_NOTE, weekLabel, type StaffingNeed, type WorkspaceState } from "./domain";
 import type { ChatTransport } from "./lib/ai/chatClient";
 
 function sharedAdapter(): SharedWorkspaceAdapter {
@@ -9328,5 +9328,145 @@ describe("cancellation reasons (#603)", () => {
     expect(within(drawerDialog()).getByLabelText("氏名")).toHaveValue(`${initialWorkspace.members[0].name}（書きかけ）`);
     expect(screen.queryByRole("dialog", { name: "取り消す理由" })).not.toBeInTheDocument();
     expect(adapter.save).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * #601: free-text evaluations from the people who assign and evaluate. The DB decides
+ * who reads what; the screen does not offer the section to the subject or a viewer.
+ */
+describe("person evaluations (#601)", () => {
+  const member = initialWorkspace.members[0];
+
+  afterEach(() => {
+    window.localStorage.removeItem("mosaic-local-evaluations-v1");
+    window.localStorage.removeItem("mosaic-local-workspace-v3");
+  });
+
+  async function openEvaluations(user: ReturnType<typeof userEvent.setup>) {
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: "メンバー" }));
+    await user.click(memberRowButton(member.name));
+    await user.click(within(drawerDialog()).getByRole("button", { name: "評価" }));
+    return drawerDialog();
+  }
+
+  const evaluation = (overrides: Partial<PersonEvaluation>): PersonEvaluation => ({
+    id: "e", version: 1, personId: member.id, projectId: null, projectName: null, observedOn: "2026-08-10",
+    visibility: "assigners", authorName: "佐藤 一郎", createdAt: "2026-08-10T01:00:00Z", updatedAt: "2026-08-10T01:00:00Z",
+    mine: false, canEdit: false, canWithdraw: false, strengths: "良い", concerns: null, basis: null, withdrawn: null,
+    ...overrides,
+  });
+
+  it("writes, corrects, and withdraws an evaluation in the demo, and asks for the scene behind a concern", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    let panel = within(await openEvaluations(user));
+    expect(panel.getByRole("heading", { name: `${member.name}さんの評価` })).toBeInTheDocument();
+    expect(panel.getByText("あなたが読める評価は、まだありません。")).toBeInTheDocument();
+
+    await user.click(panel.getByRole("button", { name: "評価を書く" }));
+    await user.selectOptions(panel.getByLabelText("案件（任意）"), "atlas");
+    await user.type(panel.getByLabelText("課題・伸ばしてほしい点"), "見積もりが楽観的");
+    await user.click(panel.getByRole("button", { name: "評価を保存" }));
+    expect(panel.getByRole("alert")).toHaveTextContent("課題を書いたときは、そう評価した理由と場面も書いてください");
+    expect(window.localStorage.getItem("mosaic-local-evaluations-v1")).toBeNull();
+
+    await user.type(panel.getByLabelText(/^そう評価した理由と場面/u), "8月の見積もりで検証工数を入れていなかった");
+    await user.type(panel.getByLabelText("良かった点"), "顧客との調整を先回りした");
+    await user.click(panel.getByLabelText(/管理者と上長だけ/u));
+    await user.click(panel.getByRole("button", { name: "評価を保存" }));
+
+    panel = within(drawerDialog());
+    const item = () => drawerDialog().querySelector(".evaluation-item")!;
+    expect(item().textContent).toContain("Atlas リニューアル");
+    expect(item().textContent).toContain("管理者と上長だけ");
+    expect(item().textContent).toContain("顧客との調整を先回りした");
+    expect(item().textContent).toContain("8月の見積もりで検証工数を入れていなかった");
+
+    await user.click(within(item() as HTMLElement).getByRole("button", { name: "直す" }));
+    const strengths = panel.getByLabelText("良かった点");
+    await user.clear(strengths);
+    await user.type(strengths, "顧客との調整を先回りし、遅延を防いだ");
+    await user.click(panel.getByRole("button", { name: "直した内容を保存" }));
+    expect(item().textContent).toContain("顧客との調整を先回りし、遅延を防いだ");
+
+    await user.click(within(item() as HTMLElement).getByRole("button", { name: "取り下げる" }));
+    expect(within(item() as HTMLElement).getByRole("button", { name: "取り下げる" })).toBeDisabled();
+    await user.type(within(item() as HTMLElement).getByLabelText("取り下げる理由"), "事実関係を確認し直すため");
+    await user.click(within(item() as HTMLElement).getByRole("button", { name: "取り下げる" }));
+    expect(item()).toHaveClass("withdrawn");
+    expect(item().textContent).toContain("事実関係を確認し直すため");
+    expect(item().textContent).toContain("顧客との調整を先回りし、遅延を防いだ");
+    expect(within(item() as HTMLElement).queryByRole("button", { name: "直す" })).toBeNull();
+  });
+
+  it("shows what the shared read returns, and withholds the text the DB did not send", async () => {
+    const user = userEvent.setup();
+    const adapter = sharedAdapter();
+    const withheld = evaluation({ id: "e-gone", observedOn: "2026-07-01", withdrawn: { at: "2026-08-01T00:00:00Z", byName: "管理 花子", reason: "誤った記述" } });
+    delete withheld.strengths;
+    delete withheld.concerns;
+    delete withheld.basis;
+    adapter.listPersonEvaluations = vi.fn().mockResolvedValue({
+      canWrite: true,
+      items: [evaluation({ id: "e-open", projectName: "Atlas リニューアル", strengths: "丁寧な引き継ぎ" }), withheld],
+    });
+    adapter.savePersonEvaluation = vi.fn().mockResolvedValue({ id: "e-new", version: 1 });
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner", userId: "owner-user" }} shared={adapter} />);
+
+    const panel = await openEvaluations(user);
+    await waitFor(() => expect(panel.querySelectorAll(".evaluation-item")).toHaveLength(2));
+    expect(adapter.listPersonEvaluations).toHaveBeenCalledWith(member.id);
+    const [open, gone] = [...panel.querySelectorAll(".evaluation-item")];
+    expect(open.textContent).toContain("丁寧な引き継ぎ");
+    expect(gone.textContent).toContain("誤った記述");
+    expect(gone.textContent).toContain("取り下げた評価の本文は、オーナーと書いた本人だけが読めます。");
+
+    await user.click(within(panel).getByRole("button", { name: "評価を書く" }));
+    await user.type(within(panel).getByLabelText("良かった点"), "障害対応で率先して動いた");
+    await user.click(within(panel).getByRole("button", { name: "評価を保存" }));
+    await waitFor(() => expect(adapter.savePersonEvaluation).toHaveBeenCalledOnce());
+    const [requestId, draft] = (adapter.savePersonEvaluation as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(requestId).toMatch(/^[0-9a-f-]{36}$/u);
+    expect(draft).toMatchObject({ personId: member.id, strengths: "障害対応で率先して動いた", visibility: "assigners" });
+    expect(adapter.listPersonEvaluations).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps the request id when a save is retried, and shows why it failed", async () => {
+    const user = userEvent.setup();
+    const adapter = sharedAdapter();
+    adapter.listPersonEvaluations = vi.fn().mockResolvedValue({ canWrite: true, items: [] });
+    adapter.savePersonEvaluation = vi.fn()
+      .mockRejectedValueOnce(new Error("共有データに接続できません"))
+      .mockResolvedValueOnce({ id: "e-new", version: 1 });
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
+
+    const panel = within(await openEvaluations(user));
+    await user.click(await panel.findByRole("button", { name: "評価を書く" }));
+    await user.type(panel.getByLabelText("良かった点"), "顧客対応が丁寧");
+    await user.click(panel.getByRole("button", { name: "評価を保存" }));
+    expect(await panel.findByRole("alert")).toHaveTextContent("共有データに接続できません");
+    await user.click(panel.getByRole("button", { name: "評価を保存" }));
+    await waitFor(() => expect(adapter.savePersonEvaluation).toHaveBeenCalledTimes(2));
+    const calls = (adapter.savePersonEvaluation as ReturnType<typeof vi.fn>).mock.calls;
+    expect(calls[1][0]).toBe(calls[0][0]);
+  });
+
+  it("does not offer evaluations to a viewer or to the person evaluated", async () => {
+    const user = userEvent.setup();
+    const viewer = render(<App mode="shared" organizationName="Example Inc." identity={{ name: "閲覧 太郎", email: "viewer@example.com", role: "viewer" }} shared={sharedAdapter()} />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: "メンバー" }));
+    await user.click(memberRowButton(member.name));
+    expect(within(drawerDialog()).getByRole("button", { name: "アサインの履歴" })).toBeInTheDocument();
+    expect(within(drawerDialog()).queryByRole("button", { name: "評価" })).toBeNull();
+    viewer.unmount();
+    window.history.replaceState({}, "", "/");
+
+    const adapter = sharedAdapter();
+    adapter.initialState = { ...initialWorkspace, members: initialWorkspace.members.map((item) => item.id === member.id ? { ...item, authUserId: "self-user" } : item) };
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: member.name, email: "self@example.com", role: "planner", userId: "self-user" }} shared={adapter} />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: "メンバー" }));
+    await user.click(memberRowButton(member.name));
+    expect(within(drawerDialog()).queryByRole("button", { name: "評価" })).toBeNull();
   });
 });

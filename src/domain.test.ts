@@ -116,6 +116,10 @@ import {
   changeReasonsFor,
   demoAssignmentHistory,
   demoCancellations,
+  demoEvaluationsFor,
+  demoSaveEvaluation,
+  demoWithdrawEvaluation,
+  evaluationDraftProblem,
   pastAssignmentHistory,
   type AssignmentHistoryEntry,
 } from "./domain";
@@ -162,6 +166,35 @@ describe("assignment history (#600)", () => {
     expect(history.find((item) => item.id === "a1")).toMatchObject({ status: "cancelled", projectArchived: true });
     expect(history.find((item) => item.id === "a2")).toMatchObject({ status: "confirmed", projectArchived: false, cancelledAt: null });
     expect(demoAssignmentHistory(afterArchive, cancelled, "nakamura").some((item) => item.id === "a1")).toBe(false);
+  });
+});
+
+describe("person evaluations (#601)", () => {
+  const draft = { observedOn: "2026-08-19", strengths: "", concerns: "", basis: "" };
+
+  it("asks for something to say, and for the scene behind a concern", () => {
+    expect(evaluationDraftProblem({ ...draft })).toBe("良かった点か課題のどちらかを書いてください");
+    expect(evaluationDraftProblem({ ...draft, concerns: "見積もりが甘い" })).toBe("課題を書いたときは、そう評価した理由と場面も書いてください");
+    expect(evaluationDraftProblem({ ...draft, concerns: "見積もりが甘い", basis: "8月の移行判定で" })).toBeNull();
+    expect(evaluationDraftProblem({ ...draft, strengths: "丁寧" })).toBeNull();
+    expect(evaluationDraftProblem({ ...draft, strengths: "   " })).toBe("良かった点か課題のどちらかを書いてください");
+    expect(evaluationDraftProblem({ ...draft, observedOn: "2026-02-31", strengths: "丁寧" })).toBe("時期を日付で入れてください");
+    expect(evaluationDraftProblem({ ...draft, strengths: "長".repeat(2001) })).toBe("それぞれ2000字までです");
+  });
+
+  it("keeps the demo's evaluations, edits only open ones, and withdraws with a reason", () => {
+    const base = { personId: "saeki", projectId: "atlas", observedOn: "2026-08-10", strengths: " 丁寧 ", concerns: "", basis: "", visibility: "assigners" as const };
+    let stored = demoSaveEvaluation([], base, "2026-08-19T00:00:00.000Z", "デモユーザー", "e1");
+    expect(stored).toEqual([expect.objectContaining({ id: "e1", version: 1, strengths: "丁寧", concerns: null, basis: null, withdrawn: null })]);
+    stored = demoSaveEvaluation(stored, { ...base, id: "e1", strengths: "とても丁寧" }, "2026-08-20T00:00:00.000Z", "デモユーザー", "unused");
+    expect(stored[0]).toMatchObject({ version: 2, strengths: "とても丁寧", updatedAt: "2026-08-20T00:00:00.000Z", createdAt: "2026-08-19T00:00:00.000Z" });
+    stored = demoWithdrawEvaluation(stored, "e1", " 誤記 ", "2026-08-21T00:00:00.000Z", "デモユーザー");
+    expect(stored[0].withdrawn).toEqual({ at: "2026-08-21T00:00:00.000Z", byName: "デモユーザー", reason: "誤記" });
+    expect(demoSaveEvaluation(stored, { ...base, id: "e1", strengths: "書き換え" }, "2026-08-22T00:00:00.000Z", "デモユーザー", "unused")[0].strengths).toBe("とても丁寧");
+
+    const listed = demoEvaluationsFor(stored, initialWorkspace.projects, "saeki");
+    expect(listed[0]).toMatchObject({ projectName: "Atlas リニューアル", mine: true, canEdit: false, canWithdraw: false });
+    expect(demoEvaluationsFor(stored, initialWorkspace.projects, "nakamura")).toEqual([]);
   });
 });
 

@@ -759,6 +759,52 @@ describe("organization invite function", () => {
     expect(hidden).not.toHaveProperty("cancelReason");
   });
 
+  it("reads evaluations, leaves out the text the DB withheld, and drops rows it cannot read (#601)", async () => {
+    const row = {
+      id: "e1", version: 2, personId: "p1", projectId: "pr1", projectName: "Atlas", observedOn: "2026-08-10", visibility: "managers",
+      authorName: "佐藤", createdAt: "2026-08-10T00:00:00Z", updatedAt: "2026-08-11T00:00:00Z", mine: true, canEdit: true, canWithdraw: true,
+      strengths: "丁寧", concerns: null, basis: null, withdrawn: null,
+    };
+    const rpc = vi.fn().mockResolvedValue({
+      data: {
+        canWrite: true,
+        items: [
+          row,
+          { id: "e2", version: 3, personId: "p1", observedOn: "2026-07-01", visibility: "assigners", withdrawn: { at: "2026-08-01T00:00:00Z", byName: "管理", reason: "誤記" } },
+          { ...row, id: "e3", visibility: "everyone" },
+        ],
+      },
+      error: null,
+    });
+    const repository = new ProductionRepository({ rpc } as unknown as SupabaseClient);
+    const result = await repository.listPersonEvaluations("org-1", "p1");
+    expect(rpc).toHaveBeenCalledWith("list_person_evaluations", { p_organization_id: "org-1", p_person_id: "p1" });
+    expect(result.canWrite).toBe(true);
+    expect(result.items.map((item) => item.id)).toEqual(["e1", "e2"]);
+    expect(result.items[0]).toMatchObject({ strengths: "丁寧", concerns: null, visibility: "managers", mine: true });
+    expect(result.items[1]).not.toHaveProperty("strengths");
+    expect(result.items[1].withdrawn).toEqual({ at: "2026-08-01T00:00:00Z", byName: "管理", reason: "誤記" });
+  });
+
+  it("saves and withdraws evaluations through their RPCs, and names a stale edit", async () => {
+    const rpc = vi.fn()
+      .mockResolvedValueOnce({ data: { id: "e1", version: 1, replayed: false }, error: null })
+      .mockResolvedValueOnce({ data: null, error: { code: "40001", message: "evaluation was changed since it was read" } })
+      .mockResolvedValueOnce({ data: { id: "e1", version: 3, replayed: false }, error: null });
+    const repository = new ProductionRepository({ rpc } as unknown as SupabaseClient);
+    const draft = { personId: "p1", projectId: "", observedOn: "2026-08-10", strengths: " 丁寧 ", concerns: "", basis: "", visibility: "assigners" as const };
+    await expect(repository.savePersonEvaluation("org-1", "req-1", draft)).resolves.toEqual({ id: "e1", version: 1 });
+    expect(rpc.mock.calls[0]).toEqual(["save_person_evaluation", {
+      p_evaluation: { personId: "p1", projectId: null, observedOn: "2026-08-10", strengths: "丁寧", concerns: "", basis: "", visibility: "assigners" },
+      p_organization_id: "org-1",
+      p_request_id: "req-1",
+    }]);
+    await expect(repository.savePersonEvaluation("org-1", "req-2", { ...draft, id: "e1", expectedVersion: 1 })).rejects.toMatchObject({ code: "EVALUATION_CONFLICT" });
+    expect(rpc.mock.calls[1][1].p_evaluation).toMatchObject({ id: "e1", expectedVersion: 1 });
+    await repository.withdrawPersonEvaluation("org-1", "e1", 2, " 誤記 ", "req-3");
+    expect(rpc.mock.calls[2]).toEqual(["withdraw_person_evaluation", { p_expected_version: 2, p_id: "e1", p_organization_id: "org-1", p_reason: "誤記", p_request_id: "req-3" }]);
+  });
+
   it("maps a refused history read to the permission error", async () => {
     const rpc = vi.fn().mockResolvedValue({ data: null, error: { code: "42501", message: "not authorized" } });
     const repository = new ProductionRepository({ rpc } as unknown as SupabaseClient);
