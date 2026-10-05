@@ -112,7 +112,57 @@ import {
   type SearchSkillFilter,
   ownerLabel,
   ownerMember,
+  cancelledAssignmentIds,
+  demoAssignmentHistory,
+  demoCancellations,
+  pastAssignmentHistory,
+  type AssignmentHistoryEntry,
 } from "./domain";
+
+describe("assignment history (#600)", () => {
+  const base = initialWorkspace;
+
+  it("cancels exactly the saved assignments a save drops", () => {
+    const next = { assignments: base.assignments.filter((assignment) => assignment.id !== "a1" && assignment.id !== "a3") };
+    expect(cancelledAssignmentIds(next, base)).toEqual(["a1", "a3"]);
+    const withNewDraft = { assignments: [...base.assignments, { ...base.assignments[0], id: "new-draft" }] };
+    expect(cancelledAssignmentIds(base, withNewDraft)).toEqual(["new-draft"]);
+    expect(cancelledAssignmentIds(base, base)).toEqual([]);
+  });
+
+  it("keeps what ended before today and what was cancelled, newest start first", () => {
+    const entry = (id: string, startDate: string, endDate: string, status: AssignmentHistoryEntry["status"]): AssignmentHistoryEntry => ({
+      id, projectId: "p", projectCode: "P", projectName: "P", projectArchived: false, startDate, endDate, allocation: 10, status,
+    });
+    const entries = [
+      entry("running", "2026-08-01", "2026-08-31", "confirmed"),
+      entry("ended", "2026-06-01", "2026-06-30", "confirmed"),
+      entry("ends-today", "2026-08-01", "2026-08-19", "confirmed"),
+      entry("cancelled-later", "2026-10-01", "2026-10-31", "cancelled"),
+      entry("b-same-start", "2026-06-01", "2026-06-10", "draft"),
+    ];
+    expect(pastAssignmentHistory(entries, "2026-08-19").map((item) => item.id)).toEqual(["cancelled-later", "b-same-start", "ended"]);
+  });
+
+  it("builds the demo history from saved rows and the recorded cancellations", () => {
+    const cancelled = demoCancellations(base, ["a1"], "2026-08-19T00:00:00.000Z", "デモユーザー");
+    expect(cancelled).toEqual([expect.objectContaining({
+      id: "a1",
+      personId: "saeki",
+      projectId: "atlas",
+      projectName: "Atlas リニューアル",
+      status: "cancelled",
+      cancelledAt: "2026-08-19T00:00:00.000Z",
+      cancelledByName: "デモユーザー",
+    })]);
+
+    const afterArchive = { ...base, assignments: base.assignments.filter((assignment) => assignment.id !== "a1"), projects: base.projects.filter((project) => project.id !== "atlas") };
+    const history = demoAssignmentHistory(afterArchive, cancelled, "saeki");
+    expect(history.find((item) => item.id === "a1")).toMatchObject({ status: "cancelled", projectArchived: true });
+    expect(history.find((item) => item.id === "a2")).toMatchObject({ status: "confirmed", projectArchived: false, cancelledAt: null });
+    expect(demoAssignmentHistory(afterArchive, cancelled, "nakamura").some((item) => item.id === "a1")).toBe(false);
+  });
+});
 
 describe("calendar helpers", () => {
   it("uses the local Monday as the current-week anchor", () => {

@@ -6,7 +6,7 @@ import App, { monthColumnGuidesMisaligned, type SharedWorkspaceAdapter } from ".
 import { parseCsv } from "./csv";
 import { MembersView, ProjectsView, ProposalView, widestRailLabel } from "./expanded-views";
 import { DEMO_FAVORITES_KEY } from "./collaboration";
-import { addDays, buildPlanCostRows, buildSavedReport, currentLocalDate, boardBasisWeek, boardRange, DISPLAY_PERIOD, formatDate, formatYen, periodRange, formatWorkHistoryPeriod, getWeekDays, getWeekStart, initialWorkspace, memberDailyLoads, memberLoad, memberMonthChartLabel, memberMonthLedger, memberMonthPointLabel, memberPeakLoad, PERIOD_CLIP_NOTE, weekLabel, type StaffingNeed, type WorkspaceState } from "./domain";
+import { addDays, type AssignmentHistoryEntry, buildPlanCostRows, buildSavedReport, currentLocalDate, boardBasisWeek, boardRange, DISPLAY_PERIOD, formatDate, formatYen, periodRange, formatWorkHistoryPeriod, getWeekDays, getWeekStart, initialWorkspace, memberDailyLoads, memberLoad, memberMonthChartLabel, memberMonthLedger, memberMonthPointLabel, memberPeakLoad, PERIOD_CLIP_NOTE, weekLabel, type StaffingNeed, type WorkspaceState } from "./domain";
 import type { ChatTransport } from "./lib/ai/chatClient";
 
 function sharedAdapter(): SharedWorkspaceAdapter {
@@ -9016,5 +9016,141 @@ describe("the developer UI catalog (#574)", () => {
     window.history.replaceState({}, "", "/?nav=catalog");
     render(<App />);
     expect(screen.getByRole("heading", { level: 1, name: "UIカタログ" })).toBeInTheDocument();
+  });
+});
+
+/**
+ * #600: a cancelled assignment leaves the workspace snapshot, so the member drawer
+ * reads it back from the history. What was cancelled before the history existed has
+ * no time, and the screen says so rather than inventing one.
+ */
+describe("assignment history (#600)", () => {
+  const owner = { name: "管理 花子", email: "owner@example.com", role: "owner" as const };
+  const member = initialWorkspace.members[0];
+
+  afterEach(() => {
+    window.localStorage.removeItem("mosaic-local-assignment-history-v1");
+    window.localStorage.removeItem("mosaic-local-workspace-v3");
+  });
+
+  async function openHistory(user: ReturnType<typeof userEvent.setup>) {
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: "メンバー" }));
+    await user.click(memberRowButton(member.name));
+    await user.click(within(drawerDialog()).getByRole("button", { name: "アサインの履歴" }));
+    return drawerDialog();
+  }
+
+  const entry = (overrides: Partial<AssignmentHistoryEntry>): AssignmentHistoryEntry => ({
+    id: "h",
+    projectId: "atlas",
+    projectCode: "ATL",
+    projectName: "Atlas リニューアル",
+    projectArchived: false,
+    startDate: "2026-07-01",
+    endDate: "2026-07-31",
+    allocation: 50,
+    status: "confirmed",
+    label: null,
+    cancelledAt: null,
+    cancelledByName: null,
+    ...overrides,
+  });
+
+  it("lists what ended and what was cancelled, and says when a cancellation has no record", async () => {
+    const user = userEvent.setup();
+    const adapter = sharedAdapter();
+    const listAssignmentHistory = vi.fn().mockResolvedValue([
+      entry({ id: "h-now", projectName: "まだ続く案件", startDate: "2026-08-17", endDate: "2026-09-30" }),
+      entry({ id: "h-ended", projectName: "終わった案件", startDate: "2026-06-01", endDate: "2026-06-30", allocation: 30 }),
+      entry({ id: "h-cancelled", projectName: "取り消した案件", startDate: "2026-09-01", endDate: "2026-09-30", status: "cancelled", cancelledAt: "2026-08-18T01:30:00Z", cancelledByName: "佐藤 一郎" }),
+      entry({ id: "h-old", projectName: "古い案件", startDate: "2026-03-01", endDate: "2026-03-31", status: "cancelled", projectArchived: true }),
+    ]);
+    adapter.listAssignmentHistory = listAssignmentHistory;
+    render(<App mode="shared" organizationName="Example Inc." identity={owner} shared={adapter} />);
+
+    const panel = await openHistory(user);
+    expect(listAssignmentHistory).toHaveBeenCalledWith(member.id);
+    expect(within(panel).getByRole("heading", { name: `${member.name}さんのアサインの履歴` })).toBeInTheDocument();
+    await waitFor(() => expect(panel.querySelectorAll(".member-history-item")).toHaveLength(3));
+
+    const items = [...panel.querySelectorAll(".member-history-item")].map((item) => item.textContent ?? "");
+    expect(items[0]).toContain("取り消した案件");
+    expect(items[0]).toContain("佐藤 一郎さんが取消");
+    expect(items[1]).toContain("終わった案件");
+    expect(items[1]).toContain("稼働配分 30%");
+    expect(items[2]).toContain("古い案件");
+    expect(items[2]).toContain("アーカイブ済みの案件");
+    expect(items[2]).toContain("取消日時の記録なし");
+    expect(panel.textContent).not.toContain("まだ続く案件");
+
+    await user.click(within(panel).getByRole("button", { name: "メンバー詳細へ戻る" }));
+    expect(within(drawerDialog()).getByRole("button", { name: "アサインの履歴" })).toBeInTheDocument();
+  });
+
+  it("offers a retry when the history cannot be read", async () => {
+    const user = userEvent.setup();
+    const adapter = sharedAdapter();
+    adapter.listAssignmentHistory = vi.fn()
+      .mockRejectedValueOnce(new Error("network"))
+      .mockResolvedValueOnce([]);
+    render(<App mode="shared" organizationName="Example Inc." identity={owner} shared={adapter} />);
+
+    const panel = await openHistory(user);
+    expect(await within(panel).findByRole("alert")).toHaveTextContent("履歴を読み込めませんでした。");
+    await user.click(within(panel).getByRole("button", { name: "もう一度読み込む" }));
+    expect(await within(panel).findByText("終わったアサインと取り消したアサインは、まだありません。")).toBeInTheDocument();
+  });
+
+  const projectName = initialWorkspace.projects.find((project) => project.id === "atlas")!.name;
+
+  async function cancelAtlasInDemo(user: ReturnType<typeof userEvent.setup>) {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    render(<App />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: "メンバー" }));
+    await user.click(memberRowButton(member.name));
+    const opener = [...drawerDialog().querySelectorAll<HTMLButtonElement>(".member-load-sheet tbody th button, .member-load-names button")]
+      .find((button) => button.textContent?.includes(projectName));
+    expect(opener).toBeDefined();
+    await user.click(opener!);
+    await user.click(screen.getByRole("button", { name: "アサインを取消" }));
+  }
+
+  it("does not save the demo when its cancellation record cannot be written", async () => {
+    const user = userEvent.setup();
+    await cancelAtlasInDemo(user);
+    const setItem = Storage.prototype.setItem;
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(function (this: Storage, key: string, value: string) {
+      if (key === "mosaic-local-assignment-history-v1") throw new DOMException("quota", "QuotaExceededError");
+      setItem.call(this, key, value);
+    });
+    await user.click(screen.getByRole("button", { name: "デモへ保存" }));
+    expect(window.localStorage.getItem("mosaic-local-workspace-v3")).toBeNull();
+    expect(screen.getByRole("button", { name: "デモへ保存" })).toBeInTheDocument();
+  });
+
+  it("keeps no cancellation record when the demo save itself fails", async () => {
+    const user = userEvent.setup();
+    await cancelAtlasInDemo(user);
+    const setItem = Storage.prototype.setItem;
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(function (this: Storage, key: string, value: string) {
+      if (key === "mosaic-local-workspace-v3") throw new DOMException("quota", "QuotaExceededError");
+      setItem.call(this, key, value);
+    });
+    await user.click(screen.getByRole("button", { name: "デモへ保存" }));
+    expect(window.localStorage.getItem("mosaic-local-assignment-history-v1")).toBeNull();
+    expect(screen.getByRole("button", { name: "デモへ保存" })).toBeInTheDocument();
+  });
+
+  it("records a cancellation in the demo and shows it in the history", async () => {
+    const user = userEvent.setup();
+    await cancelAtlasInDemo(user);
+    await user.click(screen.getByRole("button", { name: "デモへ保存" }));
+
+    const panel = await openHistory(user);
+    const cancelled = [...panel.querySelectorAll(".member-history-item.cancelled")];
+    expect(cancelled).toHaveLength(1);
+    expect(cancelled[0].textContent).toContain(projectName);
+    expect(cancelled[0].textContent).toContain("デモユーザーさんが取消");
+    expect(cancelled[0].textContent).not.toContain("記録なし");
   });
 });

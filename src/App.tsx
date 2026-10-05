@@ -15,6 +15,7 @@ import {
   ChevronUp,
   Clock3,
   FolderKanban,
+  History,
   Inbox,
   Layers3,
   LayoutDashboard,
@@ -132,8 +133,15 @@ import {
   weekdaySupplyCapacity,
   weekEnd,
   assignmentPutsLoadOnDate,
+  cancelledAssignmentIds,
+  demoAssignmentHistory,
+  demoCancellations,
+  pastAssignmentHistory,
+  ASSIGNMENT_HISTORY_LIMIT,
   type Assignment,
+  type AssignmentHistoryEntry,
   type AvatarTone,
+  type DemoCancelledAssignment,
   type CustomFieldEntity,
   type CustomFieldType,
   type Member,
@@ -197,6 +205,7 @@ export type SharedWorkspaceAdapter = {
   reload: () => Promise<{ state: WorkspaceState; revision: number; permissions?: WorkspacePermissions }>;
   subscribe: (onRevision: (revision?: number) => void) => () => void;
   listFavorites?: () => Promise<Favorite[]>;
+  listAssignmentHistory?: (personId: string) => Promise<AssignmentHistoryEntry[]>;
   setFavorite?: (kind: FavoriteKind, targetId: string, favorite: boolean) => Promise<Favorite[]>;
   submitProfileRequest?: (
     requestId: string,
@@ -218,7 +227,7 @@ export type AppProps = {
   aiChatTransport?: ChatTransport;
 };
 
-type Drawer = "addChooser" | "add" | "assignment" | "overload" | "openRole" | "project" | "member" | "newProject" | "newMember" | "editProject" | "editMember" | "needForm" | "opportunity" | "newOpportunity" | "editOpportunity" | "opportunityNeedForm" | null;
+type Drawer = "addChooser" | "add" | "assignment" | "overload" | "openRole" | "project" | "member" | "memberHistory" | "newProject" | "newMember" | "editProject" | "editMember" | "needForm" | "opportunity" | "newOpportunity" | "editOpportunity" | "opportunityNeedForm" | null;
 
 /** #407 / #408: 詳細ドロワーの幅修飾。addChooser と add が sm（620）。他は lg（1000 / 62vw、height は 100% のまま）。
  *  要調整は `.attention-dialog.dialog-md`。設定パネルは対象外。 */
@@ -230,6 +239,7 @@ const DRAWER_DIALOG_SIZE = {
   openRole: "dialog-lg",
   project: "dialog-lg",
   member: "dialog-lg",
+  memberHistory: "dialog-lg",
   newProject: "dialog-lg",
   newMember: "dialog-lg",
   editProject: "dialog-lg",
@@ -249,6 +259,7 @@ const DRAWER_KICKER = {
   openRole: "RESOLUTION GUIDE",
   project: "PROJECT DETAIL",
   member: "MEMBER PROFILE",
+  memberHistory: "ASSIGNMENT HISTORY",
   newProject: "NEW PROJECT",
   newMember: "NEW MEMBER",
   editProject: "EDIT PROJECT",
@@ -435,6 +446,48 @@ const pageMeta = {
 } as const;
 
 const storageKey = "mosaic-local-workspace-v3";
+/** The demo keeps no cancelled rows in its workspace, so its cancellations are written here (#600). */
+const demoHistoryKey = "mosaic-local-assignment-history-v1";
+
+function readDemoCancellations(): DemoCancelledAssignment[] {
+  try {
+    const parsed: unknown = JSON.parse(window.localStorage.getItem(demoHistoryKey) ?? "[]");
+    return Array.isArray(parsed) ? parsed.filter((entry): entry is DemoCancelledAssignment => (
+      typeof entry === "object" && entry !== null
+      && typeof entry.id === "string" && typeof entry.personId === "string" && typeof entry.projectId === "string"
+      && typeof entry.startDate === "string" && typeof entry.endDate === "string" && entry.status === "cancelled"
+    )) : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Writes the demo workspace and its cancellations as one save: if either write
+ * throws, neither is kept, so a cancelled assignment cannot leave the workspace
+ * without leaving a record.
+ */
+function writeDemoSave(saved: WorkspaceState, cancellations: DemoCancelledAssignment[]) {
+  const previousHistory = window.localStorage.getItem(demoHistoryKey);
+  if (cancellations.length > 0) {
+    window.localStorage.setItem(demoHistoryKey, JSON.stringify([...readDemoCancellations(), ...cancellations]));
+  }
+  try {
+    window.localStorage.setItem(storageKey, JSON.stringify(saved));
+  } catch (error) {
+    if (cancellations.length > 0) {
+      if (previousHistory === null) window.localStorage.removeItem(demoHistoryKey);
+      else window.localStorage.setItem(demoHistoryKey, previousHistory);
+    }
+    throw error;
+  }
+}
+
+type MemberHistoryView = {
+  personId: string;
+  status: "loading" | "ready" | "error";
+  entries: AssignmentHistoryEntry[];
+};
 
 /**
  * The days an assignment bar covers, for the button's accessible name (#88).
@@ -711,6 +764,72 @@ export function monthColumnGuidesMisaligned(
   });
 }
 
+function formatHistoryDateTime(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.valueOf())) return value;
+  return new Intl.DateTimeFormat("ja-JP", { dateStyle: "medium", timeStyle: "short" }).format(date);
+}
+
+function historyStatusLabel(entry: AssignmentHistoryEntry) {
+  if (entry.status === "cancelled") return "取消";
+  return entry.status === "draft" ? "仮置きのまま終了" : "終了";
+}
+
+/** #600: what ended and what was cancelled, with when and by whom where it was recorded. */
+function MemberHistoryList({
+  view,
+  todayIso,
+  onRetry,
+}: {
+  view: MemberHistoryView | null;
+  todayIso: string;
+  onRetry: () => void;
+}) {
+  const entries = view?.status === "ready" ? pastAssignmentHistory(view.entries, todayIso) : [];
+  return (
+    <>
+      {(!view || view.status === "loading") && <p className="member-history-state" role="status">履歴を読み込み中…</p>}
+      {view?.status === "error" && (
+        <div className="member-history-state" role="alert">
+          <p>履歴を読み込めませんでした。</p>
+          <button className="drawer-secondary" type="button" onClick={onRetry}>もう一度読み込む</button>
+        </div>
+      )}
+      {view?.status === "ready" && entries.length === 0 && (
+        <p className="member-history-state" role="status">終わったアサインと取り消したアサインは、まだありません。</p>
+      )}
+      {entries.length > 0 && (
+        <ol className="member-history-list">
+          {entries.map((entry) => (
+            <li key={entry.id} className={"member-history-item " + (entry.status === "cancelled" ? "cancelled" : "ended")}>
+              <p className="member-history-head">
+                <span className="member-history-status">{historyStatusLabel(entry)}</span>
+                <strong>{entry.projectName || "案件名の記録なし"}</strong>
+                {entry.projectArchived && <span className="member-history-archived">アーカイブ済みの案件</span>}
+              </p>
+              <p className="member-history-period">
+                <span className="member-history-dates">{formatDate(entry.startDate)} 〜 {formatDate(entry.endDate)}</span>
+                <span className="member-history-allocation">稼働配分 {entry.allocation}%</span>
+                {entry.label && <span className="member-history-label">{entry.label}</span>}
+              </p>
+              {entry.status === "cancelled" && (
+                <p className="member-history-cancel">
+                  {entry.cancelledAt
+                    ? `${formatHistoryDateTime(entry.cancelledAt)}に${entry.cancelledByName ?? "MOSAICユーザー"}さんが取消`
+                    : "取消日時の記録なし（記録を始める前の取消）"}
+                </p>
+              )}
+            </li>
+          ))}
+        </ol>
+      )}
+      {view?.status === "ready" && view.entries.length >= ASSIGNMENT_HISTORY_LIMIT && (
+        <p className="member-history-state" role="note">開始日の新しい順に{ASSIGNMENT_HISTORY_LIMIT}件までを読み込んでいます。</p>
+      )}
+    </>
+  );
+}
+
 function MemberMonthHeaders({
   months,
   accessibleOnly = false,
@@ -962,6 +1081,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
   const [drawer, setDrawer] = useState<Drawer>(opening.drawer);
   const [selectedProjectId, setSelectedProjectId] = useState(opening.projectId ?? startingWorkspace.projects[0]?.id ?? "");
   const [selectedMemberId, setSelectedMemberId] = useState(opening.memberId ?? startingWorkspace.members[0]?.id ?? "");
+  const [memberHistory, setMemberHistory] = useState<MemberHistoryView | null>(null);
   const [selectedAssignmentId, setSelectedAssignmentId] = useState("");
   const [selectedNeedId, setSelectedNeedId] = useState(startingWorkspace.needs[0]?.id ?? "");
   const [toast, setToast] = useState(opening.toast ?? "");
@@ -2034,6 +2154,29 @@ export default function Home({ mode = "demo", organizationId, organizationName =
     setDrawer("member");
   };
 
+  /** Saved history only, in both modes: the shared read cannot see unsaved changes, so the demo does not show them either. */
+  const loadMemberHistory = (memberId: string) => {
+    if (mode !== "shared") {
+      setMemberHistory({ personId: memberId, status: "ready", entries: demoAssignmentHistory(committedWorkspace, readDemoCancellations(), memberId) });
+      return;
+    }
+    const listHistory = shared?.listAssignmentHistory;
+    if (!listHistory) {
+      setMemberHistory({ personId: memberId, status: "error", entries: [] });
+      return;
+    }
+    setMemberHistory({ personId: memberId, status: "loading", entries: [] });
+    listHistory(memberId)
+      .then((entries) => setMemberHistory((current) => current?.personId === memberId ? { personId: memberId, status: "ready", entries } : current))
+      .catch(() => setMemberHistory((current) => current?.personId === memberId ? { personId: memberId, status: "error", entries: [] } : current));
+  };
+
+  const openMemberHistory = (memberId: string) => {
+    setSelectedMemberId(memberId);
+    setDrawer("memberHistory");
+    loadMemberHistory(memberId);
+  };
+
   const currentShareHref = (link: Parameters<typeof buildShareHref>[1]) => buildShareHref(window.location, link);
 
   const copyShareLink = async (link: Parameters<typeof buildShareHref>[1], success = "リンクをコピーしました") => {
@@ -2542,7 +2685,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
         setLastSync({ at: Date.now(), kind: "saved" });
         setToast(count + "件の変更をチームへ保存しました");
       } else {
-        window.localStorage.setItem(storageKey, JSON.stringify(saved));
+        writeDemoSave(saved, demoCancellations(committedWorkspace, cancelledAssignmentIds(saved, committedWorkspace), new Date().toISOString(), displayName));
         setToast(count + "件の変更をデモ環境へ保存しました");
       }
       setWorkspace(saved);
@@ -4333,8 +4476,29 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                       {canManageMembers && <button className="drawer-danger" type="button" onClick={archiveMember}><Trash2 size={15} />メンバーをアーカイブ</button>}
                     </div>
                   </details>
+                  <button className="drawer-secondary" type="button" onClick={() => openMemberHistory(selectedMember.id)}><History size={15} />アサインの履歴</button>
                   <button className="drawer-secondary" type="button" onClick={() => addMemberToProposal(selectedMember.id)}>提案ビューに追加</button>
                   {canEdit && <button className="drawer-primary" type="button" onClick={() => openAssignmentFor(selectedMember.id)}><Plus size={16} />この人へアサインを追加</button>}
+                </div>
+              </div>
+            )}
+
+            {drawer === "memberHistory" && selectedMember && (
+              <div className="member-history">
+                <div className="drawer-heading">
+                  <span className="drawer-icon mint"><History size={19} /></span>
+                  <div>
+                    <h2 id={DRAWER_TITLE_ID}>{memberLabel(workspace, selectedMember)}さんのアサインの履歴</h2>
+                    <p>終わったアサインと、取り消したアサインです。これからの予定は「月の稼働」にあります。保存済みの記録だけを表示します。</p>
+                  </div>
+                </div>
+                <MemberHistoryList
+                  view={memberHistory?.personId === selectedMember.id ? memberHistory : null}
+                  todayIso={todayIso}
+                  onRetry={() => loadMemberHistory(selectedMember.id)}
+                />
+                <div className="member-detail-actions">
+                  <button className="drawer-secondary" type="button" onClick={() => openMember(selectedMember.id)}>メンバー詳細へ戻る</button>
                 </div>
               </div>
             )}
