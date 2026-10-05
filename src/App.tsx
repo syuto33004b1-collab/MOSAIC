@@ -143,6 +143,13 @@ import {
   evaluationDraftProblem,
   EVALUATION_TEXT_MAX,
   EVALUATION_WITHDRAW_REASON_MAX,
+  aspirationDraftProblem,
+  ASPIRATION_CONTEXT_MAX,
+  ASPIRATION_TEXT_MAX,
+  ASPIRATION_WITHDRAW_REASON_MAX,
+  demoAspirationsFor,
+  demoSaveAspiration,
+  demoWithdrawAspiration,
   demoCancellations,
   pastAssignmentHistory,
   ASSIGNMENT_HISTORY_LIMIT,
@@ -151,8 +158,11 @@ import {
   type AvatarTone,
   type CancelReasons,
   type DemoCancelledAssignment,
+  type DemoAspiration,
   type DemoEvaluation,
   type EvaluationVisibility,
+  type PersonAspiration,
+  type PersonAspirationDraft,
   type PersonEvaluation,
   type PersonEvaluationDraft,
   type CustomFieldEntity,
@@ -222,6 +232,9 @@ export type SharedWorkspaceAdapter = {
   listPersonEvaluations?: (personId: string) => Promise<{ items: PersonEvaluation[]; canWrite: boolean }>;
   savePersonEvaluation?: (requestId: string, draft: PersonEvaluationDraft) => Promise<{ id: string; version: number }>;
   withdrawPersonEvaluation?: (id: string, expectedVersion: number, reason: string, requestId: string) => Promise<void>;
+  listPersonAspirations?: (personId: string) => Promise<{ items: PersonAspiration[]; canWrite: boolean }>;
+  savePersonAspiration?: (requestId: string, draft: PersonAspirationDraft) => Promise<{ id: string; version: number }>;
+  withdrawPersonAspiration?: (id: string, expectedVersion: number, reason: string, requestId: string) => Promise<void>;
   setFavorite?: (kind: FavoriteKind, targetId: string, favorite: boolean) => Promise<Favorite[]>;
   submitProfileRequest?: (
     requestId: string,
@@ -521,6 +534,29 @@ type EvaluationsView = {
   personId: string;
   status: "loading" | "ready" | "error";
   items: PersonEvaluation[];
+  canWrite: boolean;
+};
+
+/** The demo keeps what it heard apart from the workspace too (#610). */
+const demoAspirationsKey = "mosaic-local-aspirations-v1";
+
+function readDemoAspirations(): DemoAspiration[] {
+  try {
+    const parsed: unknown = JSON.parse(window.localStorage.getItem(demoAspirationsKey) ?? "[]");
+    return Array.isArray(parsed) ? parsed.filter((entry): entry is DemoAspiration => (
+      typeof entry === "object" && entry !== null
+      && typeof entry.id === "string" && typeof entry.personId === "string" && typeof entry.heardOn === "string"
+      && typeof entry.version === "number"
+    )) : [];
+  } catch {
+    return [];
+  }
+}
+
+type AspirationsView = {
+  personId: string;
+  status: "loading" | "ready" | "error";
+  items: PersonAspiration[];
   canWrite: boolean;
 };
 
@@ -1034,8 +1070,8 @@ function EvaluationForm({
         onSubmit();
       }}
     >
-      <h3>{draft.id ? "評価を直す" : "評価を書く"}</h3>
-      <p className="evaluation-guidance" role="note">場面と行動で書いてください（いつ、何をして、どうなったか）。人柄の決めつけや、健康・私生活には触れないでください。評価された本人には表示されません。</p>
+      <h4>{draft.id ? "評価を直す" : "評価を書く"}</h4>
+      <p className="evaluation-guidance" role="note">人柄や仕事の進め方に触れるときも、決めつけずに、場面と行動で書いてください（いつ、何をして、どうなったか）。健康・私生活には触れないでください。評価された本人には表示されません。</p>
       <fieldset className="evaluation-form-fields" disabled={busy}>
       <div className="evaluation-form-row">
         <label>
@@ -1167,6 +1203,157 @@ function EvaluationList({
               <div className="evaluation-item-actions">
                 {evaluation.canEdit && <button className="drawer-secondary" type="button" onClick={() => onEdit(evaluation)} disabled={busy}>直す</button>}
                 {evaluation.canWithdraw && <button className="drawer-secondary" type="button" onClick={() => onWithdrawStart(evaluation)} disabled={busy}>取り下げる</button>}
+              </div>
+            )}
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
+/** #610: what the person said, written down by whoever heard it, apart from any judgement of theirs. */
+function AspirationForm({
+  draft,
+  problem,
+  busy,
+  onChange,
+  onDirty,
+  onSubmit,
+  onCancel,
+}: {
+  draft: PersonAspirationDraft;
+  problem: string;
+  busy: boolean;
+  onChange: (draft: PersonAspirationDraft) => void;
+  onDirty: () => void;
+  onSubmit: () => void;
+  onCancel: () => void;
+}) {
+  const firstFieldRef = useRef<HTMLInputElement | null>(null);
+  useEffect(() => {
+    firstFieldRef.current?.focus();
+  }, []);
+  return (
+    <form
+      className="evaluation-form"
+      onChange={onDirty}
+      onSubmit={(event) => {
+        event.preventDefault();
+        onSubmit();
+      }}
+    >
+      <h4>{draft.id ? "聞いた志向を直す" : "聞いた志向を書く"}</h4>
+      <p className="evaluation-guidance" role="note">本人が話したことを、なるべく本人の言葉のまま書いてください。記録に残すと本人に伝えたことだけを書きます。あなたの見立てや評価は、下の「評価」に書いてください。健康・家庭など私生活の事情や、退職・転職の意向は書かないでください。</p>
+      <fieldset className="evaluation-form-fields" disabled={busy}>
+      <div className="evaluation-form-row">
+        <label>
+          聞いた日
+          <input ref={firstFieldRef} type="date" required value={draft.heardOn} onChange={(event) => onChange({ ...draft, heardOn: event.target.value })} />
+        </label>
+        <label>
+          聞いた場面（任意）
+          <input type="text" maxLength={ASPIRATION_CONTEXT_MAX} placeholder="例: 期初の1on1" value={draft.context} onChange={(event) => onChange({ ...draft, context: event.target.value })} />
+        </label>
+      </div>
+      <label>
+        やりたいこと・大事にしていること
+        <textarea rows={3} maxLength={ASPIRATION_TEXT_MAX} value={draft.wishes} onChange={(event) => onChange({ ...draft, wishes: event.target.value })} />
+      </label>
+      <label>
+        避けたい仕事・関わり方
+        <textarea rows={3} maxLength={ASPIRATION_TEXT_MAX} value={draft.avoids} onChange={(event) => onChange({ ...draft, avoids: event.target.value })} />
+      </label>
+      </fieldset>
+      {problem && <p className="evaluation-problem" role="alert">{problem}</p>}
+      <div className="evaluation-form-actions">
+        <button className="drawer-secondary" type="button" onClick={onCancel} disabled={busy}>やめる</button>
+        <button className="drawer-primary" type="submit" disabled={busy}>{busy ? "保存中…" : draft.id ? "直した内容を保存" : "聞いた志向を保存"}</button>
+      </div>
+    </form>
+  );
+}
+
+function AspirationList({
+  view,
+  withdrawing,
+  busy,
+  onRetry,
+  onDirty,
+  onEdit,
+  onWithdrawStart,
+  onWithdrawChange,
+  onWithdrawConfirm,
+  onWithdrawCancel,
+}: {
+  view: AspirationsView | null;
+  withdrawing: WithdrawingEvaluation | null;
+  busy: boolean;
+  onRetry: () => void;
+  onDirty: () => void;
+  onEdit: (aspiration: PersonAspiration) => void;
+  onWithdrawStart: (aspiration: PersonAspiration) => void;
+  onWithdrawChange: (reason: string) => void;
+  onWithdrawConfirm: () => void;
+  onWithdrawCancel: () => void;
+}) {
+  if (!view || view.status === "loading") return <p className="member-history-state" role="status">聞いた志向を読み込み中…</p>;
+  if (view.status === "error") {
+    return (
+      <div className="member-history-state" role="alert">
+        <p>聞いた志向を読み込めませんでした。</p>
+        <button className="drawer-secondary" type="button" onClick={onRetry}>もう一度読み込む</button>
+      </div>
+    );
+  }
+  if (view.items.length === 0) return <p className="member-history-state" role="status">聞いた志向の記録は、まだありません。</p>;
+  return (
+    <ol className="evaluation-list aspiration-list">
+      {view.items.map((aspiration) => {
+        const textGiven = "wishes" in aspiration || "avoids" in aspiration || "context" in aspiration;
+        return (
+          <li key={aspiration.id} className={"evaluation-item" + (aspiration.withdrawn ? " withdrawn" : "")}>
+            <p className="evaluation-head">
+              <span className="evaluation-date">{formatDate(aspiration.heardOn)}に聞いた</span>
+              {aspiration.context && <strong>{aspiration.context}</strong>}
+            </p>
+            <p className="evaluation-author">
+              {aspiration.authorName}さんが聞き取り{aspiration.mine ? "（あなた）" : ""}
+              {aspiration.updatedAt && aspiration.updatedAt !== aspiration.createdAt ? ` · ${formatHistoryDateTime(aspiration.updatedAt)}に更新` : aspiration.createdAt ? ` · ${formatHistoryDateTime(aspiration.createdAt)}` : ""}
+            </p>
+            {aspiration.withdrawn && (
+              <p className="evaluation-withdrawn"><span>取り下げ</span>{aspiration.withdrawn.reason}（{aspiration.withdrawn.byName}さん、{formatHistoryDateTime(aspiration.withdrawn.at)}）</p>
+            )}
+            {textGiven ? (
+              <dl className="evaluation-text">
+                {aspiration.wishes && <><dt>やりたいこと・大事にしていること</dt><dd>{aspiration.wishes}</dd></>}
+                {aspiration.avoids && <><dt>避けたい仕事・関わり方</dt><dd>{aspiration.avoids}</dd></>}
+              </dl>
+            ) : (
+              <p className="evaluation-withheld">取り下げた記録の本文は、オーナーと書いた本人だけが読めます。</p>
+            )}
+            {withdrawing?.id === aspiration.id ? (
+              <form
+                className="evaluation-withdraw-form"
+                onChange={onDirty}
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  onWithdrawConfirm();
+                }}
+              >
+                <label>
+                  取り下げる理由
+                  <textarea rows={2} required maxLength={ASPIRATION_WITHDRAW_REASON_MAX} value={withdrawing.reason} onChange={(event) => onWithdrawChange(event.target.value)} />
+                </label>
+                <div className="evaluation-form-actions">
+                  <button className="drawer-secondary" type="button" onClick={onWithdrawCancel} disabled={busy}>やめる</button>
+                  <button className="drawer-danger" type="submit" disabled={busy || !withdrawing.reason.trim()}>取り下げる</button>
+                </div>
+              </form>
+            ) : (aspiration.canEdit || aspiration.canWithdraw) && (
+              <div className="evaluation-item-actions">
+                {aspiration.canEdit && <button className="drawer-secondary" type="button" onClick={() => onEdit(aspiration)} disabled={busy}>直す</button>}
+                {aspiration.canWithdraw && <button className="drawer-secondary" type="button" onClick={() => onWithdrawStart(aspiration)} disabled={busy}>取り下げる</button>}
               </div>
             )}
           </li>
@@ -1434,14 +1621,28 @@ export default function Home({ mode = "demo", organizationId, organizationName =
   const [evaluationDraft, setEvaluationDraft] = useState<PersonEvaluationDraft | null>(null);
   const [evaluationRequestId, setEvaluationRequestId] = useState("");
   const [evaluationProblem, setEvaluationProblem] = useState("");
-  const [evaluationBusy, setEvaluationBusy] = useState(false);
+  /** Whose aspiration or evaluation is being saved. Any save stops the forms; only that person's drawer also stops its write buttons. */
+  const [savingRecordsOf, setSavingRecordsOf] = useState<string | null>(null);
+  const recordBusy = savingRecordsOf !== null;
   const [withdrawingEvaluation, setWithdrawingEvaluation] = useState<WithdrawingEvaluation | null>(null);
-  /** Whose evaluations are on screen, and which draft: a save that ends after the user moved on must not tidy up their new one. */
-  const evaluationsPersonRef = useRef("");
+  const [aspirations, setAspirations] = useState<AspirationsView | null>(null);
+  const [aspirationDraft, setAspirationDraft] = useState<PersonAspirationDraft | null>(null);
+  const [aspirationRequestId, setAspirationRequestId] = useState("");
+  const [aspirationProblem, setAspirationProblem] = useState("");
+  const [withdrawingAspiration, setWithdrawingAspiration] = useState<WithdrawingEvaluation | null>(null);
+  /**
+   * Whose records are on screen, and which draft: a save that ends after the user moved on must not tidy up their new one.
+   * The aspirations and the evaluations share the drawer, one busy flag, and one open input at a time.
+   */
+  const recordsPersonRef = useRef("");
   const evaluationDraftRef = useRef<PersonEvaluationDraft | null>(null);
+  const aspirationDraftRef = useRef<PersonAspirationDraft | null>(null);
   useEffect(() => {
     evaluationDraftRef.current = evaluationDraft;
   }, [evaluationDraft]);
+  useEffect(() => {
+    aspirationDraftRef.current = aspirationDraft;
+  }, [aspirationDraft]);
   const [selectedAssignmentId, setSelectedAssignmentId] = useState("");
   const [selectedNeedId, setSelectedNeedId] = useState(startingWorkspace.needs[0]?.id ?? "");
   const [toast, setToast] = useState(opening.toast ?? "");
@@ -2567,14 +2768,102 @@ export default function Home({ mode = "demo", organizationId, organizationName =
       .catch(() => setEvaluations((current) => current?.personId === personId ? { personId, status: "error", items: [], canWrite: false } : current));
   };
 
+  const loadAspirations = (personId: string) => {
+    if (mode !== "shared") {
+      setAspirations({ personId, status: "ready", items: demoAspirationsFor(readDemoAspirations(), personId), canWrite: true });
+      return;
+    }
+    const listAspirations = shared?.listPersonAspirations;
+    if (!listAspirations) {
+      setAspirations({ personId, status: "error", items: [], canWrite: false });
+      return;
+    }
+    setAspirations({ personId, status: "loading", items: [], canWrite: false });
+    listAspirations(personId)
+      .then(({ items, canWrite }) => setAspirations((current) => current?.personId === personId ? { personId, status: "ready", items, canWrite } : current))
+      .catch(() => setAspirations((current) => current?.personId === personId ? { personId, status: "error", items: [], canWrite: false } : current));
+  };
+
   const openMemberEvaluations = (memberId: string) => {
-    evaluationsPersonRef.current = memberId;
+    recordsPersonRef.current = memberId;
     setSelectedMemberId(memberId);
     setDrawer("memberEvaluations");
     setEvaluationDraft(null);
     setWithdrawingEvaluation(null);
     setEvaluationProblem("");
+    setAspirationDraft(null);
+    setWithdrawingAspiration(null);
+    setAspirationProblem("");
+    loadAspirations(memberId);
     loadEvaluations(memberId);
+  };
+
+  const startAspiration = (draft: PersonAspirationDraft) => {
+    setAspirationDraft(draft);
+    setAspirationRequestId(newId());
+    setAspirationProblem("");
+  };
+
+  const leaveAspirationForm = () => {
+    setAspirationDraft(null);
+    setAspirationProblem("");
+    clearFormDraft();
+  };
+
+  const submitAspiration = async () => {
+    const draft = aspirationDraft;
+    if (!draft || recordBusy) return;
+    const problem = aspirationDraftProblem(draft);
+    if (problem) {
+      setAspirationProblem(problem);
+      return;
+    }
+    setSavingRecordsOf(draft.personId);
+    setAspirationProblem("");
+    try {
+      if (mode === "shared") {
+        if (!shared?.savePersonAspiration) throw new Error("聞いた志向を保存できませんでした。");
+        // Reused across retries, so a save whose answer was lost does not write the record twice.
+        await shared.savePersonAspiration(aspirationRequestId, draft);
+      } else {
+        window.localStorage.setItem(demoAspirationsKey, JSON.stringify(demoSaveAspiration(readDemoAspirations(), draft, new Date().toISOString(), displayName, newId())));
+      }
+      setToast(draft.id ? "聞いた志向を直しました" : "聞いた志向を保存しました");
+      if (aspirationDraftRef.current === draft) leaveAspirationForm();
+      if (recordsPersonRef.current === draft.personId) loadAspirations(draft.personId);
+    } catch (error) {
+      if (aspirationDraftRef.current === draft) setAspirationProblem(error instanceof Error ? error.message : "聞いた志向を保存できませんでした。");
+    } finally {
+      setSavingRecordsOf(null);
+    }
+  };
+
+  const confirmWithdrawAspiration = async () => {
+    const target = withdrawingAspiration;
+    const personId = recordsPersonRef.current;
+    if (!target || recordBusy) return;
+    const reason = target.reason.trim();
+    if (!reason) return;
+    setSavingRecordsOf(personId);
+    setAspirationProblem("");
+    try {
+      if (mode === "shared") {
+        if (!shared?.withdrawPersonAspiration) throw new Error("聞いた志向を取り下げられませんでした。");
+        await shared.withdrawPersonAspiration(target.id, target.version, reason, newId());
+      } else {
+        window.localStorage.setItem(demoAspirationsKey, JSON.stringify(demoWithdrawAspiration(readDemoAspirations(), target.id, reason, new Date().toISOString(), displayName)));
+      }
+      setToast("聞いた志向を取り下げました");
+      if (recordsPersonRef.current === personId) {
+        setWithdrawingAspiration((current) => (current?.id === target.id ? null : current));
+        clearFormDraft();
+        loadAspirations(personId);
+      }
+    } catch (error) {
+      if (recordsPersonRef.current === personId) setAspirationProblem(error instanceof Error ? error.message : "聞いた志向を取り下げられませんでした。");
+    } finally {
+      setSavingRecordsOf(null);
+    }
   };
 
   const startEvaluation = (draft: PersonEvaluationDraft) => {
@@ -2592,13 +2881,13 @@ export default function Home({ mode = "demo", organizationId, organizationName =
 
   const submitEvaluation = async () => {
     const draft = evaluationDraft;
-    if (!draft || evaluationBusy) return;
+    if (!draft || recordBusy) return;
     const problem = evaluationDraftProblem(draft);
     if (problem) {
       setEvaluationProblem(problem);
       return;
     }
-    setEvaluationBusy(true);
+    setSavingRecordsOf(draft.personId);
     setEvaluationProblem("");
     try {
       if (mode === "shared") {
@@ -2610,21 +2899,21 @@ export default function Home({ mode = "demo", organizationId, organizationName =
       }
       setToast(draft.id ? "評価を直しました" : "評価を保存しました");
       if (evaluationDraftRef.current === draft) leaveEvaluationForm();
-      if (evaluationsPersonRef.current === draft.personId) loadEvaluations(draft.personId);
+      if (recordsPersonRef.current === draft.personId) loadEvaluations(draft.personId);
     } catch (error) {
       if (evaluationDraftRef.current === draft) setEvaluationProblem(error instanceof Error ? error.message : "評価を保存できませんでした。");
     } finally {
-      setEvaluationBusy(false);
+      setSavingRecordsOf(null);
     }
   };
 
   const confirmWithdrawEvaluation = async () => {
     const target = withdrawingEvaluation;
-    const personId = evaluationsPersonRef.current;
-    if (!target || evaluationBusy) return;
+    const personId = recordsPersonRef.current;
+    if (!target || recordBusy) return;
     const reason = target.reason.trim();
     if (!reason) return;
-    setEvaluationBusy(true);
+    setSavingRecordsOf(personId);
     setEvaluationProblem("");
     try {
       if (mode === "shared") {
@@ -2634,28 +2923,30 @@ export default function Home({ mode = "demo", organizationId, organizationName =
         window.localStorage.setItem(demoEvaluationsKey, JSON.stringify(demoWithdrawEvaluation(readDemoEvaluations(), target.id, reason, new Date().toISOString(), displayName)));
       }
       setToast("評価を取り下げました");
-      if (evaluationsPersonRef.current === personId) {
+      if (recordsPersonRef.current === personId) {
         setWithdrawingEvaluation((current) => (current?.id === target.id ? null : current));
         clearFormDraft();
         loadEvaluations(personId);
       }
     } catch (error) {
-      if (evaluationsPersonRef.current === personId) setEvaluationProblem(error instanceof Error ? error.message : "評価を取り下げられませんでした。");
+      if (recordsPersonRef.current === personId) setEvaluationProblem(error instanceof Error ? error.message : "評価を取り下げられませんでした。");
     } finally {
-      setEvaluationBusy(false);
+      setSavingRecordsOf(null);
     }
   };
 
-  /** Leaves the open form or withdrawal, asking first when something was typed. */
-  const discardEvaluationInput = () => {
+  /** Leaves whichever form or withdrawal is open, in either section, asking first when something was typed. */
+  const discardRecordInput = () => {
     if (formDirtyRef.current && !window.confirm("この入力はまだ反映されていません。閉じると破棄される場合があります。閉じますか？")) return false;
     leaveEvaluationForm();
+    leaveAspirationForm();
     setWithdrawingEvaluation(null);
+    setWithdrawingAspiration(null);
     return true;
   };
 
   const backToMemberFromEvaluations = (memberId: string) => {
-    if (!discardEvaluationInput()) return;
+    if (!discardRecordInput()) return;
     openMember(memberId);
   };
 
@@ -5003,7 +5294,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                     </div>
                   </details>
                   <button className="drawer-secondary member-detail-record" type="button" onClick={() => openMemberHistory(selectedMember.id)}><History size={15} />アサインの履歴</button>
-                  {mayEvaluate(selectedMember) && <button className="drawer-secondary member-detail-record" type="button" onClick={() => openMemberEvaluations(selectedMember.id)}><NotebookPen size={15} />評価</button>}
+                  {mayEvaluate(selectedMember) && <button className="drawer-secondary member-detail-record" type="button" onClick={() => openMemberEvaluations(selectedMember.id)}><NotebookPen size={15} />志向と評価</button>}
                   <button className="drawer-secondary" type="button" onClick={() => addMemberToProposal(selectedMember.id)}>提案ビューに追加</button>
                   {canEdit && <button className="drawer-primary" type="button" onClick={() => openAssignmentFor(selectedMember.id)}><Plus size={16} />この人へアサインを追加</button>}
                 </div>
@@ -5035,64 +5326,120 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                 <div className="drawer-heading">
                   <span className="drawer-icon mint"><NotebookPen size={19} /></span>
                   <div>
-                    <h2 id={DRAWER_TITLE_ID}>{memberLabel(workspace, selectedMember)}さんの評価</h2>
-                    <p>案件や成果について、良かった点と課題を、そう評価した理由と一緒に残します。最終的な判断は人がします。</p>
+                    <h2 id={DRAWER_TITLE_ID}>{memberLabel(workspace, selectedMember)}さんの志向と評価</h2>
+                    <p>本人から聞いた志向と、アサインや評価を担う人からの評価を、分けて残します。最終的な判断は人がします。</p>
                   </div>
                 </div>
-                {evaluationDraft ? (
-                  <EvaluationForm
-                    draft={evaluationDraft}
-                    projects={[
-                      ...workspace.projects.map((project) => ({ id: project.id, name: project.name })),
-                      ...(evaluationDraft.projectId && !workspace.projects.some((project) => project.id === evaluationDraft.projectId)
-                        ? [{ id: evaluationDraft.projectId, name: evaluations?.items.find((item) => item.projectId === evaluationDraft.projectId)?.projectName ?? "アーカイブした案件" }]
-                        : []),
-                    ]}
-                    problem={evaluationProblem}
-                    busy={evaluationBusy}
-                    onChange={setEvaluationDraft}
+                <section className="person-record-section" aria-labelledby="person-aspirations-heading">
+                  <h3 id="person-aspirations-heading">面談で聞いた本人の志向</h3>
+                  <p className="person-record-lead">面談や1on1で本人が話した、やりたいこと・大事にしていること・避けたいことです。この人を参照できるオーナー・管理者・プランナーが読めます。本人には表示されません。</p>
+                  {aspirationDraft ? (
+                    <AspirationForm
+                      draft={aspirationDraft}
+                      problem={aspirationProblem}
+                      busy={recordBusy}
+                      onChange={setAspirationDraft}
+                      onDirty={markFormDraftDirty}
+                      onSubmit={() => void submitAspiration()}
+                      onCancel={leaveAspirationForm}
+                    />
+                  ) : aspirations?.personId === selectedMember.id && aspirations.status === "ready" && aspirations.canWrite && (
+                    <button
+                      className="drawer-primary evaluation-new"
+                      type="button"
+                      disabled={savingRecordsOf === selectedMember.id}
+                      onClick={() => discardRecordInput() && startAspiration({ personId: selectedMember.id, heardOn: todayIso, context: "", wishes: "", avoids: "" })}
+                    >
+                      <Plus size={16} />聞いた志向を書く
+                    </button>
+                  )}
+                  {aspirationProblem && !aspirationDraft && <p className="evaluation-problem" role="alert">{aspirationProblem}</p>}
+                  <AspirationList
+                    view={aspirations?.personId === selectedMember.id ? aspirations : null}
+                    withdrawing={withdrawingAspiration}
+                    busy={recordBusy}
+                    onRetry={() => loadAspirations(selectedMember.id)}
                     onDirty={markFormDraftDirty}
-                    onSubmit={() => void submitEvaluation()}
-                    onCancel={leaveEvaluationForm}
+                    onEdit={(aspiration) => discardRecordInput() && startAspiration({
+                      id: aspiration.id,
+                      expectedVersion: aspiration.version,
+                      personId: aspiration.personId,
+                      heardOn: aspiration.heardOn,
+                      context: aspiration.context ?? "",
+                      wishes: aspiration.wishes ?? "",
+                      avoids: aspiration.avoids ?? "",
+                    })}
+                    onWithdrawStart={(aspiration) => {
+                      if (!discardRecordInput()) return;
+                      setWithdrawingAspiration({ id: aspiration.id, version: aspiration.version, reason: "" });
+                    }}
+                    onWithdrawChange={(reason) => setWithdrawingAspiration((current) => current ? { ...current, reason } : current)}
+                    onWithdrawConfirm={() => void confirmWithdrawAspiration()}
+                    onWithdrawCancel={() => {
+                      setWithdrawingAspiration(null);
+                      clearFormDraft();
+                    }}
                   />
-                ) : evaluations?.personId === selectedMember.id && evaluations.status === "ready" && evaluations.canWrite && (
-                  <button
-                    className="drawer-primary evaluation-new"
-                    type="button"
-                    onClick={() => startEvaluation({ personId: selectedMember.id, projectId: null, observedOn: todayIso, strengths: "", concerns: "", basis: "", visibility: "assigners" })}
-                  >
-                    <Plus size={16} />評価を書く
-                  </button>
-                )}
-                {evaluationProblem && !evaluationDraft && <p className="evaluation-problem" role="alert">{evaluationProblem}</p>}
-                <EvaluationList
-                  view={evaluations?.personId === selectedMember.id ? evaluations : null}
-                  withdrawing={withdrawingEvaluation}
-                  busy={evaluationBusy}
-                  onRetry={() => loadEvaluations(selectedMember.id)}
-                  onDirty={markFormDraftDirty}
-                  onEdit={(evaluation) => discardEvaluationInput() && startEvaluation({
-                    id: evaluation.id,
-                    expectedVersion: evaluation.version,
-                    personId: evaluation.personId,
-                    projectId: evaluation.projectId,
-                    observedOn: evaluation.observedOn,
-                    strengths: evaluation.strengths ?? "",
-                    concerns: evaluation.concerns ?? "",
-                    basis: evaluation.basis ?? "",
-                    visibility: evaluation.visibility,
-                  })}
-                  onWithdrawStart={(evaluation) => {
-                    if (!discardEvaluationInput()) return;
-                    setWithdrawingEvaluation({ id: evaluation.id, version: evaluation.version, reason: "" });
-                  }}
-                  onWithdrawChange={(reason) => setWithdrawingEvaluation((current) => current ? { ...current, reason } : current)}
-                  onWithdrawConfirm={() => void confirmWithdrawEvaluation()}
-                  onWithdrawCancel={() => {
-                    setWithdrawingEvaluation(null);
-                    clearFormDraft();
-                  }}
-                />
+                </section>
+                <section className="person-record-section" aria-labelledby="person-evaluations-heading">
+                  <h3 id="person-evaluations-heading">評価</h3>
+                  <p className="person-record-lead">案件や成果について、良かった点と課題を、そう評価した理由と一緒に残します。</p>
+                  {evaluationDraft ? (
+                    <EvaluationForm
+                      draft={evaluationDraft}
+                      projects={[
+                        ...workspace.projects.map((project) => ({ id: project.id, name: project.name })),
+                        ...(evaluationDraft.projectId && !workspace.projects.some((project) => project.id === evaluationDraft.projectId)
+                          ? [{ id: evaluationDraft.projectId, name: evaluations?.items.find((item) => item.projectId === evaluationDraft.projectId)?.projectName ?? "アーカイブした案件" }]
+                          : []),
+                      ]}
+                      problem={evaluationProblem}
+                      busy={recordBusy}
+                      onChange={setEvaluationDraft}
+                      onDirty={markFormDraftDirty}
+                      onSubmit={() => void submitEvaluation()}
+                      onCancel={leaveEvaluationForm}
+                    />
+                  ) : evaluations?.personId === selectedMember.id && evaluations.status === "ready" && evaluations.canWrite && (
+                    <button
+                      className="drawer-primary evaluation-new"
+                      type="button"
+                      disabled={savingRecordsOf === selectedMember.id}
+                      onClick={() => discardRecordInput() && startEvaluation({ personId: selectedMember.id, projectId: null, observedOn: todayIso, strengths: "", concerns: "", basis: "", visibility: "assigners" })}
+                    >
+                      <Plus size={16} />評価を書く
+                    </button>
+                  )}
+                  {evaluationProblem && !evaluationDraft && <p className="evaluation-problem" role="alert">{evaluationProblem}</p>}
+                  <EvaluationList
+                    view={evaluations?.personId === selectedMember.id ? evaluations : null}
+                    withdrawing={withdrawingEvaluation}
+                    busy={recordBusy}
+                    onRetry={() => loadEvaluations(selectedMember.id)}
+                    onDirty={markFormDraftDirty}
+                    onEdit={(evaluation) => discardRecordInput() && startEvaluation({
+                      id: evaluation.id,
+                      expectedVersion: evaluation.version,
+                      personId: evaluation.personId,
+                      projectId: evaluation.projectId,
+                      observedOn: evaluation.observedOn,
+                      strengths: evaluation.strengths ?? "",
+                      concerns: evaluation.concerns ?? "",
+                      basis: evaluation.basis ?? "",
+                      visibility: evaluation.visibility,
+                    })}
+                    onWithdrawStart={(evaluation) => {
+                      if (!discardRecordInput()) return;
+                      setWithdrawingEvaluation({ id: evaluation.id, version: evaluation.version, reason: "" });
+                    }}
+                    onWithdrawChange={(reason) => setWithdrawingEvaluation((current) => current ? { ...current, reason } : current)}
+                    onWithdrawConfirm={() => void confirmWithdrawEvaluation()}
+                    onWithdrawCancel={() => {
+                      setWithdrawingEvaluation(null);
+                      clearFormDraft();
+                    }}
+                  />
+                </section>
                 <div className="member-detail-actions">
                   <button className="drawer-secondary" type="button" onClick={() => backToMemberFromEvaluations(selectedMember.id)}>メンバー詳細へ戻る</button>
                 </div>

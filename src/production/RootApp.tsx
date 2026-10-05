@@ -21,7 +21,7 @@ import { OrganizationSetup } from "./OrganizationSetup";
 import { ProductionFrame, ProductionState } from "./ProductionFrame";
 import { ProductionRepository } from "./repository";
 import type { FavoriteKind } from "../collaboration";
-import type { CancelReasons, PersonEvaluationDraft } from "../domain";
+import type { CancelReasons, PersonAspirationDraft, PersonEvaluationDraft } from "../domain";
 import type {
   MyContext,
   OrganizationSummary,
@@ -181,6 +181,9 @@ function SharedWorkspaceRoute({
     listPersonEvaluations: (personId: string) => repository.listPersonEvaluations(currentOrganization.id, personId),
     savePersonEvaluation: (requestId: string, draft: PersonEvaluationDraft) => repository.savePersonEvaluation(currentOrganization.id, requestId, draft),
     withdrawPersonEvaluation: (id: string, expectedVersion: number, reason: string, requestId: string) => repository.withdrawPersonEvaluation(currentOrganization.id, id, expectedVersion, reason, requestId),
+    listPersonAspirations: (personId: string) => repository.listPersonAspirations(currentOrganization.id, personId),
+    savePersonAspiration: (requestId: string, draft: PersonAspirationDraft) => repository.savePersonAspiration(currentOrganization.id, requestId, draft),
+    withdrawPersonAspiration: (id: string, expectedVersion: number, reason: string, requestId: string) => repository.withdrawPersonAspiration(currentOrganization.id, id, expectedVersion, reason, requestId),
     listFavorites: () => repository.listFavorites(currentOrganization.id),
     reload: sharedController.reload,
     save: sharedController.save,

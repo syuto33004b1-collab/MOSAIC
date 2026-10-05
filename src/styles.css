@@ -3019,13 +3019,18 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .cancel-reason-actions .drawer-primary,
 .cancel-reason-actions .drawer-secondary { width: auto; margin-top: 0; flex: 1 1 12rem; }
 .member-evaluations .evaluation-new { align-self: flex-start; width: auto; margin-top: 0; padding: 0 18px; }
+.person-record-section { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.person-record-section + .person-record-section { padding-top: 14px; border-top: 1px solid var(--line); }
+.person-record-section h3 { margin: 0; color: var(--ink); font-size: var(--text-lg); }
+.person-record-lead { margin: 0; color: var(--muted-readable); font-size: var(--text-sm); line-height: var(--leading); }
 .evaluation-form { display: flex; flex-direction: column; gap: 10px; padding: 14px; border: 1px solid var(--line-strong); border-radius: 12px; background: var(--paper); min-width: 0; }
-.evaluation-form h3 { margin: 0; color: var(--ink); font-size: var(--text-lg); }
+.evaluation-form h4 { margin: 0; color: var(--ink); font-size: var(--text-lg); }
 .evaluation-form-fields { margin: 0; padding: 0; border: 0; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
 .evaluation-form label { display: flex; flex-direction: column; gap: 6px; min-width: 0; color: var(--ink); font-size: var(--text-sm); font-weight: 700; }
 .evaluation-form textarea,
 .evaluation-form select,
 .evaluation-form input[type="date"],
+.evaluation-form input[type="text"],
 .evaluation-withdraw-form textarea {
   width: 100%;
   min-height: 40px;

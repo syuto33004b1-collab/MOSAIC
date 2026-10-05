@@ -120,6 +120,10 @@ import {
   demoSaveEvaluation,
   demoWithdrawEvaluation,
   evaluationDraftProblem,
+  aspirationDraftProblem,
+  demoAspirationsFor,
+  demoSaveAspiration,
+  demoWithdrawAspiration,
   pastAssignmentHistory,
   type AssignmentHistoryEntry,
 } from "./domain";
@@ -195,6 +199,38 @@ describe("person evaluations (#601)", () => {
     const listed = demoEvaluationsFor(stored, initialWorkspace.projects, "saeki");
     expect(listed[0]).toMatchObject({ projectName: "Atlas リニューアル", mine: true, canEdit: false, canWithdraw: false });
     expect(demoEvaluationsFor(stored, initialWorkspace.projects, "nakamura")).toEqual([]);
+  });
+});
+
+describe("heard aspirations (#610)", () => {
+  const draft = { heardOn: "2026-08-19", context: "", wishes: "", avoids: "" };
+
+  it("asks for something the person said, on a real date, within the limits", () => {
+    expect(aspirationDraftProblem({ ...draft })).toBe("やりたいこと・大事にしていることか、避けたい仕事・関わり方のどちらかを書いてください");
+    expect(aspirationDraftProblem({ ...draft, context: "期初の1on1", wishes: "  " })).toBe("やりたいこと・大事にしていることか、避けたい仕事・関わり方のどちらかを書いてください");
+    expect(aspirationDraftProblem({ ...draft, wishes: "設計から関わりたい" })).toBeNull();
+    expect(aspirationDraftProblem({ ...draft, avoids: "夜間の障害対応" })).toBeNull();
+    expect(aspirationDraftProblem({ ...draft, heardOn: "2026-02-31", wishes: "設計" })).toBe("聞いた日を日付で入れてください");
+    expect(aspirationDraftProblem({ ...draft, avoids: "長".repeat(1001) })).toBe("それぞれ1000字までです");
+    expect(aspirationDraftProblem({ ...draft, wishes: "設計", context: "場".repeat(201) })).toBe("聞いた場面は200字までです");
+  });
+
+  it("keeps the demo's records newest first, edits only open ones, and withdraws with a reason", () => {
+    const base = { personId: "saeki", heardOn: "2026-08-10", context: " 期初の1on1 ", wishes: " 設計から関わりたい ", avoids: "" };
+    let stored = demoSaveAspiration([], base, "2026-08-19T00:00:00.000Z", "デモユーザー", "a1");
+    expect(stored).toEqual([expect.objectContaining({ id: "a1", version: 1, context: "期初の1on1", wishes: "設計から関わりたい", avoids: null, withdrawn: null })]);
+    stored = demoSaveAspiration(stored, { ...base, heardOn: "2026-09-01", context: "", wishes: "", avoids: "夜間対応" }, "2026-09-01T00:00:00.000Z", "デモユーザー", "a2");
+    expect(demoAspirationsFor(stored, "saeki").map((item) => item.id)).toEqual(["a2", "a1"]);
+
+    stored = demoSaveAspiration(stored, { ...base, id: "a1", wishes: "設計から関わりたい。提案から入りたい" }, "2026-09-02T00:00:00.000Z", "デモユーザー", "unused");
+    expect(stored.find((item) => item.id === "a1")).toMatchObject({ version: 2, wishes: "設計から関わりたい。提案から入りたい", createdAt: "2026-08-19T00:00:00.000Z" });
+    stored = demoWithdrawAspiration(stored, "a1", " 聞き違い ", "2026-09-03T00:00:00.000Z", "デモユーザー");
+    expect(stored.find((item) => item.id === "a1")?.withdrawn).toEqual({ at: "2026-09-03T00:00:00.000Z", byName: "デモユーザー", reason: "聞き違い" });
+    expect(demoSaveAspiration(stored, { ...base, id: "a1", wishes: "書き換え" }, "2026-09-04T00:00:00.000Z", "デモユーザー", "unused").find((item) => item.id === "a1")?.wishes)
+      .toBe("設計から関わりたい。提案から入りたい");
+
+    expect(demoAspirationsFor(stored, "saeki").find((item) => item.id === "a1")).toMatchObject({ mine: true, canEdit: false, canWithdraw: false });
+    expect(demoAspirationsFor(stored, "nakamura")).toEqual([]);
   });
 });
 
