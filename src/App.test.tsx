@@ -9638,6 +9638,29 @@ describe("heard aspirations (#610)", () => {
     await waitFor(() => expect(adapter.listPersonAspirations).toHaveBeenCalledTimes(2));
   });
 
+  it("keeps the request id when a save of what was heard is retried, and shows why it failed", async () => {
+    const user = userEvent.setup();
+    const adapter = sharedAdapter();
+    adapter.listPersonEvaluations = vi.fn().mockResolvedValue({ canWrite: true, items: [] });
+    adapter.listPersonAspirations = vi.fn().mockResolvedValue({ canWrite: true, items: [] });
+    adapter.savePersonAspiration = vi.fn()
+      .mockRejectedValueOnce(new Error("共有データに接続できません"))
+      .mockResolvedValueOnce({ id: "a-new", version: 1 });
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
+
+    await openRecords(user);
+    await user.click(await heard().findByRole("button", { name: "聞いた志向を書く" }));
+    await pasteInto(user, heard().getByLabelText("やりたいこと・大事にしていること"), "設計から関わりたい");
+    await user.click(heard().getByRole("button", { name: "聞いた志向を保存" }));
+    expect(await heard().findByRole("alert")).toHaveTextContent("共有データに接続できません");
+    expect(heard().getByLabelText("やりたいこと・大事にしていること")).toHaveValue("設計から関わりたい");
+    await user.click(heard().getByRole("button", { name: "聞いた志向を保存" }));
+    await waitFor(() => expect(adapter.savePersonAspiration).toHaveBeenCalledTimes(2));
+    const calls = (adapter.savePersonAspiration as ReturnType<typeof vi.fn>).mock.calls;
+    expect(calls[1][0]).toBe(calls[0][0]);
+    expect(await screen.findByText("聞いた志向を保存しました")).toBeInTheDocument();
+  });
+
   it("keeps one input open at a time, and asks before leaving typed text for the other section", async () => {
     const user = userEvent.setup();
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
