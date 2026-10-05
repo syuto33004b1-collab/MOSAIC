@@ -9350,6 +9350,12 @@ describe("person evaluations (#601)", () => {
     return drawerDialog();
   }
 
+  /** One input event instead of one per character: every keystroke re-renders the whole app, which runs past the timeout on CI. */
+  async function pasteInto(user: ReturnType<typeof userEvent.setup>, field: HTMLElement, text: string) {
+    await user.click(field);
+    await user.paste(text);
+  }
+
   const evaluation = (overrides: Partial<PersonEvaluation>): PersonEvaluation => ({
     id: "e", version: 1, personId: member.id, projectId: null, projectName: null, observedOn: "2026-08-10",
     visibility: "assigners", authorName: "佐藤 一郎", createdAt: "2026-08-10T01:00:00Z", updatedAt: "2026-08-10T01:00:00Z",
@@ -9366,13 +9372,13 @@ describe("person evaluations (#601)", () => {
 
     await user.click(panel.getByRole("button", { name: "評価を書く" }));
     await user.selectOptions(panel.getByLabelText("案件（任意）"), "atlas");
-    await user.type(panel.getByLabelText("課題・伸ばしてほしい点"), "見積もりが楽観的");
+    await pasteInto(user, panel.getByLabelText("課題・伸ばしてほしい点"), "見積もりが楽観的");
     await user.click(panel.getByRole("button", { name: "評価を保存" }));
     expect(panel.getByRole("alert")).toHaveTextContent("課題を書いたときは、そう評価した理由と場面も書いてください");
     expect(window.localStorage.getItem("mosaic-local-evaluations-v1")).toBeNull();
 
-    await user.type(panel.getByLabelText(/^そう評価した理由と場面/u), "8月の見積もりで検証工数を入れていなかった");
-    await user.type(panel.getByLabelText("良かった点"), "顧客との調整を先回りした");
+    await pasteInto(user, panel.getByLabelText(/^そう評価した理由と場面/u), "8月の見積もりで検証工数を入れていなかった");
+    await pasteInto(user, panel.getByLabelText("良かった点"), "顧客との調整を先回りした");
     await user.click(panel.getByLabelText(/管理者と上長だけ/u));
     await user.click(panel.getByRole("button", { name: "評価を保存" }));
 
@@ -9386,13 +9392,13 @@ describe("person evaluations (#601)", () => {
     await user.click(within(item() as HTMLElement).getByRole("button", { name: "直す" }));
     const strengths = panel.getByLabelText("良かった点");
     await user.clear(strengths);
-    await user.type(strengths, "顧客との調整を先回りし、遅延を防いだ");
+    await pasteInto(user, strengths, "顧客との調整を先回りし、遅延を防いだ");
     await user.click(panel.getByRole("button", { name: "直した内容を保存" }));
     expect(item().textContent).toContain("顧客との調整を先回りし、遅延を防いだ");
 
     await user.click(within(item() as HTMLElement).getByRole("button", { name: "取り下げる" }));
     expect(within(item() as HTMLElement).getByRole("button", { name: "取り下げる" })).toBeDisabled();
-    await user.type(within(item() as HTMLElement).getByLabelText("取り下げる理由"), "事実関係を確認し直すため");
+    await pasteInto(user, within(item() as HTMLElement).getByLabelText("取り下げる理由"), "事実関係を確認し直すため");
     await user.click(within(item() as HTMLElement).getByRole("button", { name: "取り下げる" }));
     expect(item()).toHaveClass("withdrawn");
     expect(item().textContent).toContain("事実関係を確認し直すため");
