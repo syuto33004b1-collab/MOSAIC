@@ -51,7 +51,7 @@ describe("shared workspace controller", () => {
     controller.setBaseline(initialWorkspace);
 
     controller.setRole("admin");
-    await controller.save(changed, 7, "00000000-0000-4000-8000-000000000003");
+    await controller.save(changed, 7, "00000000-0000-4000-8000-000000000003", { a1: "顧客都合" });
 
     expect(saveWorkspace).toHaveBeenCalledWith(
       "00000000-0000-4000-8000-000000000002",
@@ -60,6 +60,7 @@ describe("shared workspace controller", () => {
       "00000000-0000-4000-8000-000000000003",
       initialWorkspace,
       "admin",
+      { a1: "顧客都合" },
     );
   });
 });

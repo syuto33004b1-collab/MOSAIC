@@ -1,6 +1,6 @@
 import type { AuthError, PostgrestError, SupabaseClient, User } from "@supabase/supabase-js";
-import type { Assignment, AssignmentHistoryEntry, CustomFieldDefinition, CustomFieldEntity, CustomFieldType, Member, MemberUnavailability, Opportunity, OpportunityNeed, OpportunityStage, OrgMembership, OrgUnit, PersonScope, ProfileRequest, ProfileRequestScope, ProfileRequestStatus, Project, ReportGroupBy, ReportMetric, ReportSource, RestrictableFeature, RestrictableRole, RolePermission, SavedReport, SearchScene, SearchSkillFilter, SkillDefinition, SkillImportance, SkillKind, StaffingNeed, WorkHistoryEntry, WorkspaceState } from "../domain";
-import { cancelledAssignmentIds, hydrateWorkspaceSkills, MONTHLY_COST_YEN_MAX, OPPORTUNITY_STAGES, normalizeMemberUnavailability, normalizeSkillProficiency, normalizeWorkHistory, parseSkillInput, PERSON_SCOPES, PROFILE_REQUEST_SCOPES, PROFILE_REQUEST_STATUSES, RESTRICTABLE_FEATURES, RESTRICTABLE_ROLES } from "../domain";
+import type { Assignment, AssignmentHistoryEntry, CancelReasons, CustomFieldDefinition, CustomFieldEntity, CustomFieldType, Member, MemberUnavailability, Opportunity, OpportunityNeed, OpportunityStage, OrgMembership, OrgUnit, PersonScope, ProfileRequest, ProfileRequestScope, ProfileRequestStatus, Project, ReportGroupBy, ReportMetric, ReportSource, RestrictableFeature, RestrictableRole, RolePermission, SavedReport, SearchScene, SearchSkillFilter, SkillDefinition, SkillImportance, SkillKind, StaffingNeed, WorkHistoryEntry, WorkspaceState } from "../domain";
+import { cancelledAssignmentIds, changeReasonsFor, hydrateWorkspaceSkills, MONTHLY_COST_YEN_MAX, OPPORTUNITY_STAGES, normalizeMemberUnavailability, normalizeSkillProficiency, normalizeWorkHistory, parseSkillInput, PERSON_SCOPES, PROFILE_REQUEST_SCOPES, PROFILE_REQUEST_STATUSES, RESTRICTABLE_FEATURES, RESTRICTABLE_ROLES } from "../domain";
 import { normalizeFavorites, type Favorite, type FavoriteKind } from "../collaboration";
 import { appAuthRedirectUrl } from "./authRecovery";
 import { consumeOAuthPending, markOAuthPending } from "./oauthPending";
@@ -1147,6 +1147,11 @@ function normalizeAssignmentHistoryEntry(value: unknown): AssignmentHistoryEntry
     label: readString(record, "label") ?? null,
     cancelledAt: readString(record, "cancelledAt") ?? null,
     cancelledByName: readString(record, "cancelledByName") ?? null,
+    ...("cancelReason" in record ? {
+      cancelReason: readString(record, "cancelReason") ?? null,
+      cancelReasonAt: readString(record, "cancelReasonAt") ?? null,
+      cancelReasonByName: readString(record, "cancelReasonByName") ?? null,
+    } : {}),
   };
 }
 
@@ -1418,8 +1423,11 @@ export class ProductionRepository {
     requestId: string,
     previousState: WorkspaceState = { assignments: [], members: [], needs: [], projects: [], opportunities: [], opportunityNeeds: [] },
     role: OrganizationRole = "planner",
+    cancelReasons: CancelReasons = {},
   ): Promise<SaveWorkspaceResult> {
     const payload = workspaceChangesPayload(state, previousState, role);
+    const changeReasons = changeReasonsFor(payload.assignments?.cancelIds ?? [], cancelReasons);
+    if (changeReasons.length) payload.changeReasons = changeReasons;
     const payloadHash = await sha256Hex(payload);
     const { data, error } = await this.client.rpc("save_workspace", {
       p_expected_revision: expectedRevision,

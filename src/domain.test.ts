@@ -113,6 +113,7 @@ import {
   ownerLabel,
   ownerMember,
   cancelledAssignmentIds,
+  changeReasonsFor,
   demoAssignmentHistory,
   demoCancellations,
   pastAssignmentHistory,
@@ -161,6 +162,21 @@ describe("assignment history (#600)", () => {
     expect(history.find((item) => item.id === "a1")).toMatchObject({ status: "cancelled", projectArchived: true });
     expect(history.find((item) => item.id === "a2")).toMatchObject({ status: "confirmed", projectArchived: false, cancelledAt: null });
     expect(demoAssignmentHistory(afterArchive, cancelled, "nakamura").some((item) => item.id === "a1")).toBe(false);
+  });
+});
+
+describe("cancellation reasons (#603)", () => {
+  it("sends one trimmed reason per cancelled assignment and drops blank ones", () => {
+    expect(changeReasonsFor(["a1", "a2", "a3"], { a1: "  顧客都合  ", a2: " ", a4: "取消していない" })).toEqual([
+      { entityType: "assignment", entityId: "a1", action: "cancel", reason: "顧客都合" },
+    ]);
+    expect(changeReasonsFor([], { a1: "理由" })).toEqual([]);
+  });
+
+  it("keeps the demo's reason with its cancellation, and says when there was none", () => {
+    const [withReason, without] = demoCancellations(initialWorkspace, ["a1", "a2"], "2026-08-19T00:00:00.000Z", "デモユーザー", { a1: " 体制変更 " });
+    expect(withReason).toMatchObject({ id: "a1", cancelReason: "体制変更", cancelReasonAt: "2026-08-19T00:00:00.000Z", cancelReasonByName: "デモユーザー" });
+    expect(without).toMatchObject({ id: "a2", cancelReason: null, cancelReasonAt: null, cancelReasonByName: null });
   });
 });
 

@@ -1,4 +1,4 @@
-import type { PersonScope, RestrictableFeature, WorkspaceState } from "../domain";
+import type { ChangeReason, PersonScope, RestrictableFeature, WorkspaceState } from "../domain";
 import type { ChatTransport } from "../lib/ai/chatClient";
 import type { Favorite, FavoriteKind } from "../collaboration";
 
@@ -183,6 +183,7 @@ export type SaveWorkspacePayload = {
   savedReports?: { upsert: NonNullable<WorkspaceState["savedReports"]>; archiveIds: string[] };
   profileRequests?: { upsert: NonNullable<WorkspaceState["profileRequests"]>; archiveIds: string[] };
   rolePermissions?: { upsert: NonNullable<WorkspaceState["rolePermissions"]> };
+  changeReasons?: ChangeReason[];
 };
 
 export type InvitationResult = {

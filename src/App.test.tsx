@@ -45,6 +45,18 @@ function memberRowButton(label: string) {
   return heading!.closest("button")!;
 }
 
+/**
+ * #603: a save that cancels a saved assignment asks why first. Answers the dialog
+ * when it is there and reports whether it was.
+ */
+async function answerCancelReasons(user: ReturnType<typeof userEvent.setup>, reason = "テストのための取消") {
+  const dialog = screen.queryByRole("dialog", { name: "取り消す理由" });
+  if (!dialog) return false;
+  for (const box of within(dialog).getAllByRole("textbox", { name: /を取り消す理由$/u })) await user.type(box, reason);
+  await user.click(within(dialog).getByRole("button", { name: "理由を残して保存" }));
+  return true;
+}
+
 function linkedStaffingWorkspace(): WorkspaceState {
   const member = initialWorkspace.members[0];
   const project = initialWorkspace.projects[0];
@@ -651,6 +663,7 @@ describe("role-aware workspace", () => {
     await user.click(overloadButton!);
     await user.click(screen.getByRole("button", { name: "推奨配分へ調整" }));
     await user.click(screen.getByRole("button", { name: "チームへ保存" }));
+    await answerCancelReasons(user);
     await waitFor(() => expect(save).toHaveBeenCalledOnce());
 
     const savedState = save.mock.calls[0][0];
@@ -922,11 +935,14 @@ describe("role-aware workspace", () => {
     await user.click(screen.getByRole("button", { name: "アサインを取消" }));
     expect(confirm).toHaveBeenCalledWith(expect.stringContaining("取消予定"));
     await user.click(screen.getByRole("button", { name: "チームへ保存" }));
+    expect(save).not.toHaveBeenCalled();
+    expect(await answerCancelReasons(user, "顧客都合で開始が延期")).toBe(true);
     await waitFor(() => expect(save).toHaveBeenCalledOnce());
 
     expect(save.mock.calls[0][0].assignments).toEqual([]);
     expect(save.mock.calls[0][0].needs[0]).toMatchObject({ id: "linked-need", status: "open" });
     expect(save.mock.calls[0][0].needs[0].draftPersonId).toBeNull();
+    expect(save.mock.calls[0][3]).toEqual({ "linked-assignment": "顧客都合で開始が延期" });
   });
 
   it("reopens and detaches a staffing need when an edit no longer fulfills it", async () => {
@@ -1116,6 +1132,7 @@ describe("role-aware workspace", () => {
     await user.type(dialog.getByLabelText("稼働上限（%）"), "80");
     await user.click(dialog.getByRole("button", { name: "変更を仮置き" }));
     await user.click(screen.getByRole("button", { name: "チームへ保存" }));
+    await answerCancelReasons(user);
     await waitFor(() => expect(save).toHaveBeenCalledOnce());
 
     const saved = save.mock.calls[0][0] as WorkspaceState;
@@ -1139,6 +1156,7 @@ describe("role-aware workspace", () => {
     await user.click(screen.getByText("その他", { selector: "summary" }));
     await user.click(screen.getByRole("button", { name: "メンバーをアーカイブ" }));
     await user.click(screen.getByRole("button", { name: "チームへ保存" }));
+    await answerCancelReasons(user);
     await waitFor(() => expect(save).toHaveBeenCalledOnce());
     const saved = save.mock.calls[0][0] as WorkspaceState;
     expect(saved.members.some((member) => member.id === initialWorkspace.members[0].id)).toBe(false);
@@ -1185,6 +1203,7 @@ describe("role-aware workspace", () => {
     await user.type(dialog.getByLabelText("開始日"), addDays(getWeekStart(0), 1));
     await user.click(dialog.getByRole("button", { name: "変更を仮置き" }));
     await user.click(screen.getByRole("button", { name: "チームへ保存" }));
+    await answerCancelReasons(user);
     await waitFor(() => expect(save).toHaveBeenCalledOnce());
     expect(save.mock.calls[0][0].assignments).toEqual([]);
     expect(save.mock.calls[0][0].needs).toEqual([]);
@@ -1207,6 +1226,7 @@ describe("role-aware workspace", () => {
     expect(archiveProject.closest(".project-detail-more")).not.toBeNull();
     await user.click(archiveProject);
     await user.click(screen.getByRole("button", { name: "チームへ保存" }));
+    await answerCancelReasons(user);
     await waitFor(() => expect(archiveSave).toHaveBeenCalledOnce());
     expect(archiveSave.mock.calls[0][0]).toMatchObject({ projects: [], assignments: [], needs: [] });
     expect(confirm).toHaveBeenCalledWith(expect.stringContaining("関連するアサインと要員要件"));
@@ -1230,6 +1250,7 @@ describe("role-aware workspace", () => {
     await user.type(dialog.getByLabelText("必要配分（%）"), "80");
     await user.click(dialog.getByRole("button", { name: "変更を仮置き" }));
     await user.click(screen.getByRole("button", { name: "チームへ保存" }));
+    await answerCancelReasons(user);
     await waitFor(() => expect(save).toHaveBeenCalledOnce());
     expect(save.mock.calls[0][0].assignments).toEqual([]);
     expect(save.mock.calls[0][0].needs[0]).toMatchObject({ allocation: 80, status: "open", draftPersonId: null });
@@ -1254,6 +1275,7 @@ describe("role-aware workspace", () => {
     await user.type(dialog.getByLabelText("必要スキル（カンマ区切り）"), "Figma, UX, figma");
     await user.click(dialog.getByRole("button", { name: "要員要件を追加" }));
     await user.click(screen.getByRole("button", { name: "チームへ保存" }));
+    await answerCancelReasons(user);
     await waitFor(() => expect(createSave).toHaveBeenCalledOnce());
     expect(createSave.mock.calls[0][0].needs[0]).toMatchObject({ role: "Product Designer", skills: ["Figma", "UX"], status: "open" });
 
@@ -1271,6 +1293,7 @@ describe("role-aware workspace", () => {
     await user.click(dialog.getByText("充足済み").closest("button")!);
     await user.click(screen.getByRole("button", { name: "要員要件を取消" }));
     await user.click(screen.getByRole("button", { name: "チームへ保存" }));
+    await answerCancelReasons(user);
     await waitFor(() => expect(cancelSave).toHaveBeenCalledOnce());
     expect(cancelSave.mock.calls[0][0]).toMatchObject({ assignments: [], needs: [] });
   });
@@ -9145,12 +9168,110 @@ describe("assignment history (#600)", () => {
     const user = userEvent.setup();
     await cancelAtlasInDemo(user);
     await user.click(screen.getByRole("button", { name: "デモへ保存" }));
+    expect(await answerCancelReasons(user, "体制変更のため")).toBe(true);
 
     const panel = await openHistory(user);
     const cancelled = [...panel.querySelectorAll(".member-history-item.cancelled")];
     expect(cancelled).toHaveLength(1);
     expect(cancelled[0].textContent).toContain(projectName);
     expect(cancelled[0].textContent).toContain("デモユーザーさんが取消");
+    expect(cancelled[0].textContent).toContain("体制変更のため");
     expect(cancelled[0].textContent).not.toContain("記録なし");
+  });
+});
+
+/**
+ * #603: every save that cancels a saved assignment asks why, wherever the
+ * cancellation came from, and does not go out until each one has a reason.
+ */
+describe("cancellation reasons (#603)", () => {
+  const owner = { name: "管理 花子", email: "owner@example.com", role: "owner" as const };
+  const atlasIds = initialWorkspace.assignments.filter((assignment) => assignment.projectId === "atlas").map((assignment) => assignment.id);
+
+  async function archiveAtlas(user: ReturnType<typeof userEvent.setup>) {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^プロジェクト 登録 \d+件$/u }));
+    await user.click(screen.getByText("Atlas リニューアル").closest("button")!);
+    await user.click(screen.getByText("その他", { selector: "summary" }));
+    await user.click(screen.getByRole("button", { name: "案件をアーカイブ" }));
+    await user.click(screen.getByRole("button", { name: "チームへ保存" }));
+    return screen.getByRole("dialog", { name: "取り消す理由" });
+  }
+
+  it("asks for one reason per cancelled assignment and fills the empty ones from a shared reason", async () => {
+    const user = userEvent.setup();
+    const adapter = sharedAdapter();
+    const save = vi.fn().mockResolvedValue({ revision: 8, savedAt: "2026-08-17T10:00:00Z" });
+    adapter.save = save;
+    render(<App mode="shared" organizationName="Example Inc." identity={owner} shared={adapter} />);
+
+    const dialog = within(await archiveAtlas(user));
+    const boxes = dialog.getAllByRole("textbox", { name: /を取り消す理由$/u });
+    expect(boxes).toHaveLength(atlasIds.length);
+    expect(dialog.getByText(`保存すると、次の${atlasIds.length}件のアサインを取り消します。それぞれ、取り消す理由を残してください。`)).toBeInTheDocument();
+    expect(dialog.getByRole("button", { name: "理由を残して保存" })).toBeDisabled();
+
+    await user.type(boxes[0], "この人だけ別の理由");
+    await user.type(dialog.getByRole("textbox", { name: "まとめて入れる理由" }), "案件の中止");
+    await user.click(dialog.getByRole("button", { name: "空いている欄に入れる" }));
+    expect(boxes[0]).toHaveValue("この人だけ別の理由");
+    expect(boxes.slice(1).every((box) => (box as HTMLTextAreaElement).value === "案件の中止")).toBe(true);
+    expect(save).not.toHaveBeenCalled();
+
+    await user.click(dialog.getByRole("button", { name: "理由を残して保存" }));
+    await waitFor(() => expect(save).toHaveBeenCalledOnce());
+    const sent = save.mock.calls[0][3] as Record<string, string>;
+    expect(Object.keys(sent).sort()).toEqual([...atlasIds].sort());
+    expect(Object.values(sent).filter((reason) => reason === "案件の中止")).toHaveLength(atlasIds.length - 1);
+    expect(Object.values(sent)).toContain("この人だけ別の理由");
+    expect(screen.queryByRole("dialog", { name: "取り消す理由" })).not.toBeInTheDocument();
+  });
+
+  it("keeps what was typed when the dialog is closed, and drops it with 元に戻す", async () => {
+    const user = userEvent.setup();
+    const adapter = sharedAdapter();
+    adapter.save = vi.fn().mockResolvedValue({ revision: 8, savedAt: "2026-08-17T10:00:00Z" });
+    render(<App mode="shared" organizationName="Example Inc." identity={owner} shared={adapter} />);
+
+    let dialog = within(await archiveAtlas(user));
+    await user.type(dialog.getAllByRole("textbox", { name: /を取り消す理由$/u })[0], "途中まで");
+    await user.click(dialog.getByRole("button", { name: "保存せずに戻る" }));
+    expect(screen.queryByRole("dialog", { name: "取り消す理由" })).not.toBeInTheDocument();
+    expect(adapter.save).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "チームへ保存" }));
+    dialog = within(screen.getByRole("dialog", { name: "取り消す理由" }));
+    expect(dialog.getAllByRole("textbox", { name: /を取り消す理由$/u })[0]).toHaveValue("途中まで");
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog", { name: "取り消す理由" })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "元に戻す" }));
+    expect(screen.queryByRole("button", { name: "チームへ保存" })).not.toBeInTheDocument();
+  });
+
+  it("shows the reason in the history, and nothing about reasons when none is given to the role", async () => {
+    const user = userEvent.setup();
+    const adapter = sharedAdapter();
+    const member = initialWorkspace.members[0];
+    const base = {
+      id: "r", projectId: "atlas", projectCode: "ATL", projectName: "Atlas リニューアル", projectArchived: false,
+      startDate: "2026-07-01", endDate: "2026-07-31", allocation: 50, status: "cancelled" as const, label: null,
+      cancelledAt: "2026-08-18T01:30:00Z", cancelledByName: "佐藤 一郎",
+    };
+    adapter.listAssignmentHistory = vi.fn().mockResolvedValue([
+      { ...base, id: "r-with", projectName: "理由のある案件", cancelReason: "顧客の予算が凍結された", cancelReasonAt: "2026-08-18T01:30:00Z", cancelReasonByName: "佐藤 一郎" },
+      { ...base, id: "r-without", projectName: "理由の無い案件", startDate: "2026-06-01", cancelReason: null, cancelReasonAt: null, cancelReasonByName: null },
+      { ...base, id: "r-hidden", projectName: "閲覧者向けの案件", startDate: "2026-05-01" },
+    ]);
+    render(<App mode="shared" organizationName="Example Inc." identity={owner} shared={adapter} />);
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: "メンバー" }));
+    await user.click(memberRowButton(member.name));
+    await user.click(within(drawerDialog()).getByRole("button", { name: "アサインの履歴" }));
+    const panel = drawerDialog();
+    await waitFor(() => expect(panel.querySelectorAll(".member-history-item")).toHaveLength(3));
+    const items = [...panel.querySelectorAll(".member-history-item")];
+    expect(items[0].querySelector(".member-history-reason")?.textContent).toBe("理由顧客の予算が凍結された");
+    expect(items[1].querySelector(".member-history-reason")?.textContent).toBe("理由の記録なし");
+    expect(items[2].querySelector(".member-history-reason")).toBeNull();
   });
 });
