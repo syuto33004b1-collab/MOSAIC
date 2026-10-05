@@ -796,7 +796,9 @@ function MemberHistoryList({
                 {entry.projectArchived && <span className="member-history-archived">アーカイブ済みの案件</span>}
               </p>
               <p className="member-history-period">
-                {formatDate(entry.startDate)} 〜 {formatDate(entry.endDate)}<span>稼働配分 {entry.allocation}%</span>{entry.label && <span>{entry.label}</span>}
+                <span className="member-history-dates">{formatDate(entry.startDate)} 〜 {formatDate(entry.endDate)}</span>
+                <span className="member-history-allocation">稼働配分 {entry.allocation}%</span>
+                {entry.label && <span className="member-history-label">{entry.label}</span>}
               </p>
               {entry.status === "cancelled" && (
                 <p className="member-history-cancel">
