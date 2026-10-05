@@ -314,18 +314,8 @@ begin
   perform set_config('app.request_id', p_request_id::text, true);
 
   if nullif(p_evaluation ->> 'id', '') is null then
-    select evaluation.*
-    into v_existing
-    from app.person_evaluations as evaluation
-    where evaluation.organization_id = p_organization_id
-      and evaluation.request_id = p_request_id;
-    if found then
-      if v_existing.created_by is distinct from v_user_id then
-        raise exception using errcode = '42501', message = 'not authorized';
-      end if;
-      return jsonb_build_object('id', v_existing.id, 'version', v_existing.version, 'replayed', true);
-    end if;
-
+    -- The unique request id is the reservation: a concurrent retry loses the
+    -- insert here and reads the row the other one wrote.
     insert into app.person_evaluations (
       organization_id, request_id, person_id, project_id, observed_on,
       strengths, concerns, basis, visibility, created_by, updated_by
@@ -333,8 +323,24 @@ begin
       p_organization_id, p_request_id, v_person_id, v_project_id, v_observed_on,
       v_strengths, v_concerns, v_basis, v_visibility, v_user_id, v_user_id
     )
+    on conflict (organization_id, request_id) do nothing
     returning * into v_saved;
-    return jsonb_build_object('id', v_saved.id, 'version', v_saved.version, 'replayed', false);
+    if found then
+      return jsonb_build_object('id', v_saved.id, 'version', v_saved.version, 'replayed', false);
+    end if;
+
+    select evaluation.*
+    into v_existing
+    from app.person_evaluations as evaluation
+    where evaluation.organization_id = p_organization_id
+      and evaluation.request_id = p_request_id;
+    if not found or v_existing.created_by is distinct from v_user_id then
+      raise exception using errcode = '42501', message = 'not authorized';
+    end if;
+    if v_existing.person_id <> v_person_id then
+      raise exception using errcode = '22023', message = 'p_request_id was already used for another evaluation';
+    end if;
+    return jsonb_build_object('id', v_existing.id, 'version', v_existing.version, 'replayed', true);
   end if;
 
   if not (p_evaluation ->> 'id') ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' then

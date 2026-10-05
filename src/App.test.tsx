@@ -9452,6 +9452,49 @@ describe("person evaluations (#601)", () => {
     expect(calls[1][0]).toBe(calls[0][0]);
   });
 
+  it("asks before a typed withdrawal reason is thrown away", async () => {
+    const user = userEvent.setup();
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    const adapter = sharedAdapter();
+    adapter.listPersonEvaluations = vi.fn().mockResolvedValue({ canWrite: true, items: [evaluation({ id: "e-mine", mine: true, canEdit: true, canWithdraw: true })] });
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
+
+    const panel = within(await openEvaluations(user));
+    await user.click(await panel.findByRole("button", { name: "取り下げる" }));
+    await user.type(panel.getByLabelText("取り下げる理由"), "書きかけの理由");
+    await user.click(screen.getByRole("button", { name: "詳細パネルを閉じる" }));
+    expect(confirm).toHaveBeenCalledWith(expect.stringContaining("この入力はまだ反映されていません"));
+    expect(panel.getByLabelText("取り下げる理由")).toHaveValue("書きかけの理由");
+  });
+
+  it("does not let a save that ends late clear a draft started for someone else", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    let finishSave: (value: { id: string; version: number }) => void = () => undefined;
+    const adapter = sharedAdapter();
+    adapter.listPersonEvaluations = vi.fn().mockResolvedValue({ canWrite: true, items: [] });
+    adapter.savePersonEvaluation = vi.fn(() => new Promise<{ id: string; version: number }>((resolve) => { finishSave = resolve; }));
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
+
+    let panel = within(await openEvaluations(user));
+    await user.click(await panel.findByRole("button", { name: "評価を書く" }));
+    await user.type(panel.getByLabelText("良かった点"), "先に書いた評価");
+    await user.click(panel.getByRole("button", { name: "評価を保存" }));
+    expect(panel.getByLabelText("良かった点")).toBeDisabled();
+
+    await user.click(screen.getByRole("button", { name: "詳細パネルを閉じる" }));
+    const other = initialWorkspace.members[1];
+    await user.click(memberRowButton(other.name));
+    await user.click(within(drawerDialog()).getByRole("button", { name: "評価" }));
+    panel = within(drawerDialog());
+    await user.click(await panel.findByRole("button", { name: "評価を書く" }));
+    await act(async () => finishSave({ id: "e-1", version: 1 }));
+    expect(await screen.findByText("評価を保存しました")).toBeInTheDocument();
+    expect(panel.getByRole("heading", { name: `${other.name}さんの評価` })).toBeInTheDocument();
+    expect(panel.getByLabelText("良かった点")).toBeInTheDocument();
+    expect(adapter.listPersonEvaluations).not.toHaveBeenLastCalledWith(member.id);
+  });
+
   it("does not offer evaluations to a viewer or to the person evaluated", async () => {
     const user = userEvent.setup();
     const viewer = render(<App mode="shared" organizationName="Example Inc." identity={{ name: "閲覧 太郎", email: "viewer@example.com", role: "viewer" }} shared={sharedAdapter()} />);

@@ -4,7 +4,7 @@ create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions, pg_catalog;
 
 -- Evaluations of a person (#601).
-select plan(36);
+select plan(44);
 
 insert into auth.users (id, email, raw_user_meta_data) values
   ('11000000-0000-4000-8000-000000000651', 'eval-owner@test.local', '{"full_name":"評価 Owner"}'::jsonb),
@@ -14,7 +14,10 @@ insert into auth.users (id, email, raw_user_meta_data) values
   ('11000000-0000-4000-8000-000000000655', 'eval-planner@test.local', '{"full_name":"評価 Planner"}'::jsonb),
   ('11000000-0000-4000-8000-000000000656', 'eval-viewer@test.local', '{"full_name":"評価 Viewer"}'::jsonb),
   ('11000000-0000-4000-8000-000000000657', 'eval-subject@test.local', '{"full_name":"評価 Subject"}'::jsonb),
-  ('11000000-0000-4000-8000-000000000658', 'eval-other@test.local', '{"full_name":"評価 Other"}'::jsonb);
+  ('11000000-0000-4000-8000-000000000658', 'eval-other@test.local', '{"full_name":"評価 Other"}'::jsonb),
+  ('11000000-0000-4000-8000-000000000659', 'eval-suspended@test.local', '{"full_name":"評価 Suspended"}'::jsonb),
+  ('11000000-0000-4000-8000-000000000660', 'eval-left-manager@test.local', '{"full_name":"評価 Left Manager"}'::jsonb),
+  ('11000000-0000-4000-8000-000000000661', 'eval-extra-manager@test.local', '{"full_name":"評価 Extra Manager"}'::jsonb);
 
 update app.profiles set display_name = '評価 Author' where id = '11000000-0000-4000-8000-000000000653';
 
@@ -34,8 +37,14 @@ from (values
   ('11000000-0000-4000-8000-000000000654', 'planner'),
   ('11000000-0000-4000-8000-000000000655', 'planner'),
   ('11000000-0000-4000-8000-000000000656', 'viewer'),
-  ('11000000-0000-4000-8000-000000000657', 'planner')
+  ('11000000-0000-4000-8000-000000000657', 'planner'),
+  ('11000000-0000-4000-8000-000000000660', 'planner'),
+  ('11000000-0000-4000-8000-000000000661', 'planner')
 ) as member(user_id, role);
+
+insert into app.organization_memberships (organization_id, user_id, role, status, created_by, updated_by) values
+  ('21000000-0000-4000-8000-000000000651', '11000000-0000-4000-8000-000000000659', 'planner', 'suspended',
+   '11000000-0000-4000-8000-000000000651', '11000000-0000-4000-8000-000000000651');
 
 insert into app.organization_memberships (organization_id, user_id, role, status, created_by, updated_by) values
   ('21000000-0000-4000-8000-000000000652', '11000000-0000-4000-8000-000000000658', 'owner', 'active',
@@ -48,6 +57,8 @@ insert into app.org_units (id, organization_id, name, parent_id, created_by, upd
   ('65000000-0000-4000-8000-000000000652', '21000000-0000-4000-8000-000000000651', 'Unit A', '65000000-0000-4000-8000-000000000651',
    '11000000-0000-4000-8000-000000000651', '11000000-0000-4000-8000-000000000651'),
   ('65000000-0000-4000-8000-000000000653', '21000000-0000-4000-8000-000000000651', 'Unit B', null,
+   '11000000-0000-4000-8000-000000000651', '11000000-0000-4000-8000-000000000651'),
+  ('65000000-0000-4000-8000-000000000654', '21000000-0000-4000-8000-000000000651', 'Unit C', null,
    '11000000-0000-4000-8000-000000000651', '11000000-0000-4000-8000-000000000651');
 
 insert into app.people (id, organization_id, user_id, initials, name, role_title, department, location, created_by, updated_by)
@@ -59,8 +70,12 @@ from (values
   ('61000000-0000-4000-8000-000000000653', '11000000-0000-4000-8000-000000000654', 'EM', 'Eval Manager'),
   ('61000000-0000-4000-8000-000000000654', '11000000-0000-4000-8000-000000000655', 'EP', 'Eval Planner'),
   ('61000000-0000-4000-8000-000000000655', '11000000-0000-4000-8000-000000000652', 'ED', 'Eval Admin'),
-  ('61000000-0000-4000-8000-000000000656', '11000000-0000-4000-8000-000000000656', 'EV', 'Eval Viewer')
+  ('61000000-0000-4000-8000-000000000656', '11000000-0000-4000-8000-000000000656', 'EV', 'Eval Viewer'),
+  ('61000000-0000-4000-8000-000000000657', '11000000-0000-4000-8000-000000000660', 'EL', 'Eval Left Manager'),
+  ('61000000-0000-4000-8000-000000000658', '11000000-0000-4000-8000-000000000661', 'EX', 'Eval Extra Manager')
 ) as person(id, user_id, initials, name);
+
+update app.people set is_active = false where id = '61000000-0000-4000-8000-000000000657';
 
 insert into app.person_org_units (organization_id, person_id, org_unit_id, is_primary, is_manager) values
   ('21000000-0000-4000-8000-000000000651', '61000000-0000-4000-8000-000000000651', '65000000-0000-4000-8000-000000000652', true, false),
@@ -70,7 +85,12 @@ insert into app.person_org_units (organization_id, person_id, org_unit_id, is_pr
   ('21000000-0000-4000-8000-000000000651', '61000000-0000-4000-8000-000000000654', '65000000-0000-4000-8000-000000000653', true, false),
   ('21000000-0000-4000-8000-000000000651', '61000000-0000-4000-8000-000000000655', '65000000-0000-4000-8000-000000000653', true, false),
   -- a viewer who manages the subject's unit still reads nothing
-  ('21000000-0000-4000-8000-000000000651', '61000000-0000-4000-8000-000000000656', '65000000-0000-4000-8000-000000000652', true, true);
+  ('21000000-0000-4000-8000-000000000651', '61000000-0000-4000-8000-000000000656', '65000000-0000-4000-8000-000000000652', true, true),
+  -- a manager of the subject's unit whose own people row is no longer active
+  ('21000000-0000-4000-8000-000000000651', '61000000-0000-4000-8000-000000000657', '65000000-0000-4000-8000-000000000652', true, true),
+  -- the subject also belongs to Unit C, whose manager is someone else
+  ('21000000-0000-4000-8000-000000000651', '61000000-0000-4000-8000-000000000651', '65000000-0000-4000-8000-000000000654', false, false),
+  ('21000000-0000-4000-8000-000000000651', '61000000-0000-4000-8000-000000000658', '65000000-0000-4000-8000-000000000654', true, true);
 
 -- The admin is limited to its own unit (Unit B); the subject is in Unit A.
 insert into app.role_permissions (organization_id, role, person_scope, created_by, updated_by) values
@@ -192,6 +212,15 @@ select throws_ok(
   'the subject cannot read evaluations about themselves'
 );
 
+set local request.jwt.claim.sub = '11000000-0000-4000-8000-000000000659';
+
+select throws_ok(
+  $$select public.list_person_evaluations('21000000-0000-4000-8000-000000000651', '61000000-0000-4000-8000-000000000651')$$,
+  '42501',
+  'not authorized',
+  'a suspended member reads nothing'
+);
+
 -- A viewer who manages the subject's unit.
 set local request.jwt.claim.sub = '11000000-0000-4000-8000-000000000656';
 
@@ -218,6 +247,14 @@ select is(
    from jsonb_array_elements(public.list_person_evaluations('21000000-0000-4000-8000-000000000651', '61000000-0000-4000-8000-000000000651') -> 'items') as item),
   array['assigners'],
   'another planner reads only the evaluations shared with the people who assign'
+);
+
+select throws_ok(
+  $$select public.save_person_evaluation('21000000-0000-4000-8000-000000000651', '94000000-0000-4000-8000-000000000651',
+      jsonb_build_object('personId', '61000000-0000-4000-8000-000000000651', 'observedOn', current_date::text, 'strengths', '他人の request id'))$$,
+  '42501',
+  'not authorized',
+  'another author cannot replay someone else''s request id'
 );
 
 select throws_ok(
@@ -252,6 +289,22 @@ select is(
   jsonb_array_length(public.list_person_evaluations('21000000-0000-4000-8000-000000000651', '61000000-0000-4000-8000-000000000651') -> 'items'),
   2,
   'the subject''s manager reads the evaluations limited to managers as well'
+);
+
+set local request.jwt.claim.sub = '11000000-0000-4000-8000-000000000661';
+
+select is(
+  jsonb_array_length(public.list_person_evaluations('21000000-0000-4000-8000-000000000651', '61000000-0000-4000-8000-000000000651') -> 'items'),
+  2,
+  'the manager of a unit the subject belongs to as a second membership is a manager too'
+);
+
+set local request.jwt.claim.sub = '11000000-0000-4000-8000-000000000660';
+
+select is(
+  jsonb_array_length(public.list_person_evaluations('21000000-0000-4000-8000-000000000651', '61000000-0000-4000-8000-000000000651') -> 'items'),
+  1,
+  'a manager whose own people row is inactive is no longer a manager'
 );
 
 -- The owner.
@@ -292,6 +345,14 @@ select throws_ok(
   'an admin limited to another unit cannot read the subject'
 );
 
+select throws_ok(
+  $$select public.withdraw_person_evaluation('21000000-0000-4000-8000-000000000651',
+      (select (value ->> 'id')::uuid from eval_runtime where label = 'shared'), 1, '範囲外から', gen_random_uuid())$$,
+  '42501',
+  'not authorized',
+  'an admin limited to another unit cannot withdraw an evaluation of the subject'
+);
+
 select ok(
   (
     select count(*) >= 2
@@ -315,6 +376,24 @@ select throws_ok(
 
 -- Back to the author: edit with the version read, then with a stale one.
 set local request.jwt.claim.sub = '11000000-0000-4000-8000-000000000653';
+
+select throws_ok(
+  $$select public.save_person_evaluation('21000000-0000-4000-8000-000000000651', '94000000-0000-4000-8000-000000000651',
+      jsonb_build_object('personId', '61000000-0000-4000-8000-000000000654', 'observedOn', current_date::text, 'strengths', '別の人'))$$,
+  '22023',
+  'p_request_id was already used for another evaluation',
+  'a request id used for one person does not report a save for another'
+);
+
+select throws_ok(
+  $$select public.save_person_evaluation('21000000-0000-4000-8000-000000000651', gen_random_uuid(),
+      jsonb_build_object(
+        'id', (select value ->> 'id' from eval_runtime where label = 'shared'), 'expectedVersion', 1,
+        'personId', '61000000-0000-4000-8000-000000000654', 'observedOn', current_date::text, 'strengths', '対象の差し替え'))$$,
+  '42501',
+  'not authorized',
+  'an edit cannot move an evaluation to another person'
+);
 
 select is(
   public.save_person_evaluation(
@@ -383,6 +462,19 @@ select ok(
   ),
   'the owner reads the evaluation text in the audit'
 );
+
+set local app.caller_kind = 'integration';
+
+select ok(
+  (
+    select count(*) >= 2 and bool_and(not (item -> 'newData' ? 'concerns') and not (item -> 'newData' ? 'strengths'))
+    from jsonb_array_elements(public.list_audit_events('21000000-0000-4000-8000-000000000651', 200, null) -> 'items') as item
+    where item ->> 'entityType' = 'person_evaluations'
+  ),
+  'an integration caller never reads evaluation text in the audit, even as the owner'
+);
+
+set local app.caller_kind = 'user';
 
 -- The manager sees that it was withdrawn and why, not what it said.
 set local request.jwt.claim.sub = '11000000-0000-4000-8000-000000000654';
