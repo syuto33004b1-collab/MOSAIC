@@ -21,6 +21,7 @@ import { OrganizationSetup } from "./OrganizationSetup";
 import { ProductionFrame, ProductionState } from "./ProductionFrame";
 import { ProductionRepository } from "./repository";
 import type { FavoriteKind } from "../collaboration";
+import type { CancelReasons } from "../domain";
 import type {
   MyContext,
   OrganizationSummary,
@@ -94,6 +95,7 @@ export function createSharedWorkspaceController(
       state: WorkspaceEnvelope["state"],
       expectedRevision: number,
       requestId: string,
+      cancelReasons?: CancelReasons,
     ) {
       if (!baseline) throw new Error("共有ワークスペースの保存基準を確認できませんでした。");
       if (!role) throw new Error("共有ワークスペースの操作権限を確認できませんでした。");
@@ -104,6 +106,7 @@ export function createSharedWorkspaceController(
         requestId,
         baseline,
         role,
+        cancelReasons,
       );
       baseline = state;
       return result;

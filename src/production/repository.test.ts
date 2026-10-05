@@ -725,6 +725,40 @@ describe("organization invite function", () => {
     expect(rpc).toHaveBeenCalledWith("list_assignment_history", { p_organization_id: "org-1", p_person_id: "person-1" });
   });
 
+  it("sends a reason only for an assignment the save cancels, and never a blank one (#603)", async () => {
+    const rpc = vi.fn().mockResolvedValue({ data: { revision: 8, saved_at: "2026-08-17T10:00:00Z" }, error: null });
+    const repository = new ProductionRepository({ rpc } as unknown as SupabaseClient);
+    const kept = initialWorkspace.assignments.filter((assignment) => assignment.id !== "a1" && assignment.id !== "a2");
+    await repository.saveWorkspace(
+      "org-1",
+      { ...initialWorkspace, assignments: kept },
+      7,
+      "00000000-0000-4000-8000-000000000003",
+      initialWorkspace,
+      "owner",
+      { a1: "  顧客都合で延期  ", a2: "   ", a3: "取消していない" },
+    );
+    const payload = rpc.mock.calls[0][1].p_payload;
+    expect(payload.assignments.cancelIds).toEqual(["a1", "a2"]);
+    expect(payload.changeReasons).toEqual([{ entityType: "assignment", entityId: "a1", action: "cancel", reason: "顧客都合で延期" }]);
+
+    rpc.mockClear();
+    await repository.saveWorkspace("org-1", initialWorkspace, 8, "00000000-0000-4000-8000-000000000004", initialWorkspace, "owner", { a1: "理由" });
+    expect(rpc.mock.calls[0][1].p_payload).not.toHaveProperty("changeReasons");
+  });
+
+  it("reads the cancellation reason when the role is given one, and leaves the keys out when not", async () => {
+    const row = { id: "h", projectId: "p", startDate: "2026-07-01", endDate: "2026-07-31", allocation: 10, status: "cancelled" };
+    const rpc = vi.fn().mockResolvedValue({
+      data: { items: [{ ...row, cancelReason: "予算の凍結", cancelReasonAt: "2026-08-02T00:00:00Z", cancelReasonByName: "佐藤" }, { ...row, id: "v" }] },
+      error: null,
+    });
+    const repository = new ProductionRepository({ rpc } as unknown as SupabaseClient);
+    const [given, hidden] = await repository.listAssignmentHistory("org-1", "person-1");
+    expect(given).toMatchObject({ cancelReason: "予算の凍結", cancelReasonAt: "2026-08-02T00:00:00Z", cancelReasonByName: "佐藤" });
+    expect(hidden).not.toHaveProperty("cancelReason");
+  });
+
   it("maps a refused history read to the permission error", async () => {
     const rpc = vi.fn().mockResolvedValue({ data: null, error: { code: "42501", message: "not authorized" } });
     const repository = new ProductionRepository({ rpc } as unknown as SupabaseClient);

@@ -134,6 +134,7 @@ import {
   weekEnd,
   assignmentPutsLoadOnDate,
   cancelledAssignmentIds,
+  CHANGE_REASON_MAX,
   demoAssignmentHistory,
   demoCancellations,
   pastAssignmentHistory,
@@ -141,6 +142,7 @@ import {
   type Assignment,
   type AssignmentHistoryEntry,
   type AvatarTone,
+  type CancelReasons,
   type DemoCancelledAssignment,
   type CustomFieldEntity,
   type CustomFieldType,
@@ -201,7 +203,7 @@ export type SharedWorkspaceAdapter = {
   initialState: WorkspaceState;
   initialRevision: number;
   initialPermissions?: WorkspacePermissions;
-  save: (state: WorkspaceState, expectedRevision: number, requestId: string) => Promise<{ revision: number; savedAt: string }>;
+  save: (state: WorkspaceState, expectedRevision: number, requestId: string, cancelReasons?: CancelReasons) => Promise<{ revision: number; savedAt: string }>;
   reload: () => Promise<{ state: WorkspaceState; revision: number; permissions?: WorkspacePermissions }>;
   subscribe: (onRevision: (revision?: number) => void) => () => void;
   listFavorites?: () => Promise<Favorite[]>;
@@ -819,6 +821,11 @@ function MemberHistoryList({
                     : "取消日時の記録なし（記録を始める前の取消）"}
                 </p>
               )}
+              {entry.status === "cancelled" && "cancelReason" in entry && (
+                <p className={"member-history-reason" + (entry.cancelReason ? "" : " unrecorded")}>
+                  {entry.cancelReason ? <><span>理由</span>{entry.cancelReason}</> : "理由の記録なし"}
+                </p>
+              )}
             </li>
           ))}
         </ol>
@@ -827,6 +834,126 @@ function MemberHistoryList({
         <p className="member-history-state" role="note">開始日の新しい順に{ASSIGNMENT_HISTORY_LIMIT}件までを読み込んでいます。</p>
       )}
     </>
+  );
+}
+
+type CancelReasonItem = { id: string; personName: string; projectName: string; period: string; allocation: number };
+
+/**
+ * #603: asked once per save, for every saved assignment the save cancels. The
+ * save does not go out until each one has a reason.
+ */
+function CancelReasonDialog({
+  items,
+  reasons,
+  onChange,
+  onSubmit,
+  onCancel,
+}: {
+  items: CancelReasonItem[];
+  reasons: CancelReasons;
+  onChange: (reasons: CancelReasons) => void;
+  onSubmit: () => void;
+  onCancel: () => void;
+}) {
+  const [shared, setShared] = useState("");
+  const panelRef = useRef<HTMLElement | null>(null);
+  const filled = items.every((item) => (reasons[item.id] ?? "").trim());
+
+  useEffect(() => {
+    const previous = document.activeElement as HTMLElement | null;
+    document.body.style.overflow = "hidden";
+    const focusFirst = window.setTimeout(() => panelRef.current?.querySelector<HTMLElement>("textarea")?.focus(), 0);
+    const trapFocus = (event: KeyboardEvent) => {
+      if (event.key !== "Tab") return;
+      const elements = panelRef.current?.querySelectorAll<HTMLElement>("button:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])");
+      if (!elements || elements.length === 0) return;
+      const first = elements[0];
+      const last = elements[elements.length - 1];
+      const active = document.activeElement;
+      if (active === panelRef.current || !panelRef.current?.contains(active)) {
+        event.preventDefault();
+        (event.shiftKey ? last : first).focus();
+      } else if (event.shiftKey && active === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && active === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener("keydown", trapFocus);
+    return () => {
+      window.clearTimeout(focusFirst);
+      document.body.style.overflow = "";
+      document.removeEventListener("keydown", trapFocus);
+      previous?.focus();
+    };
+  }, []);
+
+  const fillEmpty = () => {
+    const text = shared.trim();
+    if (!text) return;
+    onChange({ ...reasons, ...Object.fromEntries(items.filter((item) => !(reasons[item.id] ?? "").trim()).map((item) => [item.id, text])) });
+  };
+
+  return (
+    <div className="overlay">
+      <div className="overlay-backdrop" aria-hidden="true" onClick={onCancel} />
+      <section className="reason-dialog dialog-md" ref={panelRef} role="dialog" aria-modal="true" aria-labelledby="cancel-reason-heading" tabIndex={-1}>
+        <div className="drawer-handle" />
+        <div className="drawer-top">
+          <span className="drawer-kicker">WHY</span>
+          <button className="close-button" type="button" aria-label="取り消す理由を閉じる" onClick={onCancel}><X size={18} /></button>
+        </div>
+        <form
+          className="cancel-reason-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (filled) onSubmit();
+          }}
+        >
+          <h2 id="cancel-reason-heading">取り消す理由</h2>
+          <p>保存すると、次の{items.length}件のアサインを取り消します。それぞれ、取り消す理由を残してください。</p>
+          <p className="cancel-reason-note" role="note">理由は、この人の履歴を見られるアサイン担当者（閲覧のみのロールを除く）が読めます。健康や家庭の事情など、個人的な事情は書かないでください。</p>
+          {items.length > 1 && (
+            <div className="cancel-reason-bulk">
+              <label>
+                まとめて入れる理由
+                <textarea value={shared} maxLength={CHANGE_REASON_MAX} rows={2} onChange={(event) => setShared(event.target.value)} />
+              </label>
+              <button className="drawer-secondary" type="button" disabled={!shared.trim()} onClick={fillEmpty}>空いている欄に入れる</button>
+            </div>
+          )}
+          <ol className="cancel-reason-list">
+            {items.map((item) => (
+              <li key={item.id}>
+                <label>
+                  <span className="cancel-reason-target">
+                    <strong>{item.personName}</strong>
+                    <span>{item.projectName}</span>
+                    <span>{item.period}</span>
+                    <span>稼働配分 {item.allocation}%</span>
+                  </span>
+                  <textarea
+                    value={reasons[item.id] ?? ""}
+                    maxLength={CHANGE_REASON_MAX}
+                    rows={2}
+                    required
+                    aria-label={`${item.personName}の${item.projectName}を取り消す理由`}
+                    onChange={(event) => onChange({ ...reasons, [item.id]: event.target.value })}
+                  />
+                </label>
+              </li>
+            ))}
+          </ol>
+          <div className="cancel-reason-actions">
+            <button className="drawer-secondary" type="button" onClick={onCancel}>保存せずに戻る</button>
+            <button className="drawer-primary" type="submit" disabled={!filled}>理由を残して保存</button>
+          </div>
+        </form>
+      </section>
+    </div>
   );
 }
 
@@ -1082,6 +1209,8 @@ export default function Home({ mode = "demo", organizationId, organizationName =
   const [selectedProjectId, setSelectedProjectId] = useState(opening.projectId ?? startingWorkspace.projects[0]?.id ?? "");
   const [selectedMemberId, setSelectedMemberId] = useState(opening.memberId ?? startingWorkspace.members[0]?.id ?? "");
   const [memberHistory, setMemberHistory] = useState<MemberHistoryView | null>(null);
+  const [cancelReasons, setCancelReasons] = useState<CancelReasons>({});
+  const [reasonDialogOpen, setReasonDialogOpen] = useState(false);
   const [selectedAssignmentId, setSelectedAssignmentId] = useState("");
   const [selectedNeedId, setSelectedNeedId] = useState(startingWorkspace.needs[0]?.id ?? "");
   const [toast, setToast] = useState(opening.toast ?? "");
@@ -1191,10 +1320,14 @@ export default function Home({ mode = "demo", organizationId, organizationName =
     setDrawer(null);
   }, [clearFormDraft]);
 
-  /** Closing by hand (×, Escape, the backdrop, 閉じる). Closes after a save or a staged change call `closeDrawer` directly. */
+  /**
+   * Closing by hand (×, Escape, the backdrop, 閉じる). Closes after a save or a staged change call `closeDrawer` directly.
+   * Returns whether it closed: keeping an unfinished form open is a refusal.
+   */
   const requestCloseDrawer = useCallback(() => {
-    if (formDirtyRef.current && !window.confirm("この入力はまだ反映されていません。閉じると破棄される場合があります。閉じますか？")) return;
+    if (formDirtyRef.current && !window.confirm("この入力はまだ反映されていません。閉じると破棄される場合があります。閉じますか？")) return false;
     closeDrawer();
+    return true;
   }, [closeDrawer]);
 
   /** The pulse count that opens the attention dialog — focus returns here (#395). */
@@ -1473,6 +1606,10 @@ export default function Home({ mode = "demo", organizationId, organizationName =
           requestCloseDrawer();
           return;
         }
+        if (reasonDialogOpen) {
+          setReasonDialogOpen(false);
+          return;
+        }
         if (attentionOpen) {
           closeAttentionPanel();
           return;
@@ -1486,7 +1623,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
       if (activeNav !== "board") return;
       if (event.ctrlKey || event.metaKey || event.altKey) return;
       if (event.isComposing) return;
-      if (drawer || attentionOpen || notificationsOpen) return;
+      if (drawer || attentionOpen || reasonDialogOpen || notificationsOpen) return;
       const target = event.target;
       if (target instanceof HTMLElement && target.closest("input, textarea, select, [contenteditable='true']")) return;
       event.preventDefault();
@@ -1494,7 +1631,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [activeNav, attentionOpen, closeAttentionPanel, drawer, notificationsOpen, requestCloseDrawer]);
+  }, [activeNav, attentionOpen, closeAttentionPanel, drawer, notificationsOpen, reasonDialogOpen, requestCloseDrawer]);
 
   useEffect(() => {
     if (mode !== "shared" || !shared) return;
@@ -2655,14 +2792,29 @@ export default function Home({ mode = "demo", organizationId, organizationName =
     setUnsavedChanges(0);
     unsavedRef.current = 0;
     setSyncError("");
+    setCancelReasons({});
+    setReasonDialogOpen(false);
     clearFormDraft();
     if (syncStatus !== "conflict") setSyncStatus("idle");
     setToast("未保存の変更だけを元に戻しました");
     drainPendingRefresh();
   };
 
-  const saveChanges = async () => {
+  /**
+   * Every cancellation of a saved assignment is asked for its reason here, at
+   * the one place all seven ways of cancelling pass through (#603).
+   */
+  const saveChanges = async (reasonsGiven?: CancelReasons) => {
     if (!hasEditPermission || operationLocked || unsavedChanges === 0 || saveBusyRef.current || syncBusyRef.current) return;
+    const cancelledIds = cancelledAssignmentIds(workspace, committedWorkspace);
+    const reasons = reasonsGiven ?? cancelReasons;
+    if (cancelledIds.some((id) => !(reasons[id] ?? "").trim())) {
+      // The dialog does not stack on a drawer; with one open the save would wait unseen.
+      if (drawer && !requestCloseDrawer()) return;
+      setReasonDialogOpen(true);
+      return;
+    }
+    const sentReasons: CancelReasons = Object.fromEntries(cancelledIds.map((id) => [id, reasons[id].trim()]));
     let deferPendingRefresh = false;
     const count = unsavedChanges;
     const saved: WorkspaceState = {
@@ -2676,18 +2828,21 @@ export default function Home({ mode = "demo", organizationId, organizationName =
     setSyncRetryable(true);
     try {
       if (mode === "shared" && shared) {
-        const snapshot = JSON.stringify(saved);
+        // The reasons are part of what makes a retry the same request: rewriting
+        // only a reason must not replay the earlier save with the old text.
+        const snapshot = JSON.stringify({ state: saved, reasons: sentReasons });
         const saveRequest = pendingSave?.snapshot === snapshot ? pendingSave : { requestId: newId(), snapshot };
         if (saveRequest !== pendingSave) setPendingSave(saveRequest);
-        const result = await shared.save(saved, revisionRef.current, saveRequest.requestId);
+        const result = await shared.save(saved, revisionRef.current, saveRequest.requestId, sentReasons);
         revisionRef.current = result.revision;
         setRevision(result.revision);
         setLastSync({ at: Date.now(), kind: "saved" });
         setToast(count + "件の変更をチームへ保存しました");
       } else {
-        writeDemoSave(saved, demoCancellations(committedWorkspace, cancelledAssignmentIds(saved, committedWorkspace), new Date().toISOString(), displayName));
+        writeDemoSave(saved, demoCancellations(committedWorkspace, cancelledIds, new Date().toISOString(), displayName, sentReasons));
         setToast(count + "件の変更をデモ環境へ保存しました");
       }
+      setCancelReasons({});
       setWorkspace(saved);
       setCommittedWorkspace(cloneState(saved));
       setPendingSave(null);
@@ -2738,6 +2893,8 @@ export default function Home({ mode = "demo", organizationId, organizationName =
       setPendingSave(null);
       setUnsavedChanges(0);
       unsavedRef.current = 0;
+      setCancelReasons({});
+      setReasonDialogOpen(false);
       clearFormDraft();
       setDrawer(null);
       setSyncStatus("idle");
@@ -4077,6 +4234,30 @@ export default function Home({ mode = "demo", organizationId, organizationName =
           <span className="change-count">{unsavedChanges}</span><span><strong>{unsavedChanges}件の変更があります</strong><small>保存するまで確定データには反映されません</small></span>
           <button className="undo-button" disabled={operationLocked || saveOutcomePending} onClick={undoChanges}><Undo2 size={14} />元に戻す</button><button className="save-button" disabled={operationLocked} onClick={() => void saveChanges()}><Save size={14} />{syncStatus === "saving" ? "保存中…" : syncStatus === "refreshing" ? "確認中…" : mode === "shared" ? "チームへ保存" : "デモへ保存"}</button>
         </div>
+      )}
+
+      {reasonDialogOpen && !drawer && (
+        <CancelReasonDialog
+          items={cancelledAssignmentIds(workspace, committedWorkspace).flatMap((id) => {
+            const assignment = committedWorkspace.assignments.find((item) => item.id === id);
+            if (!assignment) return [];
+            const person = memberById(committedWorkspace, assignment.personId);
+            return [{
+              id,
+              personName: person ? memberLabel(committedWorkspace, person) : "メンバー名の記録なし",
+              projectName: projectById(committedWorkspace, assignment.projectId)?.name ?? "案件名の記録なし",
+              period: `${formatDate(assignment.startDate)} 〜 ${formatDate(assignment.endDate)}`,
+              allocation: assignment.allocation,
+            }];
+          })}
+          reasons={cancelReasons}
+          onChange={setCancelReasons}
+          onCancel={() => setReasonDialogOpen(false)}
+          onSubmit={() => {
+            setReasonDialogOpen(false);
+            void saveChanges(cancelReasons);
+          }}
+        />
       )}
 
       {attentionOpen && !drawer && (

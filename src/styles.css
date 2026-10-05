@@ -728,7 +728,8 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 }
 /* #395: same shell as `.drawer`, but a separate selector so #137/#394 contracts
    keep matching a lone `.drawer {`. */
-.attention-dialog {
+.attention-dialog,
+.reason-dialog {
   position: relative;
   z-index: 1;
   width: min(100%, clamp(410px, 62vw, 1000px));
@@ -1386,7 +1387,8 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
     border-radius: 20px 20px 0 0;
     animation-name: drawer-up;
   }
-  .attention-dialog {
+  .attention-dialog,
+  .reason-dialog {
     container: none;
     width: 100%;
     height: min(88vh, 760px);
@@ -1400,7 +1402,7 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   @keyframes drawer-up { from { opacity: 0; transform: translateY(28px); } to { opacity: 1; transform: translateY(0); } }
 }
 @media (prefers-reduced-motion: reduce) {
-  .topbar, .pulse-strip, .board-layout, .drawer, .attention-dialog, .overlay, .notification-popover, .change-bar { animation: none !important; }
+  .topbar, .pulse-strip, .board-layout, .drawer, .attention-dialog, .reason-dialog, .overlay, .notification-popover, .change-bar { animation: none !important; }
 }
 
 /* Expanded product surfaces */
@@ -2986,6 +2988,36 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .member-history-dates,
 .member-history-allocation { white-space: nowrap; }
 .member-history-label { min-width: 0; overflow-wrap: anywhere; }
+.member-history-reason { margin-top: 6px; color: var(--ink); font-size: var(--text-sm); white-space: pre-wrap; }
+.member-history-reason span { margin-right: 0.65em; color: var(--muted-readable); font-size: var(--text-min); font-weight: 700; }
+.member-history-reason.unrecorded { color: var(--muted-readable); font-size: var(--text-min); }
+.cancel-reason-form { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.cancel-reason-form h2 { margin: 0; color: var(--ink); font-size: var(--text-lg); }
+.cancel-reason-form p { margin: 0; color: var(--ink); font-size: var(--text-sm); line-height: var(--leading); }
+.cancel-reason-form .cancel-reason-note { color: var(--muted-readable); font-size: var(--text-min); }
+.cancel-reason-form label { display: flex; flex-direction: column; gap: 6px; min-width: 0; color: var(--ink); font-size: var(--text-sm); font-weight: 700; }
+.cancel-reason-form textarea {
+  width: 100%;
+  min-height: 3.2em;
+  padding: 8px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--paper);
+  color: var(--ink);
+  font: inherit;
+  font-weight: 400;
+  resize: vertical;
+}
+.cancel-reason-bulk { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border: 1px dashed var(--line-strong); border-radius: 10px; }
+.cancel-reason-bulk .drawer-secondary { align-self: flex-start; width: auto; margin-top: 0; padding: 0 16px; }
+.cancel-reason-list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 10px; }
+.cancel-reason-list li { padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--paper); min-width: 0; }
+.cancel-reason-target { display: flex; flex-wrap: wrap; gap: 2px 0.65em; font-weight: 400; color: var(--muted-readable); font-size: var(--text-min); }
+.cancel-reason-target strong { color: var(--ink); font-size: var(--text-sm); }
+.cancel-reason-target span { overflow-wrap: anywhere; }
+.cancel-reason-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
+.cancel-reason-actions .drawer-primary,
+.cancel-reason-actions .drawer-secondary { width: auto; margin-top: 0; flex: 1 1 12rem; }
 .member-detail-actions {
   flex: 0 0 auto;
   margin-top: 16px;
@@ -4891,7 +4923,8 @@ h1 {
   background: var(--paper);
   box-shadow: -18px 0 55px rgba(52, 17, 3, .14);
 }
-.attention-dialog {
+.attention-dialog,
+.reason-dialog {
   border-left: 1px solid var(--line);
   border-radius: 0;
   background: var(--paper);
@@ -5156,7 +5189,8 @@ h1 {
     border-radius: 12px 12px 0 0;
     box-shadow: 0 -18px 48px rgba(52, 17, 3, .16);
   }
-  .attention-dialog {
+  .attention-dialog,
+  .reason-dialog {
     border: 1px solid var(--line);
     border-bottom: 0;
     border-radius: 12px 12px 0 0;

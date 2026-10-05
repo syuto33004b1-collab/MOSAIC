@@ -243,7 +243,30 @@ export type AssignmentHistoryEntry = {
   label?: string | null;
   cancelledAt?: string | null;
   cancelledByName?: string | null;
+  /**
+   * Why it was cancelled (#603). Absent for a viewer, who is not given reasons;
+   * null when the cancellation was saved without one.
+   */
+  cancelReason?: string | null;
+  cancelReasonAt?: string | null;
+  cancelReasonByName?: string | null;
 };
+
+export const CHANGE_REASON_MAX = 500;
+
+/** Why each saved assignment in this save is being cancelled, by assignment id (#603). */
+export type CancelReasons = Record<string, string>;
+
+/** One entry of the save's `changeReasons`, the shape every kind of "why" will travel in. */
+export type ChangeReason = { entityType: "assignment"; entityId: string; action: "cancel"; reason: string };
+
+/** The reasons a save sends: one per cancelled assignment whose reason is not blank. */
+export function changeReasonsFor(cancelledIds: string[], reasons: CancelReasons): ChangeReason[] {
+  return cancelledIds.flatMap((id) => {
+    const reason = (reasons[id] ?? "").trim();
+    return reason ? [{ entityType: "assignment" as const, entityId: id, action: "cancel" as const, reason }] : [];
+  });
+}
 
 /** A cancellation recorded by the demo, which has no server to keep cancelled rows. */
 export type DemoCancelledAssignment = AssignmentHistoryEntry & { personId: string };
@@ -311,6 +334,7 @@ export function demoCancellations(
   cancelledIds: string[],
   cancelledAt: string,
   cancelledByName: string,
+  reasons: CancelReasons = {},
 ): DemoCancelledAssignment[] {
   const projects = new Map(previous.projects.map((project) => [project.id, project]));
   const ids = new Set(cancelledIds);
@@ -318,7 +342,11 @@ export function demoCancellations(
     .filter((assignment) => ids.has(assignment.id))
     .map((assignment) => {
       const project = projects.get(assignment.projectId);
+      const reason = (reasons[assignment.id] ?? "").trim() || null;
       return {
+        cancelReason: reason,
+        cancelReasonAt: reason ? cancelledAt : null,
+        cancelReasonByName: reason ? cancelledByName : null,
         id: assignment.id,
         personId: assignment.personId,
         projectId: assignment.projectId,
