@@ -30,7 +30,7 @@ test("the drawer is named by its heading and by nothing else", () => {
 });
 
 test("every kind of drawer has a heading with the shared id", () => {
-  assert.equal(kinds.length, 17, `DRAWER_KICKER lists ${kinds.length} kinds`);
+  assert.equal(kinds.length, 18, `DRAWER_KICKER lists ${kinds.length} kinds`);
   for (const kind of kinds) {
     // The branch that renders the drawer, `{drawer === "x" && selected && (`, not the kicker's
     // `{drawer === "needForm" && editingNeedId ? …`, and only up to the next branch: from the

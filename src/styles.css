@@ -3018,6 +3018,64 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .cancel-reason-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
 .cancel-reason-actions .drawer-primary,
 .cancel-reason-actions .drawer-secondary { width: auto; margin-top: 0; flex: 1 1 12rem; }
+.member-evaluations .evaluation-new { align-self: flex-start; width: auto; margin-top: 0; padding: 0 18px; }
+.evaluation-form { display: flex; flex-direction: column; gap: 10px; padding: 14px; border: 1px solid var(--line-strong); border-radius: 12px; background: var(--paper); min-width: 0; }
+.evaluation-form h3 { margin: 0; color: var(--ink); font-size: var(--text-lg); }
+.evaluation-form-fields { margin: 0; padding: 0; border: 0; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.evaluation-form label { display: flex; flex-direction: column; gap: 6px; min-width: 0; color: var(--ink); font-size: var(--text-sm); font-weight: 700; }
+.evaluation-form textarea,
+.evaluation-form select,
+.evaluation-form input[type="date"],
+.evaluation-withdraw-form textarea {
+  width: 100%;
+  min-height: 40px;
+  padding: 8px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--paper);
+  color: var(--ink);
+  font: inherit;
+  font-weight: 400;
+}
+.evaluation-form textarea,
+.evaluation-withdraw-form textarea { resize: vertical; }
+.evaluation-form-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr)); gap: 10px; }
+.evaluation-guidance { margin: 0; color: var(--muted-readable); font-size: var(--text-min); line-height: var(--leading); }
+.evaluation-visibility-choice { margin: 0; padding: 0; border: 0; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.evaluation-visibility-choice legend { margin-bottom: 4px; color: var(--ink); font-size: var(--text-sm); font-weight: 700; }
+.evaluation-visibility-choice label { flex-direction: row; align-items: flex-start; gap: 8px; font-weight: 400; }
+.evaluation-visibility-choice input { margin-top: 3px; }
+.evaluation-visibility-option { display: flex; flex-direction: column; gap: 2px; min-width: 0; font-weight: 700; }
+.evaluation-visibility-option small { color: var(--muted-readable); font-size: var(--text-min); font-weight: 400; }
+.evaluation-problem { margin: 0; color: var(--coral-deep); font-size: var(--text-sm); font-weight: 700; }
+.evaluation-form-actions,
+.evaluation-item-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
+.evaluation-form-actions .drawer-primary,
+.evaluation-form-actions .drawer-secondary,
+.evaluation-form-actions .drawer-danger,
+.evaluation-item-actions .drawer-secondary { width: auto; margin-top: 0; padding: 0 16px; }
+.evaluation-list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 10px; }
+.evaluation-item { display: flex; flex-direction: column; gap: 6px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--paper); min-width: 0; }
+.evaluation-item.withdrawn { background: var(--paper-deep); }
+.evaluation-item p { margin: 0; line-height: var(--leading); overflow-wrap: anywhere; }
+.evaluation-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; color: var(--ink); font-size: var(--text-sm); }
+.evaluation-date { white-space: nowrap; color: var(--muted-readable); font-size: var(--text-min); font-weight: 700; }
+.evaluation-visibility { padding: 1px 8px; border: 1px solid var(--line-strong); border-radius: 999px; color: var(--ink); font-size: var(--text-min); }
+.evaluation-author { color: var(--muted-readable); font-size: var(--text-min); }
+.evaluation-withdrawn { color: var(--ink); font-size: var(--text-sm); }
+.evaluation-withdrawn span { margin-right: 0.65em; padding: 1px 8px; border: 1px solid var(--coral-deep); border-radius: 999px; color: var(--coral-deep); font-size: var(--text-min); font-weight: 700; }
+.evaluation-withheld { color: var(--muted-readable); font-size: var(--text-min); }
+.evaluation-text { margin: 0; display: grid; grid-template-columns: minmax(7rem, max-content) minmax(0, 1fr); gap: 4px 12px; }
+.evaluation-text dt { color: var(--muted-readable); font-size: var(--text-min); font-weight: 700; }
+.evaluation-text dd { margin: 0; color: var(--ink); font-size: var(--text-sm); line-height: var(--leading); white-space: pre-wrap; overflow-wrap: anywhere; min-width: 0; }
+@container detail-panel (max-width: 520px) {
+  .evaluation-text { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 620px) {
+  .evaluation-text { grid-template-columns: minmax(0, 1fr); }
+}
+.evaluation-withdraw-form { display: flex; flex-direction: column; gap: 8px; }
+.evaluation-withdraw-form label { display: flex; flex-direction: column; gap: 6px; color: var(--ink); font-size: var(--text-sm); font-weight: 700; }
 .member-detail-actions {
   flex: 0 0 auto;
   margin-top: 16px;
@@ -3035,6 +3093,12 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
   width: auto;
   margin-top: 0;
   flex: 1 1 9rem;
+}
+/* The history and evaluation buttons size to their words so they share a row
+   with その他: a third row of actions pushes 空き and the work history out of
+   the panes on a 390px screen. */
+.member-detail-actions > .member-detail-record {
+  flex: 1 1 auto;
 }
 .member-detail-more,
 .project-detail-more { position: relative; flex: 0 0 auto; }

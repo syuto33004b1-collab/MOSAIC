@@ -24,7 +24,11 @@ MOSAICのsourceと静的フロントエンドはpublicです。source、schema�
 - 利用者削除だけで既発行tokenが即時無効になると仮定しない。退職・権限剥奪時はsessionを失効する。
 - 最後のownerを停止・降格しない。退職者はmembershipを物理削除せず`suspended`にし、同じメールの保留招待も取り消す。
 - `app.role_permissions`でrole別に独自項目と予約キー（現在は`monthlyCost`）の非表示、独自項目の編集不可、機能の利用可否、参照できる人の範囲を制限できる。ownerは常に無制限で行を持たない。行が無いroleは、予約キーを除き無制限。`monthlyCost`はplanner/viewerには常に非表示で、adminは`hiddenFieldKeys`で隠せる。外部APIとRemote MCP（`app.caller_kind=integration`）は発行者がownerでも`monthlyCost`を返さない。
-- role別権限の判定は`public.get_workspace`と`public.save_workspace`だけに置く。Web UI、AI秘書、外部API、MCPはこの2つを通るので経路ごとに実装しない。clientが受け取る`permissions`は判定済みの結果であり、認可の根拠にしない。
+- ワークスペースのスナップショットに載るデータのrole別判定は`public.get_workspace`と`public.save_workspace`だけに置く。Web UI、AI秘書、外部API、MCPはこの2つを通るので経路ごとに実装しない。clientが受け取る`permissions`は判定済みの結果であり、認可の根拠にしない。
+- スナップショットに載せない業務データ（人への評価、アサインの履歴、フィードバック、監査ログ）は専用RPCを置き、判定をそのRPCの中で完結させる。こちらも経路ごとに実装しない。人への評価とアサインの履歴は、外部APIの包み・AI秘書の道具・MCPを作らず、`service_role`からも実行できない。`get_workspace`はAI秘書（外部LLM）と外部APIへそのまま渡るので、人についての判断をそこへ載せない。
+- 人への評価（`app.person_evaluations`、#601）の判定は`private.evaluation_actor_role`と`private.managed_person_ids`に置く。評価された本人は、roleに関わらず読めず書けない。viewerも読めず書けない。書けるのは参照範囲内の人についてのowner/admin/planner。公開範囲が`assigners`（既定）ならowner/admin/plannerが読め、`managers`ならowner/admin・書いた本人・本人の上長だけが読める。直せるのは書いた本人だけ、取り下げは書いた本人かowner/adminで、理由が要る。取り下げた評価の本文はownerと書いた本人にだけ返す。範囲外の人、存在しない人、読めない評価は同じ`42501`を返す。`list_audit_events`は評価の本文（`strengths`/`concerns`/`basis`/`withdrawn_reason`）をowner以外とintegrationには返さない。ownerがadminから評価を隠せるようにするかは未決。
+- **`app.person_org_units.is_manager`は評価の読み手を決める認可の入力である。** 上長とみなすのは、その人の在籍のpeople行が`is_manager`で属する部門（とその配下）で、かつowner/admin/plannerの在籍メンバーであるときだけ。`is_manager`を書けるのはowner/admin、`members:write`の外部連携、AI秘書の`set_member_org_memberships`であり、これらは評価の読み手を増やせる経路になる。
+- アサインの取消の理由（`app.change_reasons`、#603）は、その人のアサインを見られる人のうちowner/admin/plannerにだけ返し、viewerには返さない。参照範囲の外の人のアサインには理由を書き込めない。
 - role別権限を変更できるのはowner/admin。adminのrowを変更できるのはownerだけにする。制限されたadminが自分の制限を外せないようにする。
 - 外部連携clientからの`rolePermissions`書込はscopeに関係なく拒否する。
 - 非表示・編集不可の独自項目と、非表示の予約キーは、その値を書き換えられないだけでなく、他項目の保存時に消えない。`list_audit_events` の `oldData` / `newData` からも、月額原価を見られない呼び出し（hidden な admin、integration）には `monthly_cost_yen` を出さない。

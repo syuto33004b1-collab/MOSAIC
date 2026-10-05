@@ -17,6 +17,7 @@ import {
   FolderKanban,
   History,
   Inbox,
+  NotebookPen,
   Layers3,
   LayoutDashboard,
   Palette,
@@ -136,6 +137,12 @@ import {
   cancelledAssignmentIds,
   CHANGE_REASON_MAX,
   demoAssignmentHistory,
+  demoEvaluationsFor,
+  demoSaveEvaluation,
+  demoWithdrawEvaluation,
+  evaluationDraftProblem,
+  EVALUATION_TEXT_MAX,
+  EVALUATION_WITHDRAW_REASON_MAX,
   demoCancellations,
   pastAssignmentHistory,
   ASSIGNMENT_HISTORY_LIMIT,
@@ -144,6 +151,10 @@ import {
   type AvatarTone,
   type CancelReasons,
   type DemoCancelledAssignment,
+  type DemoEvaluation,
+  type EvaluationVisibility,
+  type PersonEvaluation,
+  type PersonEvaluationDraft,
   type CustomFieldEntity,
   type CustomFieldType,
   type Member,
@@ -208,6 +219,9 @@ export type SharedWorkspaceAdapter = {
   subscribe: (onRevision: (revision?: number) => void) => () => void;
   listFavorites?: () => Promise<Favorite[]>;
   listAssignmentHistory?: (personId: string) => Promise<AssignmentHistoryEntry[]>;
+  listPersonEvaluations?: (personId: string) => Promise<{ items: PersonEvaluation[]; canWrite: boolean }>;
+  savePersonEvaluation?: (requestId: string, draft: PersonEvaluationDraft) => Promise<{ id: string; version: number }>;
+  withdrawPersonEvaluation?: (id: string, expectedVersion: number, reason: string, requestId: string) => Promise<void>;
   setFavorite?: (kind: FavoriteKind, targetId: string, favorite: boolean) => Promise<Favorite[]>;
   submitProfileRequest?: (
     requestId: string,
@@ -229,7 +243,7 @@ export type AppProps = {
   aiChatTransport?: ChatTransport;
 };
 
-type Drawer = "addChooser" | "add" | "assignment" | "overload" | "openRole" | "project" | "member" | "memberHistory" | "newProject" | "newMember" | "editProject" | "editMember" | "needForm" | "opportunity" | "newOpportunity" | "editOpportunity" | "opportunityNeedForm" | null;
+type Drawer = "addChooser" | "add" | "assignment" | "overload" | "openRole" | "project" | "member" | "memberHistory" | "memberEvaluations" | "newProject" | "newMember" | "editProject" | "editMember" | "needForm" | "opportunity" | "newOpportunity" | "editOpportunity" | "opportunityNeedForm" | null;
 
 /** #407 / #408: 詳細ドロワーの幅修飾。addChooser と add が sm（620）。他は lg（1000 / 62vw、height は 100% のまま）。
  *  要調整は `.attention-dialog.dialog-md`。設定パネルは対象外。 */
@@ -242,6 +256,7 @@ const DRAWER_DIALOG_SIZE = {
   project: "dialog-lg",
   member: "dialog-lg",
   memberHistory: "dialog-lg",
+  memberEvaluations: "dialog-lg",
   newProject: "dialog-lg",
   newMember: "dialog-lg",
   editProject: "dialog-lg",
@@ -262,6 +277,7 @@ const DRAWER_KICKER = {
   project: "PROJECT DETAIL",
   member: "MEMBER PROFILE",
   memberHistory: "ASSIGNMENT HISTORY",
+  memberEvaluations: "EVALUATIONS",
   newProject: "NEW PROJECT",
   newMember: "NEW MEMBER",
   editProject: "EDIT PROJECT",
@@ -484,6 +500,34 @@ function writeDemoSave(saved: WorkspaceState, cancellations: DemoCancelledAssign
     throw error;
   }
 }
+
+/** The demo keeps its evaluations apart from the workspace, as the shared mode does (#601). */
+const demoEvaluationsKey = "mosaic-local-evaluations-v1";
+
+function readDemoEvaluations(): DemoEvaluation[] {
+  try {
+    const parsed: unknown = JSON.parse(window.localStorage.getItem(demoEvaluationsKey) ?? "[]");
+    return Array.isArray(parsed) ? parsed.filter((entry): entry is DemoEvaluation => (
+      typeof entry === "object" && entry !== null
+      && typeof entry.id === "string" && typeof entry.personId === "string" && typeof entry.observedOn === "string"
+      && typeof entry.version === "number" && (entry.visibility === "assigners" || entry.visibility === "managers")
+    )) : [];
+  } catch {
+    return [];
+  }
+}
+
+type EvaluationsView = {
+  personId: string;
+  status: "loading" | "ready" | "error";
+  items: PersonEvaluation[];
+  canWrite: boolean;
+};
+
+const EVALUATION_VISIBILITY_LABELS: Record<EvaluationVisibility, string> = {
+  assigners: "アサインを担当する人に共有",
+  managers: "管理者と上長だけ",
+};
 
 type MemberHistoryView = {
   personId: string;
@@ -957,6 +1001,181 @@ function CancelReasonDialog({
   );
 }
 
+/** #601: free text, with the reason and the scene behind it, and who may read it. */
+function EvaluationForm({
+  draft,
+  projects,
+  problem,
+  busy,
+  onChange,
+  onDirty,
+  onSubmit,
+  onCancel,
+}: {
+  draft: PersonEvaluationDraft;
+  projects: { id: string; name: string }[];
+  problem: string;
+  busy: boolean;
+  onChange: (draft: PersonEvaluationDraft) => void;
+  onDirty: () => void;
+  onSubmit: () => void;
+  onCancel: () => void;
+}) {
+  const firstFieldRef = useRef<HTMLSelectElement | null>(null);
+  useEffect(() => {
+    firstFieldRef.current?.focus();
+  }, []);
+  return (
+    <form
+      className="evaluation-form"
+      onChange={onDirty}
+      onSubmit={(event) => {
+        event.preventDefault();
+        onSubmit();
+      }}
+    >
+      <h3>{draft.id ? "評価を直す" : "評価を書く"}</h3>
+      <p className="evaluation-guidance" role="note">場面と行動で書いてください（いつ、何をして、どうなったか）。人柄の決めつけや、健康・私生活には触れないでください。評価された本人には表示されません。</p>
+      <fieldset className="evaluation-form-fields" disabled={busy}>
+      <div className="evaluation-form-row">
+        <label>
+          案件（任意）
+          <select ref={firstFieldRef} value={draft.projectId ?? ""} onChange={(event) => onChange({ ...draft, projectId: event.target.value || null })}>
+            <option value="">案件を選ばない</option>
+            {projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
+          </select>
+        </label>
+        <label>
+          時期
+          <input type="date" required value={draft.observedOn} onChange={(event) => onChange({ ...draft, observedOn: event.target.value })} />
+        </label>
+      </div>
+      <label>
+        良かった点
+        <textarea rows={3} maxLength={EVALUATION_TEXT_MAX} value={draft.strengths} onChange={(event) => onChange({ ...draft, strengths: event.target.value })} />
+      </label>
+      <label>
+        課題・伸ばしてほしい点
+        <textarea rows={3} maxLength={EVALUATION_TEXT_MAX} value={draft.concerns} onChange={(event) => onChange({ ...draft, concerns: event.target.value })} />
+      </label>
+      <label>
+        そう評価した理由と場面{draft.concerns.trim() ? "（課題を書いたときは必須）" : ""}
+        <textarea rows={3} maxLength={EVALUATION_TEXT_MAX} aria-invalid={problem && draft.concerns.trim() && !draft.basis.trim() ? true : undefined} value={draft.basis} onChange={(event) => onChange({ ...draft, basis: event.target.value })} />
+      </label>
+      <fieldset className="evaluation-visibility-choice">
+        <legend>読める人</legend>
+        <label>
+          <input type="radio" name="evaluation-visibility" value="assigners" checked={draft.visibility === "assigners"} onChange={() => onChange({ ...draft, visibility: "assigners" })} />
+          <span className="evaluation-visibility-option">アサインを担当する人に共有<small>この人を参照できるオーナー・管理者・プランナーが読めます</small></span>
+        </label>
+        <label>
+          <input type="radio" name="evaluation-visibility" value="managers" checked={draft.visibility === "managers"} onChange={() => onChange({ ...draft, visibility: "managers" })} />
+          <span className="evaluation-visibility-option">管理者と上長だけ<small>この人を参照できるオーナー・管理者と、この人の上長、書いた本人だけが読めます</small></span>
+        </label>
+      </fieldset>
+      </fieldset>
+      {problem && <p className="evaluation-problem" role="alert">{problem}</p>}
+      <div className="evaluation-form-actions">
+        <button className="drawer-secondary" type="button" onClick={onCancel} disabled={busy}>やめる</button>
+        <button className="drawer-primary" type="submit" disabled={busy}>{busy ? "保存中…" : draft.id ? "直した内容を保存" : "評価を保存"}</button>
+      </div>
+    </form>
+  );
+}
+
+type WithdrawingEvaluation = { id: string; version: number; reason: string };
+
+function EvaluationList({
+  view,
+  withdrawing,
+  busy,
+  onRetry,
+  onDirty,
+  onEdit,
+  onWithdrawStart,
+  onWithdrawChange,
+  onWithdrawConfirm,
+  onWithdrawCancel,
+}: {
+  view: EvaluationsView | null;
+  withdrawing: WithdrawingEvaluation | null;
+  busy: boolean;
+  onRetry: () => void;
+  onDirty: () => void;
+  onEdit: (evaluation: PersonEvaluation) => void;
+  onWithdrawStart: (evaluation: PersonEvaluation) => void;
+  onWithdrawChange: (reason: string) => void;
+  onWithdrawConfirm: () => void;
+  onWithdrawCancel: () => void;
+}) {
+  if (!view || view.status === "loading") return <p className="member-history-state" role="status">評価を読み込み中…</p>;
+  if (view.status === "error") {
+    return (
+      <div className="member-history-state" role="alert">
+        <p>評価を読み込めませんでした。</p>
+        <button className="drawer-secondary" type="button" onClick={onRetry}>もう一度読み込む</button>
+      </div>
+    );
+  }
+  if (view.items.length === 0) return <p className="member-history-state" role="status">あなたが読める評価は、まだありません。</p>;
+  return (
+    <ol className="evaluation-list">
+      {view.items.map((evaluation) => {
+        const textGiven = "strengths" in evaluation || "concerns" in evaluation || "basis" in evaluation;
+        return (
+          <li key={evaluation.id} className={"evaluation-item" + (evaluation.withdrawn ? " withdrawn" : "")}>
+            <p className="evaluation-head">
+              <span className="evaluation-date">{formatDate(evaluation.observedOn)}</span>
+              <strong>{evaluation.projectName ?? "案件の指定なし"}</strong>
+              <span className="evaluation-visibility">{EVALUATION_VISIBILITY_LABELS[evaluation.visibility]}</span>
+            </p>
+            <p className="evaluation-author">
+              {evaluation.authorName}さん{evaluation.mine ? "（あなた）" : ""}
+              {evaluation.updatedAt && evaluation.updatedAt !== evaluation.createdAt ? ` · ${formatHistoryDateTime(evaluation.updatedAt)}に更新` : evaluation.createdAt ? ` · ${formatHistoryDateTime(evaluation.createdAt)}` : ""}
+            </p>
+            {evaluation.withdrawn && (
+              <p className="evaluation-withdrawn"><span>取り下げ</span>{evaluation.withdrawn.reason}（{evaluation.withdrawn.byName}さん、{formatHistoryDateTime(evaluation.withdrawn.at)}）</p>
+            )}
+            {textGiven ? (
+              <dl className="evaluation-text">
+                {evaluation.strengths && <><dt>良かった点</dt><dd>{evaluation.strengths}</dd></>}
+                {evaluation.concerns && <><dt>課題・伸ばしてほしい点</dt><dd>{evaluation.concerns}</dd></>}
+                {evaluation.basis && <><dt>そう評価した理由と場面</dt><dd>{evaluation.basis}</dd></>}
+              </dl>
+            ) : (
+              <p className="evaluation-withheld">取り下げた評価の本文は、オーナーと書いた本人だけが読めます。</p>
+            )}
+            {withdrawing?.id === evaluation.id ? (
+              <form
+                className="evaluation-withdraw-form"
+                onChange={onDirty}
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  onWithdrawConfirm();
+                }}
+              >
+                <label>
+                  取り下げる理由
+                  <textarea rows={2} required maxLength={EVALUATION_WITHDRAW_REASON_MAX} value={withdrawing.reason} onChange={(event) => onWithdrawChange(event.target.value)} />
+                </label>
+                <div className="evaluation-form-actions">
+                  <button className="drawer-secondary" type="button" onClick={onWithdrawCancel} disabled={busy}>やめる</button>
+                  <button className="drawer-danger" type="submit" disabled={busy || !withdrawing.reason.trim()}>取り下げる</button>
+                </div>
+              </form>
+            ) : (evaluation.canEdit || evaluation.canWithdraw) && (
+              <div className="evaluation-item-actions">
+                {evaluation.canEdit && <button className="drawer-secondary" type="button" onClick={() => onEdit(evaluation)} disabled={busy}>直す</button>}
+                {evaluation.canWithdraw && <button className="drawer-secondary" type="button" onClick={() => onWithdrawStart(evaluation)} disabled={busy}>取り下げる</button>}
+              </div>
+            )}
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
 function MemberMonthHeaders({
   months,
   accessibleOnly = false,
@@ -1211,6 +1430,18 @@ export default function Home({ mode = "demo", organizationId, organizationName =
   const [memberHistory, setMemberHistory] = useState<MemberHistoryView | null>(null);
   const [cancelReasons, setCancelReasons] = useState<CancelReasons>({});
   const [reasonDialogOpen, setReasonDialogOpen] = useState(false);
+  const [evaluations, setEvaluations] = useState<EvaluationsView | null>(null);
+  const [evaluationDraft, setEvaluationDraft] = useState<PersonEvaluationDraft | null>(null);
+  const [evaluationRequestId, setEvaluationRequestId] = useState("");
+  const [evaluationProblem, setEvaluationProblem] = useState("");
+  const [evaluationBusy, setEvaluationBusy] = useState(false);
+  const [withdrawingEvaluation, setWithdrawingEvaluation] = useState<WithdrawingEvaluation | null>(null);
+  /** Whose evaluations are on screen, and which draft: a save that ends after the user moved on must not tidy up their new one. */
+  const evaluationsPersonRef = useRef("");
+  const evaluationDraftRef = useRef<PersonEvaluationDraft | null>(null);
+  useEffect(() => {
+    evaluationDraftRef.current = evaluationDraft;
+  }, [evaluationDraft]);
   const [selectedAssignmentId, setSelectedAssignmentId] = useState("");
   const [selectedNeedId, setSelectedNeedId] = useState(startingWorkspace.needs[0]?.id ?? "");
   const [toast, setToast] = useState(opening.toast ?? "");
@@ -2312,6 +2543,120 @@ export default function Home({ mode = "demo", organizationId, organizationName =
     setSelectedMemberId(memberId);
     setDrawer("memberHistory");
     loadMemberHistory(memberId);
+  };
+
+  /** The DB refuses the subject and a viewer (#601); the button follows the same rule so it does not lead to a refusal. */
+  const mayEvaluate = (member: Pick<Member, "authUserId">) => (
+    (role === "owner" || role === "admin" || role === "planner")
+    && !(identity?.userId && member.authUserId === identity.userId)
+  );
+
+  const loadEvaluations = (personId: string) => {
+    if (mode !== "shared") {
+      setEvaluations({ personId, status: "ready", items: demoEvaluationsFor(readDemoEvaluations(), workspace.projects, personId), canWrite: true });
+      return;
+    }
+    const listEvaluations = shared?.listPersonEvaluations;
+    if (!listEvaluations) {
+      setEvaluations({ personId, status: "error", items: [], canWrite: false });
+      return;
+    }
+    setEvaluations({ personId, status: "loading", items: [], canWrite: false });
+    listEvaluations(personId)
+      .then(({ items, canWrite }) => setEvaluations((current) => current?.personId === personId ? { personId, status: "ready", items, canWrite } : current))
+      .catch(() => setEvaluations((current) => current?.personId === personId ? { personId, status: "error", items: [], canWrite: false } : current));
+  };
+
+  const openMemberEvaluations = (memberId: string) => {
+    evaluationsPersonRef.current = memberId;
+    setSelectedMemberId(memberId);
+    setDrawer("memberEvaluations");
+    setEvaluationDraft(null);
+    setWithdrawingEvaluation(null);
+    setEvaluationProblem("");
+    loadEvaluations(memberId);
+  };
+
+  const startEvaluation = (draft: PersonEvaluationDraft) => {
+    setEvaluationDraft(draft);
+    setEvaluationRequestId(newId());
+    setEvaluationProblem("");
+    setWithdrawingEvaluation(null);
+  };
+
+  const leaveEvaluationForm = () => {
+    setEvaluationDraft(null);
+    setEvaluationProblem("");
+    clearFormDraft();
+  };
+
+  const submitEvaluation = async () => {
+    const draft = evaluationDraft;
+    if (!draft || evaluationBusy) return;
+    const problem = evaluationDraftProblem(draft);
+    if (problem) {
+      setEvaluationProblem(problem);
+      return;
+    }
+    setEvaluationBusy(true);
+    setEvaluationProblem("");
+    try {
+      if (mode === "shared") {
+        if (!shared?.savePersonEvaluation) throw new Error("評価を保存できませんでした。");
+        // Reused across retries, so a save whose answer was lost does not write the evaluation twice.
+        await shared.savePersonEvaluation(evaluationRequestId, draft);
+      } else {
+        window.localStorage.setItem(demoEvaluationsKey, JSON.stringify(demoSaveEvaluation(readDemoEvaluations(), draft, new Date().toISOString(), displayName, newId())));
+      }
+      setToast(draft.id ? "評価を直しました" : "評価を保存しました");
+      if (evaluationDraftRef.current === draft) leaveEvaluationForm();
+      if (evaluationsPersonRef.current === draft.personId) loadEvaluations(draft.personId);
+    } catch (error) {
+      if (evaluationDraftRef.current === draft) setEvaluationProblem(error instanceof Error ? error.message : "評価を保存できませんでした。");
+    } finally {
+      setEvaluationBusy(false);
+    }
+  };
+
+  const confirmWithdrawEvaluation = async () => {
+    const target = withdrawingEvaluation;
+    const personId = evaluationsPersonRef.current;
+    if (!target || evaluationBusy) return;
+    const reason = target.reason.trim();
+    if (!reason) return;
+    setEvaluationBusy(true);
+    setEvaluationProblem("");
+    try {
+      if (mode === "shared") {
+        if (!shared?.withdrawPersonEvaluation) throw new Error("評価を取り下げられませんでした。");
+        await shared.withdrawPersonEvaluation(target.id, target.version, reason, newId());
+      } else {
+        window.localStorage.setItem(demoEvaluationsKey, JSON.stringify(demoWithdrawEvaluation(readDemoEvaluations(), target.id, reason, new Date().toISOString(), displayName)));
+      }
+      setToast("評価を取り下げました");
+      if (evaluationsPersonRef.current === personId) {
+        setWithdrawingEvaluation((current) => (current?.id === target.id ? null : current));
+        clearFormDraft();
+        loadEvaluations(personId);
+      }
+    } catch (error) {
+      if (evaluationsPersonRef.current === personId) setEvaluationProblem(error instanceof Error ? error.message : "評価を取り下げられませんでした。");
+    } finally {
+      setEvaluationBusy(false);
+    }
+  };
+
+  /** Leaves the open form or withdrawal, asking first when something was typed. */
+  const discardEvaluationInput = () => {
+    if (formDirtyRef.current && !window.confirm("この入力はまだ反映されていません。閉じると破棄される場合があります。閉じますか？")) return false;
+    leaveEvaluationForm();
+    setWithdrawingEvaluation(null);
+    return true;
+  };
+
+  const backToMemberFromEvaluations = (memberId: string) => {
+    if (!discardEvaluationInput()) return;
+    openMember(memberId);
   };
 
   const currentShareHref = (link: Parameters<typeof buildShareHref>[1]) => buildShareHref(window.location, link);
@@ -4657,7 +5002,8 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                       {canManageMembers && <button className="drawer-danger" type="button" onClick={archiveMember}><Trash2 size={15} />メンバーをアーカイブ</button>}
                     </div>
                   </details>
-                  <button className="drawer-secondary" type="button" onClick={() => openMemberHistory(selectedMember.id)}><History size={15} />アサインの履歴</button>
+                  <button className="drawer-secondary member-detail-record" type="button" onClick={() => openMemberHistory(selectedMember.id)}><History size={15} />アサインの履歴</button>
+                  {mayEvaluate(selectedMember) && <button className="drawer-secondary member-detail-record" type="button" onClick={() => openMemberEvaluations(selectedMember.id)}><NotebookPen size={15} />評価</button>}
                   <button className="drawer-secondary" type="button" onClick={() => addMemberToProposal(selectedMember.id)}>提案ビューに追加</button>
                   {canEdit && <button className="drawer-primary" type="button" onClick={() => openAssignmentFor(selectedMember.id)}><Plus size={16} />この人へアサインを追加</button>}
                 </div>
@@ -4680,6 +5026,75 @@ export default function Home({ mode = "demo", organizationId, organizationName =
                 />
                 <div className="member-detail-actions">
                   <button className="drawer-secondary" type="button" onClick={() => openMember(selectedMember.id)}>メンバー詳細へ戻る</button>
+                </div>
+              </div>
+            )}
+
+            {drawer === "memberEvaluations" && selectedMember && (
+              <div className="member-history member-evaluations">
+                <div className="drawer-heading">
+                  <span className="drawer-icon mint"><NotebookPen size={19} /></span>
+                  <div>
+                    <h2 id={DRAWER_TITLE_ID}>{memberLabel(workspace, selectedMember)}さんの評価</h2>
+                    <p>案件や成果について、良かった点と課題を、そう評価した理由と一緒に残します。最終的な判断は人がします。</p>
+                  </div>
+                </div>
+                {evaluationDraft ? (
+                  <EvaluationForm
+                    draft={evaluationDraft}
+                    projects={[
+                      ...workspace.projects.map((project) => ({ id: project.id, name: project.name })),
+                      ...(evaluationDraft.projectId && !workspace.projects.some((project) => project.id === evaluationDraft.projectId)
+                        ? [{ id: evaluationDraft.projectId, name: evaluations?.items.find((item) => item.projectId === evaluationDraft.projectId)?.projectName ?? "アーカイブした案件" }]
+                        : []),
+                    ]}
+                    problem={evaluationProblem}
+                    busy={evaluationBusy}
+                    onChange={setEvaluationDraft}
+                    onDirty={markFormDraftDirty}
+                    onSubmit={() => void submitEvaluation()}
+                    onCancel={leaveEvaluationForm}
+                  />
+                ) : evaluations?.personId === selectedMember.id && evaluations.status === "ready" && evaluations.canWrite && (
+                  <button
+                    className="drawer-primary evaluation-new"
+                    type="button"
+                    onClick={() => startEvaluation({ personId: selectedMember.id, projectId: null, observedOn: todayIso, strengths: "", concerns: "", basis: "", visibility: "assigners" })}
+                  >
+                    <Plus size={16} />評価を書く
+                  </button>
+                )}
+                {evaluationProblem && !evaluationDraft && <p className="evaluation-problem" role="alert">{evaluationProblem}</p>}
+                <EvaluationList
+                  view={evaluations?.personId === selectedMember.id ? evaluations : null}
+                  withdrawing={withdrawingEvaluation}
+                  busy={evaluationBusy}
+                  onRetry={() => loadEvaluations(selectedMember.id)}
+                  onDirty={markFormDraftDirty}
+                  onEdit={(evaluation) => discardEvaluationInput() && startEvaluation({
+                    id: evaluation.id,
+                    expectedVersion: evaluation.version,
+                    personId: evaluation.personId,
+                    projectId: evaluation.projectId,
+                    observedOn: evaluation.observedOn,
+                    strengths: evaluation.strengths ?? "",
+                    concerns: evaluation.concerns ?? "",
+                    basis: evaluation.basis ?? "",
+                    visibility: evaluation.visibility,
+                  })}
+                  onWithdrawStart={(evaluation) => {
+                    if (!discardEvaluationInput()) return;
+                    setWithdrawingEvaluation({ id: evaluation.id, version: evaluation.version, reason: "" });
+                  }}
+                  onWithdrawChange={(reason) => setWithdrawingEvaluation((current) => current ? { ...current, reason } : current)}
+                  onWithdrawConfirm={() => void confirmWithdrawEvaluation()}
+                  onWithdrawCancel={() => {
+                    setWithdrawingEvaluation(null);
+                    clearFormDraft();
+                  }}
+                />
+                <div className="member-detail-actions">
+                  <button className="drawer-secondary" type="button" onClick={() => backToMemberFromEvaluations(selectedMember.id)}>メンバー詳細へ戻る</button>
                 </div>
               </div>
             )}
