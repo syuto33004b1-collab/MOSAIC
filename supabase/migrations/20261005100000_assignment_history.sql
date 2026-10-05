@@ -46,6 +46,11 @@ create trigger assignments_cancellation_stamp
 before insert or update on app.assignments
 for each row execute function private.stamp_assignment_cancellation();
 
+-- The person/date indexes from the foundation are partial (status <> 'cancelled'),
+-- so the history read, which includes cancelled rows, needs its own.
+create index assignments_person_history_idx
+  on app.assignments (organization_id, person_id, start_date desc, id);
+
 create or replace function public.list_assignment_history(
   p_organization_id uuid,
   p_person_id uuid

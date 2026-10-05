@@ -9101,19 +9101,49 @@ describe("assignment history (#600)", () => {
     expect(await within(panel).findByText("終わったアサインと取り消したアサインは、まだありません。")).toBeInTheDocument();
   });
 
-  it("records a cancellation in the demo and shows it in the history", async () => {
-    const user = userEvent.setup();
+  const projectName = initialWorkspace.projects.find((project) => project.id === "atlas")!.name;
+
+  async function cancelAtlasInDemo(user: ReturnType<typeof userEvent.setup>) {
     vi.spyOn(window, "confirm").mockReturnValue(true);
     render(<App />);
-
     await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: "メンバー" }));
     await user.click(memberRowButton(member.name));
-    const projectName = initialWorkspace.projects.find((project) => project.id === "atlas")!.name;
     const opener = [...drawerDialog().querySelectorAll<HTMLButtonElement>(".member-load-sheet tbody th button, .member-load-names button")]
       .find((button) => button.textContent?.includes(projectName));
     expect(opener).toBeDefined();
     await user.click(opener!);
     await user.click(screen.getByRole("button", { name: "アサインを取消" }));
+  }
+
+  it("does not save the demo when its cancellation record cannot be written", async () => {
+    const user = userEvent.setup();
+    await cancelAtlasInDemo(user);
+    const setItem = Storage.prototype.setItem;
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(function (this: Storage, key: string, value: string) {
+      if (key === "mosaic-local-assignment-history-v1") throw new DOMException("quota", "QuotaExceededError");
+      setItem.call(this, key, value);
+    });
+    await user.click(screen.getByRole("button", { name: "デモへ保存" }));
+    expect(window.localStorage.getItem("mosaic-local-workspace-v3")).toBeNull();
+    expect(screen.getByRole("button", { name: "デモへ保存" })).toBeInTheDocument();
+  });
+
+  it("keeps no cancellation record when the demo save itself fails", async () => {
+    const user = userEvent.setup();
+    await cancelAtlasInDemo(user);
+    const setItem = Storage.prototype.setItem;
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(function (this: Storage, key: string, value: string) {
+      if (key === "mosaic-local-workspace-v3") throw new DOMException("quota", "QuotaExceededError");
+      setItem.call(this, key, value);
+    });
+    await user.click(screen.getByRole("button", { name: "デモへ保存" }));
+    expect(window.localStorage.getItem("mosaic-local-assignment-history-v1")).toBeNull();
+    expect(screen.getByRole("button", { name: "デモへ保存" })).toBeInTheDocument();
+  });
+
+  it("records a cancellation in the demo and shows it in the history", async () => {
+    const user = userEvent.setup();
+    await cancelAtlasInDemo(user);
     await user.click(screen.getByRole("button", { name: "デモへ保存" }));
 
     const panel = await openHistory(user);

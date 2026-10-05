@@ -462,12 +462,24 @@ function readDemoCancellations(): DemoCancelledAssignment[] {
   }
 }
 
-function appendDemoCancellations(entries: DemoCancelledAssignment[]) {
-  if (entries.length === 0) return;
+/**
+ * Writes the demo workspace and its cancellations as one save: if either write
+ * throws, neither is kept, so a cancelled assignment cannot leave the workspace
+ * without leaving a record.
+ */
+function writeDemoSave(saved: WorkspaceState, cancellations: DemoCancelledAssignment[]) {
+  const previousHistory = window.localStorage.getItem(demoHistoryKey);
+  if (cancellations.length > 0) {
+    window.localStorage.setItem(demoHistoryKey, JSON.stringify([...readDemoCancellations(), ...cancellations]));
+  }
   try {
-    window.localStorage.setItem(demoHistoryKey, JSON.stringify([...readDemoCancellations(), ...entries]));
-  } catch {
-    // Quota or a blocked store: the save itself still went through.
+    window.localStorage.setItem(storageKey, JSON.stringify(saved));
+  } catch (error) {
+    if (cancellations.length > 0) {
+      if (previousHistory === null) window.localStorage.removeItem(demoHistoryKey);
+      else window.localStorage.setItem(demoHistoryKey, previousHistory);
+    }
+    throw error;
   }
 }
 
@@ -784,7 +796,7 @@ function MemberHistoryList({
         </div>
       )}
       {view?.status === "ready" && entries.length === 0 && (
-        <p className="member-history-state">終わったアサインと取り消したアサインは、まだありません。</p>
+        <p className="member-history-state" role="status">終わったアサインと取り消したアサインは、まだありません。</p>
       )}
       {entries.length > 0 && (
         <ol className="member-history-list">
@@ -2673,8 +2685,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
         setLastSync({ at: Date.now(), kind: "saved" });
         setToast(count + "件の変更をチームへ保存しました");
       } else {
-        window.localStorage.setItem(storageKey, JSON.stringify(saved));
-        appendDemoCancellations(demoCancellations(committedWorkspace, cancelledAssignmentIds(saved, committedWorkspace), new Date().toISOString(), displayName));
+        writeDemoSave(saved, demoCancellations(committedWorkspace, cancelledAssignmentIds(saved, committedWorkspace), new Date().toISOString(), displayName));
         setToast(count + "件の変更をデモ環境へ保存しました");
       }
       setWorkspace(saved);

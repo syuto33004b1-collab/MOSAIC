@@ -4,13 +4,14 @@ create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions, pg_catalog;
 
 -- Assignment history (#600).
-select plan(19);
+select plan(21);
 
 insert into auth.users (id, email, raw_user_meta_data) values
   ('11000000-0000-4000-8000-000000000601', 'hist-owner@test.local', '{"full_name":"履歴 Owner"}'::jsonb),
   ('11000000-0000-4000-8000-000000000602', 'hist-planner@test.local', '{"full_name":"履歴 Planner"}'::jsonb),
   ('11000000-0000-4000-8000-000000000603', 'hist-viewer@test.local', '{"full_name":"履歴 Viewer"}'::jsonb),
-  ('11000000-0000-4000-8000-000000000604', 'hist-other@test.local', '{"full_name":"履歴 Other"}'::jsonb);
+  ('11000000-0000-4000-8000-000000000604', 'hist-other@test.local', '{"full_name":"履歴 Other"}'::jsonb),
+  ('11000000-0000-4000-8000-000000000605', 'hist-suspended@test.local', '{"full_name":"履歴 Suspended"}'::jsonb);
 
 update app.profiles set display_name = '履歴 Owner' where id = '11000000-0000-4000-8000-000000000601';
 
@@ -42,6 +43,8 @@ insert into app.organization_memberships (
   ('21000000-0000-4000-8000-000000000601', '11000000-0000-4000-8000-000000000602', 'planner', 'active',
    '11000000-0000-4000-8000-000000000601', '11000000-0000-4000-8000-000000000601'),
   ('21000000-0000-4000-8000-000000000601', '11000000-0000-4000-8000-000000000603', 'viewer', 'active',
+   '11000000-0000-4000-8000-000000000601', '11000000-0000-4000-8000-000000000601'),
+  ('21000000-0000-4000-8000-000000000601', '11000000-0000-4000-8000-000000000605', 'planner', 'suspended',
    '11000000-0000-4000-8000-000000000601', '11000000-0000-4000-8000-000000000601'),
   ('21000000-0000-4000-8000-000000000602', '11000000-0000-4000-8000-000000000604', 'owner', 'active',
    '11000000-0000-4000-8000-000000000604', '11000000-0000-4000-8000-000000000604');
@@ -351,7 +354,39 @@ select throws_ok(
   'another organization''s owner cannot read the history'
 );
 
+set local request.jwt.claim.sub = '11000000-0000-4000-8000-000000000605';
+
+select throws_ok(
+  $$select public.list_assignment_history(
+      '21000000-0000-4000-8000-000000000601',
+      '61000000-0000-4000-8000-000000000602'
+    )$$,
+  '42501',
+  'not authorized',
+  'a suspended member cannot read the history'
+);
+
 reset role;
+set local request.jwt.claim.sub = '11000000-0000-4000-8000-000000000601';
+
+insert into app.assignments (
+  id, organization_id, person_id, project_id, start_date, end_date,
+  allocation_percent, status, created_by, updated_by
+) values
+  ('64000000-0000-4000-8000-000000000605', '21000000-0000-4000-8000-000000000601',
+   '61000000-0000-4000-8000-000000000602', '62000000-0000-4000-8000-000000000601',
+   current_date, current_date + 5, 10, 'cancelled',
+   '11000000-0000-4000-8000-000000000602', '11000000-0000-4000-8000-000000000602');
+
+select ok(
+  (
+    select cancelled_at is not null
+      and cancelled_by = '11000000-0000-4000-8000-000000000601'
+    from app.assignments
+    where id = '64000000-0000-4000-8000-000000000605'
+  ),
+  'a row written as cancelled is stamped with the caller, as assignments_touch takes the caller'
+);
 
 update app.assignments
 set status = 'confirmed', updated_by = '11000000-0000-4000-8000-000000000601'
