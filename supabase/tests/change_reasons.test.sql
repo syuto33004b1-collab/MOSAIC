@@ -4,7 +4,7 @@ create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions, pg_catalog;
 
 -- Reasons for cancelling an assignment (#603).
-select plan(24);
+select plan(26);
 
 insert into auth.users (id, email, raw_user_meta_data) values
   ('11000000-0000-4000-8000-000000000631', 'why-owner@test.local', '{"full_name":"理由 Owner"}'::jsonb),
@@ -112,6 +112,11 @@ insert into reason_save (label, payload) values
       'entityType', 'assignment', 'entityId', '64000000-0000-4000-8000-000000000631',
       'action', 'cancel', 'reason', '  顧客都合で開始が来期にずれたため  '
     ))
+  )),
+  ('archive_member', jsonb_build_object(
+    'members', jsonb_build_object('upsert', '[]'::jsonb, 'archiveIds', jsonb_build_array('61000000-0000-4000-8000-000000000634')),
+    'assignments', jsonb_build_object('upsert', '[]'::jsonb, 'cancelIds', jsonb_build_array('64000000-0000-4000-8000-000000000635')),
+    'changeReasons', jsonb_build_array(jsonb_build_object('entityType', 'assignment', 'entityId', '64000000-0000-4000-8000-000000000635', 'action', 'cancel', 'reason', '退職に伴う取消'))
   ));
 
 select has_table('app', 'change_reasons', 'the reasons table exists');
@@ -120,7 +125,7 @@ select ok(
   not has_table_privilege('authenticated', 'app.change_reasons', 'SELECT')
   and not has_table_privilege('authenticated', 'app.change_reasons', 'INSERT')
   and not has_table_privilege('service_role', 'app.change_reasons', 'SELECT')
-  and not has_function_privilege('authenticated', 'private.assert_change_reasons_allowed(uuid,jsonb)', 'EXECUTE')
+  and not has_function_privilege('authenticated', 'private.assert_change_reasons_allowed(uuid,uuid,jsonb)', 'EXECUTE')
   and not has_function_privilege('authenticated', 'private.apply_change_reasons(uuid,jsonb,uuid,uuid)', 'EXECUTE')
   and not has_function_privilege('service_role', 'private.apply_change_reasons(uuid,jsonb,uuid,uuid)', 'EXECUTE'),
   'reasons are reachable only through save_workspace and the history read'
@@ -151,6 +156,18 @@ select is(
   ) ->> 'replayed',
   'true',
   'the same request replays'
+);
+
+select is(
+  public.save_workspace(
+    '21000000-0000-4000-8000-000000000631',
+    (select workspace_revision from app.organizations where id = '21000000-0000-4000-8000-000000000631') - 1,
+    '93000000-0000-4000-8000-000000000631',
+    (select jsonb_set(payload, '{changeReasons,0,reason}', '"書き換えた理由"'::jsonb) from reason_save where label = 'cancel_with_reason'),
+    repeat('0', 64)
+  ) ->> 'replayed',
+  'true',
+  'a retry that changes only the reason replays and writes nothing (checked below)'
 );
 
 select lives_ok(
@@ -287,15 +304,23 @@ select lives_ok(
   $$select public.save_workspace(
       '21000000-0000-4000-8000-000000000631',
       (select workspace_revision from app.organizations where id = '21000000-0000-4000-8000-000000000631'),
-      gen_random_uuid(),
-      jsonb_build_object(
-        'members', jsonb_build_object('upsert', '[]'::jsonb, 'archiveIds', jsonb_build_array('61000000-0000-4000-8000-000000000634')),
-        'assignments', jsonb_build_object('upsert', '[]'::jsonb, 'cancelIds', jsonb_build_array('64000000-0000-4000-8000-000000000635')),
-        'changeReasons', jsonb_build_array(jsonb_build_object('entityType', 'assignment', 'entityId', '64000000-0000-4000-8000-000000000635', 'action', 'cancel', 'reason', '退職に伴う取消'))
-      ),
+      '93000000-0000-4000-8000-000000000632',
+      (select payload from reason_save where label = 'archive_member'),
       repeat('0', 64)
     )$$,
   'a reason can accompany the archive of the member it belongs to'
+);
+
+select is(
+  public.save_workspace(
+    '21000000-0000-4000-8000-000000000631',
+    (select workspace_revision from app.organizations where id = '21000000-0000-4000-8000-000000000631') - 1,
+    '93000000-0000-4000-8000-000000000632',
+    (select payload from reason_save where label = 'archive_member'),
+    repeat('0', 64)
+  ) ->> 'replayed',
+  'true',
+  'the retry of a save that archived the member replays instead of failing the scope check'
 );
 
 set local request.jwt.claim.sub = '11000000-0000-4000-8000-000000000632';

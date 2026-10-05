@@ -663,7 +663,7 @@ describe("role-aware workspace", () => {
     await user.click(overloadButton!);
     await user.click(screen.getByRole("button", { name: "推奨配分へ調整" }));
     await user.click(screen.getByRole("button", { name: "チームへ保存" }));
-    await answerCancelReasons(user);
+    expect(await answerCancelReasons(user)).toBe(true);
     await waitFor(() => expect(save).toHaveBeenCalledOnce());
 
     const savedState = save.mock.calls[0][0];
@@ -1132,7 +1132,7 @@ describe("role-aware workspace", () => {
     await user.type(dialog.getByLabelText("稼働上限（%）"), "80");
     await user.click(dialog.getByRole("button", { name: "変更を仮置き" }));
     await user.click(screen.getByRole("button", { name: "チームへ保存" }));
-    await answerCancelReasons(user);
+    expect(await answerCancelReasons(user)).toBe(true);
     await waitFor(() => expect(save).toHaveBeenCalledOnce());
 
     const saved = save.mock.calls[0][0] as WorkspaceState;
@@ -1156,7 +1156,7 @@ describe("role-aware workspace", () => {
     await user.click(screen.getByText("その他", { selector: "summary" }));
     await user.click(screen.getByRole("button", { name: "メンバーをアーカイブ" }));
     await user.click(screen.getByRole("button", { name: "チームへ保存" }));
-    await answerCancelReasons(user);
+    expect(await answerCancelReasons(user)).toBe(true);
     await waitFor(() => expect(save).toHaveBeenCalledOnce());
     const saved = save.mock.calls[0][0] as WorkspaceState;
     expect(saved.members.some((member) => member.id === initialWorkspace.members[0].id)).toBe(false);
@@ -1203,7 +1203,7 @@ describe("role-aware workspace", () => {
     await user.type(dialog.getByLabelText("開始日"), addDays(getWeekStart(0), 1));
     await user.click(dialog.getByRole("button", { name: "変更を仮置き" }));
     await user.click(screen.getByRole("button", { name: "チームへ保存" }));
-    await answerCancelReasons(user);
+    expect(await answerCancelReasons(user)).toBe(true);
     await waitFor(() => expect(save).toHaveBeenCalledOnce());
     expect(save.mock.calls[0][0].assignments).toEqual([]);
     expect(save.mock.calls[0][0].needs).toEqual([]);
@@ -1226,7 +1226,7 @@ describe("role-aware workspace", () => {
     expect(archiveProject.closest(".project-detail-more")).not.toBeNull();
     await user.click(archiveProject);
     await user.click(screen.getByRole("button", { name: "チームへ保存" }));
-    await answerCancelReasons(user);
+    expect(await answerCancelReasons(user)).toBe(true);
     await waitFor(() => expect(archiveSave).toHaveBeenCalledOnce());
     expect(archiveSave.mock.calls[0][0]).toMatchObject({ projects: [], assignments: [], needs: [] });
     expect(confirm).toHaveBeenCalledWith(expect.stringContaining("関連するアサインと要員要件"));
@@ -1250,7 +1250,7 @@ describe("role-aware workspace", () => {
     await user.type(dialog.getByLabelText("必要配分（%）"), "80");
     await user.click(dialog.getByRole("button", { name: "変更を仮置き" }));
     await user.click(screen.getByRole("button", { name: "チームへ保存" }));
-    await answerCancelReasons(user);
+    expect(await answerCancelReasons(user)).toBe(true);
     await waitFor(() => expect(save).toHaveBeenCalledOnce());
     expect(save.mock.calls[0][0].assignments).toEqual([]);
     expect(save.mock.calls[0][0].needs[0]).toMatchObject({ allocation: 80, status: "open", draftPersonId: null });
@@ -1275,7 +1275,7 @@ describe("role-aware workspace", () => {
     await user.type(dialog.getByLabelText("必要スキル（カンマ区切り）"), "Figma, UX, figma");
     await user.click(dialog.getByRole("button", { name: "要員要件を追加" }));
     await user.click(screen.getByRole("button", { name: "チームへ保存" }));
-    await answerCancelReasons(user);
+    expect(await answerCancelReasons(user)).toBe(false);
     await waitFor(() => expect(createSave).toHaveBeenCalledOnce());
     expect(createSave.mock.calls[0][0].needs[0]).toMatchObject({ role: "Product Designer", skills: ["Figma", "UX"], status: "open" });
 
@@ -1293,7 +1293,7 @@ describe("role-aware workspace", () => {
     await user.click(dialog.getByText("充足済み").closest("button")!);
     await user.click(screen.getByRole("button", { name: "要員要件を取消" }));
     await user.click(screen.getByRole("button", { name: "チームへ保存" }));
-    await answerCancelReasons(user);
+    expect(await answerCancelReasons(user)).toBe(true);
     await waitFor(() => expect(cancelSave).toHaveBeenCalledOnce());
     expect(cancelSave.mock.calls[0][0]).toMatchObject({ assignments: [], needs: [] });
   });
@@ -9147,6 +9147,7 @@ describe("assignment history (#600)", () => {
       setItem.call(this, key, value);
     });
     await user.click(screen.getByRole("button", { name: "デモへ保存" }));
+    expect(await answerCancelReasons(user)).toBe(true);
     expect(window.localStorage.getItem("mosaic-local-workspace-v3")).toBeNull();
     expect(screen.getByRole("button", { name: "デモへ保存" })).toBeInTheDocument();
   });
@@ -9160,6 +9161,7 @@ describe("assignment history (#600)", () => {
       setItem.call(this, key, value);
     });
     await user.click(screen.getByRole("button", { name: "デモへ保存" }));
+    expect(await answerCancelReasons(user)).toBe(true);
     expect(window.localStorage.getItem("mosaic-local-assignment-history-v1")).toBeNull();
     expect(screen.getByRole("button", { name: "デモへ保存" })).toBeInTheDocument();
   });
@@ -9273,5 +9275,58 @@ describe("cancellation reasons (#603)", () => {
     expect(items[0].querySelector(".member-history-reason")?.textContent).toBe("理由顧客の予算が凍結された");
     expect(items[1].querySelector(".member-history-reason")?.textContent).toBe("理由の記録なし");
     expect(items[2].querySelector(".member-history-reason")).toBeNull();
+  });
+
+  it("forgets the reasons when the draft is discarded after a conflict", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const adapter = sharedAdapter();
+    adapter.initialState = linkedStaffingWorkspace();
+    adapter.reload = vi.fn().mockResolvedValue({ state: linkedStaffingWorkspace(), revision: 9 });
+    adapter.save = vi.fn()
+      .mockRejectedValueOnce(Object.assign(new Error("workspace revision conflict"), { code: "WORKSPACE_CONFLICT" }))
+      .mockResolvedValue({ revision: 10, savedAt: "2026-08-17T10:00:00Z" });
+    render(<App mode="shared" organizationName="Example Inc." identity={owner} shared={adapter} />);
+
+    const cancelAndSave = async () => {
+      await user.click(screen.getByRole("button", { name: /^Atlas リニューアルのアサイン詳細（/u }));
+      await user.click(screen.getByRole("button", { name: "アサインを取消" }));
+      await user.click(screen.getByRole("button", { name: "チームへ保存" }));
+    };
+    await cancelAndSave();
+    expect(await answerCancelReasons(user, "最初の理由")).toBe(true);
+    await user.click(await screen.findByRole("button", { name: "下書きを破棄して再読み込み" }));
+    await waitFor(() => expect(adapter.reload).toHaveBeenCalled());
+
+    await cancelAndSave();
+    const dialog = within(screen.getByRole("dialog", { name: "取り消す理由" }));
+    expect(dialog.getAllByRole("textbox", { name: /を取り消す理由$/u })[0]).toHaveValue("");
+  });
+
+  it("asks before closing a drawer with an unfinished form, and does not save when told to stay", async () => {
+    const user = userEvent.setup();
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const adapter = sharedAdapter();
+    adapter.initialState = linkedStaffingWorkspace();
+    adapter.save = vi.fn().mockResolvedValue({ revision: 8, savedAt: "2026-08-17T10:00:00Z" });
+    render(<App mode="shared" organizationName="Example Inc." identity={owner} shared={adapter} />);
+
+    await user.click(screen.getByRole("button", { name: /^Atlas リニューアルのアサイン詳細（/u }));
+    await user.click(screen.getByRole("button", { name: "アサインを取消" }));
+
+    // jsdom does not make the change bar inert behind a drawer, so the save can be pressed
+    // with an unfinished form open; the browser would not let it.
+    await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: "メンバー" }));
+    await user.click(memberRowButton(initialWorkspace.members[0].name));
+    await user.click(within(drawerDialog()).getByText("その他", { selector: "summary" }));
+    await user.click(within(drawerDialog()).getByRole("button", { name: "メンバー情報を編集" }));
+    await user.type(within(drawerDialog()).getByLabelText("氏名"), "（書きかけ）");
+    confirm.mockReset().mockReturnValue(false);
+
+    await user.click(screen.getByRole("button", { name: "チームへ保存" }));
+    expect(confirm).toHaveBeenCalledWith(expect.stringContaining("この入力はまだ反映されていません"));
+    expect(within(drawerDialog()).getByLabelText("氏名")).toHaveValue(`${initialWorkspace.members[0].name}（書きかけ）`);
+    expect(screen.queryByRole("dialog", { name: "取り消す理由" })).not.toBeInTheDocument();
+    expect(adapter.save).not.toHaveBeenCalled();
   });
 });

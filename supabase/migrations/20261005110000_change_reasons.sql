@@ -41,8 +41,13 @@ for each row execute function private.audit_row_change();
 -- Shape and scope, checked before the core save runs. Scope is checked first
 -- because archiving a member in the same save makes that person inactive, and
 -- the visible set only holds active people.
+--
+-- A request id the core has already completed is left to the core: it replays
+-- the stored result for the same payload and refuses a different one. Checking
+-- scope again would refuse the retry of a save that archived the member.
 create or replace function private.assert_change_reasons_allowed(
   p_organization_id uuid,
+  p_request_id uuid,
   p_payload jsonb
 )
 returns void
@@ -62,6 +67,14 @@ declare
   v_person uuid;
 begin
   if p_payload is null or not (p_payload ? 'changeReasons') then
+    return;
+  end if;
+  if exists (
+    select 1
+    from app.workspace_commits as workspace_commit
+    where workspace_commit.organization_id = p_organization_id
+      and workspace_commit.request_id = p_request_id
+  ) then
     return;
   end if;
   v_reasons := p_payload -> 'changeReasons';
@@ -174,7 +187,7 @@ begin
 end;
 $function$;
 
-revoke all on function private.assert_change_reasons_allowed(uuid, jsonb) from public, anon, authenticated, service_role;
+revoke all on function private.assert_change_reasons_allowed(uuid, uuid, jsonb) from public, anon, authenticated, service_role;
 revoke all on function private.apply_change_reasons(uuid, jsonb, uuid, uuid) from public, anon, authenticated, service_role;
 
 -- Same as before, except changeReasons is allowed and stripped.
@@ -329,7 +342,7 @@ begin
   end if;
 
   perform private.assert_role_permissions_allow(p_organization_id, p_payload);
-  perform private.assert_change_reasons_allowed(p_organization_id, p_payload);
+  perform private.assert_change_reasons_allowed(p_organization_id, p_request_id, p_payload);
 
   v_core := private.workspace_core_payload(p_payload);
   v_core_hash := encode(extensions.digest(convert_to(v_core::text, 'UTF8'), 'sha256'), 'hex');
@@ -370,6 +383,30 @@ begin
   return v_result;
 end;
 $function$;
+
+comment on function public.save_workspace(uuid, bigint, uuid, jsonb, text) is $comment$
+Arguments:
+  p_organization_id uuid
+  p_expected_revision bigint
+  p_request_id uuid
+  p_payload jsonb
+  p_payload_hash text (lowercase 64-character SHA-256 hex of the client payload)
+
+Payload shape is the existing members/projects/assignments/needs/skillCatalog/customFields/opportunities/opportunityNeeds/orgUnits/orgMemberships contract, plus searchScenes, savedReports, profileRequests, and changeReasons:
+{
+  "orgUnits": {
+    "upsert": [{"id","name","parentId?","sortOrder?"}],
+    "archiveIds": ["uuid"]
+  },
+  "orgMemberships": {
+    "upsert": [{"id","personId","orgUnitId","isPrimary","isManager"}],
+    "archiveIds": ["uuid"]
+  },
+  "changeReasons": [{"entityType":"assignment","entityId":"uuid","action":"cancel","reason":"1-500 chars"}]
+}
+Organization units and memberships are owner/admin only. Unit archives are applied after memberships. Profile-request create/confirm/cancel are owner/admin only. Planners may submit an open request.
+changeReasons is optional, and so is a reason for any one cancellation: a cancellation without one is saved and reads as "no reason recorded". Each entry must name an assignment in assignments.cancelIds of the same payload, at most once, about a person the caller may see. Reasons are not part of the replay key: a retry of a completed request id replays the stored result and does not write reasons, even if they differ.
+$comment$;
 
 -- Same as before, except cancelled rows carry the latest reason. Reasons are
 -- judgements about a person (docs/PRODUCT.md), so only the roles that assign

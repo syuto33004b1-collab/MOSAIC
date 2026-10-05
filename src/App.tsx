@@ -1320,10 +1320,14 @@ export default function Home({ mode = "demo", organizationId, organizationName =
     setDrawer(null);
   }, [clearFormDraft]);
 
-  /** Closing by hand (×, Escape, the backdrop, 閉じる). Closes after a save or a staged change call `closeDrawer` directly. */
+  /**
+   * Closing by hand (×, Escape, the backdrop, 閉じる). Closes after a save or a staged change call `closeDrawer` directly.
+   * Returns whether it closed: keeping an unfinished form open is a refusal.
+   */
   const requestCloseDrawer = useCallback(() => {
-    if (formDirtyRef.current && !window.confirm("この入力はまだ反映されていません。閉じると破棄される場合があります。閉じますか？")) return;
+    if (formDirtyRef.current && !window.confirm("この入力はまだ反映されていません。閉じると破棄される場合があります。閉じますか？")) return false;
     closeDrawer();
+    return true;
   }, [closeDrawer]);
 
   /** The pulse count that opens the attention dialog — focus returns here (#395). */
@@ -2806,7 +2810,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
     const reasons = reasonsGiven ?? cancelReasons;
     if (cancelledIds.some((id) => !(reasons[id] ?? "").trim())) {
       // The dialog does not stack on a drawer; with one open the save would wait unseen.
-      if (drawer) closeDrawer();
+      if (drawer && !requestCloseDrawer()) return;
       setReasonDialogOpen(true);
       return;
     }
@@ -2889,6 +2893,8 @@ export default function Home({ mode = "demo", organizationId, organizationName =
       setPendingSave(null);
       setUnsavedChanges(0);
       unsavedRef.current = 0;
+      setCancelReasons({});
+      setReasonDialogOpen(false);
       clearFormDraft();
       setDrawer(null);
       setSyncStatus("idle");
