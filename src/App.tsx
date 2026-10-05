@@ -764,29 +764,18 @@ function historyStatusLabel(entry: AssignmentHistoryEntry) {
 }
 
 /** #600: what ended and what was cancelled, with when and by whom where it was recorded. */
-function MemberHistoryPanel({
-  name,
+function MemberHistoryList({
   view,
   todayIso,
   onRetry,
-  onBack,
 }: {
-  name: string;
   view: MemberHistoryView | null;
   todayIso: string;
   onRetry: () => void;
-  onBack: () => void;
 }) {
   const entries = view?.status === "ready" ? pastAssignmentHistory(view.entries, todayIso) : [];
   return (
-    <div className="member-history">
-      <div className="drawer-heading">
-        <span className="drawer-icon mint"><History size={19} /></span>
-        <div>
-          <h2 id={DRAWER_TITLE_ID}>{name}さんのアサインの履歴</h2>
-          <p>終わったアサインと、取り消したアサインです。これからの予定は「月の稼働」にあります。保存済みの記録だけを表示します。</p>
-        </div>
-      </div>
+    <>
       {(!view || view.status === "loading") && <p className="member-history-state" role="status">履歴を読み込み中…</p>}
       {view?.status === "error" && (
         <div className="member-history-state" role="alert">
@@ -823,10 +812,7 @@ function MemberHistoryPanel({
       {view?.status === "ready" && view.entries.length >= ASSIGNMENT_HISTORY_LIMIT && (
         <p className="member-history-state" role="note">開始日の新しい順に{ASSIGNMENT_HISTORY_LIMIT}件までを読み込んでいます。</p>
       )}
-      <div className="member-detail-actions">
-        <button className="drawer-secondary" type="button" onClick={onBack}>メンバー詳細へ戻る</button>
-      </div>
-    </div>
+    </>
   );
 }
 
@@ -4485,13 +4471,23 @@ export default function Home({ mode = "demo", organizationId, organizationName =
             )}
 
             {drawer === "memberHistory" && selectedMember && (
-              <MemberHistoryPanel
-                name={memberLabel(workspace, selectedMember)}
-                view={memberHistory?.personId === selectedMember.id ? memberHistory : null}
-                todayIso={todayIso}
-                onRetry={() => loadMemberHistory(selectedMember.id)}
-                onBack={() => openMember(selectedMember.id)}
-              />
+              <div className="member-history">
+                <div className="drawer-heading">
+                  <span className="drawer-icon mint"><History size={19} /></span>
+                  <div>
+                    <h2 id={DRAWER_TITLE_ID}>{memberLabel(workspace, selectedMember)}さんのアサインの履歴</h2>
+                    <p>終わったアサインと、取り消したアサインです。これからの予定は「月の稼働」にあります。保存済みの記録だけを表示します。</p>
+                  </div>
+                </div>
+                <MemberHistoryList
+                  view={memberHistory?.personId === selectedMember.id ? memberHistory : null}
+                  todayIso={todayIso}
+                  onRetry={() => loadMemberHistory(selectedMember.id)}
+                />
+                <div className="member-detail-actions">
+                  <button className="drawer-secondary" type="button" onClick={() => openMember(selectedMember.id)}>メンバー詳細へ戻る</button>
+                </div>
+              </div>
             )}
 
             {drawer === "editMember" && selectedMember && (
