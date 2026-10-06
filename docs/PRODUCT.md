@@ -24,7 +24,16 @@ MOSAIC は**社内利用の自社の道具**です。主たる利用者は、**�
 
 参照できる人の範囲は、制限を設定しない限り全社です。権限モデルでは `owner` は参照範囲の制限対象に入りません。`admin` / `planner` / `viewer` に付ける `personScope` の既定は全社（`organization`）で、部門サブツリー・部門・本人のみに絞れます。絞った設定は、主たる利用者である PM やリーダー自身にも掛かります。
 
-評価や取消の理由のような**人についての判断は、全員には見せません。** 誰が読めるかは機能ごとに [`docs/SECURITY.md`](SECURITY.md) に置きます（評価は [#601](https://github.com/syuto33004b1-collab/MOSAIC/issues/601)、取消の理由は [#603](https://github.com/syuto33004b1-collab/MOSAIC/issues/603) で定める）。
+評価や取消の理由のような**人についての判断は、全員には見せません。** 誰が読めるかは機能ごとに [`docs/SECURITY.md`](SECURITY.md) に置きます（評価は [#601](https://github.com/syuto33004b1-collab/MOSAIC/issues/601)、取消の理由は [#603](https://github.com/syuto33004b1-collab/MOSAIC/issues/603)、聞き取った志向は [#610](https://github.com/syuto33004b1-collab/MOSAIC/issues/610) で定める）。
+
+## 人の記録の残し方
+
+適任を選ぶ材料として、スキルや経歴のほかに、性格や価値観も残したい（[#598](https://github.com/syuto33004b1-collab/MOSAIC/issues/598)）。残し方は次のとおりです（[#610](https://github.com/syuto33004b1-collab/MOSAIC/issues/610)）。
+
+- **性格は、評価の中に、場面と行動として文章で書く。** 「協調性が高い」のようなラベルで書かない。いつ、何をして、どうなったかを書けば、読む人が根拠をたどれ、決めつけになりにくい
+- **価値観・志向は、本人の言葉として、評価と分けて残す。** 画面の語は「志向」、DB は `person_aspirations`。いまは、面談や 1on1 で聞いた人が、聞いた日・場面・聞いた人と一緒に残す。本人が自分で書くのは、people とログインを結び付けられるようになってから
+- **性格診断（MBTI など）の類型は残さない**
+- 検索用のタグは、必要になってから少数を組織で決めて足す
 
 ## なぜを残す
 

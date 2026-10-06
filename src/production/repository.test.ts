@@ -805,6 +805,55 @@ describe("organization invite function", () => {
     expect(rpc.mock.calls[2]).toEqual(["withdraw_person_evaluation", { p_expected_version: 2, p_id: "e1", p_organization_id: "org-1", p_reason: "誤記", p_request_id: "req-3" }]);
   });
 
+  it("reads what was heard, leaves out the text the DB withheld, and drops rows it cannot read (#610)", async () => {
+    const row = {
+      id: "a1", version: 2, personId: "p1", heardOn: "2026-08-10", authorName: "佐藤", createdAt: "2026-08-10T00:00:00Z",
+      updatedAt: "2026-08-11T00:00:00Z", mine: true, canEdit: true, canWithdraw: true,
+      context: "期初の1on1", wishes: "設計から関わりたい", avoids: null, withdrawn: null,
+    };
+    const rpc = vi.fn().mockResolvedValue({
+      data: {
+        canWrite: true,
+        items: [
+          row,
+          { id: "a2", version: 3, personId: "p1", heardOn: "2026-07-01", withdrawn: { at: "2026-08-01T00:00:00Z", byName: "管理", reason: "聞き違い" } },
+          { ...row, id: "a3", heardOn: "先週" },
+        ],
+      },
+      error: null,
+    });
+    const repository = new ProductionRepository({ rpc } as unknown as SupabaseClient);
+    const result = await repository.listPersonAspirations("org-1", "p1");
+    expect(rpc).toHaveBeenCalledWith("list_person_aspirations", { p_organization_id: "org-1", p_person_id: "p1" });
+    expect(result.canWrite).toBe(true);
+    expect(result.items.map((item) => item.id)).toEqual(["a1", "a2"]);
+    expect(result.items[0]).toMatchObject({ context: "期初の1on1", wishes: "設計から関わりたい", avoids: null, mine: true });
+    expect(result.items[1]).not.toHaveProperty("wishes");
+    expect(result.items[1]).not.toHaveProperty("context");
+    expect(result.items[1].withdrawn).toEqual({ at: "2026-08-01T00:00:00Z", byName: "管理", reason: "聞き違い" });
+  });
+
+  it("saves and withdraws what was heard through their RPCs, and names a stale edit", async () => {
+    const rpc = vi.fn()
+      .mockResolvedValueOnce({ data: { id: "a1", version: 1, replayed: false }, error: null })
+      .mockResolvedValueOnce({ data: null, error: { code: "40001", message: "aspiration was changed since it was read" } })
+      .mockResolvedValueOnce({ data: null, error: { code: "22023", message: "an aspiration needs wishes or avoids" } })
+      .mockResolvedValueOnce({ data: { id: "a1", version: 3, replayed: false }, error: null });
+    const repository = new ProductionRepository({ rpc } as unknown as SupabaseClient);
+    const draft = { personId: "p1", heardOn: "2026-08-10", context: " 期初の1on1 ", wishes: " 設計から関わりたい ", avoids: "" };
+    await expect(repository.savePersonAspiration("org-1", "req-1", draft)).resolves.toEqual({ id: "a1", version: 1 });
+    expect(rpc.mock.calls[0]).toEqual(["save_person_aspiration", {
+      p_aspiration: { personId: "p1", heardOn: "2026-08-10", context: "期初の1on1", wishes: "設計から関わりたい", avoids: "" },
+      p_organization_id: "org-1",
+      p_request_id: "req-1",
+    }]);
+    await expect(repository.savePersonAspiration("org-1", "req-2", { ...draft, id: "a1", expectedVersion: 1 })).rejects.toMatchObject({ code: "ASPIRATION_CONFLICT" });
+    expect(rpc.mock.calls[1][1].p_aspiration).toMatchObject({ id: "a1", expectedVersion: 1 });
+    await expect(repository.savePersonAspiration("org-1", "req-3", { ...draft, wishes: "" })).rejects.toMatchObject({ code: "INVALID_ASPIRATION", retryable: false });
+    await repository.withdrawPersonAspiration("org-1", "a1", 2, " 聞き違い ", "req-4");
+    expect(rpc.mock.calls[3]).toEqual(["withdraw_person_aspiration", { p_expected_version: 2, p_id: "a1", p_organization_id: "org-1", p_reason: "聞き違い", p_request_id: "req-4" }]);
+  });
+
   it("maps a refused history read to the permission error", async () => {
     const rpc = vi.fn().mockResolvedValue({ data: null, error: { code: "42501", message: "not authorized" } });
     const repository = new ProductionRepository({ rpc } as unknown as SupabaseClient);

@@ -375,6 +375,98 @@ export function demoWithdrawEvaluation(stored: DemoEvaluation[], id: string, rea
     : evaluation);
 }
 
+export const ASPIRATION_TEXT_MAX = 1000;
+export const ASPIRATION_CONTEXT_MAX = 200;
+export const ASPIRATION_WITHDRAW_REASON_MAX = 500;
+
+/**
+ * What a person said they want and want to avoid, as heard by `authorName`
+ * (#610), the way `list_person_aspirations` returns it. The screen calls it
+ * 志向. `context`, `wishes`, and `avoids` are absent when the caller is not
+ * given the text (a withdrawn record, for anyone but the owner and the author).
+ */
+export type PersonAspiration = {
+  id: string;
+  version: number;
+  personId: string;
+  heardOn: string;
+  authorName: string;
+  createdAt: string;
+  updatedAt: string;
+  mine: boolean;
+  canEdit: boolean;
+  canWithdraw: boolean;
+  context?: string | null;
+  wishes?: string | null;
+  avoids?: string | null;
+  withdrawn: { at: string; byName: string; reason: string } | null;
+};
+
+export type PersonAspirationDraft = {
+  id?: string;
+  expectedVersion?: number;
+  personId: string;
+  heardOn: string;
+  context: string;
+  wishes: string;
+  avoids: string;
+};
+
+/** The same rule `save_person_aspiration` applies, so the form can say it before sending. */
+export function aspirationDraftProblem(draft: Pick<PersonAspirationDraft, "heardOn" | "context" | "wishes" | "avoids">) {
+  const wishes = draft.wishes.trim();
+  const avoids = draft.avoids.trim();
+  if (!isCivilIsoDate(draft.heardOn)) return "聞いた日を日付で入れてください";
+  if (!wishes && !avoids) return "やりたいこと・大事にしていることか、避けたい仕事・関わり方のどちらかを書いてください";
+  if ([wishes, avoids].some((text) => text.length > ASPIRATION_TEXT_MAX)) return `それぞれ${ASPIRATION_TEXT_MAX}字までです`;
+  if (draft.context.trim().length > ASPIRATION_CONTEXT_MAX) return `聞いた場面は${ASPIRATION_CONTEXT_MAX}字までです`;
+  return null;
+}
+
+/** The demo's aspirations: the demo user heard all of them, so every one is theirs. */
+export type DemoAspiration = Omit<PersonAspiration, "mine" | "canEdit" | "canWithdraw">;
+
+export function demoAspirationsFor(stored: DemoAspiration[], personId: string): PersonAspiration[] {
+  return stored
+    .filter((aspiration) => aspiration.personId === personId)
+    .map((aspiration) => ({
+      ...aspiration,
+      mine: true,
+      canEdit: !aspiration.withdrawn,
+      canWithdraw: !aspiration.withdrawn,
+    }))
+    .sort((a, b) => (a.heardOn === b.heardOn ? b.createdAt.localeCompare(a.createdAt) : a.heardOn < b.heardOn ? 1 : -1));
+}
+
+export function demoSaveAspiration(
+  stored: DemoAspiration[],
+  draft: PersonAspirationDraft,
+  now: string,
+  authorName: string,
+  newIdValue: string,
+): DemoAspiration[] {
+  const text = (value: string) => value.trim() || null;
+  const fields = {
+    personId: draft.personId,
+    heardOn: draft.heardOn,
+    context: text(draft.context),
+    wishes: text(draft.wishes),
+    avoids: text(draft.avoids),
+  };
+  if (!draft.id) {
+    return [...stored, { id: newIdValue, version: 1, authorName, createdAt: now, updatedAt: now, withdrawn: null, ...fields }];
+  }
+  return stored.map((aspiration) => aspiration.id === draft.id && !aspiration.withdrawn
+    ? { ...aspiration, ...fields, version: aspiration.version + 1, updatedAt: now }
+    : aspiration);
+}
+
+export function demoWithdrawAspiration(stored: DemoAspiration[], id: string, reason: string, now: string, byName: string): DemoAspiration[] {
+  return stored.map((aspiration) => aspiration.id === id && !aspiration.withdrawn
+    ? { ...aspiration, version: aspiration.version + 1, updatedAt: now, withdrawn: { at: now, byName, reason: reason.trim() } }
+    : aspiration);
+}
+
 /** A cancellation recorded by the demo, which has no server to keep cancelled rows. */
 export type DemoCancelledAssignment = AssignmentHistoryEntry & { personId: string };
 

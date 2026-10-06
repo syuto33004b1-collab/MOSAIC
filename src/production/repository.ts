@@ -1,5 +1,5 @@
 import type { AuthError, PostgrestError, SupabaseClient, User } from "@supabase/supabase-js";
-import type { Assignment, AssignmentHistoryEntry, CancelReasons, EvaluationVisibility, PersonEvaluation, PersonEvaluationDraft, CustomFieldDefinition, CustomFieldEntity, CustomFieldType, Member, MemberUnavailability, Opportunity, OpportunityNeed, OpportunityStage, OrgMembership, OrgUnit, PersonScope, ProfileRequest, ProfileRequestScope, ProfileRequestStatus, Project, ReportGroupBy, ReportMetric, ReportSource, RestrictableFeature, RestrictableRole, RolePermission, SavedReport, SearchScene, SearchSkillFilter, SkillDefinition, SkillImportance, SkillKind, StaffingNeed, WorkHistoryEntry, WorkspaceState } from "../domain";
+import type { Assignment, AssignmentHistoryEntry, CancelReasons, EvaluationVisibility, PersonAspiration, PersonAspirationDraft, PersonEvaluation, PersonEvaluationDraft, CustomFieldDefinition, CustomFieldEntity, CustomFieldType, Member, MemberUnavailability, Opportunity, OpportunityNeed, OpportunityStage, OrgMembership, OrgUnit, PersonScope, ProfileRequest, ProfileRequestScope, ProfileRequestStatus, Project, ReportGroupBy, ReportMetric, ReportSource, RestrictableFeature, RestrictableRole, RolePermission, SavedReport, SearchScene, SearchSkillFilter, SkillDefinition, SkillImportance, SkillKind, StaffingNeed, WorkHistoryEntry, WorkspaceState } from "../domain";
 import { cancelledAssignmentIds, changeReasonsFor, EVALUATION_VISIBILITIES, hydrateWorkspaceSkills, MONTHLY_COST_YEN_MAX, OPPORTUNITY_STAGES, normalizeMemberUnavailability, normalizeSkillProficiency, normalizeWorkHistory, parseSkillInput, PERSON_SCOPES, PROFILE_REQUEST_SCOPES, PROFILE_REQUEST_STATUSES, RESTRICTABLE_FEATURES, RESTRICTABLE_ROLES } from "../domain";
 import { normalizeFavorites, type Favorite, type FavoriteKind } from "../collaboration";
 import { appAuthRedirectUrl } from "./authRecovery";
@@ -1192,6 +1192,51 @@ function normalizePersonEvaluation(value: unknown): PersonEvaluation | undefined
   };
 }
 
+function normalizePersonAspiration(value: unknown): PersonAspiration | undefined {
+  const record = asRecord(value);
+  if (!record) return undefined;
+  const id = readString(record, "id");
+  const personId = readString(record, "personId");
+  const heardOn = readString(record, "heardOn");
+  const version = readNumber(record, "version");
+  if (!id || !personId || !heardOn || !isoDatePattern.test(heardOn) || version === undefined) return undefined;
+  const withdrawn = asRecord(record.withdrawn);
+  const text = (key: "context" | "wishes" | "avoids") => (key in record ? { [key]: readString(record, key) ?? null } : {});
+  return {
+    id,
+    version,
+    personId,
+    heardOn,
+    authorName: readString(record, "authorName") ?? "MOSAICユーザー",
+    createdAt: readString(record, "createdAt") ?? "",
+    updatedAt: readString(record, "updatedAt") ?? "",
+    mine: record.mine === true,
+    canEdit: record.canEdit === true,
+    canWithdraw: record.canWithdraw === true,
+    ...text("context"),
+    ...text("wishes"),
+    ...text("avoids"),
+    withdrawn: withdrawn ? {
+      at: readString(withdrawn, "at") ?? "",
+      byName: readString(withdrawn, "byName") ?? "MOSAICユーザー",
+      reason: readString(withdrawn, "reason") ?? "",
+    } : null,
+  };
+}
+
+function aspirationError(action: string, error: PostgrestError) {
+  if (error.code === "40001") {
+    return new ProductionRepositoryError("ほかの人が先にこの記録を変更しました。読み込み直してから、もう一度操作してください。", {
+      cause: error,
+      code: "ASPIRATION_CONFLICT",
+    });
+  }
+  if (error.code === "22023") {
+    return new ProductionRepositoryError("入力内容を確認してください。", { cause: error, code: "INVALID_ASPIRATION", retryable: false });
+  }
+  return rpcError(action, error);
+}
+
 function evaluationError(action: string, error: PostgrestError) {
   if (error.code === "40001") {
     return new ProductionRepositoryError("ほかの人が先にこの評価を変更しました。読み込み直してから、もう一度操作してください。", {
@@ -1586,6 +1631,53 @@ export class ProductionRepository {
       p_request_id: requestId,
     });
     if (error) throw evaluationError("評価を取り下げ", error);
+  }
+
+  async listPersonAspirations(organizationId: string, personId: string): Promise<{ items: PersonAspiration[]; canWrite: boolean }> {
+    const { data, error } = await this.client.rpc("list_person_aspirations", {
+      p_organization_id: organizationId,
+      p_person_id: personId,
+    });
+    if (error) throw aspirationError("志向を読み込み", error);
+    const record = asRecord(unwrapRpcValue(data));
+    return {
+      items: readArray(record, "items")
+        .map(normalizePersonAspiration)
+        .filter((item): item is PersonAspiration => Boolean(item)),
+      canWrite: record?.canWrite === true,
+    };
+  }
+
+  async savePersonAspiration(organizationId: string, requestId: string, draft: PersonAspirationDraft): Promise<{ id: string; version: number }> {
+    const { data, error } = await this.client.rpc("save_person_aspiration", {
+      p_aspiration: {
+        ...(draft.id ? { id: draft.id, expectedVersion: draft.expectedVersion } : {}),
+        personId: draft.personId,
+        heardOn: draft.heardOn,
+        context: draft.context.trim(),
+        wishes: draft.wishes.trim(),
+        avoids: draft.avoids.trim(),
+      },
+      p_organization_id: organizationId,
+      p_request_id: requestId,
+    });
+    if (error) throw aspirationError("志向を保存", error);
+    const record = asRecord(unwrapRpcValue(data));
+    const id = readString(record, "id");
+    const version = readNumber(record, "version");
+    if (!id || version === undefined) throw new ProductionRepositoryError("保存した志向を確認できませんでした。", { code: "INVALID_ASPIRATION_RESULT" });
+    return { id, version };
+  }
+
+  async withdrawPersonAspiration(organizationId: string, id: string, expectedVersion: number, reason: string, requestId: string): Promise<void> {
+    const { error } = await this.client.rpc("withdraw_person_aspiration", {
+      p_expected_version: expectedVersion,
+      p_id: id,
+      p_organization_id: organizationId,
+      p_reason: reason.trim(),
+      p_request_id: requestId,
+    });
+    if (error) throw aspirationError("志向を取り下げ", error);
   }
 
   async listFavorites(organizationId: string): Promise<Favorite[]> {
