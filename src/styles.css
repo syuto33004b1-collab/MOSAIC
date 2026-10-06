@@ -6357,6 +6357,13 @@ h1 {
   font-size: var(--text-min);
   line-height: var(--leading);
 }
+/* Stacked below a 520px panel, and on the sheet, where the panel is not a container.
+   Beside the 177px button, 「メンバーがまだ選ばれていません」 broke with its last
+   character alone on a second line. */
+@container detail-panel (max-width: 520px) {
+  .assignment-add-form .assignment-detail-actions { grid-template-columns: minmax(0, 1fr); }
+  .assignment-add-form .assignment-detail-actions > .drawer-primary { width: 100%; }
+}
 @media (max-width: 620px) {
   .assignment-add-form .assignment-detail-actions { grid-template-columns: minmax(0, 1fr); }
   .assignment-add-form .assignment-detail-change { grid-row: auto; }
