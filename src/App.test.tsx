@@ -993,6 +993,22 @@ describe("role-aware workspace", () => {
     expect(dialog.getByText("馬場 二郎さんへ仮置きします")).toBeInTheDocument();
   });
 
+  it("refuses an unchosen submit with the search matching nobody, and puts the focus on the search (#589)", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    const placed = () => document.querySelectorAll(".assignment").length;
+    const before = placed();
+    await openAssignmentFormFromBoard(user, { choose: false });
+    const dialog = within(drawerDialog());
+    await user.type(dialog.getByLabelText("アサインするメンバーを検索"), "該当しない名前");
+    expect(dialog.queryAllByRole("radio")).toHaveLength(0);
+    await user.click(dialog.getByRole("button", { name: "この内容で仮置きする" }));
+    expect(dialog.getByRole("alert")).toHaveTextContent("仮置きする前に、メンバーを選んでください");
+    // No row to land on, so the field that brings the rows back.
+    expect(dialog.getByLabelText("アサインするメンバーを検索")).toHaveFocus();
+    expect(placed()).toBe(before);
+  });
+
   it("shows no loads while the form's dates make no range", async () => {
     const user = userEvent.setup();
     render(<App />);
@@ -5280,7 +5296,8 @@ describe("a week-scoped figure names the week it measures", () => {
     expect(average()).toMatch(/^\d+%$/u);
     expect(averageMetric().querySelector("span")!.textContent).toBe("8/17週の平均稼働率");
 
-    await openAssignmentFormFromBoard(user);
+    // Nobody chosen: choosing is input, and the close below would ask first (#492).
+    await openAssignmentFormFromBoard(user, { choose: false });
     // The form opens on this week, Monday to Friday, which is what the legend names.
     expect(document.querySelector(".member-picker legend")!.textContent).toContain("8月17日 — 8月21日");
     const suzuki = rowFor("鈴木 健太");
@@ -5298,8 +5315,9 @@ describe("a week-scoped figure names the week it measures", () => {
 
     // Close and reopen after paging a month: the form still reads its own dates (#199).
     await user.click(document.querySelector(".drawer .close-button") as HTMLElement);
+    expect(queryDrawerDialog()).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "次の月" }));
-    await openAssignmentFormFromBoard(user);
+    await openAssignmentFormFromBoard(user, { choose: false });
     expect(rowFor("鈴木 健太").querySelector(".member-picker-load")!.textContent).toMatch(/^\d+%/u);
   });
 
@@ -5346,8 +5364,8 @@ describe("a week-scoped figure names the week it measures", () => {
     // legend, and every row is the peak over that range (#199) with the form's draft on
     // that person (#589). Same property as before — a figure and the words for what it
     // measures, paired — with the form's dates as the thing being named instead of the
-    // board's week.
-    await openAssignmentFormFromBoard(user);
+    // board's week. Nobody chosen, so the close below does not ask first (#492).
+    await openAssignmentFormFromBoard(user, { choose: false });
     const legend = document.querySelector(".member-picker legend")!.textContent!;
     const range = legend.match(/(\d+)月(\d+)日 — (\d+)月(\d+)日/u);
     expect(range, `expected a range in 「${legend}」`).not.toBeNull();
@@ -5374,6 +5392,7 @@ describe("a week-scoped figure names the week it measures", () => {
     // accessible name, which is #122. Two matches would fail here for a reason
     // that has nothing to do with this test.
     await user.click(document.querySelector(".drawer .close-button") as HTMLElement);
+    expect(queryDrawerDialog()).not.toBeInTheDocument();
 
     // The member detail line names the basis month and every month it plots.
     await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^メンバー( |$)/u }));
