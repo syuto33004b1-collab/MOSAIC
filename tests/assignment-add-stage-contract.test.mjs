@@ -128,11 +128,12 @@ test("App wires one size modifier per Drawer member and attention md (#407)", as
   const mappedNames = mapped.map(([name]) => name);
   assert.deepEqual([...mappedNames].sort(), [...members].sort(),
     "every Drawer member except null must have exactly one size");
+  // The add form left sm for the detail's shell and two panes (#589); only the chooser stays.
   assert.deepEqual(
     mapped.filter(([, size]) => size === "dialog-sm").map(([name]) => name).sort(),
-    ["add", "addChooser"],
+    ["addChooser"],
   );
-  assert.ok(mapped.every(([name, size]) => name === "add" || name === "addChooser" ? size === "dialog-sm" : size === "dialog-lg"));
+  assert.ok(mapped.every(([name, size]) => name === "addChooser" ? size === "dialog-sm" : size === "dialog-lg"));
 
   assert.match(source, /const DRAWER_KICKER = \{/u);
   const kickerBlock = /const DRAWER_KICKER = \{([\s\S]*?)\}\s+as const satisfies Record<Exclude<Drawer, null>/u.exec(source);

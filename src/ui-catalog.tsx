@@ -337,13 +337,6 @@ function DateFieldsSpecimen() {
   );
 }
 
-function AllocationSpecimen() {
-  const [allocation, setAllocation] = useState("50");
-  return (
-    <label>稼働配分<div className="allocation-input"><input type="range" min="10" max="100" step="10" value={allocation} onChange={(event) => setAllocation(event.target.value)} /><output>{allocation}%</output></div></label>
-  );
-}
-
 function FieldFlagSpecimen() {
   const [checked, setChecked] = useState(true);
   return <label className="field-flag"><input type="checkbox" checked={checked} onChange={(event) => setChecked(event.target.checked)} />一覧に表示</label>;
@@ -442,7 +435,6 @@ export const UI_CATALOG: readonly CatalogSection[] = [
         specimens: [
           { label: "文字・選択・複数行", classes: ["assignment-form"], probe: ".assignment-form > label > input", screens: "追加と編集のパネル", wide: true, Render: FormFieldsSpecimen },
           { label: "日付", classes: ["form-grid"], probe: ".form-grid input", context: ["assignment-form"], screens: "アサインの追加と編集", wide: true, Render: DateFieldsSpecimen },
-          { label: "稼働配分", classes: ["allocation-input"], probe: ".allocation-input input", context: ["assignment-form"], screens: "アサインの追加と編集", Render: AllocationSpecimen },
           { label: "項目の設定", classes: ["field-flag"], probe: ".field-flag", context: ["field-catalog-form"], screens: "項目定義", wide: true, Render: FieldFlagSpecimen },
         ],
       },

@@ -355,33 +355,35 @@ async function main() {
     results.push(await scan(page, "アサイン追加ドロワー"));
 
     // A refused submit, which is the state #305 asks for and the first version never
-    // reached: with valid defaults the form saves and the drawer closes, so the board got
+    // reached: with valid defaults the form saved and the drawer closed, so the board got
     // scanned under this name.
     //
-    // The refusal has to be one the handler makes, not one the browser makes. The end date
-    // carries `min={form.startDate}`, so a date before the start never reaches the code —
-    // the same shape as #258, where a submit the browser refused left a stale error up. A
-    // date past the project's end passes the input and is refused by `handleAddAssignment`.
+    // The refusal has to be one the handler makes, not one the browser makes — the shape
+    // of #258, where a submit the browser refused left a stale error up. The dates carry
+    // the project's min and max now, so a date outside it never reaches the code (#589).
+    // What does: the form opens from the board with no member chosen, and submitting it
+    // that way is refused at the list. The allocation is typed first so that closing has
+    // a draft to ask about.
     await page.evaluate(() => {
       const dialog = document.querySelector("[role=dialog]");
-      const end = [...dialog.querySelectorAll("input[type=date]")]
-        .find((item) => (item.labels?.[0]?.textContent ?? "").trim().startsWith("終了日"));
-      if (!end) throw new Error("the assignment drawer has no end date");
+      const allocation = [...dialog.querySelectorAll("input[type=number]")]
+        .find((item) => (item.labels?.[0]?.textContent ?? "").trim().startsWith("稼働配分"));
+      if (!allocation) throw new Error("the assignment drawer has no allocation");
       const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set;
-      setter.call(end, "2030-12-31");
-      end.dispatchEvent(new Event("input", { bubbles: true }));
-      end.dispatchEvent(new Event("change", { bubbles: true }));
+      setter.call(allocation, "60");
+      allocation.dispatchEvent(new Event("input", { bubbles: true }));
+      allocation.dispatchEvent(new Event("change", { bubbles: true }));
     });
     await page.evaluate(() => {
       const dialog = document.querySelector("[role=dialog]");
+      if (dialog.querySelector('input[name="assignment-member"]:checked')) throw new Error("the assignment drawer opened with a member chosen");
       const submit = [...dialog.querySelectorAll("button")].find((item) => item.textContent.includes("仮置き"));
       if (!submit) throw new Error("the assignment drawer has no submit");
       submit.click();
     });
-    await until(page, "the refusal", () => document.querySelector(".toast.show")?.textContent?.includes("プロジェクト期間内") === true
-      && Boolean(document.querySelector("[role=dialog]")));
+    await until(page, "the refusal", () => document.querySelector("[role=dialog] [role=alert]")?.textContent?.includes("メンバーを選んでください") === true);
     results.push(await scan(page, "アサイン追加ドロワー（送信を拒否された状態）"));
-    // The end date was typed, so closing asks first (#492). A native confirm blocks the
+    // The allocation was typed, so closing asks first (#492). A native confirm blocks the
     // page until it is answered; without this the next key press times out.
     // Same 8s as `until`, so a missing confirm fails with a reason instead of waiting forever.
     let onDialog;

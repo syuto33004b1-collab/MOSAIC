@@ -732,8 +732,8 @@ function assignmentActionFromRow(state: WorkspaceState, row: Record<string, stri
 
   const allocationRaw = existing ? valueOr(row, "allocation", String(existing.allocation)) : required(row, "allocation", "稼働配分");
   const allocation = Number(allocationRaw);
-  // Whole percents, which is all the screens can make: the range in the add form steps by
-  // 10 and the edit form's number input by 1. The column is `numeric(5,2)` with a
+  // Whole percents, which is all the screens can make: both assignment forms take a
+  // number input that steps by 1 from 1 to 100 (#589). The column is `numeric(5,2)` with a
   // `> 0` check, so 「0.001」 would round to 0.00 on the way in and violate it — refusing
   // it here says so, rather than letting the whole save fail on a constraint name.
   if (!Number.isInteger(allocation) || allocation < 1 || allocation > 100) {
