@@ -537,8 +537,8 @@ export function pickerRailPoints(days: readonly Pick<DailyLoad, "load" | "capaci
  * whole box is the target, which is what #190 was about.
  *
  * What the numbers mean is deliberately not decided here. The caller measures them
- * and names them in `hint`: the add form shows the load over its own dates, the edit
- * form shows what the load would become if its form were saved.
+ * and names them in `hint`: both forms show what the load would become if the form
+ * were saved onto that person (#219 for the edit form, #589 for the add form).
  */
 export function MemberPicker({
   legend,
@@ -555,9 +555,12 @@ export function MemberPicker({
   disabled = false,
   measured = true,
   chosenRef,
+  describedBy,
 }: {
   legend: string;
   hint: string;
+  /** The id of what the form says about the choice (the add form's 「選んでください」), tied to the group. */
+  describedBy?: string;
   /**
    * Whether the peaks mean anything. With the form's end before its start, the load
    * over the range is 0 for everyone, and a list of 「0% / 100%」 said 「all free」
@@ -596,7 +599,7 @@ export function MemberPicker({
     : [chosen, ...capped.slice(0, limit - 1)];
 
   return (
-    <fieldset className="member-picker">
+    <fieldset className="member-picker" aria-describedby={describedBy}>
       {/* The range and what is being measured over it, so every row's number has a
           stated meaning and the group announces it once rather than per row. */}
       {/* The hint on a line of its own, still inside the legend so the group's name keeps it.

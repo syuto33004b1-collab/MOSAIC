@@ -258,11 +258,11 @@ export type AppProps = {
 
 type Drawer = "addChooser" | "add" | "assignment" | "overload" | "openRole" | "project" | "member" | "memberHistory" | "memberEvaluations" | "newProject" | "newMember" | "editProject" | "editMember" | "needForm" | "opportunity" | "newOpportunity" | "editOpportunity" | "opportunityNeedForm" | null;
 
-/** #407 / #408: 詳細ドロワーの幅修飾。addChooser と add が sm（620）。他は lg（1000 / 62vw、height は 100% のまま）。
- *  要調整は `.attention-dialog.dialog-md`。設定パネルは対象外。 */
+/** #407 / #408: 詳細ドロワーの幅修飾。addChooser だけが sm（620）。他は lg（1000 / 62vw、height は 100% のまま）。
+ *  add は詳細と同じ殻と2列を使うので lg（#589）。要調整は `.attention-dialog.dialog-md`。設定パネルは対象外。 */
 const DRAWER_DIALOG_SIZE = {
   addChooser: "dialog-sm",
-  add: "dialog-sm",
+  add: "dialog-lg",
   assignment: "dialog-lg",
   overload: "dialog-lg",
   openRole: "dialog-lg",
@@ -1701,7 +1701,9 @@ export default function Home({ mode = "demo", organizationId, organizationName =
   const [syncStatus, setSyncStatus] = useState<"idle" | "saving" | "refreshing" | "conflict" | "error">("idle");
   const [syncError, setSyncError] = useState("");
   const [syncRetryable, setSyncRetryable] = useState(true);
-  const [form, setForm] = useState({ personId: startingWorkspace.members[0]?.id ?? "", projectId: startingWorkspace.projects[0]?.id ?? "", startDate: getWeekStart(0), endDate: addDays(getWeekStart(0), 4), allocation: "40", weekendWorkDates: [] as string[] });
+  const [form, setForm] = useState({ personId: "", projectId: startingWorkspace.projects[0]?.id ?? "", startDate: getWeekStart(0), endDate: addDays(getWeekStart(0), 4), allocation: "40", weekendWorkDates: [] as string[] });
+  /** The add form was submitted with no member chosen. Cleared by choosing one, or by opening the form again. */
+  const [addMemberMissing, setAddMemberMissing] = useState(false);
   const [projectForm, setProjectForm] = useState({ name: "", status: "準備中" as ProjectStatus, startDate: currentLocalDate(), endDate: addDays(getWeekStart(0), 90), demand: "", ownerId: startingWorkspace.members[0]?.id ?? "" });
   const [memberForm, setMemberForm] = useState<MemberForm>(() => emptyMemberForm(startingWorkspace));
   const [memberEditForm, setMemberEditForm] = useState<MemberForm>(() => emptyMemberForm(startingWorkspace));
@@ -2186,11 +2188,11 @@ export default function Home({ mode = "demo", organizationId, organizationName =
   useEffect(() => {
     // Both forms, and only one of them is mounted at a time, so one ref is enough.
     // The edit form needs it more: it opens on whoever holds the assignment, and
-    // that person is wherever their load puts them in the order (#219).
-    // The add form keeps its list above the fields and the whole drawer scrolling, so
-    // there the row still brings the drawer along.
-    if (drawer === "add") chosenCandidateRef.current?.scrollIntoView({ block: "nearest" });
-    if (drawer === "assignment") revealInPickerList(chosenCandidateRef.current);
+    // that person is wherever their load puts them in the order (#219). The add form
+    // has a chosen row only when opened from a member's own screen (#589).
+    // Inside the list only: both forms put their terms above the list in one column,
+    // and scrolling the drawer to the row would take the terms off screen (#587).
+    if (drawer === "add" || drawer === "assignment") revealInPickerList(chosenCandidateRef.current);
   }, [drawer]);
 
   const range = useMemo(() => boardRange("month", weekOffset), [weekOffset]);
@@ -2369,14 +2371,37 @@ export default function Home({ mode = "demo", organizationId, organizationName =
    * this assignment*, and reading the board's week is how #187 came to offer a 120%
    * member at 「0%」. Keyed off the form, it cannot drift from the board again, because
    * it no longer asks the board anything (#199).
+   *
+   * And with this assignment already placed on each of them, the way `editCandidates`
+   * measures a swap: the plain load left the reader to add the allocation and the
+   * ticked weekend days in their head, and the warning below the terms disagreed
+   * with the row it was about (#589).
+   *
+   * Only while the form is open: it measures every member, and the board re-renders
+   * for far more than this form.
    */
-  const addCandidates: MemberCandidate[] = workspace.members.map((member) => ({
-    member,
-    peak: memberPeakLoad(workspace, member.id, form.startDate, form.endDate),
-    days: memberDailyLoads(workspace, member.id, form.startDate, form.endDate),
-    label: memberLabel(workspace, member),
-    search: memberSearchText(workspace, member),
-  }));
+  const addCandidates: MemberCandidate[] = useMemo(() => {
+    if (drawer !== "add") return [];
+    const draft = {
+      id: "draft-preview",
+      projectId: form.projectId,
+      startDate: form.startDate,
+      endDate: form.endDate,
+      allocation: Number(form.allocation) || 0,
+      status: "draft" as const,
+      weekendWorkDates: weekendWithinRange(form),
+    };
+    return workspace.members.map((member) => {
+      const preview = { ...workspace, assignments: [...workspace.assignments, { ...draft, personId: member.id }] };
+      return {
+        member,
+        peak: memberPeakLoad(preview, member.id, form.startDate, form.endDate),
+        days: memberDailyLoads(preview, member.id, form.startDate, form.endDate),
+        label: memberLabel(workspace, member),
+        search: memberSearchText(workspace, member),
+      };
+    });
+  }, [drawer, workspace, form]);
   /**
    * The edit form's candidates, and a different question: not 「how loaded is this
    * person」 but 「how loaded would they be if I saved this form onto them」.
@@ -2423,27 +2448,13 @@ export default function Home({ mode = "demo", organizationId, organizationName =
    * Said, not enforced: drafting a knowing overbooking to adjust later is normal work,
    * and the assistant's proposal card only says it too (#229).
    */
+  const addProject = projectById(workspace, form.projectId);
+  const addMember = form.personId ? memberById(workspace, form.personId) : undefined;
   const addOverload = (() => {
-    const member = memberById(workspace, form.personId);
-    if (!member) return null;
-    // Measured with the draft in place, the way `editCandidates` measures a swap: the
-    // picker's peak plus the allocation would miss the weekend days the form has
-    // ticked, which count only once an assignment records them.
-    const preview: WorkspaceState = {
-      ...workspace,
-      assignments: [...workspace.assignments, {
-        id: "draft-preview",
-        personId: member.id,
-        projectId: form.projectId,
-        startDate: form.startDate,
-        endDate: form.endDate,
-        allocation: Number(form.allocation) || 0,
-        status: "draft",
-        weekendWorkDates: form.weekendWorkDates,
-      }],
-    };
-    const days = memberDailyLoads(preview, member.id, form.startDate, form.endDate).filter((day) => day.load > day.capacity);
-    const worst = worstLoadOverCapacity(days);
+    // `addCandidates` already measures with the draft in place.
+    const chosen = addCandidates.find((candidate) => candidate.member.id === form.personId);
+    if (!chosen) return null;
+    const worst = worstLoadOverCapacity(chosen.days.filter((day) => day.load > day.capacity));
     if (!worst) return null;
     return { projected: worst.load, capacity: worst.capacity };
   })();
@@ -3158,12 +3169,22 @@ export default function Home({ mode = "demo", organizationId, organizationName =
       const suggestedEndDate = addDays(startDate, 4);
       return {
         ...current,
-        personId: memberById(workspace, memberId ?? current.personId)?.id ?? workspace.members[0]?.id ?? "",
+        // Chosen only when opened from that member's own screen. Anywhere else the
+        // leftover was 「the first member」 or whoever was booked last — neither a
+        // recommendation nor the top of a list ordered by room — and it could be
+        // submitted without being looked at (#589).
+        personId: memberId ? memberById(workspace, memberId)?.id ?? "" : "",
         projectId: resolvedProject?.id ?? "",
         startDate,
         endDate: resolvedProject && suggestedEndDate > resolvedProject.endDate ? resolvedProject.endDate : suggestedEndDate,
+        // The allocation carries over: it is on screen, and booking several people at
+        // the same share is the usual reason to open the form again. The weekend days
+        // do not — they belong to the last range, and any that fall inside the new one
+        // would come back ticked without anyone ticking them.
+        weekendWorkDates: [],
       };
     });
+    setAddMemberMissing(false);
     setMemberPickerQuery("");
     setDrawer("add");
   };
@@ -3180,6 +3201,16 @@ export default function Home({ mode = "demo", organizationId, organizationName =
 
   const handleAddAssignment = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    // Not chosen yet, which is how the form opens from the board. Said at the list,
+    // not in a toast: the fix is there, and 「先に登録してください」 would send the
+    // reader to register someone who already exists.
+    if (canAddAssignment && !form.personId) {
+      setAddMemberMissing(true);
+      const firstChoice = event.currentTarget.querySelector<HTMLInputElement>('input[name="assignment-member"]')
+        ?? event.currentTarget.querySelector<HTMLInputElement>(".member-picker input");
+      firstChoice?.focus();
+      return;
+    }
     if (!canAddAssignment || !memberById(workspace, form.personId) || !projectById(workspace, form.projectId)) {
       setToast("先にメンバーとプロジェクトを登録してください");
       return;
@@ -3656,7 +3687,6 @@ export default function Home({ mode = "demo", organizationId, organizationName =
       setToast(caught instanceof Error ? caught.message : "所属を保存できませんでした");
       return;
     }
-    setForm((current) => ({ ...current, personId: memberById(workspace, current.personId)?.id ?? id }));
     setProjectForm((current) => ({ ...current, ownerId: memberById(workspace, current.ownerId)?.id ?? id }));
     markUnsaved();
     setMemberForm(emptyMemberForm(workspace));
@@ -3779,7 +3809,6 @@ export default function Home({ mode = "demo", organizationId, organizationName =
       needs: workspace.needs.map((need) => reopenedNeedIds.has(need.id) ? { ...need, status: "open", draftPersonId: null } : need),
     };
     setWorkspace(nextWorkspace);
-    setForm((current) => ({ ...current, personId: nextWorkspace.members[0]?.id ?? "" }));
     setProjectForm((current) => ({ ...current, ownerId: nextWorkspace.members[0]?.id ?? "" }));
     setSelectedMemberId(nextWorkspace.members[0]?.id ?? "");
     markUnsaved();
@@ -4979,7 +5008,7 @@ export default function Home({ mode = "demo", organizationId, organizationName =
               `no-static-element-interactions` both skip an `aria-hidden` element, and
               a directive here reports as unused. */}
           <div className="overlay-backdrop" aria-hidden="true" onClick={requestCloseDrawer} />
-          <section className={"drawer " + DRAWER_DIALOG_SIZE[drawer] + (drawer === "member" ? " member-detail-open" : "") + (drawer === "project" ? " project-detail-open" : "") + (drawer === "assignment" ? " assignment-detail-open" : "")} ref={drawerRef} role="dialog" aria-modal="true" aria-labelledby={DRAWER_TITLE_ID} tabIndex={-1}>
+          <section className={"drawer " + DRAWER_DIALOG_SIZE[drawer] + (drawer === "member" ? " member-detail-open" : "") + (drawer === "project" ? " project-detail-open" : "") + (drawer === "assignment" || drawer === "add" ? " assignment-detail-open" : "")} ref={drawerRef} role="dialog" aria-modal="true" aria-labelledby={DRAWER_TITLE_ID} tabIndex={-1}>
             <div className="drawer-handle" />
             <div className="drawer-top"><span className="drawer-kicker">{drawer === "needForm" && editingNeedId ? "EDIT STAFFING NEED" : drawer === "opportunityNeedForm" && editingOpportunityNeedId ? "EDIT STAFFING PLAN" : DRAWER_KICKER[drawer]}</span><button className="close-button" aria-label="詳細パネルを閉じる" onClick={requestCloseDrawer}><X size={18} /></button></div>
 
@@ -5000,39 +5029,57 @@ export default function Home({ mode = "demo", organizationId, organizationName =
             )}
 
             {drawer === "add" && (
-              <form className="assignment-form" onChange={markFormDraftDirty} onSubmit={handleAddAssignment}>
-                <div className="drawer-heading"><span className="drawer-icon cobalt"><Plus size={19} /></span><div><h2 id={DRAWER_TITLE_ID}>アサインを追加</h2><p>日付と稼働配分を仮置きします。</p></div></div>
-                <MemberPicker
-                  legend="メンバー"
-                  hint={formRangeHint(form.startDate, form.endDate, `${shortDate(form.startDate)} — ${shortDate(form.endDate)} の稼働 · 空きが多い順`)}
-                  measured={formRangeMeasured(form.startDate, form.endDate)}
-                  name="assignment-member"
-                  searchLabel="アサインするメンバーを検索"
-                  candidates={addCandidates}
-                  limit={MEMBER_PICKER_LIMIT}
-                  value={form.personId}
-                  onChange={(personId) => setForm({ ...form, personId })}
-                  query={memberPickerQuery}
-                  onQueryChange={setMemberPickerQuery}
-                  chosenRef={chosenCandidateRef}
-                />
-                <label htmlFor="assignment-project">プロジェクト<select id="assignment-project" aria-label="プロジェクト" value={form.projectId} onChange={(event) => selectAssignmentProject(event.target.value)}>{workspace.projects.map((project) => <option value={project.id} key={project.id}>{project.name}</option>)}</select></label>
-                <div className="form-grid">
-                  <label>開始日<input required type="date" value={form.startDate} onChange={(event) => setForm({ ...form, startDate: event.target.value })} /></label>
-                  <label>終了日<input required type="date" min={form.startDate} value={form.endDate} onChange={(event) => setForm({ ...form, endDate: event.target.value })} /></label>
+              <form className="assignment-form assignment-edit-form assignment-add-form" onChange={markFormDraftDirty} onSubmit={handleAddAssignment}>
+                <div className="assignment-detail-body">
+                  <div className="drawer-heading"><span className="drawer-icon cobalt"><Plus size={19} /></span><div><h2 id={DRAWER_TITLE_ID}>アサインを追加</h2><p>日付と稼働配分を仮置きします。</p></div></div>
+                  {/* The terms first, as in the detail: every figure in the list is measured
+                      with this assignment placed on that person (#589). */}
+                  <div className="assignment-detail-panes">
+                    <div className="assignment-detail-terms">
+                      <label htmlFor="assignment-project">プロジェクト<select id="assignment-project" aria-label="プロジェクト" aria-describedby={addProject ? "assignment-project-period" : undefined} value={form.projectId} onChange={(event) => selectAssignmentProject(event.target.value)}>{workspace.projects.map((project) => <option value={project.id} key={project.id}>{project.name}</option>)}</select></label>
+                      {/* The bounds the dates below are held to, so they are not first met as a refusal. */}
+                      {addProject && <p className="assignment-project-period" id="assignment-project-period">プロジェクト期間 {formatDate(addProject.startDate)} — {formatDate(addProject.endDate)}</p>}
+                      <div className="form-grid">
+                        <label>開始日<input required type="date" min={addProject?.startDate} max={addProject?.endDate} value={form.startDate} onChange={(event) => setForm({ ...form, startDate: event.target.value })} /></label>
+                        <label>終了日<input required type="date" min={form.startDate || addProject?.startDate} max={addProject?.endDate} value={form.endDate} onChange={(event) => setForm({ ...form, endDate: event.target.value })} /></label>
+                      </div>
+                      <label>稼働配分（%）<input required min="1" max="100" step="1" type="number" value={form.allocation} onChange={(event) => setForm({ ...form, allocation: event.target.value })} /></label>
+                      {/* Weekend work is opt-in, one date at a time: the range says nothing
+                          about it, and 12 of the 15 assignments in the seed span a weekend
+                          just by lasting more than a week (#222). */}
+                      <WeekendWorkPicker
+                        startDate={form.startDate}
+                        endDate={form.endDate}
+                        value={form.weekendWorkDates}
+                        onChange={(weekendWorkDates) => setForm({ ...form, weekendWorkDates })}
+                      />
+                      {addOverload && <div className="form-note warn" role="status"><AlertTriangle size={15} /><span>この配分だと {shortDate(form.startDate)} — {shortDate(form.endDate)} の稼働が {addOverload.projected}% になります（稼働上限 {addOverload.capacity}%）。仮置きはできます。</span></div>}
+                      <div className="form-note"><Sparkles size={15} /><span>保存前は斜線付きの「仮置き」で表示します。</span></div>
+                    </div>
+                    <MemberPicker
+                      legend="メンバー"
+                      hint={formRangeHint(form.startDate, form.endDate, `${shortDate(form.startDate)} — ${shortDate(form.endDate)} · このアサインを足した場合の稼働 · 空きが多い順`)}
+                      measured={formRangeMeasured(form.startDate, form.endDate)}
+                      name="assignment-member"
+                      searchLabel="アサインするメンバーを検索"
+                      candidates={addCandidates}
+                      limit={MEMBER_PICKER_LIMIT}
+                      value={form.personId}
+                      onChange={(personId) => { setAddMemberMissing(false); setForm({ ...form, personId }); }}
+                      query={memberPickerQuery}
+                      onQueryChange={setMemberPickerQuery}
+                      chosenRef={chosenCandidateRef}
+                      describedBy={addMemberMissing ? "assignment-add-member-problem" : undefined}
+                    />
+                  </div>
                 </div>
-                <label>稼働配分<div className="allocation-input"><input type="range" min="10" max="100" step="10" value={form.allocation} onChange={(event) => setForm({ ...form, allocation: event.target.value })} /><output>{form.allocation}%</output></div></label>
-                {/* Weekend work is opt-in, one date at a time: the range says nothing
-                    about it, and 12 of the 15 assignments in the seed span a weekend
-                    just by lasting more than a week (#222). */}
-                <WeekendWorkPicker
-                  startDate={form.startDate}
-                  endDate={form.endDate}
-                  value={form.weekendWorkDates}
-                  onChange={(weekendWorkDates) => setForm({ ...form, weekendWorkDates })}
-                />
-                {addOverload && <div className="form-note warn" role="status"><AlertTriangle size={15} /><span>この配分だと {shortDate(form.startDate)} — {shortDate(form.endDate)} の稼働が {addOverload.projected}% になります（稼働上限 {addOverload.capacity}%）。仮置きはできます。</span></div>}
-                <div className="form-note"><Sparkles size={15} /><span>保存前は斜線付きの「仮置き」で表示します。</span></div><button className="drawer-primary" type="submit" disabled={!canAddAssignment}><Check size={16} />この内容で仮置きする</button>
+                <div className="assignment-detail-actions">
+                  {/* Only once the submit has been refused, so the alert is news when it appears. */}
+                  {addMemberMissing && <p className="assignment-add-problem" id="assignment-add-member-problem" role="alert"><AlertTriangle size={15} />仮置きする前に、メンバーを選んでください</p>}
+                  {/* Not a live region: it changes with every row the arrow keys pass. */}
+                  <p className="assignment-detail-change">{addMember ? `${addMember.name}さんへ仮置きします` : "メンバーがまだ選ばれていません"}</p>
+                  <button className="drawer-primary" type="submit" disabled={!canAddAssignment}><Check size={16} />この内容で仮置きする</button>
+                </div>
               </form>
             )}
 

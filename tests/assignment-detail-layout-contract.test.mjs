@@ -28,9 +28,11 @@ test("the assignment detail uses the dialog's width instead of #440's 36rem cap 
     const selector = declarations.slice(0, declarations.lastIndexOf("{"));
     assert.equal(selector.includes("assignment"), false, selector);
   }
+  // The add form wears the same shell (#589), and nothing else does.
   const worn = [...app.matchAll(/className="([^"]*assignment-edit-form[^"]*)"/g)].map((match) => match[1]);
-  assert.deepEqual(worn, ["assignment-form assignment-edit-form"]);
+  assert.deepEqual(worn, ["assignment-form assignment-edit-form assignment-add-form", "assignment-form assignment-edit-form"]);
   assert.match(app, /assignment:\s*"dialog-lg"/);
+  assert.match(app, /\badd:\s*"dialog-lg"/);
 });
 
 test("the panel stops scrolling and only releases its height from 621px, on its own class", () => {
@@ -46,7 +48,7 @@ test("the panel stops scrolling and only releases its height from 621px, on its 
   assert.match(wide[1], /max-height:\s*100%/);
   // `.dialog-lg` is shared with four other dialogs and keeps the panel's full height.
   for (const match of css.matchAll(/\.dialog-lg \{([^}]+)\}/g)) assert.doesNotMatch(match[1], /height:\s*auto/);
-  assert.match(app, /drawer === "assignment" \? " assignment-detail-open" : ""/);
+  assert.match(app, /drawer === "assignment" \|\| drawer === "add" \? " assignment-detail-open" : ""/);
 });
 
 test("two panes only once the panel's content box is 700px, with the list taking the height", () => {
@@ -59,17 +61,20 @@ test("two panes only once the panel's content box is 700px, with the list taking
   assert.doesNotMatch(outside, /\.assignment-detail-panes \{[^}]*minmax\(0, 1fr\) minmax\(0, 1fr\)/);
 });
 
-test("the terms come before the candidates, and the actions are inside the form but outside its scroll", () => {
-  const start = app.indexOf('{drawer === "assignment" && selectedAssignment && (');
-  const form = app.slice(start, app.indexOf("</form>", start));
-  const body = form.indexOf('className="assignment-detail-body"');
-  const terms = form.indexOf('className="assignment-detail-terms"');
-  const picker = form.indexOf("<MemberPicker");
-  const actions = form.indexOf('className="assignment-detail-actions"');
-  assert.ok(body > 0 && terms > body && picker > terms && actions > picker, "body → terms → picker → actions");
-  // Outside the scroll: every div opened from the body's own tag is closed before the actions.
-  const between = form.slice(form.lastIndexOf("<div", body), actions);
-  assert.equal((between.match(/<div\b/g) ?? []).length, (between.match(/<\/div>/g) ?? []).length + 1, "the actions sit after the body closes");
+test("in both forms the terms come before the candidates, and the actions are inside the form but outside its scroll", () => {
+  for (const opening of ['{drawer === "assignment" && selectedAssignment && (', '{drawer === "add" && (']) {
+    const start = app.indexOf(opening);
+    assert.ok(start >= 0, `expected ${opening}`);
+    const form = app.slice(start, app.indexOf("</form>", start));
+    const body = form.indexOf('className="assignment-detail-body"');
+    const terms = form.indexOf('className="assignment-detail-terms"');
+    const picker = form.indexOf("<MemberPicker");
+    const actions = form.indexOf('className="assignment-detail-actions"');
+    assert.ok(body > 0 && terms > body && picker > terms && actions > picker, `${opening}: body → terms → picker → actions`);
+    // Outside the scroll: every div opened from the body's own tag is closed before the actions.
+    const between = form.slice(form.lastIndexOf("<div", body), actions);
+    assert.equal((between.match(/<div\b/g) ?? []).length, (between.match(/<\/div>/g) ?? []).length + 1, `${opening}: the actions sit after the body closes`);
+  }
   assert.match(css, /\.assignment-detail-body \{[^}]*overflow-y:\s*auto/);
   assert.match(css, /\.assignment-detail-actions \{[^}]*flex:\s*0 0 auto/);
 });

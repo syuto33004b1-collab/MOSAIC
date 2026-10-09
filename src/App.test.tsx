@@ -98,10 +98,22 @@ async function openAttentionDialog(user: ReturnType<typeof userEvent.setup>) {
   return within(screen.getByRole("dialog", { name: "要調整" }));
 }
 
-/** #408: ボードの primary はチョーザー。フォームへは「アサイン」を選ぶ。 */
-async function openAssignmentFormFromBoard(user: ReturnType<typeof userEvent.setup>) {
+/** The workspace with the add form's default draft (40%, no weekend days) on `memberId`: what each candidate row measures (#589). */
+function withAddDraft(state: WorkspaceState, memberId: string, startDate: string, endDate: string, allocation = 40): WorkspaceState {
+  return {
+    ...state,
+    assignments: [...state.assignments, { id: "add-draft", personId: memberId, projectId: state.projects[0].id, startDate, endDate, allocation, status: "draft", weekendWorkDates: [] }],
+  };
+}
+
+/**
+ * #408: ボードの primary はチョーザー。フォームへは「アサイン」を選ぶ。
+ * ボードからは誰も選ばれずに開く（#589）ので、既定では一覧の先頭を選んでおく。未選択を確かめるテストだけ `choose: false`。
+ */
+async function openAssignmentFormFromBoard(user: ReturnType<typeof userEvent.setup>, { choose = true } = {}) {
   await user.click(screen.getByRole("button", { name: "新規追加" }));
   await user.click(within(drawerDialog()).getByRole("button", { name: "アサイン" }));
+  if (choose) await user.click(within(drawerDialog()).getAllByRole("radio")[0]);
 }
 
 describe("role-aware workspace", () => {
@@ -300,24 +312,39 @@ describe("role-aware workspace", () => {
 
     await user.click(navigation.getByRole("button", { name: "アサインボード" }));
     expect(screen.getByRole("button", { name: "新規追加" })).toBeEnabled();
-    await openAssignmentFormFromBoard(user);
+    await openAssignmentFormFromBoard(user, { choose: false });
     dialog = within(drawerDialog());
-    // A candidate is chosen on arrival. It was a `<select>` with a non-empty
-    // value; it is a radio group now, so the same guarantee is a checked row (#199).
-    expect(dialog.getAllByRole("radio", { checked: true })).toHaveLength(1);
+    // Nobody is chosen on arrival from the board (#589). #199 carried the `<select>`'s
+    // non-empty value over as one checked row, but that row was the first member or
+    // whoever was booked last — not a recommendation, and submittable unseen.
+    expect(dialog.queryAllByRole("radio", { checked: true })).toHaveLength(0);
+    expect(dialog.getByText("メンバーがまだ選ばれていません")).toBeInTheDocument();
     expect(dialog.getByLabelText("プロジェクト")).not.toHaveValue("");
+    await user.click(dialog.getByRole("button", { name: "この内容で仮置きする" }));
+    // Refused at the list rather than with 「先に登録してください」: the member exists.
+    expect(dialog.getByRole("alert")).toHaveTextContent("仮置きする前に、メンバーを選んでください");
+    expect(dialog.getByRole("group", { name: /^メンバー/u })).toHaveAccessibleDescription("仮置きする前に、メンバーを選んでください");
+    expect(dialog.getAllByRole("radio")[0]).toHaveFocus();
+    expect(document.querySelectorAll(".assignment.provisional")).toHaveLength(0);
+    expect(screen.queryByText("先にメンバーとプロジェクトを登録してください")).not.toBeInTheDocument();
+    await user.click(dialog.getAllByRole("radio")[0]);
+    expect(dialog.queryByRole("alert")).not.toBeInTheDocument();
+    expect(dialog.getByRole("group", { name: /^メンバー/u })).not.toHaveAttribute("aria-describedby");
+    expect(dialog.getByText("新規 太郎さんへ仮置きします")).toBeInTheDocument();
     await user.click(dialog.getByRole("button", { name: "この内容で仮置きする" }));
     expect(document.querySelectorAll(".assignment.provisional")).toHaveLength(1);
   });
 
-  it("sizes the add-assignment panel as sm and a member panel as lg (#407)", async () => {
+  it("sizes the add chooser as sm, and the add form and a member panel as lg (#407, #589)", async () => {
     const user = userEvent.setup();
     render(<App />);
     await user.click(screen.getByRole("button", { name: "新規追加" }));
     expect(document.querySelector(".drawer")).toHaveClass("dialog-sm");
     expect(document.querySelector(".drawer")).not.toHaveClass("dialog-lg");
     await user.click(within(drawerDialog()).getByRole("button", { name: "アサイン" }));
-    expect(document.querySelector(".drawer")).toHaveClass("dialog-sm");
+    // The form left sm for the detail's two panes; only the chooser stays.
+    expect(document.querySelector(".drawer")).toHaveClass("dialog-lg");
+    expect(document.querySelector(".drawer")).not.toHaveClass("dialog-sm");
     expect(drawerDialog()).toBeInTheDocument();
 
     await user.keyboard("{Escape}");
@@ -326,22 +353,26 @@ describe("role-aware workspace", () => {
     expect(document.querySelector(".drawer")).not.toHaveClass("dialog-sm");
   });
 
-  it("keeps the saved assignment form's own class, which the add form does not wear (#440, #587)", async () => {
+  it("puts the add form in the saved assignment's shell, marked as the add form (#440, #587, #589)", async () => {
     const user = userEvent.setup();
     render(<App />);
     await user.click(screen.getAllByRole("button", { name: /のアサイン詳細/ })[0]);
     const detail = screen.getByRole("heading", { name: "アサインの詳細" }).closest("form");
     expect(detail).toHaveClass("assignment-edit-form");
     expect(detail).toHaveClass("assignment-form");
+    expect(detail).not.toHaveClass("assignment-add-form");
     expect(document.querySelector(".drawer")).toHaveClass("dialog-lg");
+    expect(document.querySelector(".drawer")).toHaveClass("assignment-detail-open");
     await user.keyboard("{Escape}");
 
     await user.click(screen.getByRole("button", { name: "新規追加" }));
     await user.click(within(drawerDialog()).getByRole("button", { name: "アサイン" }));
     const add = screen.getByRole("heading", { name: "アサインを追加" }).closest("form");
     expect(add).toHaveClass("assignment-form");
-    expect(add).not.toHaveClass("assignment-edit-form");
-    expect(document.querySelector(".drawer")).toHaveClass("dialog-sm");
+    expect(add).toHaveClass("assignment-edit-form");
+    expect(add).toHaveClass("assignment-add-form");
+    expect(document.querySelector(".drawer")).toHaveClass("dialog-lg");
+    expect(document.querySelector(".drawer")).toHaveClass("assignment-detail-open");
   });
 
   it("opens a board chooser for assignment, project, opportunity and member (#408)", async () => {
@@ -846,6 +877,9 @@ describe("role-aware workspace", () => {
     const dialog = within(drawerDialog());
     // 中村 美咲 is at 100% for the form's week (Atlas 80% + 運用サポート 20%); the
     // default allocation is 40%.
+    const figure = (name: RegExp) => dialog.getByRole("radio", { name }).closest("label")!.querySelector(".member-picker-load")!.textContent;
+    // The row says what the warning says: the load with this assignment on them (#589).
+    expect(figure(/中村 美咲/u)).toBe("140% / 100%");
     await user.click(dialog.getByRole("radio", { name: /中村 美咲/u }));
     // #254: nothing said this, and the 140% arrived afterwards as an 上限超過 card.
     // By text, not by role: the page carries other status regions (the toast).
@@ -854,11 +888,13 @@ describe("role-aware workspace", () => {
     expect(warning()).toHaveTextContent(/140% になります（稼働上限 100%）/u);
     expect(dialog.getByRole("button", { name: "この内容で仮置きする" })).toBeEnabled();
 
-    // The figure follows the slider, and goes away for someone with room: 松本 蓮 is
+    // The figure follows the allocation, and goes away for someone with room: 松本 蓮 is
     // at 40% that week (Atlas QA), so 10% more stays under the ceiling.
-    fireEvent.change(dialog.getByLabelText("稼働配分"), { target: { value: "70" } });
+    fireEvent.change(dialog.getByLabelText("稼働配分（%）"), { target: { value: "70" } });
     expect(warning()).toHaveTextContent(/170% になります/u);
-    fireEvent.change(dialog.getByLabelText("稼働配分"), { target: { value: "10" } });
+    expect(figure(/中村 美咲/u)).toBe("170% / 100%");
+    fireEvent.change(dialog.getByLabelText("稼働配分（%）"), { target: { value: "10" } });
+    expect(figure(/松本 蓮/u)).toBe("50% / 100%");
     await user.click(dialog.getByRole("radio", { name: /松本 蓮/u }));
     expect(warning()).toBeNull();
 
@@ -894,12 +930,83 @@ describe("role-aware workspace", () => {
     await user.click(dialog.getByRole("radio", { name: /週末 太郎/u }));
     fireEvent.change(dialog.getByLabelText("終了日"), { target: { value: "2026-08-23" } });
     const warning = () => document.querySelector(".form-note.warn");
+    const row = () => dialog.getByRole("radio", { name: /週末 太郎/u }).closest("label")!;
     expect(warning()).toBeNull();
+    expect(row().querySelector(".member-picker-load")).toHaveTextContent("80% / 100%");
 
+    // The row moves with the tick as well as the warning (#589).
     await user.click(dialog.getByLabelText("22土"));
     expect(warning()).toHaveTextContent(/120% になります（稼働上限 100%）/u);
+    expect(row().querySelector(".member-picker-load")).toHaveTextContent("120% / 100%");
+    expect(row()).toHaveTextContent("上限超過 1日");
     await user.click(dialog.getByLabelText("22土"));
     expect(warning()).toBeNull();
+  });
+
+  it("chooses a member only when opened from that member, and opens without the last range's weekend days (#589)", async () => {
+    // Wholly in the past, so the form always opens on the project's first day whatever
+    // today is: 2020-02-01, a Saturday, to 02-05.
+    const project = { ...initialWorkspace.projects[0], id: "past", name: "過去案件", startDate: "2020-02-01", endDate: "2020-03-31" };
+    const aoki = { ...initialWorkspace.members[0], id: "aoki", name: "青木 一郎", capacity: 100 };
+    const baba = { ...initialWorkspace.members[0], id: "baba", name: "馬場 二郎", capacity: 100 };
+    const adapter = sharedAdapter();
+    adapter.initialState = { members: [aoki, baba], projects: [project], assignments: [], needs: [] } as unknown as WorkspaceState;
+    const user = userEvent.setup();
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    render(<App mode="shared" organizationName="Example Inc." identity={{ name: "管理 花子", email: "owner@example.com", role: "owner" }} shared={adapter} />);
+    const navigation = within(screen.getByRole("navigation", { name: "メインナビゲーション" }));
+
+    await openAssignmentFormFromBoard(user, { choose: false });
+    let dialog = within(drawerDialog());
+    expect(dialog.queryAllByRole("radio", { checked: true })).toHaveLength(0);
+    // The bounds the dates are held to, said under the project and set on the inputs.
+    expect(dialog.getByLabelText("プロジェクト")).toHaveAccessibleDescription("プロジェクト期間 2020年2月1日 — 2020年3月31日");
+    expect(dialog.getByLabelText("開始日")).toHaveAttribute("min", "2020-02-01");
+    expect(dialog.getByLabelText("開始日")).toHaveAttribute("max", "2020-03-31");
+    expect(dialog.getByLabelText("終了日")).toHaveAttribute("max", "2020-03-31");
+    fireEvent.change(dialog.getByLabelText("稼働配分（%）"), { target: { value: "60" } });
+    await user.click(dialog.getByLabelText("1土"));
+    expect(dialog.getByLabelText("1土")).toBeChecked();
+    await user.keyboard("{Escape}");
+    expect(queryDrawerDialog()).not.toBeInTheDocument();
+
+    // From the project: still nobody. The allocation carries over; the weekend day does not.
+    await user.click(navigation.getByRole("button", { name: /^プロジェクト( |$)/u }));
+    await user.click(screen.getByText("過去案件").closest("button")!);
+    await user.click(within(drawerDialog()).getByRole("button", { name: "この案件へアサインを追加" }));
+    dialog = within(drawerDialog());
+    expect(dialog.getByRole("heading", { name: "アサインを追加" })).toBeInTheDocument();
+    expect(dialog.queryAllByRole("radio", { checked: true })).toHaveLength(0);
+    expect(dialog.getByText("メンバーがまだ選ばれていません")).toBeInTheDocument();
+    expect(dialog.getByLabelText("稼働配分（%）")).toHaveValue(60);
+    expect(dialog.getByLabelText("1土")).not.toBeChecked();
+    await user.keyboard("{Escape}");
+    expect(queryDrawerDialog()).not.toBeInTheDocument();
+
+    // From the member's own screen: that member, and said beside the submit.
+    await user.click(navigation.getByRole("button", { name: "メンバー" }));
+    await user.click(screen.getByText("馬場 二郎").closest("button")!);
+    await user.click(within(drawerDialog()).getByRole("button", { name: "この人へアサインを追加" }));
+    dialog = within(drawerDialog());
+    expect(dialog.getByRole("radio", { name: /馬場 二郎/u })).toBeChecked();
+    expect(dialog.getAllByRole("radio", { checked: true })).toHaveLength(1);
+    expect(dialog.getByText("馬場 二郎さんへ仮置きします")).toBeInTheDocument();
+  });
+
+  it("refuses an unchosen submit with the search matching nobody, and puts the focus on the search (#589)", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    const placed = () => document.querySelectorAll(".assignment").length;
+    const before = placed();
+    await openAssignmentFormFromBoard(user, { choose: false });
+    const dialog = within(drawerDialog());
+    await user.type(dialog.getByLabelText("アサインするメンバーを検索"), "該当しない名前");
+    expect(dialog.queryAllByRole("radio")).toHaveLength(0);
+    await user.click(dialog.getByRole("button", { name: "この内容で仮置きする" }));
+    expect(dialog.getByRole("alert")).toHaveTextContent("仮置きする前に、メンバーを選んでください");
+    // No row to land on, so the field that brings the rows back.
+    expect(dialog.getByLabelText("アサインするメンバーを検索")).toHaveFocus();
+    expect(placed()).toBe(before);
   });
 
   it("shows no loads while the form's dates make no range", async () => {
@@ -1375,7 +1482,7 @@ describe("role-aware workspace", () => {
     expect(document.body.innerHTML).not.toContain("NaN");
     expect(screen.getByText("0.0")).toBeInTheDocument();
 
-    await openAssignmentFormFromBoard(user);
+    await openAssignmentFormFromBoard(user, { choose: false });
     const dialog = drawerDialog();
     await waitFor(() => expect(dialog).toHaveFocus());
     await user.keyboard("{Shift>}{Tab}{/Shift}");
@@ -5189,15 +5296,18 @@ describe("a week-scoped figure names the week it measures", () => {
     expect(average()).toMatch(/^\d+%$/u);
     expect(averageMetric().querySelector("span")!.textContent).toBe("8/17週の平均稼働率");
 
-    await openAssignmentFormFromBoard(user);
+    // Nobody chosen: choosing is input, and the close below would ask first (#492).
+    await openAssignmentFormFromBoard(user, { choose: false });
     // The form opens on this week, Monday to Friday, which is what the legend names.
     expect(document.querySelector(".member-picker legend")!.textContent).toContain("8月17日 — 8月21日");
     const suzuki = rowFor("鈴木 健太");
     const load = suzuki.querySelector(".member-picker-load")!;
-    // 120% in the demo data, and over his 100% ceiling either way — the reading that was
-    // 「0%」 before, which is the one that reads as room to spare.
+    // 120% in the demo data and 160% with the form's 40% on him (#589), over his 100%
+    // ceiling either way — the reading that was 「0%」 before, which is the one that
+    // reads as room to spare.
     const percent = Number(load.textContent!.match(/^(\d+)%/u)![1]);
-    expect(percent).toBe(memberPeakLoad(initialWorkspace, "suzuki", "2026-08-17", "2026-08-21"));
+    expect(percent).toBe(memberPeakLoad(withAddDraft(initialWorkspace, "suzuki", "2026-08-17", "2026-08-21"), "suzuki", "2026-08-17", "2026-08-21"));
+    expect(memberPeakLoad(initialWorkspace, "suzuki", "2026-08-17", "2026-08-21")).toBeGreaterThan(100);
     expect(percent).toBeGreaterThan(100);
     // And it is marked as over, not merely numerically larger.
     expect(load.classList.contains("over")).toBe(true);
@@ -5205,8 +5315,9 @@ describe("a week-scoped figure names the week it measures", () => {
 
     // Close and reopen after paging a month: the form still reads its own dates (#199).
     await user.click(document.querySelector(".drawer .close-button") as HTMLElement);
+    expect(queryDrawerDialog()).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "次の月" }));
-    await openAssignmentFormFromBoard(user);
+    await openAssignmentFormFromBoard(user, { choose: false });
     expect(rowFor("鈴木 健太").querySelector(".member-picker-load")!.textContent).toMatch(/^\d+%/u);
   });
 
@@ -5250,10 +5361,11 @@ describe("a week-scoped figure names the week it measures", () => {
     render(<App />);
 
     // The assignment form no longer names a week: it names its own range once, in the
-    // legend, and every row is the peak over that range (#199). Same property as before —
-    // a figure and the words for what it measures, paired — with the form's dates as the
-    // thing being named instead of the board's week.
-    await openAssignmentFormFromBoard(user);
+    // legend, and every row is the peak over that range (#199) with the form's draft on
+    // that person (#589). Same property as before — a figure and the words for what it
+    // measures, paired — with the form's dates as the thing being named instead of the
+    // board's week. Nobody chosen, so the close below does not ask first (#492).
+    await openAssignmentFormFromBoard(user, { choose: false });
     const legend = document.querySelector(".member-picker legend")!.textContent!;
     const range = legend.match(/(\d+)月(\d+)日 — (\d+)月(\d+)日/u);
     expect(range, `expected a range in 「${legend}」`).not.toBeNull();
@@ -5268,7 +5380,7 @@ describe("a week-scoped figure names the week it measures", () => {
       expect(parsed, `unexpected load shape for ${name}`).not.toBeNull();
       const member = initialWorkspace.members.find((item) => name.startsWith(item.name))!;
       expect(Number(parsed![1]), `${name} over ${from}–${to}`)
-        .toBe(memberPeakLoad(initialWorkspace, member.id, from, to));
+        .toBe(memberPeakLoad(withAddDraft(initialWorkspace, member.id, from, to), member.id, from, to));
       expect(Number(parsed![2])).toBe(member.capacity);
     }
     // 8/17–8/21, this week, with the board a month wide behind it: the range is the form's
@@ -5280,6 +5392,7 @@ describe("a week-scoped figure names the week it measures", () => {
     // accessible name, which is #122. Two matches would fail here for a reason
     // that has nothing to do with this test.
     await user.click(document.querySelector(".drawer .close-button") as HTMLElement);
+    expect(queryDrawerDialog()).not.toBeInTheDocument();
 
     // The member detail line names the basis month and every month it plots.
     await user.click(within(screen.getByRole("navigation", { name: "メインナビゲーション" })).getByRole("button", { name: /^メンバー( |$)/u }));
@@ -7293,11 +7406,13 @@ describe("choosing who to assign", () => {
     render(<App />);
     await openForm(user);
     const before = loadFor("鈴木 健太");
-    expect(before).toBe("120% / 100%");
+    // His 120% with the form's 40% on top: what booking him would make it (#589).
+    expect(before).toBe("160% / 100%");
     expect(document.querySelector(".member-picker legend")!.textContent).toContain("8月17日 — 8月21日");
 
     // A week with nothing booked in it. 鈴木's 120% is two overlapping assignments in
-    // the week the form opens on, and neither reaches December.
+    // the week the form opens on, and neither reaches December, so what is left is
+    // the form's own 40%.
     const dates = document.querySelectorAll(".assignment-form input[type=date]");
     await user.clear(dates[1] as HTMLElement);
     await user.type(dates[1] as HTMLElement, "2026-12-25");
@@ -7305,7 +7420,7 @@ describe("choosing who to assign", () => {
     await user.type(dates[0] as HTMLElement, "2026-12-21");
 
     expect(document.querySelector(".member-picker legend")!.textContent).toContain("12月21日 — 12月25日");
-    expect(loadFor("鈴木 健太")).toBe("0% / 100%");
+    expect(loadFor("鈴木 健太")).toBe("40% / 100%");
     // Nobody is over their ceiling in a week nobody is booked in.
     expect(document.querySelectorAll(".member-picker-load.over")).toHaveLength(0);
   });

@@ -834,8 +834,8 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .drawer-icon.mint { background: #def3ec; color: #347c68; }
 .drawer-heading h2 { margin: 0; font-size: 19px; letter-spacing: -.04em; }
 .drawer-heading p { margin: 4px 0 0; color: #8b94a5; font-size: 9px; }
-/* The assignment detail's fields sit one box down (#587), and in that pane the dates
-   take the same label as everything else rather than the inherited 16px. */
+/* Both assignment forms' fields sit one box down (#587, #589), and in that pane the
+   dates take the same label as everything else rather than the inherited 16px. */
 .assignment-form > label,
 .assignment-detail-terms > label,
 .assignment-detail-terms > .form-grid > label {
@@ -912,9 +912,9 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
    it is the sentence that says the list is not all of them. */
 .member-picker-head .inline-search { flex: 1 1 auto; min-width: 0; }
 .member-picker-count { color: var(--muted-readable); font-size: var(--text-min); font-weight: 700; white-space: nowrap; }
-/* Scrolls at about five rows. The drawer scrolls too, and a list that pushes the
-   dates and the allocation slider off the bottom hides the fields this figure is
-   measured over. */
+/* Scrolls at about five rows. In one column the form's body scrolls too, and a list
+   with its own height is what lets showing the chosen row move the list rather than
+   the fields above it (#587). */
 .member-picker-list { max-height: 296px; overflow-y: auto; display: grid; gap: 6px; padding: 1px; }
 .member-picker-item {
   min-height: 44px;
@@ -948,26 +948,6 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 2.2vw, 34px); font-wei
 .member-picker-rail { grid-column: 1 / -1; height: 16px; display: block; }
 .member-picker-rail .trend-line { height: 100%; }
 .member-picker-empty { margin: 0; padding: 10px 2px; color: var(--muted-readable); font-size: var(--text-min); }
-.allocation-input {
-  min-height: 48px;
-  margin-top: 7px;
-  padding: 0 12px;
-  border: 1px solid #dce2eb;
-  border-radius: 10px;
-  background: #fbfcfd;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-.allocation-input input { flex: 1; accent-color: var(--cobalt); }
-.allocation-input output {
-  width: 43px;
-  color: var(--cobalt);
-  font-family: var(--font-data);
-  font-size: 12px;
-  font-weight: 800;
-  text-align: right;
-}
 .form-note {
   margin: 4px 0 20px;
   padding: 12px;
@@ -6274,8 +6254,7 @@ h1 {
 .assignment-detail-panes { display: grid; grid-template-columns: minmax(0, 1fr); gap: 24px; }
 .assignment-detail-terms > .form-note:last-child { margin-bottom: 0; }
 .assignment-detail-panes > .member-picker { margin-bottom: 0; }
-/* Here the legend heads a pane of its own, opposite the fields; the add form's stays a
-   field label above its list. */
+/* Here the legend heads a pane of its own, opposite the fields. */
 .assignment-detail-panes > .member-picker legend {
   color: var(--ink);
   font-size: var(--text-sm);
@@ -6353,6 +6332,42 @@ h1 {
 @media (max-width: 620px) {
   .assignment-detail-actions { grid-template-columns: auto minmax(0, 1fr); }
   .assignment-detail-change { grid-column: 1 / -1; grid-row: 1; text-align: left; }
+}
+/* The add form (#589): one action, so its line takes the column the delete button
+   holds in the detail, and reads from the left. */
+.assignment-add-form .assignment-detail-actions { grid-template-columns: minmax(0, 1fr) auto; }
+.assignment-add-form .assignment-detail-change { text-align: left; }
+.assignment-add-problem {
+  grid-column: 1 / -1;
+  margin: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  color: var(--coral-deep);
+  font-size: var(--text-min);
+  font-weight: 700;
+  line-height: var(--leading);
+}
+.assignment-add-problem svg { flex: 0 0 auto; margin-top: 2px; }
+/* Under the project it belongs to. The label's 17px and this -10px leave 7px, the gap
+   between a label and its own control. */
+.assignment-project-period {
+  margin: -10px 0 17px;
+  color: var(--muted-readable);
+  font-size: var(--text-min);
+  line-height: var(--leading);
+}
+/* Stacked below a 520px panel, and on the sheet, where the panel is not a container.
+   Beside the 177px button, 「メンバーがまだ選ばれていません」 broke with its last
+   character alone on a second line. */
+@container detail-panel (max-width: 520px) {
+  .assignment-add-form .assignment-detail-actions { grid-template-columns: minmax(0, 1fr); }
+  .assignment-add-form .assignment-detail-actions > .drawer-primary { width: 100%; }
+}
+@media (max-width: 620px) {
+  .assignment-add-form .assignment-detail-actions { grid-template-columns: minmax(0, 1fr); }
+  .assignment-add-form .assignment-detail-change { grid-row: auto; }
+  .assignment-add-form .assignment-detail-actions > .drawer-primary { width: 100%; }
 }
 /* History and period cards only. The department row uses the same compact
    button and stays at the start of its cell. */
